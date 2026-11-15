@@ -102,7 +102,7 @@ safe_text!("Hello world")
 SafeText::from_trusted(validated_label)
 ```
 
-`SafeText` copies verified text directly into the output buffer. Regular `&str` rendering scans every byte with `memchr3` looking for unsafe characters. For strings with a proven safe character set, `SafeText` eliminates that scan. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.
+`SafeText` copies verified text directly into the output buffer. Regular `&str` rendering checks every byte for unsafe characters as it copies it. For strings with a proven safe character set, `SafeText` eliminates that check. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.
 
 **When NOT to use it:** Never wrap user input in `SafeText`. If the string could contain `<script>`, you've created an XSS vulnerability.
 

@@ -104,12 +104,24 @@ where
     Ok(())
 }
 
-trait EscapeSinkLike {
+pub(crate) trait EscapeSinkLike {
     fn extend_str(&mut self, text: &str) -> Result<(), WriteError>;
     fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError>;
+
+    /// See [`WriteBuf::__append_if_clean`].
+    #[inline(always)]
+    fn append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        append_if_clean(self, before, text, after, classes)
+    }
 }
 
-impl<B: WriteBuf> EscapeSinkLike for B {
+impl<B: WriteBuf + ?Sized> EscapeSinkLike for B {
     #[inline(always)]
     fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
         WriteBuf::extend_str(self, text)
@@ -119,6 +131,49 @@ impl<B: WriteBuf> EscapeSinkLike for B {
     fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
         WriteBuf::extend_static_str(self, text)
     }
+
+    #[inline(always)]
+    fn append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        WriteBuf::__append_if_clean(self, before, text, after, classes)
+    }
+}
+
+/// What [`WriteBuf::__append_if_clean`] does on a buffer with no faster way:
+/// check `text`, then write the three pieces one after another.
+///
+/// Empty pieces are skipped. A zero-length write is not free on every buffer:
+/// `ZeroCopyBuf` would record an empty part and `StreamingZeroCopyBuf` could
+/// allocate its first chunk.
+#[inline(always)]
+pub(crate) fn append_if_clean<S>(
+    buf: &mut S,
+    before: &'static str,
+    text: &str,
+    after: &'static str,
+    classes: u8,
+) -> Result<bool, WriteError>
+where
+    S: ?Sized + EscapeSinkLike,
+{
+    if has_class(text.as_bytes(), classes) {
+        return Ok(false);
+    }
+    if !before.is_empty() {
+        buf.extend_static_str(before)?;
+    }
+    if !text.is_empty() {
+        buf.extend_str(text)?;
+    }
+    if !after.is_empty() {
+        buf.extend_static_str(after)?;
+    }
+    Ok(true)
 }
 
 #[cfg(debug_assertions)]
@@ -171,8 +226,22 @@ pub fn escape_text_for_dialect<B: WriteBuf>(
 ) -> Result<(), WriteError> {
     match dialect {
         EscapeDialect::Html => escape_text_in::<HtmlPolicy, B>(buf, s, mode),
-        EscapeDialect::Xml => escape_text_in::<XmlPolicy, B>(buf, s, mode),
+        EscapeDialect::Xml => escape_text_xml_in_mode(buf, s, mode),
     }
+}
+
+/// The XML arm of [`escape_text_for_dialect`].
+///
+/// The dialect is only known at run time, so every dynamic text value carries
+/// both arms. HTML is the common one and stays inline; this one is a call, so
+/// that it adds a few bytes to each value's code instead of a second escaper.
+#[inline(never)]
+fn escape_text_xml_in_mode<B: WriteBuf>(
+    buf: &mut B,
+    s: &str,
+    mode: ContentMode,
+) -> Result<(), WriteError> {
+    escape_text_in::<XmlPolicy, B>(buf, s, mode)
 }
 
 #[cfg_attr(not(debug_assertions), inline(always))]
@@ -218,42 +287,71 @@ pub fn escape_attr_value_for_dialect<B: WriteBuf>(
 ) -> Result<(), WriteError> {
     match dialect {
         EscapeDialect::Html => escape_attr_value_in::<HtmlPolicy, B>(buf, s),
-        EscapeDialect::Xml => escape_attr_value_in::<XmlPolicy, B>(buf, s),
+        EscapeDialect::Xml => escape_attr_value_xml_call(buf, s),
     }
 }
 
-#[cfg(not(debug_assertions))]
-#[inline(always)]
+/// Write a whole attribute: `name_prefix` (` name="`), the escaped `value`,
+/// and the closing quote.
+///
+/// A value that needs no escaping goes to the buffer together with the text
+/// around it, as one append. Everything else is a call, so that the code each
+/// dynamic attribute adds to a template stays small.
+#[cfg_attr(not(debug_assertions), inline(always))]
+#[cfg_attr(debug_assertions, inline)]
+pub(crate) fn write_attr_for_dialect<B: WriteBuf>(
+    buf: &mut B,
+    name_prefix: &'static str,
+    value: &str,
+    dialect: EscapeDialect,
+) -> Result<(), WriteError> {
+    if matches!(dialect, EscapeDialect::Html)
+        && buf.__append_if_clean(name_prefix, value, "\"", attr_classes::<HtmlPolicy>())?
+    {
+        return Ok(());
+    }
+    write_attr_escaping(buf, name_prefix, value, dialect)
+}
+
+/// Everything [`write_attr_for_dialect`] does not append itself: a value with
+/// something to escape, a long value, a value at the end of a page, and XML.
+#[inline(never)]
+fn write_attr_escaping<B: WriteBuf>(
+    buf: &mut B,
+    name_prefix: &'static str,
+    value: &str,
+    dialect: EscapeDialect,
+) -> Result<(), WriteError> {
+    buf.extend_static_str(name_prefix)?;
+    match dialect {
+        EscapeDialect::Html => {
+            escape_scan::<_, HtmlPolicy>(buf, value, attr_classes::<HtmlPolicy>())?
+        }
+        EscapeDialect::Xml => escape_scan::<_, XmlPolicy>(buf, value, attr_classes::<XmlPolicy>())?,
+    }
+    buf.extend_str("\"")
+}
+
+/// The XML arm of [`escape_attr_value_for_dialect`], a call for the same
+/// reason as [`escape_text_xml_in_mode`].
+#[inline(never)]
+fn escape_attr_value_xml_call<B: WriteBuf>(buf: &mut B, s: &str) -> Result<(), WriteError> {
+    escape_attr_value_in::<XmlPolicy, B>(buf, s)
+}
+
+#[cfg_attr(not(debug_assertions), inline(always))]
+#[cfg_attr(debug_assertions, inline)]
 pub fn escape_attr_value_in<P: EscapePolicy, B: WriteBuf>(
     buf: &mut B,
     s: &str,
 ) -> Result<(), WriteError> {
     escape_attr_value_inner::<_, P>(buf, s)
-}
-
-#[cfg(debug_assertions)]
-#[inline]
-pub fn escape_attr_value_in<P: EscapePolicy, B: WriteBuf>(
-    buf: &mut B,
-    s: &str,
-) -> Result<(), WriteError> {
-    let mut sink = WriteBufEscapeSink(buf);
-    escape_attr_value_dyn::<P>(&mut sink, s)
 }
 
 #[cfg_attr(not(debug_assertions), inline(always))]
 #[cfg_attr(debug_assertions, inline)]
 pub fn escape_attr_value_xml<B: WriteBuf>(buf: &mut B, s: &str) -> Result<(), WriteError> {
     escape_attr_value_in::<XmlPolicy, B>(buf, s)
-}
-
-#[cfg(debug_assertions)]
-#[inline(never)]
-fn escape_attr_value_dyn<P: EscapePolicy>(
-    buf: &mut dyn EscapeSink,
-    s: &str,
-) -> Result<(), WriteError> {
-    escape_attr_value_inner::<_, P>(buf, s)
 }
 
 /// The kinds of byte an escaper acts on.
@@ -272,10 +370,9 @@ enum ByteClass {
 /// The [`ByteClass`] bit of every byte value. Zero means every escaper copies
 /// the byte through unchanged.
 ///
-/// The entries are plain bytes, not `ByteClass` values, so that the lookup in
-/// [`short_and_unchanged`] compiles to the same instructions as a table of
-/// integer constants.
-const BYTE_CLASS: [u8; 256] = {
+/// The entries are plain bytes, not `ByteClass` values, so that a lookup
+/// compiles to the same instructions as a table of integer constants.
+pub(crate) const BYTE_CLASS: [u8; 256] = {
     let mut table = [0; 256];
     table[0x00] = ByteClass::Markup as u8;
     table[b'&' as usize] = ByteClass::Markup as u8;
@@ -287,33 +384,6 @@ const BYTE_CLASS: [u8; 256] = {
     table
 };
 
-/// Non-empty inputs shorter than this are checked one byte at a time before
-/// any scan.
-///
-/// Most dynamic values in a template are short: a class name, a number, a
-/// label. The scanning loops below make two or three `memchr` passes over a
-/// value, and for a short value the cost of those calls is larger than the
-/// work they do. Reading each byte's class once decides the common case, "copy
-/// it through unchanged", without calling `memchr` at all. From 16 bytes up
-/// `memchr` compares a vector at a time and wins; thresholds of 32 and 64
-/// measured slower.
-const SHORT_INPUT: usize = 16;
-
-/// Whether `bytes` is short and holds no byte whose class is in the set
-/// `classes`, so that escaping it would copy it through unchanged in a single
-/// write.
-///
-/// Empty input is excluded. The scanning loops write nothing for it, and a
-/// zero-length write is not free on every buffer: `ZeroCopyBuf` would record
-/// an empty part and `StreamingZeroCopyBuf` could allocate its first chunk.
-#[inline(always)]
-fn short_and_unchanged(bytes: &[u8], classes: u8) -> bool {
-    (1..SHORT_INPUT).contains(&bytes.len())
-        && bytes
-            .iter()
-            .all(|&byte| BYTE_CLASS[byte as usize] & classes == 0)
-}
-
 /// The set of byte classes that text escaping under `P` does anything with.
 #[inline(always)]
 const fn text_classes<P: EscapePolicy>() -> u8 {
@@ -324,60 +394,150 @@ const fn text_classes<P: EscapePolicy>() -> u8 {
     }
 }
 
+/// The set of byte classes that attribute-value escaping under `P` does
+/// anything with.
+#[inline(always)]
+const fn attr_classes<P: EscapePolicy>() -> u8 {
+    text_classes::<P>() | ByteClass::Quote as u8
+}
+
+/// Bytes examined in one step of a scan.
+pub(crate) const CHUNK: usize = 16;
+
+/// Whether any of 16 bytes has a class in a set, checked with one vector
+/// comparison per group of special bytes instead of one table lookup per byte.
+///
+/// Every set of classes the escapers use holds [`ByteClass::Markup`], so these
+/// functions look for the markup bytes unconditionally and for the other two
+/// classes on request.
+#[cfg(all(target_arch = "x86_64", target_feature = "sse2", not(miri)))]
+pub(crate) mod chunk {
+    use super::{ByteClass, CHUNK};
+    use core::arch::x86_64::{
+        __m128i, _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_or_si128, _mm_set1_epi8,
+    };
+
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    pub(crate) fn has_class(chunk: &[u8; CHUNK], classes: u8) -> bool {
+        debug_assert!(classes & ByteClass::Markup as u8 != 0);
+        // SAFETY: this module is only compiled when SSE2 is enabled for the
+        // whole build, and the load reads exactly the 16 bytes `chunk` borrows.
+        unsafe {
+            let bytes = _mm_loadu_si128(chunk.as_ptr().cast());
+            let equals =
+                |value: __m128i, byte: u8| _mm_cmpeq_epi8(value, _mm_set1_epi8(byte as i8));
+            let with_bit = |bit: u8| _mm_or_si128(bytes, _mm_set1_epi8(bit as i8));
+            // `<` is 0x3C and `>` is 0x3E. Setting bit 1 turns both into `>`
+            // and nothing else into it, so one comparison finds either.
+            let mut hit = _mm_or_si128(equals(with_bit(0x02), b'>'), equals(bytes, 0x00));
+            hit = if classes & ByteClass::Quote as u8 != 0 {
+                // `"` is 0x22 and `&` is 0x26, which bit 2 pairs the same way.
+                let quote_or_amp = _mm_or_si128(equals(with_bit(0x04), b'&'), equals(bytes, b'\''));
+                _mm_or_si128(hit, quote_or_amp)
+            } else {
+                _mm_or_si128(hit, equals(bytes, b'&'))
+            };
+            if classes & ByteClass::NbspLead as u8 != 0 {
+                hit = _mm_or_si128(hit, equals(bytes, 0xC2));
+            }
+            _mm_movemask_epi8(hit) != 0
+        }
+    }
+}
+
+#[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
+pub(crate) mod chunk {
+    use super::{ByteClass, CHUNK};
+    use core::arch::aarch64::{uint8x16_t, vceqq_u8, vdupq_n_u8, vld1q_u8, vmaxvq_u8, vorrq_u8};
+
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    pub(crate) fn has_class(chunk: &[u8; CHUNK], classes: u8) -> bool {
+        debug_assert!(classes & ByteClass::Markup as u8 != 0);
+        // SAFETY: this module is only compiled when NEON is enabled for the
+        // whole build, and the load reads exactly the 16 bytes `chunk` borrows.
+        unsafe {
+            let bytes = vld1q_u8(chunk.as_ptr());
+            let equals = |value: uint8x16_t, byte: u8| vceqq_u8(value, vdupq_n_u8(byte));
+            let with_bit = |bit: u8| vorrq_u8(bytes, vdupq_n_u8(bit));
+            // `<` is 0x3C and `>` is 0x3E. Setting bit 1 turns both into `>`
+            // and nothing else into it, so one comparison finds either.
+            let mut hit = vorrq_u8(equals(with_bit(0x02), b'>'), equals(bytes, 0x00));
+            hit = if classes & ByteClass::Quote as u8 != 0 {
+                // `"` is 0x22 and `&` is 0x26, which bit 2 pairs the same way.
+                let quote_or_amp = vorrq_u8(equals(with_bit(0x04), b'&'), equals(bytes, b'\''));
+                vorrq_u8(hit, quote_or_amp)
+            } else {
+                vorrq_u8(hit, equals(bytes, b'&'))
+            };
+            if classes & ByteClass::NbspLead as u8 != 0 {
+                hit = vorrq_u8(hit, equals(bytes, 0xC2));
+            }
+            vmaxvq_u8(hit) != 0
+        }
+    }
+}
+
+#[cfg(not(any(
+    all(target_arch = "x86_64", target_feature = "sse2", not(miri)),
+    all(target_arch = "aarch64", target_feature = "neon", not(miri)),
+)))]
+pub(crate) mod chunk {
+    use super::{BYTE_CLASS, CHUNK};
+
+    #[inline(always)]
+    pub(crate) fn has_class(chunk: &[u8; CHUNK], classes: u8) -> bool {
+        chunk
+            .iter()
+            .any(|&byte| BYTE_CLASS[byte as usize] & classes != 0)
+    }
+}
+
+/// Whether any byte of `bytes` has a class in `classes`, so that escaping it
+/// would do something other than copy it through.
+///
+/// 16 bytes or more are compared a chunk at a time. The last comparison is the
+/// chunk that ends with the input, which overlaps the one before it unless
+/// the length is a multiple of 16. Reading a byte twice does no harm, because
+/// the answer is only whether some byte is special; where it is, and what
+/// replaces it, is [`escape_scan`]'s job. Shorter inputs are looked up a byte
+/// at a time.
+#[inline(always)]
+pub(crate) fn has_class(bytes: &[u8], classes: u8) -> bool {
+    if let Some(last) = bytes.last_chunk::<CHUNK>() {
+        let (chunks, _) = bytes.as_chunks::<CHUNK>();
+        return chunks.iter().any(|chunk| chunk::has_class(chunk, classes))
+            || chunk::has_class(last, classes);
+    }
+    bytes
+        .iter()
+        .any(|&byte| BYTE_CLASS[byte as usize] & classes != 0)
+}
+
 #[inline(always)]
 fn escape_attr_value_inner<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
 where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
 {
-    if short_and_unchanged(s.as_bytes(), text_classes::<P>() | ByteClass::Quote as u8) {
-        return buf.extend_str(s);
+    if buf.append_if_clean("", s, "", attr_classes::<P>())? {
+        return Ok(());
     }
     escape_attr_value_scan::<_, P>(buf, s)
 }
 
-#[inline(always)]
+/// Escape an attribute value that was not appended as it is.
+///
+/// Not inlined: a value's own code is [`WriteBuf::__append_if_clean`], and
+/// every value that needs more than that shares this function.
+#[inline(never)]
 fn escape_attr_value_scan<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
 where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
 {
-    let bytes = s.as_bytes();
-    let mut i = 0;
-
-    while i < bytes.len() {
-        let rest = &bytes[i..];
-
-        let off = match memchr3(b'&', b'<', b'>', rest) {
-            Some(pos) => match memchr2(b'"', b'\'', &rest[..pos]) {
-                Some(quote_pos) => quote_pos,
-                None => pos,
-            },
-            None => match memchr2(b'"', b'\'', rest) {
-                Some(pos) => pos,
-                None => {
-                    emit_with_policy::<_, P>(buf, rest)?;
-                    break;
-                }
-            },
-        };
-
-        if off > 0 {
-            emit_with_policy::<_, P>(buf, &rest[..off])?;
-            i += off;
-        }
-
-        match bytes[i] {
-            b'&' => buf.extend_static_str("&amp;")?,
-            b'<' => buf.extend_static_str("&lt;")?,
-            b'>' => buf.extend_static_str("&gt;")?,
-            b'"' => buf.extend_static_str("&quot;")?,
-            b'\'' => buf.extend_static_str("&#39;")?,
-            _ => unreachable!(),
-        }
-        i += 1;
-    }
-    Ok(())
+    escape_scan::<_, P>(buf, s, attr_classes::<P>())
 }
 
 #[cfg(test)]
@@ -385,29 +545,10 @@ fn escape_text_normal<B: WriteBuf>(buf: &mut B, s: &str) -> Result<(), WriteErro
     escape_text_normal_in::<HtmlPolicy, B>(buf, s)
 }
 
-#[cfg(not(debug_assertions))]
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
+#[cfg_attr(debug_assertions, inline)]
 fn escape_text_normal_in<P: EscapePolicy, B: WriteBuf>(
     buf: &mut B,
-    s: &str,
-) -> Result<(), WriteError> {
-    escape_text_normal_inner::<_, P>(buf, s)
-}
-
-#[cfg(debug_assertions)]
-#[inline]
-fn escape_text_normal_in<P: EscapePolicy, B: WriteBuf>(
-    buf: &mut B,
-    s: &str,
-) -> Result<(), WriteError> {
-    let mut sink = WriteBufEscapeSink(buf);
-    escape_text_normal_dyn::<P>(&mut sink, s)
-}
-
-#[cfg(debug_assertions)]
-#[inline(never)]
-fn escape_text_normal_dyn<P: EscapePolicy>(
-    buf: &mut dyn EscapeSink,
     s: &str,
 ) -> Result<(), WriteError> {
     escape_text_normal_inner::<_, P>(buf, s)
@@ -419,41 +560,94 @@ where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
 {
-    if short_and_unchanged(s.as_bytes(), text_classes::<P>()) {
-        return buf.extend_str(s);
+    if buf.append_if_clean("", s, "", text_classes::<P>())? {
+        return Ok(());
     }
     escape_text_normal_scan::<_, P>(buf, s)
 }
 
-#[inline(always)]
+/// Escape element text that was not appended as it is. Not inlined, for the
+/// same reason as [`escape_attr_value_scan`].
+#[inline(never)]
 fn escape_text_normal_scan<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
 where
     S: ?Sized + EscapeSinkLike,
     P: EscapePolicy,
 {
+    escape_scan::<_, P>(buf, s, text_classes::<P>())
+}
+
+/// Escape `s`, replacing every byte whose class is in `classes`.
+///
+/// One pass: chunks with nothing to replace are stepped over whole, and the
+/// bytes of a chunk that has something are looked up one at a time. Source
+/// text between replacements is written in runs as long as possible, so a
+/// value with nothing to replace is still a single write.
+#[inline(always)]
+#[allow(unsafe_code)]
+fn escape_scan<S, P>(buf: &mut S, s: &str, classes: u8) -> Result<(), WriteError>
+where
+    S: ?Sized + EscapeSinkLike,
+    P: EscapePolicy,
+{
     let bytes = s.as_bytes();
-    let mut i = 0;
-
-    while i < bytes.len() {
-        let rest = &bytes[i..];
-
-        let Some(off) = memchr3(b'&', b'<', b'>', rest) else {
-            emit_with_policy::<_, P>(buf, rest)?;
-            break;
+    // `bytes[..written]` is in `buf` already, as itself or as replacements.
+    // It always ends on a character boundary: it only ever moves to just past
+    // an ASCII byte or just past a complete U+00A0.
+    let mut written = 0;
+    let mut at = 0;
+    while at < bytes.len() {
+        let stop = match bytes[at..].first_chunk::<CHUNK>() {
+            Some(chunk) if !chunk::has_class(chunk, classes) => {
+                at += CHUNK;
+                continue;
+            }
+            Some(_) => at + CHUNK,
+            None => bytes.len(),
         };
-
-        if off > 0 {
-            emit_with_policy::<_, P>(buf, &rest[..off])?;
-            i += off;
+        while at < stop {
+            let special = at;
+            let byte = bytes[special];
+            at += 1;
+            if BYTE_CLASS[byte as usize] & classes == 0 {
+                continue;
+            }
+            let replacement = match byte {
+                b'&' => Some("&amp;"),
+                b'<' => Some("&lt;"),
+                b'>' => Some("&gt;"),
+                b'"' => Some("&quot;"),
+                b'\'' => Some("&#39;"),
+                0x00 => match P::NULL_BYTE {
+                    NullBytePolicy::ReplaceWithReplacementChar => Some("\u{FFFD}"),
+                    NullBytePolicy::Reject => None,
+                },
+                // The one classified byte left is 0xC2. It starts U+00A0 when
+                // 0xA0 follows; before any other byte it starts some other
+                // character in U+0080..U+00BF, which passes through.
+                _ if bytes.get(at) == Some(&0xA0) => {
+                    at += 1;
+                    Some("&nbsp;")
+                }
+                _ => continue,
+            };
+            if special > written {
+                // SAFETY: `written` is a character boundary (see above), and
+                // `special` is one because it holds an ASCII byte or the
+                // first byte of a two-byte character.
+                unsafe { emit_source_run(buf, &bytes[written..special]) }?;
+            }
+            let Some(replacement) = replacement else {
+                return Err(WriteError::InvalidCharForDialect);
+            };
+            buf.extend_static_str(replacement)?;
+            written = at;
         }
-
-        match bytes[i] {
-            b'&' => buf.extend_static_str("&amp;")?,
-            b'<' => buf.extend_static_str("&lt;")?,
-            b'>' => buf.extend_static_str("&gt;")?,
-            _ => unreachable!(),
-        }
-        i += 1;
+    }
+    if written < bytes.len() {
+        // SAFETY: `written` is a character boundary (see above), and the run
+        // ends where `s` does.
+        unsafe { emit_source_run(buf, &bytes[written..]) }?;
     }
     Ok(())
 }
@@ -488,8 +682,12 @@ where
 /// developer has been steered away from that path entirely.
 ///
 /// CVE review Gap P. Complements Gap B (compile-time warning).
+///
+/// Not inlined: dynamic text inside `<script>` or `<style>` is rare, and the
+/// content mode is only known at run time, so every dynamic text value would
+/// otherwise carry a copy of this loop.
 #[cfg(not(debug_assertions))]
-#[inline(always)]
+#[inline(never)]
 fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
     buf: &mut B,
     s: &str,
@@ -1179,66 +1377,204 @@ mod tests {
         }
     }
 
-    /// Escape `input` twice: through the entry point, which checks short
-    /// inputs first, and through the scanning loop on its own. Each result is
-    /// the sequence of writes made.
-    fn with_and_without_short_check<P: EscapePolicy>(
-        input: &str,
-        attr: bool,
-    ) -> [Result<RecordedWrites, WriteError>; 2] {
-        [true, false].map(|short_check| {
-            let mut writes = RecordedWrites::default();
-            match (attr, short_check) {
-                (true, true) => escape_attr_value_inner::<_, P>(&mut writes, input),
-                (true, false) => escape_attr_value_scan::<_, P>(&mut writes, input),
-                (false, true) => escape_text_normal_inner::<_, P>(&mut writes, input),
-                (false, false) => escape_text_normal_scan::<_, P>(&mut writes, input),
+    /// The escaping rules applied one character at a time, with no scanning,
+    /// for the escapers to be checked against.
+    fn escaped_by_rule<P: EscapePolicy>(input: &str, attr: bool) -> Result<String, WriteError> {
+        let mut out = String::new();
+        for character in input.chars() {
+            match character {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' if attr => out.push_str("&quot;"),
+                '\'' if attr => out.push_str("&#39;"),
+                '\0' => match P::NULL_BYTE {
+                    NullBytePolicy::ReplaceWithReplacementChar => out.push('\u{FFFD}'),
+                    NullBytePolicy::Reject => return Err(WriteError::InvalidCharForDialect),
+                },
+                '\u{00A0}' if P::ESCAPE_NBSP => out.push_str("&nbsp;"),
+                other => out.push(other),
             }
-            .map(|()| writes)
-        })
+        }
+        Ok(out)
     }
 
-    fn assert_short_check_changes_nothing(input: &str) {
+    /// Escape `input` the three ways a value can be escaped, and check each
+    /// against [`escaped_by_rule`]:
+    ///
+    /// - through the entry point into a sink with no append of its own, which
+    ///   checks the value and then writes or scans it;
+    /// - through the scanning loop alone;
+    /// - through the entry point into a page writer, which checks short values
+    ///   as it copies them. Its pages are 48 bytes and it starts `lead` bytes
+    ///   into one, for each of `leads`, so values land on the end of a page.
+    fn assert_escapes_by_rule<P: EscapePolicy>(input: &str, attr: bool, leads: &[usize]) {
+        let expected = escaped_by_rule::<P>(input, attr);
+        let context = || format!("attr={attr}, input={input:?}");
+
+        let mut entry = RecordedWrites::default();
+        let entered = if attr {
+            escape_attr_value_inner::<_, P>(&mut entry, input)
+        } else {
+            escape_text_normal_inner::<_, P>(&mut entry, input)
+        };
+        let mut scan = RecordedWrites::default();
+        let scanned = if attr {
+            escape_attr_value_scan::<_, P>(&mut scan, input)
+        } else {
+            escape_text_normal_scan::<_, P>(&mut scan, input)
+        };
+        match &expected {
+            Ok(expected) => {
+                assert_eq!(entered, Ok(()), "{}", context());
+                assert_eq!(scanned, Ok(()), "{}", context());
+                assert_eq!(&entry.0.concat(), expected, "{}", context());
+                assert_eq!(&scan.0.concat(), expected, "{}", context());
+                // A value that needs nothing is one write, or none when empty.
+                if expected == input {
+                    let writes = usize::from(!input.is_empty());
+                    assert_eq!(entry.0.len(), writes, "{}", context());
+                    assert_eq!(scan.0.len(), writes, "{}", context());
+                }
+            }
+            Err(error) => {
+                assert_eq!(entered.as_ref(), Err(error), "{}", context());
+                assert_eq!(scanned.as_ref(), Err(error), "{}", context());
+            }
+        }
+
+        for &lead in leads {
+            let mut pages = crate::shared::write_buf::ChainedBumpWriter::<48>::new();
+            WriteBuf::extend_str(&mut pages, &"-".repeat(lead)).unwrap();
+            let paged = if attr {
+                escape_attr_value_in::<P, _>(&mut pages, input)
+            } else {
+                escape_text_normal_in::<P, _>(&mut pages, input)
+            };
+            match &expected {
+                Ok(expected) => {
+                    assert_eq!(paged, Ok(()), "lead={lead}, {}", context());
+                    let written = String::from_utf8(pages.to_vec()).unwrap();
+                    assert_eq!(&written[lead..], expected, "lead={lead}, {}", context());
+                }
+                Err(error) => {
+                    assert_eq!(paged.as_ref(), Err(error), "lead={lead}, {}", context())
+                }
+            }
+        }
+    }
+
+    fn assert_escapes_by_rule_everywhere(input: &str, leads: &[usize]) {
         for attr in [false, true] {
-            let [checked, scanned] = with_and_without_short_check::<HtmlPolicy>(input, attr);
-            assert_eq!(checked, scanned, "HTML, attr={attr}, input={input:?}");
-            let [checked, scanned] = with_and_without_short_check::<XmlPolicy>(input, attr);
-            assert_eq!(checked, scanned, "XML, attr={attr}, input={input:?}");
+            assert_escapes_by_rule::<HtmlPolicy>(input, attr, leads);
+            assert_escapes_by_rule::<XmlPolicy>(input, attr, leads);
         }
     }
 
     #[test]
     fn empty_input_makes_no_write() {
-        for attr in [false, true] {
-            let [checked, _] = with_and_without_short_check::<HtmlPolicy>("", attr);
-            assert_eq!(checked, Ok(RecordedWrites::default()), "HTML, attr={attr}");
-            let [checked, _] = with_and_without_short_check::<XmlPolicy>("", attr);
-            assert_eq!(checked, Ok(RecordedWrites::default()), "XML, attr={attr}");
-        }
+        assert_escapes_by_rule_everywhere("", &[0, 47]);
     }
 
     #[test]
-    fn short_inputs_escape_like_the_scanning_loops() {
-        assert_short_check_changes_nothing("");
+    fn every_character_escapes_by_rule_at_every_length() {
         // U+0000..=U+07FF holds every ASCII byte and every two-byte lead byte,
         // so it covers each special character, U+00A0, and the other
-        // characters that start with 0xC2. The prefixes put the character on
-        // both sides of the length limit.
+        // characters that start with 0xC2. The prefix lengths put the
+        // character in each of the short-value cases (1 to 3 bytes, 4 to 7,
+        // 8 to 15), on both sides of every 16-byte chunk boundary up to 64,
+        // and past the 64-byte limit of the copying check.
         let characters =
             (0..=0x7FF)
                 .filter_map(char::from_u32)
                 .chain(['\u{20AC}', '\u{FFFD}', '\u{1F600}']);
+        let prefix_lengths = [
+            0, 1, 2, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 47, 48, 63, 64, 65, 80,
+        ];
         for character in characters {
-            for prefix in [
-                "",
-                "a",
-                "twelve-bytes",
-                "thirteen-byte",
-                "fourteen-bytes",
-                "fifteen-bytes-x",
-            ] {
+            for prefix_length in prefix_lengths {
                 for suffix in ["", "z"] {
-                    assert_short_check_changes_nothing(&format!("{prefix}{character}{suffix}"));
+                    let input = format!("{}{character}{suffix}", "p".repeat(prefix_length));
+                    assert_escapes_by_rule_everywhere(&input, &[0, 41]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn values_escape_by_rule_at_every_offset_into_a_page() {
+        let every_offset: Vec<usize> = (0..48).collect();
+        for value in [
+            "x",
+            "card",
+            "a-clean-value",
+            "seventeen-bytes-x",
+            "a clean value that is longer than one whole 48-byte page of output",
+            "&",
+            "a<b",
+            "say \"hi\" & 'bye'",
+            "caf\u{00E9}\u{00A0}au\u{00A0}lait",
+            "nul\0byte",
+            "a value over sixty-four bytes long with one <special> character in the middle",
+        ] {
+            assert_escapes_by_rule_everywhere(value, &every_offset);
+        }
+    }
+
+    #[test]
+    fn attribute_is_written_whole_or_escaped() {
+        for (value, expected) in [
+            ("", " class=\"\""),
+            ("card", " class=\"card\""),
+            ("a \"quoted\" card", " class=\"a &quot;quoted&quot; card\""),
+            (
+                "flex items-center gap-2 rounded-md border px-3 py-1 text-sm font-medium shadow-sm",
+                " class=\"flex items-center gap-2 rounded-md border px-3 py-1 text-sm font-medium shadow-sm\"",
+            ),
+        ] {
+            // Every offset into a page, so the attribute also straddles one.
+            for lead in 0..48 {
+                let mut pages = crate::shared::write_buf::ChainedBumpWriter::<48>::new();
+                WriteBuf::extend_str(&mut pages, &"-".repeat(lead)).unwrap();
+                write_attr_for_dialect(&mut pages, " class=\"", value, EscapeDialect::Html)
+                    .unwrap();
+                let written = String::from_utf8(pages.to_vec()).unwrap();
+                assert_eq!(&written[lead..], expected, "lead={lead}");
+            }
+            let mut plain = Vec::new();
+            write_attr_for_dialect(&mut plain, " class=\"", value, EscapeDialect::Html).unwrap();
+            assert_eq!(String::from_utf8(plain).unwrap(), expected);
+        }
+
+        let mut xml = Vec::new();
+        write_attr_for_dialect(&mut xml, " title=\"", "a\u{00A0}<b>", EscapeDialect::Xml).unwrap();
+        assert_eq!(
+            String::from_utf8(xml).unwrap(),
+            " title=\"a\u{00A0}&lt;b&gt;\""
+        );
+        let mut xml = Vec::new();
+        assert_eq!(
+            write_attr_for_dialect(&mut xml, " title=\"", "a\0b", EscapeDialect::Xml),
+            Err(WriteError::InvalidCharForDialect)
+        );
+    }
+
+    #[test]
+    fn chunk_check_agrees_with_the_class_table() {
+        let markup = ByteClass::Markup as u8;
+        let quote = ByteClass::Quote as u8;
+        let nbsp = ByteClass::NbspLead as u8;
+        for classes in [markup, markup | nbsp, markup | quote, markup | quote | nbsp] {
+            assert!(!chunk::has_class(&[b'a'; CHUNK], classes));
+            for byte in 0..=u8::MAX {
+                for position in 0..CHUNK {
+                    let mut bytes = [b'a'; CHUNK];
+                    bytes[position] = byte;
+                    assert_eq!(
+                        chunk::has_class(&bytes, classes),
+                        BYTE_CLASS[byte as usize] & classes != 0,
+                        "byte={byte:#04x}, position={position}, classes={classes:#05b}"
+                    );
                 }
             }
         }
@@ -1246,14 +1582,14 @@ mod tests {
 
     proptest! {
         #[test]
-        fn short_strings_escape_like_the_scanning_loops(
-            characters in proptest::collection::vec(any::<char>(), 0..12),
+        fn strings_escape_by_rule(
+            characters in proptest::collection::vec(any::<char>(), 0..96),
             specials in proptest::collection::vec(
                 proptest::sample::select(vec!['&', '<', '>', '"', '\'', '\0', '\u{00A0}', '\u{00A9}']),
-                0..4,
+                0..6,
             ),
         ) {
-            // Interleave so that several special characters land in one short
+            // Interleave so that several special characters land in one
             // string, which arbitrary characters alone almost never produce.
             let mut input = String::new();
             let mut specials = specials.into_iter();
@@ -1262,7 +1598,7 @@ mod tests {
                 input.extend(specials.next());
             }
             input.extend(specials);
-            assert_short_check_changes_nothing(&input);
+            assert_escapes_by_rule_everywhere(&input, &[0, 23, 41]);
         }
     }
 }

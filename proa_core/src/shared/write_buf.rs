@@ -238,6 +238,25 @@ pub trait WriteBuf {
         self.extend_str(text)
     }
 
+    /// Append `before`, `text` and `after` if no byte of `text` has an escape
+    /// class in `classes`. Otherwise append nothing and return `Ok(false)`,
+    /// and the caller escapes `text` the long way.
+    ///
+    /// This is how the escapers write a dynamic value that needs no escaping,
+    /// which is nearly every value. A buffer may also return `Ok(false)` for a
+    /// value it would rather not handle here, such as a long one.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn __append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        crate::shared::escape::append_if_clean(self, before, text, after, classes)
+    }
+
     /// Append raw bytes, validating at the write that they are UTF-8.
     ///
     /// The bytes must be valid UTF-8 on their own: a multi-byte character
@@ -510,6 +529,81 @@ unsafe fn copy_short(src: *const u8, dst: *mut u8, len: usize) {
     }
 }
 
+/// Copy `len` bytes, at most 64, the way [`copy_short`] does, and report
+/// whether any of them has an escape class in `classes`.
+///
+/// An escaper has to look at every byte of a value, and then the value is
+/// copied. Both walk the same bytes and branch on the same length, so doing
+/// them together reads the value once and picks the length case once. The
+/// vectors or words that are stored are the ones that are compared.
+///
+/// The caller decides what a `true` means. The bytes are copied either way.
+///
+/// # Safety
+///
+/// `len` must be at most 64, `src` must be valid for reads of `len` bytes,
+/// `dst` must be valid for writes of `len` bytes, and the two ranges must not
+/// overlap.
+#[inline(always)]
+#[allow(unsafe_code)]
+unsafe fn copy_short_classifying(src: *const u8, dst: *mut u8, len: usize, classes: u8) -> bool {
+    use crate::shared::escape::{chunk, BYTE_CLASS, CHUNK};
+    type Chunk = [u8; CHUNK];
+    let class_of = |byte: u8| BYTE_CLASS[byte as usize];
+    debug_assert!(len <= 64);
+    // SAFETY: as in `copy_short`, each branch runs only when `len` is at least
+    // the width it moves, so the read at the start and the read ending at
+    // `len` stay inside `[src, src + len)` and the matching writes stay
+    // inside `[dst, dst + len)`.
+    unsafe {
+        if len >= 16 {
+            let first = src.cast::<Chunk>().read_unaligned();
+            let last = src.add(len - 16).cast::<Chunk>().read_unaligned();
+            dst.cast::<Chunk>().write_unaligned(first);
+            let mut hit = chunk::has_class(&first, classes) | chunk::has_class(&last, classes);
+            if len > 32 {
+                // 33 to 64 bytes: the second chunk from each end as well.
+                let second = src.add(16).cast::<Chunk>().read_unaligned();
+                let third = src.add(len - 32).cast::<Chunk>().read_unaligned();
+                dst.add(16).cast::<Chunk>().write_unaligned(second);
+                dst.add(len - 32).cast::<Chunk>().write_unaligned(third);
+                hit |= chunk::has_class(&second, classes) | chunk::has_class(&third, classes);
+            }
+            dst.add(len - 16).cast::<Chunk>().write_unaligned(last);
+            hit
+        } else if len >= 8 {
+            let head = src.cast::<u64>().read_unaligned();
+            let tail = src.add(len - 8).cast::<u64>().read_unaligned();
+            dst.cast::<u64>().write_unaligned(head);
+            dst.add(len - 8).cast::<u64>().write_unaligned(tail);
+            let words = u128::from(head) | u128::from(tail) << 64;
+            chunk::has_class(&words.to_ne_bytes(), classes)
+        } else if len >= 4 {
+            let head = src.cast::<u32>().read_unaligned();
+            let tail = src.add(len - 4).cast::<u32>().read_unaligned();
+            dst.cast::<u32>().write_unaligned(head);
+            dst.add(len - 4).cast::<u32>().write_unaligned(tail);
+            // A chunk has room for the pair twice. Padding it instead would
+            // need a filler byte that is in no class, and zero is in one.
+            let pair = u64::from(head) | u64::from(tail) << 32;
+            let words = u128::from(pair) | u128::from(pair) << 64;
+            chunk::has_class(&words.to_ne_bytes(), classes)
+        } else if len >= 2 {
+            let head = src.cast::<[u8; 2]>().read_unaligned();
+            let tail = src.add(len - 2).cast::<[u8; 2]>().read_unaligned();
+            dst.cast::<[u8; 2]>().write_unaligned(head);
+            dst.add(len - 2).cast::<[u8; 2]>().write_unaligned(tail);
+            (class_of(head[0]) | class_of(head[1]) | class_of(tail[1])) & classes != 0
+        } else if len == 1 {
+            let byte = *src;
+            *dst = byte;
+            class_of(byte) & classes != 0
+        } else {
+            false
+        }
+    }
+}
+
 /// Buffer types that can rewind bytes written since a local checkpoint.
 ///
 /// This is a low-level primitive for pre-flush error recovery. The buffer does
@@ -576,6 +670,17 @@ impl<B: WriteBuf + ?Sized> WriteBuf for &mut B {
     #[inline(always)]
     fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
         (**self).extend_static_str(text)
+    }
+
+    #[inline(always)]
+    fn __append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        (**self).__append_if_clean(before, text, after, classes)
     }
 
     #[inline(always)]
@@ -1323,6 +1428,46 @@ impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
         }
         self.extend_slow(bytes);
         Ok(())
+    }
+
+    /// One bounds check, one length update, and a copy that classifies the
+    /// value's bytes as it moves them.
+    ///
+    /// The value is copied before it is known to be clean. If it turns out not
+    /// to be, the length is left where it was, so the copied bytes stay in the
+    /// unwritten part of the page and the next write goes over them.
+    ///
+    /// Values over 64 bytes and values that do not fit in what is left of the
+    /// page are left to the caller, which makes one call for everything this
+    /// does not append.
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    fn __append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        let len = text.len();
+        let new_len = self.current.len + before.len() + len + after.len();
+        if len > 64 || new_len > N {
+            return Ok(false);
+        }
+        // SAFETY: `new_len <= N` keeps all three destinations inside the page,
+        // `len <= 64` is what `copy_short_classifying` requires, and none of
+        // the sources can alias a page this writer borrows mutably.
+        unsafe {
+            let start = self.current.ptr().add(self.current.len);
+            core::ptr::copy_nonoverlapping(before.as_ptr(), start, before.len());
+            let value = start.add(before.len());
+            if copy_short_classifying(text.as_ptr(), value, len, classes) {
+                return Ok(false);
+            }
+            core::ptr::copy_nonoverlapping(after.as_ptr(), value.add(len), after.len());
+        }
+        self.current.len = new_len;
+        Ok(true)
     }
 
     #[inline(always)]
@@ -2681,6 +2826,91 @@ mod tests {
             buffer.extend_str("|").unwrap();
             assert_eq!(buffer.into_string(), format!("xyz{}|", &source[..len]));
         }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn short_classifying_copy_copies_and_classifies_at_every_length() {
+        use crate::shared::escape::BYTE_CLASS;
+        // Markup, quotes and the first byte of U+00A0: every class.
+        let classes = 0b111;
+        // `&`, a quote, NUL and 0xC2 are in a class; `#`, `=`, 0xC3 and the
+        // rest sit next to them in the byte table and are in none.
+        let probes = [
+            b'&', b'<', b'>', b'"', b'\'', 0x00, 0xC2, b'#', b'=', b'!', 0xC3, b'a',
+        ];
+        for len in 0..=64usize {
+            for position in 0..len.max(1) {
+                for probe in probes {
+                    let mut source = [b'a'; 64];
+                    if len > 0 {
+                        source[position] = probe;
+                    }
+                    let special = len > 0 && BYTE_CLASS[probe as usize] & classes != 0;
+                    let mut destination = [b'.'; 80];
+                    // SAFETY: `len <= 64`, both arrays hold at least `len`
+                    // bytes from the pointers given, and they are distinct.
+                    let hit = unsafe {
+                        copy_short_classifying(
+                            std::hint::black_box(source.as_ptr()),
+                            destination.as_mut_ptr().add(8),
+                            std::hint::black_box(len),
+                            classes,
+                        )
+                    };
+                    let context = format!("len={len}, position={position}, probe={probe:#04x}");
+                    assert_eq!(hit, special, "{context}");
+                    assert_eq!(&destination[8..8 + len], &source[..len], "{context}");
+                    // Nothing outside the destination range is touched.
+                    assert!(destination[..8].iter().all(|&b| b == b'.'), "{context}");
+                    assert!(
+                        destination[8 + len..].iter().all(|&b| b == b'.'),
+                        "{context}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn chained_appends_a_clean_value_with_the_text_around_it() {
+        let mut buf = ChainedBumpWriter::<64>::new();
+        buf.extend_str("<a").unwrap();
+        assert_eq!(
+            buf.__append_if_clean(" href=\"", "/home", "\"", 0b111),
+            Ok(true)
+        );
+        assert_eq!(buf.__append_if_clean("", "", "", 0b111), Ok(true));
+        buf.extend_str(">").unwrap();
+        assert_eq!(buf.page_count(), 1);
+        assert_eq!(buf.into_string(), "<a href=\"/home\">");
+    }
+
+    #[test]
+    fn chained_leaves_a_value_it_does_not_append_to_the_caller() {
+        let mut buf = ChainedBumpWriter::<64>::new();
+        buf.extend_str("<a").unwrap();
+        // Something to escape: copied into the page's unwritten part, then
+        // abandoned there.
+        assert_eq!(
+            buf.__append_if_clean(" href=\"", "/a&b", "\"", 0b111),
+            Ok(false)
+        );
+        assert_eq!(buf.as_slice(), b"<a");
+        // Too long for the copying check.
+        let long = "x".repeat(65);
+        assert_eq!(buf.__append_if_clean("", &long, "", 0b111), Ok(false));
+        assert_eq!(buf.as_slice(), b"<a");
+        // Does not fit in what is left of the page: 2 + 7 + 55 + 1 > 64.
+        let wide = "y".repeat(55);
+        assert_eq!(
+            buf.__append_if_clean(" href=\"", &wide, "\"", 0b111),
+            Ok(false)
+        );
+        assert_eq!(buf.as_slice(), b"<a");
+        // The next write goes over whatever the abandoned copy left behind.
+        buf.extend_str(">").unwrap();
+        assert_eq!(buf.into_string(), "<a>");
     }
 
     #[test]
