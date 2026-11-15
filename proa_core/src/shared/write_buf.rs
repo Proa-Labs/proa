@@ -1002,115 +1002,20 @@ pub struct BumpWriter<const N: usize> {
     //
     // A boxed array is a thin pointer, which keeps this struct at two words.
     // A boxed slice here (a fat pointer) measurably slows the write path.
-    //
-    // `ManuallyDrop` because dropping the writer hands the page to
-    // `page_pool` instead of freeing it. The box is live until `drop` or
-    // `into_page` takes it, and nothing touches the field after that.
-    buf: core::mem::ManuallyDrop<Box<[core::mem::MaybeUninit<u8>; N]>>,
+    buf: Box<[core::mem::MaybeUninit<u8>; N]>,
     len: usize,
-}
-
-/// Standard-size pages that dropped writers left behind, kept per thread for
-/// the next writer to pick up.
-///
-/// A document is rendered into 4 KiB pages, 44 of them for a 177 KB page.
-/// Each one is a trip through the allocator's slow path, because glibc's
-/// per-thread cache stops at about 1 KiB. On the benchmark host those 44
-/// allocations were about an eighth of that page's render. A thread that
-/// renders one document after another asks for the same pages again and
-/// again, so it keeps them: taking or returning one is a pop or a push on a
-/// thread-local stack.
-///
-/// Only pages of [`DEFAULT_CHAINED_BUMP_PAGE_SIZE`] are kept, and at most
-/// `MAX_KEPT` of them per thread. Pages handed to a transport by
-/// [`ChainedBumpWriter::into_pages`] are freed by the transport and never
-/// come back here.
-mod page_pool {
-    use super::DEFAULT_CHAINED_BUMP_PAGE_SIZE as PAGE_SIZE;
-    use core::mem::MaybeUninit;
-    use std::cell::RefCell;
-
-    /// The most pages one thread keeps: 1 MiB.
-    pub(super) const MAX_KEPT: usize = 256;
-
-    thread_local! {
-        static FREE: RefCell<Vec<Box<[MaybeUninit<u8>; PAGE_SIZE]>>> =
-            const { RefCell::new(Vec::new()) };
-    }
-
-    /// A page of `N` bytes, from this thread's kept pages when `N` is the
-    /// standard size and one is there, and from the allocator otherwise. Its
-    /// contents are unspecified either way.
-    #[inline]
-    pub(super) fn take<const N: usize>() -> Box<[MaybeUninit<u8>; N]> {
-        let kept: Option<Box<[MaybeUninit<u8>]>> = if N == PAGE_SIZE {
-            FREE.try_with(|free| free.borrow_mut().pop())
-                .ok()
-                .flatten()
-                .map(|page| page as Box<[MaybeUninit<u8>]>)
-        } else {
-            None
-        };
-        // The conversion checks the length, which is `N` on both paths.
-        kept.unwrap_or_else(|| Box::new_uninit_slice(N))
-            .try_into()
-            .unwrap()
-    }
-
-    /// How many pages this thread is keeping.
-    #[cfg(test)]
-    pub(super) fn kept() -> usize {
-        FREE.with(|free| free.borrow().len())
-    }
-
-    /// Keep `page` for a later [`take`] on this thread, or free it when it is
-    /// not the standard size, the thread already keeps [`MAX_KEPT`], or the
-    /// thread is shutting down.
-    #[inline]
-    pub(super) fn give<const N: usize>(page: Box<[MaybeUninit<u8>; N]>) {
-        let page: Box<[MaybeUninit<u8>]> = page;
-        let Ok(page) = Box::<[MaybeUninit<u8>; PAGE_SIZE]>::try_from(page) else {
-            return;
-        };
-        let _ = FREE.try_with(|free| {
-            let mut free = free.borrow_mut();
-            if free.len() < MAX_KEPT {
-                free.push(page);
-            }
-        });
-    }
-}
-
-impl<const N: usize> Drop for BumpWriter<N> {
-    #[inline]
-    #[allow(unsafe_code)]
-    fn drop(&mut self) {
-        // SAFETY: `buf` is live (see the field) and is not used again.
-        page_pool::give(unsafe { core::mem::ManuallyDrop::take(&mut self.buf) });
-    }
 }
 
 impl<const N: usize> BumpWriter<N> {
     /// Create an empty `BumpWriter`.
     ///
-    /// The page is not zero-filled.
+    /// The page is allocated without being zero-filled.
     #[inline]
     pub fn new() -> Self {
         Self {
-            buf: core::mem::ManuallyDrop::new(page_pool::take()),
+            buf: Box::new_uninit_slice(N).try_into().unwrap(),
             len: 0,
         }
-    }
-
-    /// Give up the page itself, so that it is neither freed nor kept for
-    /// reuse when the writer goes away.
-    #[inline]
-    #[allow(unsafe_code)]
-    fn into_page(self) -> Box<[core::mem::MaybeUninit<u8>; N]> {
-        let mut this = core::mem::ManuallyDrop::new(self);
-        // SAFETY: `buf` is live (see the field), and wrapping `self` in
-        // `ManuallyDrop` keeps `drop` from taking it a second time.
-        unsafe { core::mem::ManuallyDrop::take(&mut this.buf) }
     }
 
     /// Hand the page to a transport as `Bytes` without copying it.
@@ -1126,7 +1031,7 @@ impl<const N: usize> BumpWriter<N> {
         // it every byte of the allocation is initialized.
         let owned: Box<[u8]> = unsafe {
             core::ptr::write_bytes(self.ptr().add(len), 0, N - len);
-            let page: Box<[core::mem::MaybeUninit<u8>]> = self.into_page();
+            let page: Box<[core::mem::MaybeUninit<u8>]> = self.buf;
             page.assume_init()
         };
         let mut bytes = Bytes::from(owned);
@@ -1456,7 +1361,7 @@ impl<const N: usize> ChainedBumpWriter<N> {
     pub fn into_vec(self) -> Vec<u8> {
         if self.full.is_empty() {
             let len = self.current.len;
-            let ptr = Box::into_raw(self.current.into_page()) as *mut u8;
+            let ptr = Box::into_raw(self.current.buf) as *mut u8;
             // SAFETY: a page is one allocation of `N` bytes with byte
             // alignment, which is exactly the layout of a `Vec<u8>` with
             // capacity `N`. The first `len` bytes are initialized and
@@ -3031,83 +2936,6 @@ mod tests {
         // The next write goes over whatever the abandoned copy left behind.
         buf.extend_str(">").unwrap();
         assert_eq!(buf.into_string(), "<a>");
-    }
-
-    /// Run `test` on a thread of its own, so the pages it keeps are its own.
-    fn on_a_fresh_thread(test: impl FnOnce() + Send + 'static) {
-        std::thread::spawn(test).join().unwrap();
-    }
-
-    #[test]
-    fn dropped_standard_page_is_the_next_one_taken() {
-        on_a_fresh_thread(|| {
-            assert_eq!(page_pool::kept(), 0);
-            let mut first = BumpWriter::<DEFAULT_CHAINED_BUMP_PAGE_SIZE>::new();
-            let page = first.ptr();
-            drop(first);
-            assert_eq!(page_pool::kept(), 1);
-            let mut second = BumpWriter::<DEFAULT_CHAINED_BUMP_PAGE_SIZE>::new();
-            assert_eq!(second.ptr(), page);
-            assert_eq!(second.len(), 0);
-            assert_eq!(page_pool::kept(), 0);
-        });
-    }
-
-    #[test]
-    fn dropped_render_buffer_keeps_every_page_for_the_next_one() {
-        on_a_fresh_thread(|| {
-            let text = "x".repeat(3 * DEFAULT_CHAINED_BUMP_PAGE_SIZE + 10);
-            let mut first = RenderBuffer::new();
-            first.extend_str(&text).unwrap();
-            let pages = first.page_count();
-            assert!(pages >= 4);
-            drop(first);
-            assert_eq!(page_pool::kept(), pages);
-
-            let mut second = RenderBuffer::new();
-            second.extend_str(&text).unwrap();
-            assert_eq!(page_pool::kept(), 0);
-            // A second buffer alive at the same time gets pages of its own.
-            let mut third = RenderBuffer::new();
-            third.extend_str("y").unwrap();
-            assert_eq!(second.into_string(), text);
-            assert_eq!(third.into_string(), "y");
-        });
-    }
-
-    #[test]
-    fn pages_that_leave_the_writer_are_not_kept() {
-        on_a_fresh_thread(|| {
-            let mut to_transport = RenderBuffer::new();
-            for _ in 0..3 {
-                // Three writes that each need a page of their own.
-                to_transport.extend_str(&"x".repeat(3000)).unwrap();
-            }
-            let pages: Vec<Bytes> = to_transport.into_pages().collect();
-            assert_eq!(pages.len(), 3);
-            drop(pages);
-            assert_eq!(page_pool::kept(), 0);
-
-            let mut to_vec = RenderBuffer::new();
-            to_vec.extend_str("one page").unwrap();
-            assert_eq!(to_vec.into_vec(), b"one page");
-            assert_eq!(page_pool::kept(), 0);
-        });
-    }
-
-    #[test]
-    fn only_standard_pages_are_kept_and_only_so_many() {
-        on_a_fresh_thread(|| {
-            drop(BumpWriter::<64>::new());
-            drop(ChainedBumpWriter::<8192>::new());
-            assert_eq!(page_pool::kept(), 0);
-
-            let writers: Vec<_> = (0..page_pool::MAX_KEPT + 8)
-                .map(|_| BumpWriter::<DEFAULT_CHAINED_BUMP_PAGE_SIZE>::new())
-                .collect();
-            drop(writers);
-            assert_eq!(page_pool::kept(), page_pool::MAX_KEPT);
-        });
     }
 
     #[test]
