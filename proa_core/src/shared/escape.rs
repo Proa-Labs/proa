@@ -13,28 +13,6 @@ mod sealed {
     pub trait Sealed {}
 }
 
-#[cfg(debug_assertions)]
-trait EscapeSink {
-    fn extend_str(&mut self, text: &str) -> Result<(), WriteError>;
-    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError>;
-}
-
-#[cfg(debug_assertions)]
-struct WriteBufEscapeSink<'a, B: WriteBuf>(&'a mut B);
-
-#[cfg(debug_assertions)]
-impl<B: WriteBuf> EscapeSink for WriteBufEscapeSink<'_, B> {
-    #[inline]
-    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
-        self.0.extend_str(text)
-    }
-
-    #[inline]
-    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
-        self.0.extend_static_str(text)
-    }
-}
-
 /// Write a segment of source text to `buf`, applying the active dialect
 /// policy for NBSP and NULL bytes.
 ///
@@ -45,7 +23,7 @@ impl<B: WriteBuf> EscapeSink for WriteBufEscapeSink<'_, B> {
 #[allow(unsafe_code)]
 fn emit_with_policy<S, P>(buf: &mut S, segment: &[u8]) -> Result<(), WriteError>
 where
-    S: ?Sized + EscapeSinkLike,
+    S: ?Sized + WriteBuf,
     P: EscapePolicy,
 {
     // `start` is the first byte not yet written; `scan` is where the search
@@ -104,91 +82,6 @@ where
     Ok(())
 }
 
-pub(crate) trait EscapeSinkLike {
-    fn extend_str(&mut self, text: &str) -> Result<(), WriteError>;
-    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError>;
-
-    /// See [`WriteBuf::__append_if_clean`].
-    #[inline(always)]
-    fn append_if_clean(
-        &mut self,
-        before: &'static str,
-        text: &str,
-        after: &'static str,
-        classes: u8,
-    ) -> Result<bool, WriteError> {
-        append_if_clean(self, before, text, after, classes)
-    }
-}
-
-impl<B: WriteBuf + ?Sized> EscapeSinkLike for B {
-    #[inline(always)]
-    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
-        WriteBuf::extend_str(self, text)
-    }
-
-    #[inline(always)]
-    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
-        WriteBuf::extend_static_str(self, text)
-    }
-
-    #[inline(always)]
-    fn append_if_clean(
-        &mut self,
-        before: &'static str,
-        text: &str,
-        after: &'static str,
-        classes: u8,
-    ) -> Result<bool, WriteError> {
-        WriteBuf::__append_if_clean(self, before, text, after, classes)
-    }
-}
-
-/// What [`WriteBuf::__append_if_clean`] does on a buffer with no faster way:
-/// check `text`, then write the three pieces one after another.
-///
-/// Empty pieces are skipped. A zero-length write is not free on every buffer:
-/// `ZeroCopyBuf` would record an empty part and `StreamingZeroCopyBuf` could
-/// allocate its first chunk.
-#[inline(always)]
-pub(crate) fn append_if_clean<S>(
-    buf: &mut S,
-    before: &'static str,
-    text: &str,
-    after: &'static str,
-    classes: u8,
-) -> Result<bool, WriteError>
-where
-    S: ?Sized + EscapeSinkLike,
-{
-    if has_class(text.as_bytes(), classes) {
-        return Ok(false);
-    }
-    if !before.is_empty() {
-        buf.extend_static_str(before)?;
-    }
-    if !text.is_empty() {
-        buf.extend_str(text)?;
-    }
-    if !after.is_empty() {
-        buf.extend_static_str(after)?;
-    }
-    Ok(true)
-}
-
-#[cfg(debug_assertions)]
-impl EscapeSinkLike for dyn EscapeSink + '_ {
-    #[inline]
-    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
-        EscapeSink::extend_str(self, text)
-    }
-
-    #[inline]
-    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
-        EscapeSink::extend_static_str(self, text)
-    }
-}
-
 /// Pass a run of the source text through unchanged.
 ///
 /// The escaper scans bytes, so its runs are byte slices of the `&str` being
@@ -203,7 +96,7 @@ impl EscapeSinkLike for dyn EscapeSink + '_ {
 #[allow(unsafe_code)]
 unsafe fn emit_source_run<S>(buf: &mut S, run: &[u8]) -> Result<(), WriteError>
 where
-    S: ?Sized + EscapeSinkLike,
+    S: ?Sized + WriteBuf,
 {
     debug_assert!(core::str::from_utf8(run).is_ok());
     // SAFETY: guaranteed by the caller.
@@ -345,7 +238,10 @@ pub fn escape_attr_value_in<P: EscapePolicy, B: WriteBuf>(
     buf: &mut B,
     s: &str,
 ) -> Result<(), WriteError> {
-    escape_attr_value_inner::<_, P>(buf, s)
+    if buf.__append_if_clean("", s, "", attr_classes::<P>())? {
+        return Ok(());
+    }
+    escape_attr_value_scan::<_, P>(buf, s)
 }
 
 #[cfg_attr(not(debug_assertions), inline(always))]
@@ -515,18 +411,6 @@ pub(crate) fn has_class(bytes: &[u8], classes: u8) -> bool {
         .any(|&byte| BYTE_CLASS[byte as usize] & classes != 0)
 }
 
-#[inline(always)]
-fn escape_attr_value_inner<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
-where
-    S: ?Sized + EscapeSinkLike,
-    P: EscapePolicy,
-{
-    if buf.append_if_clean("", s, "", attr_classes::<P>())? {
-        return Ok(());
-    }
-    escape_attr_value_scan::<_, P>(buf, s)
-}
-
 /// Escape an attribute value that was not appended as it is.
 ///
 /// Not inlined: a value's own code is [`WriteBuf::__append_if_clean`], and
@@ -534,7 +418,7 @@ where
 #[inline(never)]
 fn escape_attr_value_scan<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
 where
-    S: ?Sized + EscapeSinkLike,
+    S: ?Sized + WriteBuf,
     P: EscapePolicy,
 {
     escape_scan::<_, P>(buf, s, attr_classes::<P>())
@@ -551,16 +435,7 @@ fn escape_text_normal_in<P: EscapePolicy, B: WriteBuf>(
     buf: &mut B,
     s: &str,
 ) -> Result<(), WriteError> {
-    escape_text_normal_inner::<_, P>(buf, s)
-}
-
-#[inline(always)]
-fn escape_text_normal_inner<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
-where
-    S: ?Sized + EscapeSinkLike,
-    P: EscapePolicy,
-{
-    if buf.append_if_clean("", s, "", text_classes::<P>())? {
+    if buf.__append_if_clean("", s, "", text_classes::<P>())? {
         return Ok(());
     }
     escape_text_normal_scan::<_, P>(buf, s)
@@ -571,7 +446,7 @@ where
 #[inline(never)]
 fn escape_text_normal_scan<S, P>(buf: &mut S, s: &str) -> Result<(), WriteError>
 where
-    S: ?Sized + EscapeSinkLike,
+    S: ?Sized + WriteBuf,
     P: EscapePolicy,
 {
     escape_scan::<_, P>(buf, s, text_classes::<P>())
@@ -587,7 +462,7 @@ where
 #[allow(unsafe_code)]
 fn escape_scan<S, P>(buf: &mut S, s: &str, classes: u8) -> Result<(), WriteError>
 where
-    S: ?Sized + EscapeSinkLike,
+    S: ?Sized + WriteBuf,
     P: EscapePolicy,
 {
     let bytes = s.as_bytes();
@@ -686,44 +561,13 @@ where
 /// Not inlined: dynamic text inside `<script>` or `<style>` is rare, and the
 /// content mode is only known at run time, so every dynamic text value would
 /// otherwise carry a copy of this loop.
-#[cfg(not(debug_assertions))]
 #[inline(never)]
-fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
-    buf: &mut B,
-    s: &str,
-    tag: &[u8],
-) -> Result<(), WriteError> {
-    escape_text_with_sentinel_inner::<_, P>(buf, s, tag)
-}
-
-#[cfg(debug_assertions)]
-#[inline]
-fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
-    buf: &mut B,
-    s: &str,
-    tag: &[u8],
-) -> Result<(), WriteError> {
-    let mut sink = WriteBufEscapeSink(buf);
-    escape_text_with_sentinel_dyn::<P>(&mut sink, s, tag)
-}
-
-#[cfg(debug_assertions)]
-#[inline(never)]
-fn escape_text_with_sentinel_dyn<P: EscapePolicy>(
-    buf: &mut dyn EscapeSink,
-    s: &str,
-    tag: &[u8],
-) -> Result<(), WriteError> {
-    escape_text_with_sentinel_inner::<_, P>(buf, s, tag)
-}
-
-#[inline(always)]
 #[allow(unsafe_code)]
-fn escape_text_with_sentinel_inner<S, P>(buf: &mut S, s: &str, tag: &[u8]) -> Result<(), WriteError>
-where
-    S: ?Sized + EscapeSinkLike,
-    P: EscapePolicy,
-{
+fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
+    buf: &mut B,
+    s: &str,
+    tag: &[u8],
+) -> Result<(), WriteError> {
     let bytes = s.as_bytes();
     let mut i = 0;
     let mut flush_start = 0;
@@ -806,7 +650,7 @@ where
 #[inline(always)]
 fn flush_impl<S, P>(buf: &mut S, bytes: &[u8], start: usize, end: usize) -> Result<(), WriteError>
 where
-    S: ?Sized + EscapeSinkLike,
+    S: ?Sized + WriteBuf,
     P: EscapePolicy,
 {
     if start < end {
@@ -1365,15 +1209,30 @@ mod tests {
     #[derive(Debug, Default, PartialEq)]
     struct RecordedWrites(Vec<String>);
 
-    impl EscapeSinkLike for RecordedWrites {
+    impl WriteBuf for RecordedWrites {
+        fn capacity(&self) -> usize {
+            usize::MAX
+        }
+
+        fn len(&self) -> usize {
+            self.0.iter().map(String::len).sum()
+        }
+
         fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
             self.0.push(text.to_owned());
             Ok(())
         }
 
-        fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
-            self.0.push(text.to_owned());
-            Ok(())
+        fn as_slice(&self) -> &[u8] {
+            unimplemented!("tests read the recorded writes")
+        }
+
+        fn to_vec(&self) -> Vec<u8> {
+            self.0.concat().into_bytes()
+        }
+
+        fn clear(&mut self) {
+            self.0.clear();
         }
     }
 
@@ -1414,9 +1273,9 @@ mod tests {
 
         let mut entry = RecordedWrites::default();
         let entered = if attr {
-            escape_attr_value_inner::<_, P>(&mut entry, input)
+            escape_attr_value_in::<P, _>(&mut entry, input)
         } else {
-            escape_text_normal_inner::<_, P>(&mut entry, input)
+            escape_text_normal_in::<P, _>(&mut entry, input)
         };
         let mut scan = RecordedWrites::default();
         let scanned = if attr {

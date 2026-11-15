@@ -245,6 +245,11 @@ pub trait WriteBuf {
     /// This is how the escapers write a dynamic value that needs no escaping,
     /// which is nearly every value. A buffer may also return `Ok(false)` for a
     /// value it would rather not handle here, such as a long one.
+    ///
+    /// The default checks `text` and then writes the three pieces one after
+    /// another, skipping empty ones. A zero-length write is not free on every
+    /// buffer: `ZeroCopyBuf` would record an empty part and
+    /// `StreamingZeroCopyBuf` could allocate its first chunk.
     #[doc(hidden)]
     #[inline(always)]
     fn __append_if_clean(
@@ -254,7 +259,19 @@ pub trait WriteBuf {
         after: &'static str,
         classes: u8,
     ) -> Result<bool, WriteError> {
-        crate::shared::escape::append_if_clean(self, before, text, after, classes)
+        if crate::shared::escape::has_class(text.as_bytes(), classes) {
+            return Ok(false);
+        }
+        if !before.is_empty() {
+            self.extend_static_str(before)?;
+        }
+        if !text.is_empty() {
+            self.extend_str(text)?;
+        }
+        if !after.is_empty() {
+            self.extend_static_str(after)?;
+        }
+        Ok(true)
     }
 
     /// Append raw bytes, validating at the write that they are UTF-8.
