@@ -161,16 +161,10 @@ impl AttrValue for String {
     fn render_attr<B: WriteBuf, L: DataLoader>(
         &self,
         name_prefix: &'static str,
-        _name_bool: &'static str,
+        name_bool: &'static str,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), crate::shared::write_buf::WriteError> {
-        let dialect = cx.__proa_current_escape_dialect();
-        crate::shared::escape::write_attr_for_dialect(
-            &mut cx.out,
-            name_prefix,
-            self.as_str(),
-            dialect,
-        )
+        self.as_str().render_attr(name_prefix, name_bool, cx)
     }
 }
 
