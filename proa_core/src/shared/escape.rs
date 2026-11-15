@@ -3,7 +3,7 @@
 
 use crate::mode::ContentMode;
 use crate::shared::write_buf::{WriteBuf, WriteError};
-use memchr::{memchr, memchr2, memchr3};
+use memchr::memchr3;
 
 pub mod policy;
 
@@ -11,75 +11,6 @@ pub use policy::{EscapeDialect, EscapePolicy, HtmlPolicy, NullBytePolicy, XmlPol
 
 mod sealed {
     pub trait Sealed {}
-}
-
-/// Write a segment of source text to `buf`, applying the active dialect
-/// policy for NBSP and NULL bytes.
-///
-/// `segment` must start and end on character boundaries of the source text.
-/// Runs are only cut at a NUL byte or around a complete U+00A0, so every run
-/// handed to the buffer is valid UTF-8 on its own.
-#[inline(always)]
-#[allow(unsafe_code)]
-fn emit_with_policy<S, P>(buf: &mut S, segment: &[u8]) -> Result<(), WriteError>
-where
-    S: ?Sized + WriteBuf,
-    P: EscapePolicy,
-{
-    // `start` is the first byte not yet written; `scan` is where the search
-    // for the next special byte resumes.
-    let mut start = 0;
-    let mut scan = 0;
-    while scan < segment.len() {
-        let needle_hit = if P::ESCAPE_NBSP {
-            memchr2(0x00, 0xC2, &segment[scan..])
-        } else {
-            memchr(0x00, &segment[scan..])
-        };
-
-        let Some(pos) = needle_hit else {
-            break;
-        };
-
-        let abs = scan + pos;
-        if segment[abs] == 0x00 {
-            if abs > start {
-                // SAFETY: cut before an ASCII NUL.
-                unsafe { emit_source_run(buf, &segment[start..abs]) }?;
-            }
-            match P::NULL_BYTE {
-                NullBytePolicy::ReplaceWithReplacementChar => {
-                    buf.extend_static_str("\u{FFFD}")?;
-                }
-                NullBytePolicy::Reject => {
-                    return Err(WriteError::InvalidCharForDialect);
-                }
-            }
-            start = abs + 1;
-            scan = start;
-        } else {
-            debug_assert!(P::ESCAPE_NBSP);
-            if abs + 1 < segment.len() && segment[abs + 1] == 0xA0 {
-                if abs > start {
-                    // SAFETY: cut before the lead byte of U+00A0.
-                    unsafe { emit_source_run(buf, &segment[start..abs]) }?;
-                }
-                buf.extend_static_str("&nbsp;")?;
-                start = abs + 2;
-                scan = start;
-            } else {
-                // Some other U+0080..U+00BF character. Leave it in the pending
-                // run instead of ending a write on its lone lead byte.
-                scan = abs + 1;
-            }
-        }
-    }
-    if start < segment.len() {
-        // SAFETY: `start` is 0 or just past a complete character, and the
-        // segment ends on a character boundary.
-        unsafe { emit_source_run(buf, &segment[start..]) }?;
-    }
-    Ok(())
 }
 
 /// Pass a run of the source text through unchanged.
@@ -589,7 +520,7 @@ fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
         if bytes[i] == b'<' {
             // `</tag` closing tag (case-insensitive), with tag-end lookahead.
             if starts_with_close_tag(&bytes[i..], tag) {
-                flush_impl::<_, P>(buf, bytes, flush_start, i)?;
+                flush_impl::<_, P>(buf, s, flush_start, i)?;
                 buf.extend_static_str("<\\/")?;
                 let tag_end = i + 2 + tag.len();
                 // SAFETY: the matched tag name is ASCII.
@@ -600,7 +531,7 @@ fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
             }
             // `<tag` opening tag (case-insensitive), with tag-end lookahead.
             if starts_with_open_tag(&bytes[i..], tag) {
-                flush_impl::<_, P>(buf, bytes, flush_start, i)?;
+                flush_impl::<_, P>(buf, s, flush_start, i)?;
                 buf.extend_static_str("<\\")?;
                 let tag_end = i + 1 + tag.len();
                 // SAFETY: the matched tag name is ASCII.
@@ -611,7 +542,7 @@ fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
             }
             // `<!--` HTML comment start.
             if bytes[i..].starts_with(b"<!--") {
-                flush_impl::<_, P>(buf, bytes, flush_start, i)?;
+                flush_impl::<_, P>(buf, s, flush_start, i)?;
                 buf.extend_static_str("<\\!--")?;
                 i += 4;
                 flush_start = i;
@@ -622,15 +553,15 @@ fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
         // Regular HTML escape for `&`, `<`, `>`.
         match bytes[i] {
             b'&' => {
-                flush_impl::<_, P>(buf, bytes, flush_start, i)?;
+                flush_impl::<_, P>(buf, s, flush_start, i)?;
                 buf.extend_static_str("&amp;")?;
             }
             b'<' => {
-                flush_impl::<_, P>(buf, bytes, flush_start, i)?;
+                flush_impl::<_, P>(buf, s, flush_start, i)?;
                 buf.extend_static_str("&lt;")?;
             }
             b'>' => {
-                flush_impl::<_, P>(buf, bytes, flush_start, i)?;
+                flush_impl::<_, P>(buf, s, flush_start, i)?;
                 buf.extend_static_str("&gt;")?;
             }
             _ => unreachable!(),
@@ -640,21 +571,23 @@ fn escape_text_with_sentinel_in<P: EscapePolicy, B: WriteBuf>(
     }
 
     // Final flush of any trailing pass-through region.
-    if flush_start < bytes.len() {
-        emit_with_policy::<_, P>(buf, &bytes[flush_start..])?;
-    }
-    Ok(())
+    flush_impl::<_, P>(buf, s, flush_start, bytes.len())
 }
 
-/// Flush the pass-through region `[start, end)` into `buf`.
+/// Flush the pass-through region `s[start..end]` into `buf`.
+///
+/// A region lies between two of the bytes the loop above handles, so it holds
+/// no `&`, `<` or `>`, and the text scan leaves it alone except for what the
+/// dialect does with NUL and U+00A0. Both ends are character boundaries: each
+/// is the start or end of `s`, or sits next to an ASCII byte.
 #[inline(always)]
-fn flush_impl<S, P>(buf: &mut S, bytes: &[u8], start: usize, end: usize) -> Result<(), WriteError>
+fn flush_impl<S, P>(buf: &mut S, s: &str, start: usize, end: usize) -> Result<(), WriteError>
 where
     S: ?Sized + WriteBuf,
     P: EscapePolicy,
 {
     if start < end {
-        emit_with_policy::<_, P>(buf, &bytes[start..end])
+        escape_text_normal_scan::<_, P>(buf, &s[start..end])
     } else {
         Ok(())
     }
