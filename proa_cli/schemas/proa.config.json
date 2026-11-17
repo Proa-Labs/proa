@@ -2,17 +2,45 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://proa.so/schema/proa.config.json",
   "title": "Proa project configuration",
+  "$comment": "ProjectConfig and its nested structs default omitted fields. Metadata stored as serde_json::Value remains unconstrained here; consuming commands validate its shape.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "paths", "registries", "dev", "build"],
   "properties": {
     "$schema": {
-      "const": "https://proa.so/schema/proa.config.json"
+      "enum": ["https://proa.so/schema/proa.config.json", null]
+    },
+    "application": {
+      "description": "Application metadata retained by ProjectConfig. Its shape is interpreted by the consuming command."
+    },
+    "database": {
+      "description": "Database configuration retained by ProjectConfig. Its shape is interpreted by the consuming command."
+    },
+    "ui": {
+      "description": "UI provider configuration retained by ProjectConfig."
+    },
+    "representations": {
+      "description": "Document representation configuration retained by ProjectConfig."
+    },
+    "styling": {
+      "description": "Styling configuration retained by ProjectConfig."
+    },
+    "deploy": {
+      "description": "Deployment configuration retained by ProjectConfig. Its shape is interpreted by the consuming command."
+    },
+    "content": {
+      "description": "Content configuration retained by ProjectConfig."
+    },
+    "tasks": {
+      "type": "object",
+      "description": "Named task definitions. Task commands validate each definition when it is used.",
+      "additionalProperties": {}
+    },
+    "test": {
+      "description": "Test configuration retained by ProjectConfig. Its shape is interpreted by the consuming command."
     },
     "paths": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["components", "assets"],
       "properties": {
         "components": {
           "$ref": "#/$defs/relativePath",
@@ -21,13 +49,18 @@
         "assets": {
           "$ref": "#/$defs/relativePath",
           "default": "public/proa"
-        }
+        },
+        "pages": { "$ref": "#/$defs/optionalPath" },
+        "endpoints": { "$ref": "#/$defs/optionalPath" },
+        "layouts": { "$ref": "#/$defs/optionalPath" },
+        "models": { "$ref": "#/$defs/optionalPath" },
+        "public": { "$ref": "#/$defs/optionalPath" },
+        "runtimeData": { "$ref": "#/$defs/optionalPath" }
       }
     },
     "registries": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["@proa", "@proa-pro"],
+      "additionalProperties": { "$ref": "#/$defs/registryTemplate" },
       "properties": {
         "@proa": {
           "$ref": "#/$defs/registryTemplate",
@@ -42,11 +75,11 @@
     "dev": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command", "host", "port", "watch"],
       "properties": {
         "command": { "$ref": "#/$defs/command" },
         "host": { "type": "string", "minLength": 1 },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "before": { "$ref": "#/$defs/taskNames" },
         "watch": {
           "type": "array",
           "uniqueItems": true,
@@ -57,17 +90,20 @@
     "build": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command", "assets"],
       "properties": {
         "command": { "$ref": "#/$defs/command" },
+        "before": { "$ref": "#/$defs/taskNames" },
         "assets": {
-          "type": "array",
+          "type": ["array", "null"],
           "items": { "$ref": "#/$defs/asset" }
         }
       }
     }
   },
   "$defs": {
+    "optionalPath": {
+      "type": ["string", "null"]
+    },
     "relativePath": {
       "type": "string",
       "minLength": 1,
@@ -83,10 +119,13 @@
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
     },
+    "taskNames": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "asset": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "command", "input", "output"],
       "properties": {
         "kind": { "enum": ["tailwind", "command"] },
         "command": {
