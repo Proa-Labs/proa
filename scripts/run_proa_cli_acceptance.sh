@@ -18,6 +18,7 @@ readonly -a MAIN_SHARD_2=(
   rsjs_linked_site_codegen
   rsjs_build_wrapper
   cli
+  config_schema
   content_coverage
   live_lint
   markdown_syntax
@@ -63,6 +64,7 @@ readonly -a PR_SHARD_1B=(
   rsjs_pipeline
   rsjs_unit_projection
   rsjs_final
+  config_schema
   live_lint
   markdown_syntax
 )
