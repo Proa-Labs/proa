@@ -82,7 +82,7 @@ proa new site <fresh-staging-parent>/mcp-incident-desk --template app --database
 
 Preserve the generated application contract:
 
-- **Configuration:** `proa.config.json`, `proa.lock.json`, environment loading, and explicit app-binary selection alongside the reference-client binary.
+- **Configuration:** `proa.config.rs`, `proa.lock.json`, environment loading, and explicit app-binary selection alongside the reference-client binary.
 - **Database:** `src/db.rs`, `AppState.db`, `migrations/`, `data/`, and migration tracking in `build.rs`.
 - **Web structure:** registered pages/endpoints, source components, layouts, public assets, styling, and health/readiness routes.
 - **Lifecycle:** `proa dev`, `proa build`, `proa start`, and `proa test` remain the documented entry points.
@@ -151,7 +151,7 @@ Extend the generated structure. Component subdirectories follow the workspace's 
 ```text
 examples/mcp-incident-desk/
   DESIGN.md, README.md, Cargo.toml, build.rs
-  proa.config.json, proa.lock.json, .env.example, .gitignore
+  proa.config.rs, proa.lock.json, .env.example, .gitignore
   migrations/                       # Versioned up/down SQL
   data/.gitkeep                     # Database files ignored
   .local/                           # Ignored keys, TLS, client secret

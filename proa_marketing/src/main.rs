@@ -126,10 +126,6 @@ fn app() -> Router {
         .route(routes::INDEXNOW_KEY, get(endpoints::indexnow::key))
         .route(routes::SITEMAP, get(endpoints::sitemap::handler))
         .route(
-            "/schema/proa.config.json",
-            get(endpoints::schemas::project_config),
-        )
-        .route(
             "/schema/proa.lock.json",
             get(endpoints::schemas::component_lock),
         )
@@ -200,7 +196,6 @@ mod tests {
     #[tokio::test]
     async fn generated_project_schema_urls_are_served() {
         for path in [
-            "/schema/proa.config.json",
             "/schema/proa.lock.json",
             "/schema/ui-component-manifest-v1.json",
         ] {

@@ -14,7 +14,7 @@ use axum::extract::{
 };
 use axum::response::{IntoResponse, Response};
 use pin_project::{pin_project, pinned_drop};
-use proa_core::{CspNonce, RouteParam, RouteParams};
+use proa_core::{CspNonce, PublicAssetUrls, RouteParam, RouteParams};
 use proa_framework_core::{
     extract_route_params, ComputedRouteMeta, FrameworkRouteSnapshot, MetadataRef, ResolvedMetadata,
 };
@@ -37,6 +37,7 @@ pub struct RouteContext {
     request_headers: http::HeaderMap,
     csp_nonce: Option<CspNonce>,
     base_path: proa_core::BasePath,
+    public_asset_urls: Option<PublicAssetUrls>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -50,6 +51,7 @@ impl RouteContext {
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
             base_path: proa_core::BasePath::default(),
+            public_asset_urls: None,
             head: None,
         }
     }
@@ -60,6 +62,10 @@ impl RouteContext {
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
         &self.base_path
+    }
+
+    pub(super) fn public_asset_urls(&self) -> Option<PublicAssetUrls> {
+        self.public_asset_urls.clone()
     }
 
     pub(super) fn set_is_client_request(&mut self, is_client: bool) {
@@ -316,6 +322,7 @@ pub struct RouteContextLayer {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
+    public_asset_urls: Option<PublicAssetUrls>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -328,6 +335,7 @@ impl RouteContextLayer {
             computed_metadata,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
+            public_asset_urls: None,
             head: None,
         }
     }
@@ -341,6 +349,11 @@ impl RouteContextLayer {
     /// Set the public mount prefix without changing incoming routes.
     pub fn with_base_path(mut self, base_path: proa_core::BasePath) -> Self {
         self.base_path = base_path;
+        self
+    }
+
+    pub(crate) fn with_public_asset_urls(mut self, urls: Option<PublicAssetUrls>) -> Self {
+        self.public_asset_urls = urls;
         self
     }
 
@@ -360,6 +373,7 @@ impl<S> Layer<S> for RouteContextLayer {
             computed_metadata: self.computed_metadata.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
+            public_asset_urls: self.public_asset_urls.clone(),
             head: self.head.clone(),
         }
     }
@@ -371,6 +385,7 @@ pub struct RouteContextService<S> {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
+    public_asset_urls: Option<PublicAssetUrls>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -407,6 +422,7 @@ where
         context.set_current_request_parts(current_method, current_headers, current_uri);
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
+        context.public_asset_urls = self.public_asset_urls.clone();
 
         if prepare_ascii_params(&req, &mut context) {
             // Static and ordinary named paths keep the original ready-service

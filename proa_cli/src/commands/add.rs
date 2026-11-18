@@ -96,10 +96,12 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
     let root = resolve_config_root(args.root)?;
     let _accept_defaults = args.yes;
     let _offline = args.offline;
-    let config_path = root.join(config::CONFIG_FILE);
+    let config_path =
+        config::project_config_path(&root).context("initialize project config with proa init")?;
+    let original_source = fs::read_to_string(&config_path)?;
     let lock_path = root.join(config::LOCK_FILE);
-    let mut config_value: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&config_path)?)?;
+    let mut config_value = serde_json::to_value(config::load_project_config(&root)?)?;
+    let original_config = config_value.clone();
     let mut lock_value: serde_json::Value = if lock_path.exists() {
         serde_json::from_str(&fs::read_to_string(&lock_path)?)?
     } else {
@@ -210,10 +212,14 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         }
     };
     add_capability_lock(&mut lock_value, id, partial)?;
-    let config_source = format!("{}\n", serde_json::to_string_pretty(&config_value)?);
+    let config_source =
+        config::add_rust_capability(&original_source, &original_config, &config_value)?;
     let lock_source = format!("{}\n", serde_json::to_string_pretty(&lock_value)?);
     let mut mutations = vec![
-        (PathBuf::from(config::CONFIG_FILE), config_source),
+        (
+            PathBuf::from(config_path.file_name().context("config filename")?),
+            config_source,
+        ),
         (PathBuf::from(config::LOCK_FILE), lock_source),
     ];
     for (relative, source) in files {
@@ -249,6 +255,12 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         },
     };
     if !args.dry_run {
+        if fs::read_to_string(&config_path)? != original_source {
+            anyhow::bail!(
+                "{} changed during capability preparation; rerun proa add",
+                config_path.display()
+            );
+        }
         commit(&root, &mutations)?;
     }
     if args.json {

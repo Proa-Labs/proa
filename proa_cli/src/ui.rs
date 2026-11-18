@@ -2257,7 +2257,7 @@ fn fetch_error_to_anyhow(registry: &str, slug: &str, error: FetchError) -> anyho
         FetchError::Failed(detail) => anyhow::anyhow!(
             "could not fetch component `{registry}/{slug}`: {detail}. \
              Component artifacts may not be published at the configured endpoint yet. \
-             Check `proa.config.json` with `proa registry list`. No project files were changed."
+             Check `proa.config.rs` with `proa registry list`. No project files were changed."
         ),
     }
 }

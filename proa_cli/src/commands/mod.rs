@@ -33,6 +33,8 @@ mod test;
 mod ui;
 mod update;
 
+use std::ffi::OsString;
+
 use anyhow::Result;
 use clap::Subcommand;
 
@@ -42,19 +44,19 @@ pub(crate) enum Command {
     Update(update::UpdateArgs),
     #[command(name = "install-self", hide = true)]
     InstallSelf(update::InstallSelfArgs),
-    /// Initialize proa.config.json and proa.lock.json in an existing project.
+    /// Initialize proa.config.rs and proa.lock.json in an existing project.
     Init(init::InitArgs),
-    /// Inspect and validate proa.config.json.
+    /// Inspect and validate proa.config.rs.
     Config(config::ConfigArgs),
     /// Add an application capability to an existing Proa project.
     Add(add::AddArgs),
     /// Create a new Proa project.
     New(new::NewArgs),
-    /// Build one exact linked server and restart it from persistent caches when files change.
+    /// Run the project's dev script or watch and restart its linked server.
     Dev(dev::DevArgs),
     /// Deploy through transparent provider-native workflows.
     Deploy(deploy::DeployArgs),
-    /// Build assets and compile one exact Proa binary through the linked RSJS pipeline.
+    /// Run the project's build script or build one exact linked binary and its assets.
     Build(build::BuildArgs),
     /// Create, migrate, inspect, reset, or remove the configured database.
     Db(db::DbArgs),
@@ -64,7 +66,7 @@ pub(crate) enum Command {
     Start(start::StartArgs),
     /// Run application tests with linked compilation and isolated database state.
     Test(test::TestArgs),
-    /// Run a structured application-specific task from proa.config.json.
+    /// Run a structured application-specific task from proa.config.rs.
     Task(task::TaskArgs),
     /// Generate files inside an existing Proa project.
     Generate(generate::GenerateArgs),
@@ -91,7 +93,7 @@ pub(crate) enum Command {
     Font(font::FontArgs),
 }
 
-pub(crate) fn dispatch(command: Command) -> Result<()> {
+pub(crate) fn dispatch(command: Command, arguments: &[OsString]) -> Result<()> {
     match command {
         Command::Update(args) => update::run(args),
         Command::InstallSelf(args) => update::install_self(args),
@@ -99,9 +101,9 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::Config(args) => config::run(args),
         Command::Add(args) => add::run(args),
         Command::New(args) => new::run(args),
-        Command::Dev(args) => dev::run(args),
+        Command::Dev(args) => dev::run(args, arguments),
         Command::Deploy(args) => deploy::run(args),
-        Command::Build(args) => build::run(args),
+        Command::Build(args) => build::run(args, arguments),
         Command::Db(args) => db::run(args),
         Command::Run(args) => run::run(args),
         Command::Start(args) => start::run(args),

@@ -38,10 +38,10 @@ reqwest = { workspace = true, features = ["blocking"] }
 rsjs_ir = { workspace = true }
 rsjs_transport = { workspace = true, features = ["extract"] }
 serde = { workspace = true }
-serde_ignored = { version = "0.1" }
 serde_json = { workspace = true }
 semver = { version = "1" }
 sha2 = { workspace = true }
+shlex = "1.3"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate"] }
 syn = { workspace = true, features = ["full", "visit"] }
 thiserror = { workspace = true }

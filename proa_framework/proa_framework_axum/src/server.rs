@@ -74,6 +74,7 @@ where
     let graceful = GracefulShutdown::new();
     let mut connections = JoinSet::new();
     tokio::pin!(shutdown);
+    crate::DevServerStartup::http_listener_ready(&listener)?;
 
     loop {
         tokio::select! {

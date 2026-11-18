@@ -113,15 +113,25 @@ For Cloudflare, proxy your hostname and create a Cache Rule for your public HTML
 
 Add `cdn` to your existing `deploy` configuration, using your zone ID and application hostname:
 
-```json filename="proa.config.json"
-{
-  "deploy": {
-    "cdn": {
-      "provider": "cloudflare",
-      "zoneId": "your-cloudflare-zone-id",
-      "hostname": "www.example.com"
-    }
-  }
+```rust filename="proa.config.rs"
+use proa_config::{Config, json::json, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        deploy: Some(json!({
+            "cdn": {
+                "provider": "cloudflare",
+                "zoneId": "your-cloudflare-zone-id",
+                "hostname": "www.example.com"
+            }
+        })),
+        ..Config::default()
+    })
 }
 ```
 
@@ -135,19 +145,33 @@ If your hosting platform already invalidates its cache on deployment, use that w
 
 For a provider with an invalidation CLI, configure its command once. For example, with the [AWS CloudFront CLI](https://docs.aws.amazon.com/cli/latest/reference/cloudfront/create-invalidation.html):
 
-```json filename="proa.config.json"
-{
-  "deploy": {
-    "cdn": {
-      "provider": "command",
-      "command": [
-        "aws", "cloudfront", "create-invalidation",
-        "--distribution-id", "YOUR_DISTRIBUTION_ID",
-        "--paths", "/*",
-        "--no-cli-pager"
-      ]
-    }
-  }
+```rust filename="proa.config.rs"
+use proa_config::{Config, json::json, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        deploy: Some(json!({
+            "cdn": {
+                "provider": "command",
+                "command": [
+                    "aws",
+                    "cloudfront",
+                    "create-invalidation",
+                    "--distribution-id",
+                    "YOUR_DISTRIBUTION_ID",
+                    "--paths",
+                    "/*",
+                    "--no-cli-pager"
+                ]
+            }
+        })),
+        ..Config::default()
+    })
 }
 ```
 

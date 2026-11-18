@@ -44,8 +44,14 @@ dependency trees.
 |--------|---------|
 | `route` | `Route`, `RouteResponse`, layouts, metadata cascade, route context layer |
 | `static_service` | Serves embedded static assets (`EmbeddedStaticService`) |
+| `public_assets` | Startup URL resolution and manifest-only serving for copied public files |
 | `readiness` | Generic, timeout-bounded dependency probes for `/readyz` |
 | `server` | Signal-aware Axum accept loop with bounded graceful draining |
+
+For build-time fingerprinting of public images, media and downloads, see
+[managed public assets](../../docs/build-output.md). `FrameworkBuilder`
+mounts the catalog from `PROA_PUBLIC_ASSETS` at startup and enables
+`cx.url("public/...")` in components, including detached streams.
 
 ## Route responses
 

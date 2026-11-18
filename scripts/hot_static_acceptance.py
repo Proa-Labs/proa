@@ -30,15 +30,34 @@ def main():
     assert original != original_source, 'fixture needs class="original"'
     original = original.replace('</h1>',
         '</h1><aside>{self.title}"GAP_LEFT_A"{self.value}""{self.title}</aside>', 1)
-    config_path = root / 'proa.config.json'
-    original_config = config_path.read_bytes() if config_path.exists() else None
-    config = json.loads(original_config) if original_config else {}
-    config.setdefault('tasks', {})['probe_hot_generation'] = {'command': [sys.executable, '-c',
-        'from pathlib import Path; p=Path("src/page_0.rs"); s=p.read_text(); '
-        'n=s.replace("HOOK_PENDING_A", "EDIT_MARKER_A").replace("HOOK_PENDING_B", "HOOK_PUBLISHED"); '
-        'p.write_text(n) if n != s else None']}
-    config.setdefault('dev', {}).setdefault('before', []).append('probe_hot_generation')
-    config_path.write_text(json.dumps(config, indent=2) + '\n')
+    config_path = root / 'proa.config.rs'
+    assert not config_path.exists(), 'hot-static fixture must not define project config'
+    hook = ('from pathlib import Path; p=Path("src/page_0.rs"); s=p.read_text(); '
+            'n=s.replace("HOOK_PENDING_A", "EDIT_MARKER_A").replace("HOOK_PENDING_B", "HOOK_PUBLISHED"); '
+            'p.write_text(n) if n != s else None')
+    command = ', '.join(json.dumps(arg, ensure_ascii=False) + '.into()'
+                        for arg in [sys.executable, '-c', hook])
+    config_path.write_text(f"""use std::collections::BTreeMap;
+use proa_config::{{Config, DevConfig, Result, ScriptConfig, ScriptsConfig}};
+
+pub async fn config() -> Result<Config> {{
+    Ok(Config {{
+        scripts: ScriptsConfig {{
+            dev: "cargo run",
+            build: "cargo build --release",
+            named: BTreeMap::from([("probe_hot_generation".into(), ScriptConfig {{
+                command: vec![{command}],
+                ..Default::default()
+            }})]),
+        }},
+        dev: DevConfig {{
+            before: vec!["probe_hot_generation".into()],
+            ..Default::default()
+        }},
+        ..Config::default()
+    }})
+}}
+""")
     source.write_text(original.replace('EDIT_MARKER_A', 'HOOK_PENDING_A'))
     environment = dict(os.environ, CARGO_TARGET_DIR=str(root / 'target'))
     for key in ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER']:
@@ -140,10 +159,7 @@ def main():
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
         source.write_text(original_source)
-        if original_config is None:
-            config_path.unlink(missing_ok=True)
-        else:
-            config_path.write_bytes(original_config)
+        config_path.unlink(missing_ok=True)
         output = root / 'target/probe-logs/hot-acceptance.json'
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps({'command':command, 'checks':checks, 'events':events},indent=2)+'\n')

@@ -425,34 +425,42 @@ fn readiness_waits_for_a_listener_and_gives_up_on_a_dead_port() {
         "127.0.0.1",
         port,
         Duration::from_secs(5),
-        &mut || true
-    ));
+        &mut || true,
+        None
+    )
+    .is_some());
     // An unrelated listener must not make an exited server look ready.
-    assert!(!wait_until_serving(
+    assert!(wait_until_serving(
         "127.0.0.1",
         port,
         Duration::from_secs(5),
-        &mut || false
-    ));
+        &mut || false,
+        None
+    )
+    .is_none());
 
     drop(listener);
     let started = Instant::now();
-    assert!(!wait_until_serving(
+    assert!(wait_until_serving(
         "127.0.0.1",
         port,
         Duration::from_millis(200),
-        &mut || true
-    ));
+        &mut || true,
+        None
+    )
+    .is_none());
     assert!(started.elapsed() < Duration::from_secs(5));
 
     // A server that died on boot is never going to answer, so the wait ends
     // immediately rather than burning the whole timeout.
     let started = Instant::now();
-    assert!(!wait_until_serving(
+    assert!(wait_until_serving(
         "127.0.0.1",
         port,
         Duration::from_secs(30),
-        &mut || false
-    ));
+        &mut || false,
+        None
+    )
+    .is_none());
     assert!(started.elapsed() < Duration::from_secs(2));
 }

@@ -19,7 +19,7 @@ pub(crate) struct RegistryArgs {
 
 #[derive(Debug, Subcommand)]
 enum RegistryCommand {
-    /// Print component registry aliases from proa.config.json.
+    /// Print component registry aliases from proa.config.rs.
     List(RegistryListArgs),
 }
 

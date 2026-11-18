@@ -24,6 +24,9 @@ use rsjs_transport::TRANSPORT_FORMAT_VERSION;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+mod entrypoint;
+mod public_assets;
+mod readiness;
 mod reload;
 
 use reload::{ReloadEvent, ReloadServer};
@@ -62,7 +65,7 @@ pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
 /// precision the poller cannot deliver.
 const DEV_WATCH_MIN_DEBOUNCE: Duration = DEV_WATCH_POLL;
 /// How long startup and restart probes wait for the server. A startup timeout
-/// leaves the browser closed; a restart timeout still reloads existing tabs.
+/// leaves the browser closed and a restart timeout reports a failed reload.
 const DEV_READY_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub struct DevOptions {
@@ -152,6 +155,7 @@ struct LinkedDevLaunch {
     descriptor_artifacts: usize,
     reused_descriptor_artifacts: usize,
     reused_final_artifacts: usize,
+    public_assets: Option<PathBuf>,
 }
 
 struct LinkedDevRebuild {
@@ -163,18 +167,34 @@ struct LinkedDevRebuild {
 }
 
 pub fn dev(options: DevOptions) -> Result<()> {
+    dev_from_cli(options, None)
+}
+
+pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
-    let config = load_dev_config(&root, &options)?;
+    let mut runner = crate::config::DevConfigRunner::default();
+    let mut config = load_dev_config(&root, &options, Some(&mut runner))?;
+    let mut watched_script = entrypoint::WatchedDevScript::new(
+        &config.scripts.dev,
+        arguments.is_some() && options.command.is_empty(),
+    );
+    if let Some(arguments) = arguments.filter(|_| options.command.is_empty()) {
+        if entrypoint::run_script(
+            &root,
+            LinkedCargoAction::Dev,
+            &config.scripts.dev,
+            arguments,
+        )? {
+            return Ok(());
+        }
+    }
     // Reject an impossible watch window before anything is built, bound, or
     // spawned. A flag error should cost nothing to recover from.
     let debounce = dev_watch_debounce(&options)?;
+    let command = dev_command(&config, &options)?;
     install_dev_signal_handler();
 
     println!("Proa dev root: {}", root.display());
-    println!(
-        "Proa dev URL: {}",
-        dev_url(&config.dev.host, config.dev.port)
-    );
     println!("Building your site. The first build downloads dependencies and compiles crates; this can take several minutes.");
     if options.open {
         println!("The browser will open when the server is ready.");
@@ -187,14 +207,22 @@ pub fn dev(options: DevOptions) -> Result<()> {
         }
         let hot_state = hot_scan_or_rustc_diagnostics(
             &root,
-            &config.dev.command,
+            &config,
+            &command,
             None,
             options
                 .hot_static
                 .then(|| crate::hot_static::HotState::prepare(&root))
                 .transpose(),
         )?;
-        let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
+        let source = public_assets::source(&root, &config, !options.no_assets)?;
+        let launch = run_linked_dev_cycle(
+            &root,
+            &config,
+            &command,
+            hot_state.as_ref(),
+            source.as_deref(),
+        )?;
         return run_linked_dev_foreground(
             &root,
             &launch,
@@ -207,9 +235,6 @@ pub fn dev(options: DevOptions) -> Result<()> {
     // Live reload is a watch-mode feature. Without restarts there is nothing
     // to announce, so a one-shot run never pays for the event server.
     let reload = start_reload_server(&config, &options);
-    let session = reload
-        .as_ref()
-        .map(|server| (server.port(), server.token().to_string()));
 
     if !options.no_assets {
         build_assets(&root, &config)?;
@@ -218,53 +243,118 @@ pub fn dev(options: DevOptions) -> Result<()> {
     let baseline = watch_snapshot(&root, &watch_paths)?;
     let mut hot_state = hot_scan_or_rustc_diagnostics(
         &root,
-        &config.dev.command,
+        &config,
+        &command,
         None,
         options
             .hot_static
             .then(|| crate::hot_static::HotState::prepare(&root))
             .transpose(),
     )?;
-    let launch = run_linked_dev_cycle(&root, &config.dev.command, hot_state.as_ref())?;
+    let source = public_assets::source(&root, &config, !options.no_assets)?;
+    let mut launch = run_linked_dev_cycle(
+        &root,
+        &config,
+        &command,
+        hot_state.as_ref(),
+        source.as_deref(),
+    )?;
     let mut child = spawn_linked_dev(
         &root,
         &launch,
         &config.dev.host,
         config.dev.port,
-        session.as_ref(),
+        reload.as_ref(),
     )?;
-    set_active_child_group(&child);
     announce_dev_start(options.open, &config.dev.host, config.dev.port, &mut child);
 
     let clock = Instant::now();
     let mut debouncer = DevWatchDebouncer::new(baseline, debounce);
+    let mut retry_catalog_at = Instant::now();
+    let mut last_build_failed = false;
 
     loop {
-        if let Some(status) = child.try_wait().context("poll linked dev server")? {
+        if let Some(status) = child.process.try_wait().context("poll linked dev server")? {
             clear_active_child_group();
             return exit_status_to_result(status, "linked dev server");
         }
 
         thread::sleep(debouncer.next_poll_delay(clock.elapsed()));
         let current = watch_snapshot(&root, &watch_paths)?;
-        let DevWatchDecision::Ready(trigger_snapshot) = debouncer.observe(clock.elapsed(), current)
-        else {
-            continue;
+        // Observe only disappearance. Publishing atomically replaces the manifest,
+        // and neither that write nor ordinary Cargo activity should trigger a build.
+        let missing_catalog = launch
+            .public_assets
+            .as_ref()
+            .is_some_and(|output| !output.join(proa_build::assets::MANIFEST_FILE).is_file());
+        let trigger_snapshot = match debouncer.observe(clock.elapsed(), current) {
+            DevWatchDecision::Ready(changed) => changed,
+            DevWatchDecision::Idle if missing_catalog && Instant::now() >= retry_catalog_at => {
+                retry_catalog_at = Instant::now() + Duration::from_secs(2);
+                if !last_build_failed && launch.executable.is_file() {
+                    let output = launch
+                        .public_assets
+                        .as_ref()
+                        .expect("missing active catalog");
+                    let source = public_assets::source(&root, &config, true)?;
+                    if let Err(error) = public_assets::publish(source.as_deref(), output) {
+                        eprintln!("could not restore the public asset catalog: {error:#}");
+                        notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
+                        continue;
+                    }
+                    println!("restored the public asset catalog without Cargo");
+                    // A recreated output directory has a new reader lock. Reopen
+                    // it even when all URLs still point to exactly the same bytes.
+                    child.restart(&root, &launch, &config.dev, None, reload.as_ref())?;
+                    retry_catalog_at = Instant::now();
+                    continue;
+                }
+                // Rebuild after a full clean or a failed edit. Publishing the
+                // failed candidate's assets could disagree with the live app.
+                debouncer.committed.clone()
+            }
+            _ => continue,
         };
 
         notify(reload.as_ref(), &ReloadEvent::Building);
         let mut failure_snapshot = trigger_snapshot;
-        let inputs = prepare_dev_inputs(
-            &root,
-            &options,
-            &debouncer.committed,
-            hot_state.as_ref(),
-            &mut failure_snapshot,
-            &mut watch_paths,
-        );
+        let changed = changed_paths(&debouncer.committed, &failure_snapshot);
+        let asset_edit = !changed.is_empty()
+            && changed.iter().all(|path| {
+                config
+                    .paths
+                    .public
+                    .as_ref()
+                    .is_some_and(|public| path.starts_with(public))
+                    || path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("css"))
+            });
+        if !asset_edit {
+            runner.invalidate();
+        }
+        let evaluated = load_dev_config(&root, &options, Some(&mut runner)).and_then(|mut next| {
+            if let Some(script) = &mut watched_script {
+                script.apply(&mut next.scripts.dev)?;
+            }
+            Ok(next)
+        });
+        let inputs = evaluated.and_then(|next| {
+            prepare_dev_inputs(
+                &root,
+                next,
+                &options,
+                &debouncer.committed,
+                hot_state.as_ref(),
+                &mut failure_snapshot,
+                &mut watch_paths,
+            )
+        });
         let inputs = match inputs {
             Ok(inputs) => inputs,
             Err(error) => {
+                last_build_failed = true;
+                retry_catalog_at = Instant::now() + Duration::from_secs(2);
                 eprintln!(
                     "dev preparation failed; keeping the last valid server running:\n{error:#}"
                 );
@@ -279,14 +369,14 @@ pub fn dev(options: DevOptions) -> Result<()> {
             css_only,
             hot_update,
         } = inputs;
-        if css_only {
+        if css_only && !missing_catalog {
             println!("stylesheet change stabilized; rebuilt assets without restarting");
             watch_paths = next_config.dev.watch.clone();
             debouncer.commit(snapshot);
             notify(reload.as_ref(), &ReloadEvent::Css);
             continue;
         }
-        if let Some(mut update) = hot_update {
+        if let Some(mut update) = hot_update.filter(|_| !missing_catalog) {
             match update.activate() {
                 Ok(()) => {
                     println!(
@@ -306,6 +396,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
         println!("change stabilized; rebuilding linked RSJS dev server");
         let rebuild = (|| -> Result<LinkedDevRebuild> {
             let next_watch_paths = next_config.dev.watch.clone();
+            let command = dev_command(&next_config, &options)?;
             // Capture the exact source/config state handed to this cycle after
             // asset generation. A change during Cargo will differ on the next
             // poll and schedule another cycle rather than being swallowed.
@@ -316,15 +407,22 @@ pub fn dev(options: DevOptions) -> Result<()> {
             // Cargo must differ from that snapshot on the next poll.
             let next_hot_state = hot_scan_or_rustc_diagnostics(
                 &root,
-                &next_config.dev.command,
+                &next_config,
+                &command,
                 hot_state.as_ref(),
                 hot_state
                     .as_ref()
                     .map(|state| state.candidate(&root))
                     .transpose(),
             )?;
-            let launch =
-                run_linked_dev_cycle(&root, &next_config.dev.command, next_hot_state.as_ref())?;
+            let source = public_assets::source(&root, &next_config, !options.no_assets)?;
+            let launch = run_linked_dev_cycle(
+                &root,
+                &next_config,
+                &command,
+                next_hot_state.as_ref(),
+                source.as_deref(),
+            )?;
             Ok(LinkedDevRebuild {
                 config: next_config,
                 watch_paths: next_watch_paths,
@@ -346,30 +444,24 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan {}",
                     next_launch.plan_id
                 );
-                stop_child(&mut child)?;
-                clear_active_child_group();
-                if let Some(state) = &mut next_hot_state {
-                    state.activate()?;
-                }
-                child = spawn_linked_dev(
+                child.restart(
                     &root,
                     &next_launch,
-                    &next_config.dev.host,
-                    next_config.dev.port,
-                    session.as_ref(),
+                    &next_config.dev,
+                    next_hot_state.as_mut(),
+                    reload.as_ref(),
                 )?;
-                set_active_child_group(&child);
+                config = next_config;
+                launch = next_launch;
+                retry_catalog_at = Instant::now();
+                last_build_failed = false;
                 hot_state = next_hot_state;
                 watch_paths = next_watch_paths;
                 debouncer = DevWatchDebouncer::new(cycle_snapshot, debounce);
-                announce_reload(
-                    reload.as_ref(),
-                    &next_config.dev.host,
-                    next_config.dev.port,
-                    &mut child,
-                );
             }
             Err(error) => {
+                last_build_failed = true;
+                retry_catalog_at = Instant::now() + Duration::from_secs(2);
                 eprintln!(
                     "linked dev rebuild failed; keeping the last valid server running:\n{error:#}"
                 );
@@ -391,13 +483,13 @@ struct PreparedDevInputs {
 
 fn prepare_dev_inputs(
     root: &Path,
+    config: ProjectConfig,
     options: &DevOptions,
     committed: &WatchSnapshot,
     hot_state: Option<&crate::hot_static::HotState>,
     failure_snapshot: &mut WatchSnapshot,
     watch_paths: &mut Vec<PathBuf>,
 ) -> Result<PreparedDevInputs> {
-    let config = load_dev_config(root, options)?;
     // Failure snapshots must use the same watch set as the next poll, even
     // when a config edit changes watched paths and preparation then fails.
     *watch_paths = config.dev.watch.clone();
@@ -409,9 +501,12 @@ fn prepare_dev_inputs(
     *failure_snapshot = snapshot.clone();
     tasks?;
     let changed = changed_paths(committed, &snapshot);
-    let css_only =
-        !options.no_css_hot_swap && !options.no_assets && is_stylesheet_only_change(&changed);
-    let hot_update = if css_only {
+    let managed_public = !options.no_assets && config.paths.public.is_some();
+    let css_only = !managed_public
+        && !options.no_css_hot_swap
+        && !options.no_assets
+        && is_stylesheet_only_change(&changed);
+    let mut hot_update = if css_only {
         None
     } else if let Some(state) = hot_state {
         match state.prepare_update(root, &changed) {
@@ -426,6 +521,19 @@ fn prepare_dev_inputs(
     };
     if !options.no_assets {
         build_assets(root, &config)?;
+    }
+    if managed_public {
+        let after_assets = watch_snapshot(root, &config.dev.watch)?;
+        if config.paths.public.as_ref().is_some_and(|public| {
+            changed_paths(committed, &after_assets)
+                .iter()
+                .any(|path| path.starts_with(public))
+        }) {
+            // The running server holds a fixed public catalog. Restart it when
+            // inputs (including generated files) change. Keep the pre-command
+            // snapshot so concurrent authored edits still schedule another cycle.
+            hot_update = None;
+        }
     }
     Ok(PreparedDevInputs {
         config,
@@ -514,22 +622,19 @@ fn dev_url(host: &str, port: u16) -> String {
     }
 }
 
-fn announce_dev_start(open: bool, host: &str, port: u16, child: &mut Child) {
-    let url = dev_url(host, port);
-    println!("Waiting for the server to accept connections at {url}...");
-    let mut still_running = || matches!(child.try_wait(), Ok(None));
-    if reload::wait_until_serving(host, port, DEV_READY_TIMEOUT, &mut still_running) {
+fn announce_dev_start(open: bool, host: &str, port: u16, child: &mut DevChild) {
+    println!("Waiting for the dev server to be ready...");
+    if let Some(url) = child.ready_url(host, port) {
         println!("Proa dev ready: {url}");
         if open {
             open_url(&url);
         }
-    } else if let Ok(Some(status)) = child.try_wait() {
-        eprintln!("Proa dev server exited before accepting connections ({status}).");
-    } else {
-        eprintln!("Proa dev server did not accept a connection within {}s at {url}; the server process is still running.", DEV_READY_TIMEOUT.as_secs());
-        if open {
-            eprintln!("The browser was not opened. Open {url} once the server is ready.");
+    } else if let Ok(Some(status)) = child.process.try_wait() {
+        if open || !status.success() {
+            eprintln!("Proa dev server exited before accepting connections ({status}).");
         }
+    } else {
+        eprintln!("Proa dev server is still running and has not reported readiness within {}s (configured listener {host}:{port}).", DEV_READY_TIMEOUT.as_secs());
     }
 }
 
@@ -540,8 +645,8 @@ fn open_url(url: &str) {
     let mut command = Command::new("xdg-open");
     #[cfg(target_os = "windows")]
     let mut command = {
-        let mut command = Command::new("cmd");
-        command.args(["/C", "start", ""]);
+        let mut command = Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler");
         command
     };
     if let Err(error) = command.arg(url).spawn() {
@@ -553,32 +658,24 @@ fn open_url(url: &str) {
 ///
 /// Reloading into a connection-refused error page is the failure mode that
 /// makes naive live reload feel broken, so readiness is confirmed first.
-fn announce_reload(reload: Option<&ReloadServer>, host: &str, port: u16, child: &mut Child) {
-    let Some(reload) = reload else { return };
-
-    let mut still_running = || !matches!(child.try_wait(), Ok(Some(_)));
-    if reload::wait_until_serving(host, port, DEV_READY_TIMEOUT, &mut still_running) {
-        reload.broadcast(&ReloadEvent::Reload);
+fn announce_reload(reload: Option<&ReloadServer>, host: &str, port: u16, child: &mut DevChild) {
+    if let Some(url) = child.ready_url(host, port) {
+        println!("Proa dev ready: {url}");
+        notify(reload, &ReloadEvent::Reload);
         return;
     }
 
     // A server that exits on boot is a result the developer needs to see.
-    if let Ok(Some(status)) = child.try_wait() {
+    if let Ok(Some(status)) = child.process.try_wait() {
         let detail = format!("the rebuilt server exited with {status}");
         eprintln!("live reload: {detail}");
-        reload.broadcast(&ReloadEvent::Failed(detail));
+        notify(reload, &ReloadEvent::Failed(detail));
         return;
     }
 
-    // The process is alive but the probe never connected. The build did
-    // succeed, so this is far more likely to be a readiness check looking at
-    // the wrong address than a broken server, and refusing to reload would
-    // leave a stale page with no explanation. Reload and say what happened.
-    eprintln!(
-        "live reload: {host}:{port} did not accept a connection within {}s; reloading anyway",
-        DEV_READY_TIMEOUT.as_secs()
-    );
-    reload.broadcast(&ReloadEvent::Reload);
+    let detail = format!("the rebuilt server has not reported readiness within {}s (configured listener {host}:{port})", DEV_READY_TIMEOUT.as_secs());
+    eprintln!("live reload: {detail}");
+    notify(reload, &ReloadEvent::Failed(detail));
 }
 
 /// Paths whose stamp differs between two snapshots, including deletions.
@@ -610,9 +707,27 @@ fn is_stylesheet_only_change(changed: &[PathBuf]) -> bool {
         })
 }
 
-fn load_dev_config(root: &Path, options: &DevOptions) -> Result<ProjectConfig> {
-    let mut config = load_project_config(root)?;
+fn load_dev_config(
+    root: &Path,
+    options: &DevOptions,
+    runner: Option<&mut crate::config::DevConfigRunner>,
+) -> Result<ProjectConfig> {
+    let mut config = crate::config::load_project_config_with_runner(root, runner)?;
     apply_dev_overrides(&mut config, options);
+    let rust_config = PathBuf::from(crate::config::CONFIG_FILE);
+    if root.join(&rust_config).is_file() && !config.dev.watch.contains(&rust_config) {
+        config.dev.watch.push(rust_config);
+    }
+    if public_assets::source(root, &config, !options.no_assets)?.is_some() {
+        let public = config
+            .paths
+            .public
+            .clone()
+            .expect("configured public source");
+        if !config.dev.watch.contains(&public) {
+            config.dev.watch.push(public);
+        }
+    }
     Ok(config)
 }
 
@@ -660,13 +775,33 @@ fn install_dev_signal_handler() {
 }
 
 pub fn build(options: BuildOptions) -> Result<()> {
+    build_from_cli(options, None)
+}
+
+pub(crate) fn build_from_cli(options: BuildOptions, arguments: Option<&[OsString]>) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let config = load_project_config(&root)?;
-    let command = build_command(&config, &options);
+    if let Some(arguments) = arguments.filter(|_| options.command.is_empty()) {
+        if entrypoint::run_script(
+            &root,
+            LinkedCargoAction::Build,
+            &config.scripts.build,
+            arguments,
+        )? {
+            return Ok(());
+        }
+    }
+    let command = build_command(&config, &options)?;
     // Validate and resolve the exact Cargo root before running configured asset
     // commands. An unsupported deployment command must fail without partially
     // executing a build.
-    let prepared = prepare_linked_cargo(&root, &command, LinkedCargoAction::Build)?;
+    let prepared = prepare_linked_cargo_with_environment(
+        &root,
+        &command,
+        LinkedCargoAction::Build,
+        &rsjs_minify_environment(config.build.minify_rsjs),
+    )?;
+    let public_source = public_assets::source(&root, &config, !options.no_assets)?;
     let artifact_destination = options
         .artifact_out
         .as_deref()
@@ -681,7 +816,7 @@ pub fn build(options: BuildOptions) -> Result<()> {
 
     task::run_lifecycle_tasks(&root, &config, &config.build.before, &BTreeMap::new())?;
     if !options.no_check {
-        run_project_check(&root)?;
+        run_project_check(&root, &config)?;
     }
     if !options.no_assets {
         build_assets(&root, &config)?;
@@ -692,6 +827,7 @@ pub fn build(options: BuildOptions) -> Result<()> {
         .context("linked RSJS build failed")?;
     print_linked_cache_reuse(LinkedCargoAction::Build, &output);
     print_linked_cargo_output(LinkedCargoAction::Build, &prepared.request, &output);
+    public_assets::publish(public_source.as_deref(), &prepared.public_output_directory)?;
     if let Some(destination) = artifact_destination.as_deref() {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
@@ -712,8 +848,8 @@ pub fn build(options: BuildOptions) -> Result<()> {
 
 pub fn check(mut options: CheckOptions) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
+    let config = load_project_config(&root)?;
     if options.bin.is_none() {
-        let config = load_project_config(&root)?;
         options.bin = config
             .application
             .as_ref()
@@ -722,7 +858,12 @@ pub fn check(mut options: CheckOptions) -> Result<()> {
             .map(ToString::to_string);
     }
     let command = check_command(&options);
-    let prepared = prepare_linked_cargo(&root, &command, LinkedCargoAction::Check)?;
+    let prepared = prepare_linked_cargo_with_environment(
+        &root,
+        &command,
+        LinkedCargoAction::Check,
+        &rsjs_minify_environment(config.build.minify_rsjs),
+    )?;
 
     println!("running linked RSJS Cargo check: {}", shellish(&command));
     let output = run_linked_cargo_cached(&prepared.request, &prepared.descriptor_cache_directory)
@@ -735,7 +876,14 @@ pub fn check(mut options: CheckOptions) -> Result<()> {
 pub fn run(options: RunOptions) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let command = run_command(&options);
-    run_linked_execute(&root, &command, LinkedCargoAction::Run)
+    let config = load_project_config(&root)?;
+    run_linked_execute_with_environment(
+        &root,
+        &command,
+        LinkedCargoAction::Run,
+        &config,
+        &BTreeMap::new(),
+    )
 }
 
 pub fn test(mut options: TestOptions) -> Result<()> {
@@ -748,8 +896,8 @@ pub fn test(mut options: TestOptions) -> Result<()> {
     }
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let explicit_target = options.bin.is_some() || options.test.is_some();
+    let config = load_project_config(&root)?;
     if options.bin.is_none() && options.test.is_none() {
-        let config = load_project_config(&root)?;
         options.bin = config
             .application
             .as_ref()
@@ -772,7 +920,6 @@ pub fn test(mut options: TestOptions) -> Result<()> {
             commands.push(test_command(&integration));
         }
     }
-    let config = load_project_config(&root)?;
     if options.watch {
         run_watched_tests(&root, &config, &commands, options.keep_database)
     } else {
@@ -998,7 +1145,13 @@ fn run_test_cycle(
         .unwrap_or_default();
     task::run_lifecycle_tasks(root, config, &before, environment)?;
     for command in commands {
-        run_linked_execute_with_environment(root, command, LinkedCargoAction::Test, environment)?;
+        run_linked_execute_with_environment(
+            root,
+            command,
+            LinkedCargoAction::Test,
+            config,
+            environment,
+        )?;
     }
     Ok(())
 }
@@ -1090,17 +1243,37 @@ fn install_test_signal_handler() {
     }
 }
 
-fn run_linked_execute(root: &Path, command: &[String], action: LinkedCargoAction) -> Result<()> {
-    run_linked_execute_with_environment(root, command, action, &BTreeMap::new())
+// Both Cargo phases observe the same setting. Rustc records option_env! as a
+// dependency, so changing the flag rebuilds its consumers in the same target.
+fn rsjs_minify_environment(enabled: bool) -> BTreeMap<OsString, OsString> {
+    BTreeMap::from([(
+        "PROA_RSJS_MINIFY".into(),
+        if enabled { "1" } else { "0" }.into(),
+    )])
 }
 
 fn run_linked_execute_with_environment(
     root: &Path,
     command: &[String],
     action: LinkedCargoAction,
+    config: &ProjectConfig,
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
-    let prepared = prepare_linked_cargo_with_environment(root, command, action, environment)?;
+    let mut compile_environment = environment.clone();
+    compile_environment.extend(rsjs_minify_environment(config.build.minify_rsjs));
+    let mut prepared =
+        prepare_linked_cargo_with_environment(root, command, action, &compile_environment)?;
+    let public_source = if action == LinkedCargoAction::Run {
+        public_assets::defer_execution(&mut prepared);
+        let source = public_assets::source(root, config, true)?;
+        if source.is_some() {
+            task::run_lifecycle_tasks(root, config, &config.build.before, &BTreeMap::new())?;
+            build_assets(root, config)?;
+        }
+        source
+    } else {
+        None
+    };
     println!(
         "running linked RSJS Cargo {}: {}",
         action.command_name(),
@@ -1110,6 +1283,21 @@ fn run_linked_execute_with_environment(
         .with_context(|| format!("linked RSJS {} failed", action.command_name()))?;
     print_linked_cache_reuse(action, &output);
     print_linked_cargo_output(action, &prepared.request, &output);
+    if action == LinkedCargoAction::Run {
+        let executable = select_final_root_executable(&prepared.request, &output, action)?;
+        let public_output =
+            public_assets::publish(public_source.as_deref(), &prepared.public_output_directory)?;
+        let mut command = Command::new(executable);
+        command
+            .current_dir(root)
+            .args(&prepared.runtime_args)
+            .envs(environment);
+        public_assets::runtime_environment(&mut command, public_output.as_deref());
+        let status = command
+            .status()
+            .context("start final linked server with public assets")?;
+        exit_status_to_result(status, "linked server")?;
+    }
     Ok(())
 }
 
@@ -1140,25 +1328,29 @@ fn print_linked_cache_reuse(action: LinkedCargoAction, output: &LinkedCargoOutpu
 /// diagnostics; the scan error surfaces only if Cargo accepted the source.
 fn hot_scan_or_rustc_diagnostics<T>(
     root: &Path,
+    config: &ProjectConfig,
     command: &[String],
     active: Option<&crate::hot_static::HotState>,
     scan: Result<T>,
 ) -> Result<T> {
     scan.or_else(|scan_error| {
-        run_linked_dev_cycle(root, command, active)?;
+        run_linked_dev_cycle(root, config, command, active, None)?;
         Err(scan_error)
     })
 }
 
 fn run_linked_dev_cycle(
     root: &Path,
+    config: &ProjectConfig,
     command: &[String],
     hot: Option<&crate::hot_static::HotState>,
+    public_source: Option<&Path>,
 ) -> Result<LinkedDevLaunch> {
     let _progress = DevBuildProgress::start();
     println!("running linked RSJS Cargo dev build: {}", shellish(command));
     println!("Preparing the Cargo project and build cache...");
-    let environment = hot.map(|state| state.environment()).unwrap_or_default();
+    let mut environment = hot.map(|state| state.environment()).unwrap_or_default();
+    environment.extend(rsjs_minify_environment(config.build.minify_rsjs));
     let prepared =
         prepare_linked_cargo_with_environment(root, command, LinkedCargoAction::Dev, &environment)?;
     let output = run_linked_cargo_cached_with_progress(
@@ -1177,6 +1369,7 @@ fn run_linked_dev_cycle(
     .context("linked RSJS dev build failed")?;
     let executable =
         select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Dev)?;
+    let public_assets = public_assets::publish(public_source, &prepared.public_output_directory)?;
     let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
     let reused_descriptor_artifacts = output
         .descriptor
@@ -1203,6 +1396,7 @@ fn run_linked_dev_cycle(
         descriptor_artifacts,
         reused_descriptor_artifacts,
         reused_final_artifacts,
+        public_assets,
     })
 }
 
@@ -1486,15 +1680,27 @@ fn apply_dev_overrides(config: &mut ProjectConfig, options: &DevOptions) {
     if let Some(port) = options.port {
         config.dev.port = port;
     }
-    if !options.command.is_empty() {
-        config.dev.command = options.command.clone();
-    }
-    if options.offline && !config.dev.command.iter().any(|arg| arg == "--offline") {
-        config.dev.command.push("--offline".to_string());
-    }
 }
 
-fn build_command(config: &ProjectConfig, options: &BuildOptions) -> Vec<String> {
+fn dev_command(config: &ProjectConfig, options: &DevOptions) -> Result<Vec<String>> {
+    let mut command = if options.command.is_empty() {
+        entrypoint::linked_command(LinkedCargoAction::Dev, &config.scripts.dev)?
+    } else {
+        options.command.clone()
+    };
+    if options.offline {
+        let cargo_end = command
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(command.len());
+        if !command[..cargo_end].iter().any(|arg| arg == "--offline") {
+            command.insert(cargo_end, "--offline".into());
+        }
+    }
+    Ok(command)
+}
+
+fn build_command(config: &ProjectConfig, options: &BuildOptions) -> Result<Vec<String>> {
     let mut command = if !options.command.is_empty() {
         options.command.clone()
     } else if let Some(profile) = &options.profile {
@@ -1505,7 +1711,7 @@ fn build_command(config: &ProjectConfig, options: &BuildOptions) -> Vec<String> 
             profile.clone(),
         ]
     } else {
-        config.build.command.clone()
+        entrypoint::linked_command(LinkedCargoAction::Build, &config.scripts.build)?
     };
 
     if let Some(package) = &options.package {
@@ -1541,7 +1747,7 @@ fn build_command(config: &ProjectConfig, options: &BuildOptions) -> Vec<String> 
         command.push("--offline".into());
     }
 
-    command
+    Ok(command)
 }
 
 fn check_command(options: &CheckOptions) -> Vec<String> {
@@ -1750,6 +1956,7 @@ struct PreparedLinkedCargo {
     runtime_args: Vec<OsString>,
     descriptor_cache_directory: PathBuf,
     package_source_root: PathBuf,
+    public_output_directory: PathBuf,
     // Windows cannot safely relocate arbitrary PE executables without a
     // complete delay-import contract. Hold a no-write/no-delete sharing lock
     // instead so the fingerprinted wrapper path cannot be replaced before
@@ -1861,6 +2068,8 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     let metadata = metadata?;
     timer.mark("prepare Cargo metadata and tool versions");
     let selected_root = select_exact_cargo_root(&metadata, &parsed, action)?;
+    let public_output_directory =
+        public_assets::output_directory(&metadata.target_directory, &selected_root, &parsed)?;
     if !metadata.target_directory.is_absolute() {
         bail!(
             "Cargo metadata returned a relative target directory `{}`; the linked RSJS pipeline requires an exact absolute artifact namespace",
@@ -1992,6 +2201,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         runtime_args: parsed.runtime_args,
         descriptor_cache_directory,
         package_source_root,
+        public_output_directory,
         _wrapper_lock: wrapper_lock,
     })
 }
@@ -2741,8 +2951,8 @@ fn print_linked_cargo_output(
     }
 }
 
-fn run_project_check(root: &Path) -> Result<()> {
-    let report = scaffold::site_check(Some(root.to_path_buf()))?;
+fn run_project_check(root: &Path, config: &ProjectConfig) -> Result<()> {
+    let report = scaffold::site_check_with_config(root.to_path_buf(), config)?;
     scaffold::print_site_check(&report, false)?;
     if !report.errors.is_empty() {
         bail!("Proa site check failed");
@@ -2866,7 +3076,7 @@ fn asset_command(root: &Path, asset: &AssetConfig) -> Result<Vec<String>> {
             Ok(command)
         }
         "command" if asset.command.is_empty() => Ok(Vec::new()),
-        other => bail!("unknown asset kind `{other}` in proa.config.json"),
+        other => bail!("unknown asset kind `{other}` in proa.config.rs"),
     }
 }
 
@@ -2888,13 +3098,45 @@ fn run_linked_dev_foreground(
     open: bool,
 ) -> Result<()> {
     let mut child = spawn_linked_dev(root, launch, host, port, None)?;
-    set_active_child_group(&child);
-    if open {
-        announce_dev_start(true, host, port, &mut child);
-    }
-    let status = child.wait().context("wait for linked dev server");
+    announce_dev_start(open, host, port, &mut child);
+    let status = child.process.wait().context("wait for linked dev server");
     clear_active_child_group();
     exit_status_to_result(status?, "linked dev server")
+}
+
+struct DevChild {
+    process: Child,
+    readiness: Option<readiness::ReadyChannel>,
+}
+
+impl DevChild {
+    fn ready_url(&mut self, host: &str, port: u16) -> Option<String> {
+        reload::wait_until_serving(
+            host,
+            port,
+            DEV_READY_TIMEOUT,
+            &mut || matches!(self.process.try_wait(), Ok(None)),
+            self.readiness.as_mut(),
+        )
+    }
+
+    fn restart(
+        &mut self,
+        root: &Path,
+        launch: &LinkedDevLaunch,
+        config: &crate::config::DevConfig,
+        hot: Option<&mut crate::hot_static::HotState>,
+        reload: Option<&ReloadServer>,
+    ) -> Result<()> {
+        stop_child(&mut self.process)?;
+        clear_active_child_group();
+        if let Some(hot) = hot {
+            hot.activate()?;
+        }
+        *self = spawn_linked_dev(root, launch, &config.host, config.port, reload)?;
+        announce_reload(reload, &config.host, config.port, self);
+        Ok(())
+    }
 }
 
 fn spawn_linked_dev(
@@ -2902,10 +3144,20 @@ fn spawn_linked_dev(
     launch: &LinkedDevLaunch,
     host: &str,
     port: u16,
-    session: Option<&(u16, String)>,
-) -> Result<Child> {
+    reload: Option<&ReloadServer>,
+) -> Result<DevChild> {
     print_linked_dev_launch(launch);
-    let mut cmd = linked_dev_command(root, launch, host, port, session);
+    public_assets::cleanup(launch.public_assets.as_deref());
+    let session = reload.map(|server| (server.port(), server.token().to_owned()));
+    let mut cmd = linked_dev_command(root, launch, host, port, session.as_ref());
+    cmd.env_remove("PROA_DEV_READY");
+    let readiness = readiness::ReadyChannel::bind(&mut cmd, host, port)
+        .map_err(|error| {
+            eprintln!(
+                "Dev URL reporting unavailable ({error}). Checking the configured TCP listener."
+            );
+        })
+        .ok();
     // Put the dev command in its own process group so restarts can stop the
     // whole server tree and release its port before activating the next plan.
     #[cfg(unix)]
@@ -2913,12 +3165,14 @@ fn spawn_linked_dev(
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    cmd.spawn().with_context(|| {
+    let process = cmd.spawn().with_context(|| {
         format!(
             "spawn linked dev executable `{}`",
             launch.executable.display()
         )
-    })
+    })?;
+    set_active_child_group(&process);
+    Ok(DevChild { process, readiness })
 }
 
 fn linked_dev_command(
@@ -2934,6 +3188,7 @@ fn linked_dev_command(
     cmd.env("HOST", host);
     cmd.env("PROA_HOST", host);
     cmd.env("PORT", port.to_string());
+    public_assets::runtime_environment(&mut cmd, launch.public_assets.as_deref());
     // These two are the whole contract with `proa_framework_axum::serve`, which
     // injects the live-reload client only when both are present. A stale
     // value inherited from the environment must never survive into a run with
@@ -2992,7 +3247,7 @@ fn missing_program_message(program: &str) -> String {
                  Or, on macOS or Linux with Homebrew: brew install tailwindcss"
             }
         }
-        _ => "\n  Install it and make sure it is on PATH, or set an explicit `command` for this asset in proa.config.json.",
+        _ => "\n  Install it and make sure it is on PATH, or set an explicit `command` for this asset in proa.config.rs.",
     };
     format!("`{program}` was not found on PATH.{hint}")
 }
@@ -3131,7 +3386,26 @@ fn collect_file_stamps(
     path: &Path,
     snapshot: &mut BTreeMap<PathBuf, FileStamp>,
 ) -> Result<()> {
-    let metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    let mut metadata =
+        fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        let target =
+            fs::canonicalize(path).with_context(|| format!("resolve {}", path.display()))?;
+        if path
+            .ancestors()
+            .skip(1)
+            .any(|parent| fs::canonicalize(parent).is_ok_and(|parent| parent == target))
+        {
+            // Observe the cycle's link instead of traversing it. Publication
+            // can then reject invalid public inputs without losing the server.
+            let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
+            snapshot.insert(rel, FileStamp::from_metadata(&metadata));
+            return Ok(());
+        }
+        // Preserve ordinary source-link watching. Only link traversal needs
+        // canonicalization; regular source trees retain one metadata read.
+        metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    }
     if metadata.is_dir() {
         if should_ignore_dir(path) {
             return Ok(());

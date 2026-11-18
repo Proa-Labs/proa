@@ -259,6 +259,7 @@ impl WebRender for LatePage {
             let late = cx.url("/late");
             html! {
                 <a href={late}>"Ready"</a>
+                <img src={cx.url("public/img/ready.png")} alt="Ready" />
             }
             .render(cx)
             .resolve()
@@ -269,6 +270,18 @@ impl WebRender for LatePage {
 
 #[tokio::test]
 async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader() {
+    let fixture = tempfile::tempdir().unwrap();
+    let public = fixture.path().join("site-assets");
+    std::fs::create_dir_all(public.join("img")).unwrap();
+    std::fs::write(public.join("img/ready.png"), b"ready").unwrap();
+    let output = fixture.path().join("output");
+    proa_assets::build::OutputStore::open(&output)
+        .unwrap()
+        .publish(&public)
+        .unwrap();
+    let base = BasePath::new("/apps/demo").unwrap();
+    let assets = proa_framework_axum::PublicAssets::load(output, &base).unwrap();
+    let asset_url = assets.url("img/ready.png").unwrap().to_owned();
     let notify = Arc::new(tokio::sync::Notify::new());
     let handler_notify = notify.clone();
     let router = Router::new().route(
@@ -287,7 +300,8 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
         }),
     );
     let app = FrameworkBuilder::new()
-        .with_base_path(BasePath::new("/apps/demo").unwrap())
+        .with_base_path(base)
+        .with_public_assets(assets)
         .with_dynamic_routes(router)
         .build();
     let response = tokio::time::timeout(
@@ -337,9 +351,9 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
     let child = base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .unwrap();
-    assert!(std::str::from_utf8(&child)
-        .unwrap()
-        .contains(r#"href="/apps/demo/late""#));
+    let child = std::str::from_utf8(&child).unwrap();
+    assert!(child.contains(r#"href="/apps/demo/late""#));
+    assert!(child.contains(&format!(r#"src="{asset_url}""#)));
 }
 
 #[tokio::test]

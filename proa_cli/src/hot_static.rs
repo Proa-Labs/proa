@@ -46,6 +46,14 @@ impl HotState {
     }
 
     pub(crate) fn candidate(&self, root: &Path) -> Result<Self> {
+        if !self
+            .path
+            .parent()
+            .expect("hot manifest directory")
+            .try_exists()?
+        {
+            return Self::prepare(root);
+        }
         let (shapes, manifest) = scan(root)?;
         let staged = self.path.with_extension(format!(
             "candidate-{}",

@@ -46,7 +46,10 @@ pub fn populate(
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
     plan.write("README.md", readme(package, title, selection))?;
     plan.write("build.rs", build_rs(has_database))?;
-    plan.write("proa.config.json", project_config(package, selection)?)?;
+    plan.write(
+        crate::config::CONFIG_FILE,
+        project_config(package, selection)?,
+    )?;
 
     plan.write("src/main.rs", app::main_rs(has_database))?;
     plan.write("src/app.rs", app::app_state(has_database))?;
@@ -285,7 +288,6 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
         json!([])
     };
     let value = json!({
-        "$schema": crate::config::CONFIG_SCHEMA_URL,
         "application": {
             "kind": "site", "package": package, "binary": package,
             "template": selection.template.as_str(), "starter": selection.starter.as_str()
@@ -300,16 +302,19 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
             "models": "src/models", "public": "public", "runtimeData": "data"
         },
         "deploy": { "provider": selection.deploy.as_str() },
-        "tasks": {},
-        "dev": {
-            "command": ["cargo", "run"], "before": [],
-            "watch": ["src", "styles", "migrations", "Cargo.toml", "build.rs", "proa.config.json", "proa.lock.json"]
+        "scripts": {
+            "dev": crate::config::DEFAULT_DEV_COMMAND,
+            "build": crate::config::DEFAULT_BUILD_COMMAND
         },
-        "build": { "command": ["cargo", "build", "--release"], "before": [], "assets": assets },
+        "dev": {
+            "before": [],
+            "watch": ["src", "styles", "migrations", "Cargo.toml", "build.rs", crate::config::CONFIG_FILE, "proa.lock.json"]
+        },
+        "build": { "before": [], "assets": assets },
         "test": { "before": [] },
         "registries": { "@proa": "https://ui.proa.so/r/{name}.json" }
     });
-    Ok(format!("{}\n", serde_json::to_string_pretty(&value)?))
+    crate::config::generated_rust_config(&serde_json::from_value(value)?)
 }
 
 fn lock_file(

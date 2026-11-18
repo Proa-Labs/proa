@@ -83,9 +83,7 @@ pub(crate) fn run(args: SiteArgs) -> Result<()> {
 
 fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let root = scaffold::resolve_root(root)?;
-    let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        root.join(crate::config::CONFIG_FILE),
-    )?)?;
+    let config = serde_json::to_value(crate::config::load_project_config(&root)?)?;
     let lock: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
         root.join(crate::config::LOCK_FILE),
     )?)?;

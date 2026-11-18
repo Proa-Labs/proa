@@ -7,10 +7,11 @@ fn write_project(root: &Path, public: &Path, pro: &Path) {
     fs::create_dir_all(root.join("src/components")).unwrap();
     fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[lib]\npath = \"fixture-lib.rs\"\n",
     )
     .unwrap();
-    let mut config = ProjectConfig::default();
+    fs::write(root.join("fixture-lib.rs"), "").unwrap();
+    let mut config = config::inferred_project_config();
     config.registries.insert(
         PUBLIC_REGISTRY.to_string(),
         public.join("{name}.json").display().to_string(),
@@ -21,7 +22,7 @@ fn write_project(root: &Path, public: &Path, pro: &Path) {
     );
     fs::write(
         root.join(config::CONFIG_FILE),
-        serde_json::to_string_pretty(&config).unwrap(),
+        config::generated_rust_config(&config).unwrap(),
     )
     .unwrap();
 }

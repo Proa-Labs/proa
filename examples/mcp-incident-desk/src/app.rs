@@ -6,6 +6,7 @@ use crate::{
     error::{AppError, Result},
     security::Keys,
 };
+use proa::{axum::PublicAssets, BasePath};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -16,10 +17,12 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub keys: Arc<Keys>,
     pub http: reqwest::Client,
+    pub public_assets: Option<PublicAssets>,
     pub limits: Arc<Mutex<HashMap<String, (i64, u32)>>>,
 }
 impl AppState {
     pub async fn open(config: Config) -> anyhow::Result<Self> {
+        let public_assets = PublicAssets::from_env(&BasePath::default())?;
         let db = crate::db::connect(&config.database_url).await?;
         let initialized: Option<String> =
             sqlx::query_scalar("SELECT value FROM settings WHERE key='signing_kid'")
@@ -57,6 +60,7 @@ impl AppState {
             config: Arc::new(config),
             keys,
             http: client.build()?,
+            public_assets,
             limits: Default::default(),
         };
         crate::seed::seed(&state).await?;

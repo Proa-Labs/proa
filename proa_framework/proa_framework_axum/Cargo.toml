@@ -22,6 +22,8 @@ cssparser = "0.35"
 oxc_allocator = "0.75"
 oxc_ast = "0.75"
 oxc_ast_visit = "0.75"
+oxc_codegen = "0.75"
+oxc_minifier = "0.75"
 oxc_parser = "0.75"
 oxc_semantic = "0.75"
 oxc_span = "0.75"
@@ -39,7 +41,9 @@ hyper-util = { version = "0.1", features = [
 include_dir = { version = "0.7" }
 mime = { version = "0.3" }
 parking_lot = { version = "0.12" }
+percent-encoding = "2"
 pin-project = { version = "1.1" }
+proa_assets = { workspace = true }
 proa_core = { workspace = true }
 proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
@@ -63,6 +67,8 @@ tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+proa_assets = { workspace = true, features = ["build"] }
+tempfile = { workspace = true }
 async-stream = "0.3"
 http-body-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

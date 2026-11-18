@@ -23,7 +23,7 @@ pub(crate) struct LintArgs {
     #[arg(long, conflicts_with_all = ["json", "github", "root", "changed", "staged", "base", "paths", "include_tests", "content_summary", "use_rsjs_strategy_cache", "deny_warnings", "deny", "min_severity"])]
     stdio: bool,
     /// Project root for content counterpart discovery and RSJS strategy sidecars.
-    /// Defaults to the nearest Cargo workspace/package or proa.config.json.
+    /// Defaults to the nearest Cargo workspace/package or proa.config.rs.
     #[arg(long)]
     root: Option<PathBuf>,
     /// Exit non-zero when warnings are found.

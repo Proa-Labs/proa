@@ -4,7 +4,7 @@
 //! `proa dev`: build one exact linked server and restart it from persistent
 //! caches when files change.
 
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::Result;
 use clap::Args;
@@ -16,6 +16,9 @@ pub(crate) struct DevArgs {
     /// Proa project root. Defaults to the nearest root.
     #[arg(long)]
     root: Option<PathBuf>,
+    /// Enter the built-in linked watcher from a project script.
+    #[arg(long)]
+    linked: bool,
     /// Host value passed to the dev command as HOST.
     #[arg(long)]
     host: Option<String>,
@@ -58,8 +61,8 @@ pub(crate) struct DevArgs {
     command: Vec<String>,
 }
 
-pub(crate) fn run(args: DevArgs) -> Result<()> {
-    lifecycle::dev(lifecycle::DevOptions {
+pub(crate) fn run(args: DevArgs, arguments: &[OsString]) -> Result<()> {
+    let options = lifecycle::DevOptions {
         root: args.root,
         host: args.host,
         port: args.port,
@@ -73,5 +76,10 @@ pub(crate) fn run(args: DevArgs) -> Result<()> {
         reload_port: args.reload_port,
         debounce_ms: args.debounce_ms,
         command: args.command,
-    })
+    };
+    if args.linked {
+        lifecycle::dev(options)
+    } else {
+        lifecycle::dev_from_cli(options, Some(arguments))
+    }
 }

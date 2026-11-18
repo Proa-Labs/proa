@@ -205,22 +205,25 @@ pub fn generate_data(options: GenerateDataOptions) -> Result<()> {
 
 pub fn site_check(root: Option<PathBuf>) -> Result<SiteCheckReport> {
     let root = resolve_root(root)?;
+    let config = crate::config::load_project_config(&root)?;
+    site_check_with_config(root, &config)
+}
+
+pub(crate) fn site_check_with_config(
+    root: PathBuf,
+    config: &crate::config::ProjectConfig,
+) -> Result<SiteCheckReport> {
     let mut report = SiteCheckReport {
         root: root.clone(),
         errors: Vec::new(),
         warnings: Vec::new(),
     };
 
-    let config_value = fs::read_to_string(root.join(crate::config::CONFIG_FILE))
-        .ok()
-        .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok());
-    let application_first = config_value
+    let application_first = config.application.is_some();
+    let template = config
+        .application
         .as_ref()
-        .and_then(|value| value.get("application"))
-        .is_some();
-    let template = config_value
-        .as_ref()
-        .and_then(|value| value.pointer("/application/template"))
+        .and_then(|value| value.get("template"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("")
         .to_string();
@@ -280,14 +283,16 @@ pub fn site_check(root: Option<PathBuf>) -> Result<SiteCheckReport> {
                     .to_string(),
             );
         }
-        let database = config_value
+        let database = config
+            .database
             .as_ref()
-            .and_then(|value| value.pointer("/database/driver"))
+            .and_then(|value| value.get("driver"))
             .and_then(serde_json::Value::as_str);
         if database == Some("sqlite") {
-            let manual = config_value
+            let manual = config
+                .database
                 .as_ref()
-                .and_then(|value| value.pointer("/database/integration"))
+                .and_then(|value| value.get("integration"))
                 .and_then(serde_json::Value::as_str)
                 == Some("manual");
             let required_database_files: &[&str] = if manual {
@@ -321,9 +326,10 @@ pub fn site_check(root: Option<PathBuf>) -> Result<SiteCheckReport> {
                 }
             }
         }
-        let markdown = config_value
+        let markdown = config
+            .representations
             .as_ref()
-            .and_then(|value| value.pointer("/representations/markdown/enabled"))
+            .and_then(|value| value.pointer("/markdown/enabled"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         if markdown {
@@ -506,17 +512,12 @@ pub fn print_site_check(report: &SiteCheckReport, json: bool) -> Result<()> {
 
 pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
     let root = resolve_root(root)?;
-    let config = fs::read_to_string(root.join(crate::config::CONFIG_FILE))
-        .ok()
-        .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok());
-    if config
-        .as_ref()
-        .and_then(|value| value.get("application"))
-        .is_some()
-    {
+    let config = crate::config::load_project_config(&root)?;
+    if config.application.is_some() {
         let markdown = config
+            .representations
             .as_ref()
-            .and_then(|value| value.pointer("/representations/markdown/enabled"))
+            .and_then(|value| value.pointer("/markdown/enabled"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         let mut routes = vec![RouteInfo {

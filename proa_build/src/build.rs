@@ -2996,6 +2996,11 @@ fn validate_portable_relative_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Files rustc actually read, including modules and compile-time includes.
+pub fn rustc_source_dependencies(dep_info: &[u8]) -> Result<Vec<PathBuf>, String> {
+    Ok(parse_rustc_dep_info(dep_info)?.source_paths)
+}
+
 fn parse_rustc_dep_info(bytes: &[u8]) -> Result<ParsedDepInfo, String> {
     let text =
         std::str::from_utf8(bytes).map_err(|_| "dep-info contains a non-UTF-8 path".to_string())?;

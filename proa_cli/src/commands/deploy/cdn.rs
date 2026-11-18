@@ -24,7 +24,7 @@ use crate::{config, util::resolve_config_root};
 
 #[derive(Debug, Args)]
 pub struct RunArgs {
-    /// Project root containing proa.config.json and its deploy.cdn configuration.
+    /// Project root containing proa.config.rs and its deploy.cdn configuration.
     #[arg(long)]
     root: Option<PathBuf>,
 
@@ -60,7 +60,7 @@ pub fn run(args: RunArgs) -> Result<()> {
     let root = resolve_config_root(args.root)?;
     let project = config::load_project_config(&root)?;
     let cdn = project.deploy.as_ref().and_then(|deploy| deploy.get("cdn"))
-        .context("configure deploy.cdn in proa.config.json before using proa deploy run; alternatively, use your hosting platform's deployment invalidation")?;
+        .context("configure deploy.cdn in proa.config.rs before using proa deploy run; alternatively, use your hosting platform's deployment invalidation")?;
     let cdn: CdnConfig = serde_json::from_value(cdn.clone()).context(
         "invalid deploy.cdn configuration; supported providers are cloudflare and command",
     )?;

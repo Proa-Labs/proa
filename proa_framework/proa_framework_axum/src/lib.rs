@@ -7,7 +7,10 @@ mod asset_urls;
 pub mod csp;
 pub mod csrf;
 pub mod dev_reload;
+mod dev_startup;
+pub use dev_startup::DevServerStartup;
 pub mod discovery;
+pub mod public_assets;
 pub mod readiness;
 pub mod route;
 pub mod rsjs_assets;
@@ -31,6 +34,7 @@ pub use proa_framework_core::{
     SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
     MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
+pub use public_assets::{PublicAssetError, PublicAssets};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
@@ -43,7 +47,7 @@ pub use route::{
     ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
     StaticPathsFn,
 };
-pub use rsjs_assets::rsjs_assets_router;
+pub use rsjs_assets::{rsjs_assets_router, try_rsjs_assets_router, RsjsAssetsError};
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
 pub use server::{serve, serve_with_shutdown, ShutdownOutcome, DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT};
 pub use static_service::EmbeddedStaticService;
@@ -78,6 +82,18 @@ pub const DEFAULT_BODY_LIMIT_BYTES: usize = 1024 * 1024;
 /// `without_request_timeout()`.
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Errors that prevent the framework router from starting.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum FrameworkBuildError {
+    #[error(transparent)]
+    Discovery(#[from] DiscoveryError),
+    #[error("could not load published public assets: {0}")]
+    PublicAssets(#[from] PublicAssetError),
+    #[error(transparent)]
+    RsjsAssets(#[from] RsjsAssetsError),
+}
+
 /// Builder for the framework's axum `Router`.
 ///
 /// Security defaults applied by [`build`](Self::build):
@@ -109,6 +125,7 @@ pub struct FrameworkBuilder {
     sitemaps: Option<discovery::SitemapConfig>,
     robots: Option<RobotsTxt>,
     rsjs_assets: bool,
+    public_assets: Option<PublicAssets>,
     static_router: Option<Router>,
     dynamic_router: Option<Router>,
     computed_metadata: Option<Arc<HashMap<String, ComputedRouteMeta>>>,
@@ -154,6 +171,7 @@ impl FrameworkBuilder {
             sitemaps: None,
             robots: None,
             rsjs_assets: false,
+            public_assets: None,
             static_router: None,
             dynamic_router: None,
             computed_metadata: None,
@@ -208,7 +226,7 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     BasePath, DiscoveryError, FrameworkBuilder,
+    ///     BasePath, FrameworkBuildError, FrameworkBuilder,
     ///     RobotsTxt, SitemapUrl,
     /// };
     /// let app = FrameworkBuilder::new()
@@ -217,7 +235,7 @@ impl FrameworkBuilder {
     ///     .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
     ///     .with_robots(RobotsTxt::new().disallow("/admin")?)
     ///     .try_build()?;
-    /// # Ok::<(), DiscoveryError>(())
+    /// # Ok::<(), FrameworkBuildError>(())
     /// ```
     pub fn with_sitemap(mut self, urls: impl IntoIterator<Item = SitemapUrl>) -> Self {
         self.sitemaps = Some(discovery::SitemapConfig::Single(urls.into_iter().collect()));
@@ -238,7 +256,7 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     DiscoveryError, FrameworkBuilder,
+    ///     DiscoveryError, FrameworkBuildError, FrameworkBuilder,
     ///     RobotsTxt, SitemapFile, SitemapUrl,
     /// };
     /// async fn generate_sitemaps() -> Result<Vec<SitemapFile>, DiscoveryError> {
@@ -254,7 +272,7 @@ impl FrameworkBuilder {
     ///     .with_sitemaps(generate_sitemaps().await?)
     ///     .with_robots(RobotsTxt::new())
     ///     .try_build()?;
-    /// # Ok::<(), DiscoveryError>(())
+    /// # Ok::<(), FrameworkBuildError>(())
     /// # };
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run).unwrap();
     /// ```
@@ -285,7 +303,7 @@ impl FrameworkBuilder {
     ///
     /// ```
     /// use proa_framework_axum::{
-    ///     DiscoveryError, FrameworkBuilder, RobotsTxt,
+    ///     DiscoveryError, FrameworkBuildError, FrameworkBuilder, RobotsTxt,
     /// };
     /// use std::time::Duration;
     ///
@@ -300,7 +318,7 @@ impl FrameworkBuilder {
     /// let app = FrameworkBuilder::new()
     ///     .with_robots(generate_robots().await?)
     ///     .try_build()?;
-    /// # Ok::<(), DiscoveryError>(())
+    /// # Ok::<(), FrameworkBuildError>(())
     /// # };
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run).unwrap();
     /// ```
@@ -319,6 +337,16 @@ impl FrameworkBuilder {
     /// `/rsjs-runtime-query.js`, or `/rsjs/island/:file`.
     pub fn with_rsjs_assets(mut self) -> Self {
         self.rsjs_assets = true;
+        self
+    }
+
+    /// Supply a catalog explicitly instead of loading `PROA_PUBLIC_ASSETS`.
+    /// This enables `cx.url("public/...")` in components.
+    /// Handlers can also extract `axum::Extension<PublicAssets>`.
+    /// Load it with the same `BasePath` used by this builder.
+    /// The catalog owns routes under `/_proa/assets`.
+    pub fn with_public_assets(mut self, assets: PublicAssets) -> Self {
+        self.public_assets = Some(assets);
         self
     }
 
@@ -486,16 +514,15 @@ impl FrameworkBuilder {
     }
 
     pub fn build(self) -> Router {
-        self.try_build()
-            .expect("invalid framework discovery configuration")
+        self.try_build().expect("could not build framework router")
     }
 
-    /// Build the router, returning invalid discovery configuration as an error.
+    /// Build the router with its final base path and startup settings.
     ///
-    /// Unlike `build`, this reports a missing public origin, cross-origin entry
-    /// or invalid composed URL without panicking. Axum's existing duplicate-route
-    /// restrictions still apply.
-    pub fn try_build(self) -> Result<Router, DiscoveryError> {
+    /// If `PROA_PUBLIC_ASSETS` is set, load and mount that catalog unless one
+    /// was supplied explicitly. Invalid catalogs and discovery settings return
+    /// an error. Axum's existing duplicate-route restrictions still apply.
+    pub fn try_build(self) -> Result<Router, FrameworkBuildError> {
         let FrameworkBuilder {
             base_path,
             public_origin,
@@ -503,6 +530,7 @@ impl FrameworkBuilder {
             sitemaps,
             robots,
             rsjs_assets,
+            public_assets,
             static_router,
             dynamic_router,
             computed_metadata,
@@ -521,8 +549,12 @@ impl FrameworkBuilder {
 
         let mut app =
             discovery::discovery_routes(public_origin.as_deref(), &base_path, sitemaps, robots)?;
+        let public_assets = match public_assets {
+            Some(assets) => Some(assets),
+            None => PublicAssets::from_env(&base_path)?,
+        };
         if rsjs_assets {
-            app = app.merge(rsjs_assets_router(&base_path));
+            app = app.merge(try_rsjs_assets_router(&base_path)?);
         }
 
         if let Some(static_router) = static_router {
@@ -536,9 +568,15 @@ impl FrameworkBuilder {
             app = app.merge(dynamic_router);
         }
 
+        let public_asset_urls = public_assets.as_ref().map(PublicAssets::render_urls);
+        if let Some(assets) = public_assets {
+            app = app.merge(assets.router()).layer(axum::Extension(assets));
+        }
+
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
         let layer = RouteContextLayer::new(computed_metadata)
             .with_base_path(base_path)
+            .with_public_asset_urls(public_asset_urls)
             .with_local_stream_executor_config(local_stream_executor);
         let layer = if let Some(head) = head {
             layer.with_head(head)

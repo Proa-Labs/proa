@@ -1,49 +1,202 @@
 ---
-title: proa.config.json
-description: Configure the dev server, asset build, and component registries.
+title: proa.config.rs
+description: Configure the dev command, public assets, and component registries.
 ---
 
-`proa.config.json` is the CLI lifecycle and component registry config. `proa dev` reads it to build assets, run the server, and watch project files. `proa build` reads it to build assets before compiling the release binary.
+Place `proa.config.rs` next to the project's `Cargo.toml` and export
+`pub async fn config() -> Result<Config>`. The CLI supplies the
+`proa_config` types, including a `Result` alias that accepts errors from
+operations such as file reads via `?`. Your application owns its routes,
+base path, listeners, and runtime settings.
 
-It sits at the project root, next to `Cargo.toml`.
+Wrap a `Config` struct literal in `Ok`. Set `scripts.dev` and
+`scripts.build` explicitly and use `..Config::default()` for other settings.
 
-Keep local build orchestration and component registry aliases here instead of scattering them through README snippets:
+```rust
+use proa_config::{AssetConfig, BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
 
-```json
-{
-  "$schema": "https://proa.so/schema/proa.config.json",
-  "paths": {
-    "components": "src/components",
-    "assets": "public/proa"
-  },
-  "registries": {
-    "@proa": "https://ui.proa.so/r/{name}.json",
-    "@proa-pro": "https://console.proa.so/r/{name}.json"
-  },
-  "dev": {
-    "command": ["cargo", "run"],
-    "host": "127.0.0.1",
-    "port": 3000,
-    "watch": ["src", "styles", "Cargo.toml", "build.rs", "proa.config.json"]
-  },
-  "build": {
-    "command": ["cargo", "build", "--release"],
-    "assets": [
-      {
-        "kind": "tailwind",
-        "input": "styles/input.css",
-        "output": "public/styles.css"
-      }
-    ]
-  }
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        paths: ProjectPaths {
+            public: Some("public".into()),
+            ..Default::default()
+        },
+        build: BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "tailwind".into(),
+                input: "styles/input.css".into(),
+                output: "public/styles.css".into(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
 }
 ```
 
-`proa.lock.json` is generated next to the config file. It is intentionally separate from Cargo.lock because it tracks vendored UI source files, not Rust crate dependency resolution.
+For settings read from a file, use `proa_config::tokio` and propagate I/O
+errors with `?`. Add files that should trigger a dev reload to `dev.watch`.
 
-Both individual components and complete blocks install directly beneath
-`src/components/<slug>/`. Run `proa config validate` to catch unsafe paths,
-missing `{name}` placeholders, and invalid registry URLs before an install.
+```rust
+use proa_config::{Config, DevConfig, ProjectPaths, Result, tokio, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    let public = tokio::fs::read_to_string("public-dir.txt").await?;
+
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        paths: ProjectPaths {
+            public: Some(public.trim().into()),
+            ..Default::default()
+        },
+        dev: DevConfig {
+            watch: vec!["src".into(), "public-dir.txt".into()],
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+```
+
+## How Proa builds the config
+
+`proa init` and `proa new site` write the config beside the app manifest.
+When Proa loads it, the CLI generates a small Cargo package under
+`<cargo-target>/proa-config/<key>/`. Its `src/main.rs` declares the authored
+file as a module using `#[path = ".../proa.config.rs"]`. That runner builds
+for the host, awaits `config()` on Tokio, and passes the successful config
+back to the CLI. The app's `src/main.rs` and `Cargo.toml` stay focused on
+the app.
+
+## Build commands and hooks
+
+`proa dev` and `proa build` run the entries in `scripts`.
+For an app with Bash wrappers, declare the files in `proa.config.rs`.
+
+```rust
+use proa_config::{Config, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "bash scripts/dev.sh",
+            build: "bash scripts/build.sh",
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+```
+
+The wrappers can prepare their environment and enter Proa's built-in watcher
+or build using `--linked`. Proa runs each script from the project directory
+and forwards flags such as `--offline` or `--profile`.
+Each CLI invocation evaluates the config in its own environment. Cargo
+reuses the compiled host runner while its Rust inputs and target directory
+stay the same. On a public-file or stylesheet edit, the watcher can run that
+executable directly. Async file reads see the new contents. Editing a file
+referenced by `include_bytes!` or `include_str!` makes Cargo check the runner.
+
+Changing `scripts.dev` from one shell wrapper to another prints a restart
+notice. Run `proa dev` again to enter the new wrapper.
+
+```bash filename="scripts/dev.sh"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev --linked "$@"
+```
+
+```bash filename="scripts/build.sh"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" build --linked "$@"
+```
+
+`cargo run` and `cargo build --release` are shorthand for the linked
+operations. The scaffolds spell out these commands. They are also the
+commands used when a project has no config file. Proa honors quoted
+arguments in the command string. For computed commands, return
+`Result<Config<String>>`.
+
+Define reusable commands in `scripts.named`. List their names in
+`build.before` for linked builds or `dev.before` for dev builds. This
+example runs an existing Python script in both workflows.
+
+```rust
+use std::collections::BTreeMap;
+use proa_config::{BuildConfig, Config, DevConfig, Result, ScriptConfig, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build --release",
+            named: BTreeMap::from([(
+                "generate-assets".into(),
+                ScriptConfig {
+                    command: vec!["python3".into(), "scripts/generate_assets.py".into()],
+                    ..Default::default()
+                },
+            )]),
+        },
+        build: BuildConfig {
+            before: vec!["generate-assets".into()],
+            ..Default::default()
+        },
+        dev: DevConfig {
+            before: vec!["generate-assets".into()],
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+```
+
+Run a named script directly with `proa task generate-assets`.
+
+`build.assets: None` lets Proa infer asset commands. Use `Some(vec![])` to
+skip them. Cargo discovers package `build.rs` scripts and runs them as part
+of the application build. Run `proa config validate` to check paths, registry
+URL templates, and asset commands.
+
+## Generated JavaScript
+
+Linked Proa builds enable RSJS minification by default. Set
+`build.minify_rsjs` to `false` for readable JavaScript while debugging.
+
+```rust
+use proa_config::{BuildConfig, Config, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        build: BuildConfig {
+            minify_rsjs: false,
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+```
+
+The linked build records the choice in the executable.
+Axum applies it to the generated modules and both RSJS
+runtimes once at startup, after preparing URLs for the deployment base
+path. Use `build.assets` commands for JavaScript files sourced separately.
+
+The generated `proa.lock.json` tracks vendored UI components, which Cargo
+does not track as crate dependencies. `proa ui add` installs source components
+and blocks under `src/components/<slug>/` by default.
 
 ## Next steps
 

@@ -14,10 +14,12 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::{config, util::resolve_config_root};
+use crate::{
+    config::{self, ScriptConfig},
+    util::resolve_config_root,
+};
 
 #[derive(Debug, Args)]
 pub(crate) struct TaskArgs {
@@ -33,51 +35,24 @@ pub(crate) struct TaskArgs {
     force: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TaskDefinition {
-    #[serde(default)]
-    description: String,
-    command: Vec<String>,
-    #[serde(default = "dot")]
-    cwd: PathBuf,
-    #[serde(default, alias = "dependencies")]
-    depends_on: Vec<String>,
-    #[serde(default)]
-    inputs: Vec<String>,
-    #[serde(default)]
-    outputs: Vec<PathBuf>,
-    #[serde(default)]
-    env: BTreeMap<String, String>,
-}
-
-fn dot() -> PathBuf {
-    PathBuf::from(".")
-}
-
 pub(crate) fn run(args: TaskArgs) -> Result<()> {
     let root = resolve_config_root(args.root)?;
     let project = config::load_project_config(&root)?;
-    let tasks: BTreeMap<String, TaskDefinition> = project
-        .tasks
-        .iter()
-        .map(|(name, value)| serde_json::from_value(value.clone()).map(|task| (name.clone(), task)))
-        .collect::<std::result::Result<_, _>>()
-        .context("parse configured tasks")?;
+    let scripts = &project.scripts.named;
     if args.list {
-        for (name, task) in &tasks {
+        for (name, task) in scripts {
             let lifecycle = lifecycle_usage(&project, name);
             println!("{name:<24} {:<28} {}", task.description, lifecycle);
         }
         return Ok(());
     }
     let name = args.name.context("provide a task name or use --list")?;
-    let order = dependency_order(&tasks, &name)?;
+    let order = dependency_order(scripts, &name)?;
     for task_name in order {
         execute(
             &root,
             &task_name,
-            &tasks[&task_name],
+            &scripts[&task_name],
             args.force,
             &BTreeMap::new(),
         )?;
@@ -95,20 +70,15 @@ pub(crate) fn run_lifecycle_tasks(
     names: &[String],
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
-    let tasks: BTreeMap<String, TaskDefinition> = project
-        .tasks
-        .iter()
-        .map(|(name, value)| serde_json::from_value(value.clone()).map(|task| (name.clone(), task)))
-        .collect::<std::result::Result<_, _>>()
-        .context("parse configured tasks")?;
+    let scripts = &project.scripts.named;
     let mut visiting = BTreeSet::new();
     let mut visited = BTreeSet::new();
     let mut order = Vec::new();
     for name in names {
-        visit_dependency(name, &tasks, &mut visiting, &mut visited, &mut order)?;
+        visit_dependency(name, scripts, &mut visiting, &mut visited, &mut order)?;
     }
     for task_name in order {
-        execute(root, &task_name, &tasks[&task_name], false, environment)?;
+        execute(root, &task_name, &scripts[&task_name], false, environment)?;
     }
     Ok(())
 }
@@ -137,7 +107,7 @@ fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
     }
 }
 
-fn dependency_order(tasks: &BTreeMap<String, TaskDefinition>, root: &str) -> Result<Vec<String>> {
+fn dependency_order(tasks: &BTreeMap<String, ScriptConfig>, root: &str) -> Result<Vec<String>> {
     let mut output = Vec::new();
     visit_dependency(
         root,
@@ -151,7 +121,7 @@ fn dependency_order(tasks: &BTreeMap<String, TaskDefinition>, root: &str) -> Res
 
 fn visit_dependency(
     name: &str,
-    tasks: &BTreeMap<String, TaskDefinition>,
+    tasks: &BTreeMap<String, ScriptConfig>,
     visiting: &mut BTreeSet<String>,
     visited: &mut BTreeSet<String>,
     output: &mut Vec<String>,
@@ -177,7 +147,7 @@ fn visit_dependency(
 fn execute(
     root: &Path,
     name: &str,
-    task: &TaskDefinition,
+    task: &ScriptConfig,
     force: bool,
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
@@ -216,7 +186,7 @@ fn execute(
     Ok(())
 }
 
-fn task_cache_key(root: &Path, task: &TaskDefinition) -> Result<String> {
+fn task_cache_key(root: &Path, task: &ScriptConfig) -> Result<String> {
     let mut digest = Sha256::new();
     digest.update(env!("CARGO_PKG_VERSION"));
     for argument in &task.command {
@@ -242,15 +212,11 @@ fn task_cache_key(root: &Path, task: &TaskDefinition) -> Result<String> {
 mod tests {
     use super::*;
 
-    fn task(dependencies: &[&str]) -> TaskDefinition {
-        TaskDefinition {
-            description: String::new(),
+    fn task(dependencies: &[&str]) -> ScriptConfig {
+        ScriptConfig {
             command: vec!["true".into()],
-            cwd: dot(),
             depends_on: dependencies.iter().map(|value| (*value).into()).collect(),
-            inputs: Vec::new(),
-            outputs: Vec::new(),
-            env: BTreeMap::new(),
+            ..Default::default()
         }
     }
 

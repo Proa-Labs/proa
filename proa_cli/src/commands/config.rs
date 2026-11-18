@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! `proa config`: inspect and validate proa.config.json.
+//! `proa config`: inspect and validate proa.config.rs.
 
 use std::path::PathBuf;
 
@@ -19,8 +19,7 @@ pub(crate) struct ConfigArgs {
 
 #[derive(Debug, Subcommand)]
 enum ConfigCommand {
-    /// Check proa.config.json for unknown keys, empty commands, and invalid
-    /// asset definitions. Exits non-zero when errors are found.
+    /// Compile and validate project configuration.
     Validate(ConfigInspectArgs),
     /// Print the effective configuration with defaults filled in.
     Show(ConfigInspectArgs),
@@ -56,7 +55,7 @@ pub(crate) fn run(args: ConfigArgs) -> Result<()> {
                     println!("error: {error}");
                 }
                 if validation.warnings.is_empty() && validation.errors.is_empty() {
-                    println!("proa.config.json is valid");
+                    println!("Project config is valid");
                 }
             }
 
@@ -67,7 +66,7 @@ pub(crate) fn run(args: ConfigArgs) -> Result<()> {
         }
         ConfigCommand::Show(args) => {
             let root = resolve_config_root(args.root)?;
-            let (config, _) = config::load_project_config_with_unknown_keys(&root)?;
+            let config = config::load_project_config(&root)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
             Ok(())
         }

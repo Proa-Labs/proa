@@ -25,28 +25,31 @@ pub(crate) struct StartArgs {
 
 pub(crate) fn run(args: StartArgs) -> Result<()> {
     let root = resolve_config_root(args.root)?;
-    let project = config::load_project_config(&root)?;
-    let configured_binary = project
-        .application
-        .as_ref()
-        .and_then(|application| application.get("binary"))
-        .and_then(serde_json::Value::as_str)
-        .or_else(|| {
-            project
-                .application
-                .as_ref()
-                .and_then(|application| application.get("package"))
-                .and_then(serde_json::Value::as_str)
-        })
-        .unwrap_or("app");
-    let selected = args.bin.unwrap_or_else(|| {
+    let selected = if let Some(path) = args.bin {
+        path
+    } else {
+        let project = config::load_project_config(&root)?;
+        let configured_binary = project
+            .application
+            .as_ref()
+            .and_then(|application| {
+                application
+                    .get("binary")
+                    .and_then(serde_json::Value::as_str)
+                    .or_else(|| {
+                        application
+                            .get("package")
+                            .and_then(serde_json::Value::as_str)
+                    })
+            })
+            .unwrap_or("app");
         let mut filename = std::ffi::OsString::from(configured_binary);
         let suffix = std::env::consts::EXE_SUFFIX;
         if !suffix.is_empty() && !configured_binary.to_ascii_lowercase().ends_with(suffix) {
             filename.push(suffix);
         }
         PathBuf::from("target").join("release").join(filename)
-    });
+    };
     let executable = if selected.is_absolute() {
         selected
     } else {

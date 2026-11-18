@@ -234,7 +234,7 @@ fn bind_listener(host: &str, requested: u16) -> Result<TcpListener> {
 /// Without it, any site loaded in the same browser could open the stream and
 /// read build failures, which carry absolute paths and source snippets. Vite
 /// mints an equivalent token for the same reason.
-fn session_token() -> Result<String> {
+pub(super) fn session_token() -> Result<String> {
     use std::fmt::Write as _;
 
     let mut bytes = [0_u8; TOKEN_BYTES];
@@ -550,22 +550,36 @@ pub(crate) fn wait_until_serving(
     port: u16,
     timeout: Duration,
     still_running: &mut dyn FnMut() -> bool,
-) -> bool {
+    mut channel: Option<&mut super::readiness::ReadyChannel>,
+) -> Option<String> {
     let targets = probe_addresses(host, port);
     let deadline = Instant::now() + timeout;
+    let mut connected = false;
+    let mut port_was_busy = channel.as_ref().is_some_and(|c| c.port_was_busy);
     loop {
         if !still_running() {
-            return false;
+            return None;
         }
-        for target in &targets {
-            if TcpStream::connect_timeout(target, Duration::from_millis(250)).is_ok() {
-                return still_running();
+        if let Some(url) = channel.as_deref_mut().and_then(|c| c.reported_url()) {
+            return still_running().then_some(url);
+        }
+        if !channel.as_ref().is_some_and(|c| c.reporting) {
+            // Read any queued child report once more after a successful TCP
+            // probe. A listener that predated spawn cannot confirm this child.
+            if connected {
+                return still_running().then(|| super::dev_url(host, port));
+            }
+            let listening = listener_responds(&targets);
+            connected = listening && !port_was_busy;
+            port_was_busy &= listening;
+            if connected && channel.is_none() {
+                return still_running().then(|| super::dev_url(host, port));
             }
         }
         // A server that died on boot is never going to answer. Waiting out the
         // full timeout would just delay the message the developer needs.
         if !still_running() || Instant::now() >= deadline {
-            return false;
+            return None;
         }
         thread::sleep(Duration::from_millis(50));
     }
@@ -577,7 +591,7 @@ pub(crate) fn wait_until_serving(
 /// resolves to `::1` first on most systems, so a site configured with a
 /// hostname would be probed on an address it never bound. `0.0.0.0` is the
 /// opposite problem, a bind address that is not a destination at all.
-fn probe_addresses(host: &str, port: u16) -> Vec<SocketAddr> {
+pub(super) fn probe_addresses(host: &str, port: u16) -> Vec<SocketAddr> {
     use std::net::ToSocketAddrs;
 
     if let Ok(address) = host.trim_matches(['[', ']']).parse::<IpAddr>() {
@@ -602,6 +616,12 @@ fn probe_addresses(host: &str, port: u16) -> Vec<SocketAddr> {
         }
         Err(_) => vec![SocketAddr::from((Ipv4Addr::LOCALHOST, port))],
     }
+}
+
+pub(super) fn listener_responds(targets: &[SocketAddr]) -> bool {
+    targets
+        .iter()
+        .any(|target| TcpStream::connect_timeout(target, Duration::from_millis(250)).is_ok())
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ members = [
     "proa",
     "proa_core",
     "proa_html_policy",
+    "proa_assets",
     "proa_cli",
     "proa_build",
     "proa_source_tools",
@@ -48,6 +49,7 @@ default-members = [
     "proa",
     "proa_core",
     "proa_html_policy",
+    "proa_assets",
     "proa_cli",
     "proa_build",
     "proa_source_tools",
@@ -105,6 +107,7 @@ proa = { path = "proa", version = "0.4.0" }
 proa_actions = { path = "proa_actions", version = "0.4.0" }
 proa_bench = { path = "proa_bench", version = "0.1.0" }
 proa_build = { path = "proa_build", version = "0.1.0" }
+proa_assets = { path = "proa_assets", version = "0.1.0" }
 proa_source_tools = { path = "proa_source_tools", version = "0.1.0" }
 proa_core = { path = "proa_core", version = "0.4.0" }
 proa_html_policy = { path = "proa_html_policy", version = "0.1.0" }

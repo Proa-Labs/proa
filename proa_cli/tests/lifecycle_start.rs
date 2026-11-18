@@ -29,6 +29,7 @@ fn start_launches_the_host_release_executable_and_preserves_explicit_paths() {
         .prefix("proa start with spaces ")
         .tempdir()
         .unwrap();
+    fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
     let release = temp.path().join("target/release");
     fs::create_dir_all(&release).unwrap();
     let executable = release.join(format!("server.prod{}", env::consts::EXE_SUFFIX));
@@ -62,14 +63,26 @@ fn start_launches_the_host_release_executable_and_preserves_explicit_paths() {
     cases.push(("server.prod", true));
     for (configured_binary, custom) in cases {
         fs::write(
-            temp.path().join("proa.config.json"),
-            serde_json::to_vec(&serde_json::json!({
-                "application": { "binary": configured_binary }
-            }))
-            .unwrap(),
+            temp.path().join("proa.config.rs"),
+            format!(
+                r#"use proa_config::{{json::json, Config, Result, ScriptsConfig}};
+pub async fn config() -> Result<Config> {{
+    Ok(Config {{
+        scripts: ScriptsConfig {{
+            dev: "cargo run",
+            build: "cargo build --release",
+            ..Default::default()
+        }},
+        application: Some(json!({{ "binary": {configured_binary:?} }})),
+        ..Config::default()
+    }})
+}}
+"#,
+            ),
         )
         .unwrap();
         if custom {
+            fs::write(temp.path().join("proa.config.rs"), "invalid build config").unwrap();
             fs::rename(&executable, &explicit).unwrap();
         }
         let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));

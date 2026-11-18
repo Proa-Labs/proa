@@ -9,9 +9,11 @@ cd "$ROOT"
 
 source "$ROOT/scripts/watch-lock.sh"
 
-# Use an installed CLI, or this checkout's cargo alias when developing Proa.
+# Use the invoking CLI, an installed CLI, or this checkout's Cargo alias.
 proa_cli=(proa)
-if ! command -v proa >/dev/null 2>&1; then
+if [[ -n "${PROA_SCRIPT_EXECUTABLE:-}" ]]; then
+  proa_cli=("$PROA_SCRIPT_EXECUTABLE")
+elif ! command -v proa >/dev/null 2>&1; then
   proa_cli=(cargo proa)
 fi
 
@@ -58,20 +60,37 @@ proa_dev_require_number() {
   fi
 }
 
+proa_dev_has_flag() {
+  local flag="$1" arg
+  shift
+  for arg in "$@"; do
+    case "$arg" in
+      "$flag"|"$flag"=*) return 0 ;;
+      --) break ;;
+    esac
+  done
+  return 1
+}
+
 dev_args=()
-if proa_dev_is_off "$PROA_DEV_RELOAD" PROA_DEV_RELOAD; then
+if proa_dev_is_off "$PROA_DEV_RELOAD" PROA_DEV_RELOAD && ! proa_dev_has_flag --no-reload "$@"; then
   dev_args+=(--no-reload)
 fi
-if proa_dev_is_off "$PROA_DEV_CSS_HOT_SWAP" PROA_DEV_CSS_HOT_SWAP; then
+if proa_dev_is_off "$PROA_DEV_CSS_HOT_SWAP" PROA_DEV_CSS_HOT_SWAP && ! proa_dev_has_flag --no-css-hot-swap "$@"; then
   dev_args+=(--no-css-hot-swap)
 fi
-if [[ -n "$PROA_DEV_RELOAD_PORT" ]]; then
+if [[ -n "$PROA_DEV_RELOAD_PORT" ]] && ! proa_dev_has_flag --reload-port "$@"; then
   proa_dev_require_number "$PROA_DEV_RELOAD_PORT" PROA_DEV_RELOAD_PORT
   dev_args+=(--reload-port "$PROA_DEV_RELOAD_PORT")
 fi
-if [[ -n "$PROA_DEV_DEBOUNCE_MS" ]]; then
+if [[ -n "$PROA_DEV_DEBOUNCE_MS" ]] && ! proa_dev_has_flag --debounce-ms "$@"; then
   proa_dev_require_number "$PROA_DEV_DEBOUNCE_MS" PROA_DEV_DEBOUNCE_MS
   dev_args+=(--debounce-ms "$PROA_DEV_DEBOUNCE_MS")
+fi
+
+cargo_args=()
+if ! proa_dev_has_flag -- "$@"; then
+  cargo_args=(-- cargo run --bin mcp-incident-desk)
 fi
 
 # Cargo normally shares one target directory across every package in a
@@ -85,4 +104,4 @@ export CARGO_TARGET_DIR="${PROA_DEV_CARGO_TARGET_DIR:-${CARGO_TARGET_DIR:-$ROOT/
 # `${dev_args[@]+...}` expands an empty array safely under `set -u`, which
 # bash 3.2 (still the system bash on macOS) otherwise treats as unbound.
 proa_watch_lock_acquire "dev" "$ROOT"
-proa_watch_run "${proa_cli[@]}" dev --root "$ROOT" ${dev_args[@]+"${dev_args[@]}"} "$@"
+proa_watch_run "${proa_cli[@]}" dev --linked --root "$ROOT" ${dev_args[@]+"${dev_args[@]}"} "$@" ${cargo_args[@]+"${cargo_args[@]}"}

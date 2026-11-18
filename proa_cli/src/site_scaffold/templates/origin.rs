@@ -414,7 +414,7 @@ pub fn populate(
     plan.write("README.md", format!("{}\n## Dependency access\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n", readme(package, title)))?;
     plan.write(".github/workflows/ci.yml", super::github_ci(package))?;
     plan.write(
-        "proa.config.json",
+        crate::config::CONFIG_FILE,
         super::project_config(package, selection)?,
     )?;
 

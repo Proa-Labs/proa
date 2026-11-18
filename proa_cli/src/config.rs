@@ -11,100 +11,21 @@ use anyhow::{Context, Result};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_FILE: &str = "proa.config.json";
+mod model;
+mod rust;
+pub(crate) use rust::DevConfigRunner;
+
+use model::{default_registries, default_watch_paths};
+pub use model::{
+    AssetConfig, BuildConfig, Config, DevConfig, ProjectPaths, ScriptConfig, ScriptsConfig,
+    CONFIG_FILE,
+};
+pub type ProjectConfig = Config<String>;
+
 pub const LOCK_FILE: &str = "proa.lock.json";
-pub const CONFIG_SCHEMA_URL: &str = "https://proa.so/schema/proa.config.json";
 pub const LOCK_SCHEMA_URL: &str = "https://proa.so/schema/proa.lock.json";
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct ProjectConfig {
-    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
-    pub schema: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub application: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub database: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ui: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub representations: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub styling: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deploy: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub tasks: BTreeMap<String, serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub test: Option<serde_json::Value>,
-    pub paths: ProjectPaths,
-    pub registries: BTreeMap<String, String>,
-    pub dev: DevConfig,
-    pub build: BuildConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct ProjectPaths {
-    pub components: PathBuf,
-    pub assets: PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pages: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub endpoints: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub layouts: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub public: Option<PathBuf>,
-    #[serde(rename = "runtimeData", skip_serializing_if = "Option::is_none")]
-    pub runtime_data: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct DevConfig {
-    pub command: Vec<String>,
-    pub host: String,
-    pub port: u16,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub before: Vec<String>,
-    pub watch: Vec<PathBuf>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct BuildConfig {
-    pub command: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub before: Vec<String>,
-    /// `None` when the key is absent, so a Tailwind asset can be inferred.
-    /// `Some(vec![])` is an explicit "build no assets" and is left alone --
-    /// with a plain `Vec` the two were indistinguishable and an empty array
-    /// silently grew a Tailwind step back.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub assets: Option<Vec<AssetConfig>>,
-}
-
-impl BuildConfig {
-    pub fn assets(&self) -> &[AssetConfig] {
-        self.assets.as_deref().unwrap_or_default()
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
-pub struct AssetConfig {
-    pub kind: String,
-    pub command: Vec<String>,
-    pub input: PathBuf,
-    pub output: PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<PathBuf>,
-}
+pub(crate) const DEFAULT_DEV_COMMAND: &str = "cargo run";
+pub(crate) const DEFAULT_BUILD_COMMAND: &str = "cargo build --release";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
@@ -161,80 +82,6 @@ pub struct ConfigInitReport {
     pub wrote_lock: bool,
 }
 
-impl Default for ProjectConfig {
-    fn default() -> Self {
-        Self {
-            schema: Some(CONFIG_SCHEMA_URL.into()),
-            application: None,
-            database: None,
-            ui: None,
-            representations: None,
-            styling: None,
-            deploy: None,
-            content: None,
-            tasks: BTreeMap::new(),
-            test: None,
-            paths: ProjectPaths::default(),
-            registries: default_registries(),
-            dev: DevConfig::default(),
-            build: BuildConfig::default(),
-        }
-    }
-}
-
-impl Default for ProjectPaths {
-    fn default() -> Self {
-        Self {
-            components: PathBuf::from("src/components"),
-            // Must sit under the directory the generated server actually serves.
-            // `static/` is the URL prefix, not the folder: the axum scaffold mounts
-            // `public/` at `/static`, so assets written to `static/proa` were never
-            // reachable and every documented `/static/proa/...` link 404'd.
-            assets: PathBuf::from("public/proa"),
-            pages: None,
-            endpoints: None,
-            layouts: None,
-            models: None,
-            public: None,
-            runtime_data: None,
-        }
-    }
-}
-
-impl Default for DevConfig {
-    fn default() -> Self {
-        Self {
-            command: vec!["cargo".into(), "run".into()],
-            host: "127.0.0.1".into(),
-            port: 3000,
-            before: Vec::new(),
-            watch: default_watch_paths(),
-        }
-    }
-}
-
-impl Default for BuildConfig {
-    fn default() -> Self {
-        Self {
-            command: vec!["cargo".into(), "build".into(), "--release".into()],
-            before: Vec::new(),
-            assets: None,
-        }
-    }
-}
-
-impl Default for AssetConfig {
-    fn default() -> Self {
-        Self {
-            kind: "command".into(),
-            command: Vec::new(),
-            input: PathBuf::new(),
-            output: PathBuf::new(),
-            config: None,
-        }
-    }
-}
-
 impl Default for ComponentLockFile {
     fn default() -> Self {
         Self {
@@ -261,31 +108,71 @@ impl Default for InstalledComponent {
 }
 
 pub fn load_project_config(root: &Path) -> Result<ProjectConfig> {
-    let (config, unknown_keys) = load_project_config_with_unknown_keys(root)?;
-    // A misspelled key silently falling back to its default is the most
-    // confusing config failure mode; always say something.
-    for key in &unknown_keys {
-        eprintln!("warning: {CONFIG_FILE}: unknown key `{key}` is ignored");
+    load_project_config_with_runner(root, None)
+}
+
+pub(crate) fn load_project_config_with_runner(
+    root: &Path,
+    runner: Option<&mut DevConfigRunner>,
+) -> Result<ProjectConfig> {
+    let path = project_config_path(root);
+    let config = evaluate_project_config(root, path.as_deref(), runner)?;
+    for (field, command) in lifecycle_commands(&config) {
+        anyhow::ensure!(
+            !command.trim().is_empty(),
+            "{field} must specify a command in {CONFIG_FILE}"
+        );
     }
     Ok(config)
 }
 
-pub fn load_project_config_with_unknown_keys(root: &Path) -> Result<(ProjectConfig, Vec<String>)> {
-    let path = root.join(CONFIG_FILE);
-    if path.exists() {
-        let source =
-            fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        let mut unknown_keys = Vec::new();
-        let mut deserializer = serde_json::Deserializer::from_str(&source);
-        let mut config: ProjectConfig = serde_ignored::deserialize(&mut deserializer, |ignored| {
-            unknown_keys.push(ignored.to_string());
-        })
-        .with_context(|| format!("parse {}", path.display()))?;
-        fill_inferred_defaults(root, &mut config);
-        Ok((config, unknown_keys))
-    } else {
-        Ok((inferred_project_config(root), Vec::new()))
+fn evaluate_project_config(
+    root: &Path,
+    path: Option<&Path>,
+    runner: Option<&mut DevConfigRunner>,
+) -> Result<ProjectConfig> {
+    let mut config = match path {
+        Some(path) => rust::load(root, path, runner)
+            .with_context(|| format!("evaluate {}", path.display()))?,
+        None => inferred_project_config(),
+    };
+    fill_inferred_defaults(root, &mut config);
+    Ok(config)
+}
+
+fn lifecycle_commands(config: &ProjectConfig) -> [(&'static str, &str); 2] {
+    [
+        ("scripts.dev", &config.scripts.dev),
+        ("scripts.build", &config.scripts.build),
+    ]
+}
+
+pub(crate) fn inferred_project_config() -> ProjectConfig {
+    ProjectConfig {
+        scripts: ScriptsConfig {
+            dev: DEFAULT_DEV_COMMAND.to_owned(),
+            build: DEFAULT_BUILD_COMMAND.to_owned(),
+            ..Default::default()
+        },
+        ..ProjectConfig::default()
     }
+}
+
+pub(crate) fn project_config_path(root: &Path) -> Option<PathBuf> {
+    let path = root.join(CONFIG_FILE);
+    path.exists().then_some(path)
+}
+
+pub(crate) fn generated_rust_config(config: &ProjectConfig) -> Result<String> {
+    rust::source(config)
+}
+
+pub(crate) fn add_rust_capability(
+    source: &str,
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+) -> Result<String> {
+    rust::with_capability_changes(source, before, after)
 }
 
 #[derive(Debug, Serialize)]
@@ -296,34 +183,23 @@ pub struct ConfigValidation {
 }
 
 pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
-    let path = root.join(CONFIG_FILE);
     let mut validation = ConfigValidation {
-        config_path: path.exists().then_some(path),
+        config_path: project_config_path(root),
         warnings: Vec::new(),
         errors: Vec::new(),
     };
 
-    let (config, unknown_keys) = load_project_config_with_unknown_keys(root)?;
+    let config = evaluate_project_config(root, validation.config_path.as_deref(), None)?;
     if validation.config_path.is_none() {
         validation
             .warnings
             .push(format!("{CONFIG_FILE} not found; using inferred defaults"));
     }
-    for key in unknown_keys {
-        validation
-            .warnings
-            .push(format!("unknown key `{key}` is ignored"));
-    }
 
-    if config.dev.command.is_empty() {
-        validation
-            .errors
-            .push("dev.command is empty; `proa dev` cannot start a server".to_string());
-    }
-    if config.build.command.is_empty() {
-        validation
-            .errors
-            .push("build.command is empty; `proa build` has nothing to run".to_string());
+    for (field, command) in lifecycle_commands(&config) {
+        if let Err(error) = parse_script_command(field, command) {
+            validation.errors.push(error.to_string());
+        }
     }
     if config.dev.watch.is_empty() {
         validation
@@ -337,6 +213,20 @@ pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
     ] {
         if let Err(error) = validate_project_relative_path(path) {
             validation.errors.push(format!("{name}: {error}"));
+        }
+    }
+    for (name, path) in [
+        ("pages", &config.paths.pages),
+        ("endpoints", &config.paths.endpoints),
+        ("layouts", &config.paths.layouts),
+        ("models", &config.paths.models),
+        ("public", &config.paths.public),
+        ("runtimeData", &config.paths.runtime_data),
+    ] {
+        if let Some(path) = path {
+            if let Err(error) = validate_project_relative_path(path) {
+                validation.errors.push(format!("paths.{name}: {error}"));
+            }
         }
     }
     if config.paths.components == config.paths.assets {
@@ -389,7 +279,7 @@ pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
     Ok(validation)
 }
 
-fn validate_project_relative_path(path: &Path) -> std::result::Result<(), String> {
+pub(crate) fn validate_project_relative_path(path: &Path) -> std::result::Result<(), String> {
     if path.as_os_str().is_empty() || path.is_absolute() {
         return Err(format!(
             "`{}` must be a non-empty project-relative path",
@@ -458,16 +348,35 @@ pub fn load_component_lock(root: &Path) -> Result<ComponentLockFile> {
 }
 
 pub fn generated_project_config(tailwind: bool) -> Result<String> {
-    let mut config = ProjectConfig::default();
-    // Always write the key, even empty. A generated `--no-tailwind` project
-    // states "no asset builds" outright, so dropping a `styles/input.css` in
-    // later cannot silently reintroduce a Tailwind step nobody configured.
-    config.build.assets = Some(if tailwind {
-        vec![tailwind_asset()]
+    let assets = if tailwind {
+        r#"vec![proa_config::AssetConfig {
+                kind: "tailwind".into(),
+                input: "styles/input.css".into(),
+                output: "public/styles.css".into(),
+                ..Default::default()
+            }]"#
     } else {
-        Vec::new()
-    });
-    Ok(serde_json::to_string_pretty(&config)? + "\n")
+        "vec![]"
+    };
+    Ok(format!(
+        r#"use proa_config::{{BuildConfig, Config, Result, ScriptsConfig}};
+
+pub async fn config() -> Result<Config> {{
+    Ok(Config {{
+        scripts: ScriptsConfig {{
+            dev: {DEFAULT_DEV_COMMAND:?},
+            build: {DEFAULT_BUILD_COMMAND:?},
+            ..Default::default()
+        }},
+        build: BuildConfig {{
+            assets: Some({assets}),
+            ..Default::default()
+        }},
+        ..Config::default()
+    }})
+}}
+"#
+    ))
 }
 
 pub fn generated_component_lock() -> Result<String> {
@@ -503,16 +412,7 @@ pub fn init_project_files(root: &Path, force: bool) -> Result<ConfigInitReport> 
     })
 }
 
-fn inferred_project_config(root: &Path) -> ProjectConfig {
-    let mut config = ProjectConfig::default();
-    fill_inferred_defaults(root, &mut config);
-    config
-}
-
 fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
-    if config.schema.is_none() {
-        config.schema = Some(CONFIG_SCHEMA_URL.into());
-    }
     if config.paths.components.as_os_str().is_empty() {
         config.paths.components = ProjectPaths::default().components;
     }
@@ -521,9 +421,6 @@ fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
     }
     if config.registries.is_empty() {
         config.registries = default_registries();
-    }
-    if config.dev.command.is_empty() {
-        config.dev.command = DevConfig::default().command;
     }
     if config.dev.host.is_empty() {
         config.dev.host = DevConfig::default().host;
@@ -534,31 +431,15 @@ fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
     if config.dev.watch.is_empty() {
         config.dev.watch = default_watch_paths();
     }
-    if config.build.command.is_empty() {
-        config.build.command = BuildConfig::default().command;
-    }
     if config.build.assets.is_none() && root.join("styles/input.css").exists() {
         config.build.assets = Some(vec![tailwind_asset()]);
     }
 }
 
-fn default_registries() -> BTreeMap<String, String> {
-    [
-        ("@proa", "https://ui.proa.so/r/{name}.json"),
-        ("@proa-pro", "https://console.proa.so/r/{name}.json"),
-    ]
-    .into_iter()
-    .map(|(key, value)| (key.to_string(), value.to_string()))
-    .collect()
-}
-
-// Cargo.lock is intentionally not watched: `cargo run` can rewrite it during
-// the build the watcher just triggered, which restarts the dev loop forever.
-fn default_watch_paths() -> Vec<PathBuf> {
-    ["src", "styles", "Cargo.toml", "build.rs", CONFIG_FILE]
-        .into_iter()
-        .map(PathBuf::from)
-        .collect()
+pub(crate) fn parse_script_command(field: &str, source: &str) -> Result<Vec<String>> {
+    let command = shlex::split(source).with_context(|| format!("{field} has invalid quoting"))?;
+    anyhow::ensure!(!command.is_empty(), "{field} must specify a command");
+    Ok(command)
 }
 
 fn tailwind_asset() -> AssetConfig {
@@ -579,32 +460,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validate_reports_unknown_keys_and_bad_asset_kinds() {
+    fn adding_a_capability_preserves_an_async_config_and_its_error_type() {
         let temp = tempfile::tempdir().unwrap();
-        fs::write(
-            temp.path().join(CONFIG_FILE),
-            r#"{
-                "dev": { "comand": ["cargo", "run"] },
-                "build": { "assets": [{ "kind": "webpack", "input": "a", "output": "b" }] }
-            }"#,
-        )
-        .unwrap();
+        let source = r#"
+use proa_config::{Config, ProjectPaths, ScriptsConfig, tokio};
 
-        let validation = validate_project_config(temp.path()).unwrap();
-        assert!(
-            validation
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("dev.comand")),
-            "{validation:?}"
-        );
-        assert!(
-            validation
-                .errors
-                .iter()
-                .any(|error| error.contains("unknown kind `webpack`")),
-            "{validation:?}"
-        );
+pub async fn config() -> std::io::Result<Config> {
+    let public = tokio::fs::read_to_string("public-dir.txt").await?;
+    return Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        paths: ProjectPaths { public: Some(public.into()), ..Default::default() },
+        ..Config::default()
+    });
+}
+"#;
+        let before = serde_json::to_value(ProjectConfig::default()).unwrap();
+        let mut after = before.clone();
+        after["database"] = serde_json::json!({ "driver": "sqlite" });
+        let patched = add_rust_capability(source, &before, &after).unwrap();
+        fs::write(temp.path().join(CONFIG_FILE), patched).unwrap();
+        fs::write(temp.path().join("public-dir.txt"), "public").unwrap();
+        let actual = load_project_config(temp.path()).unwrap();
+        assert_eq!(actual.paths.public, Some("public".into()));
+        assert_eq!(actual.database, Some(after["database"].clone()));
     }
 
     #[test]
@@ -626,13 +508,23 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         fs::write(
             temp.path().join(CONFIG_FILE),
-            r#"{
-                "paths": { "components": "../outside", "assets": "/tmp/assets" },
-                "registries": {
-                    "@proa": "https://ui.proa.so/r/component.json",
-                    "@proa-pro": "http://console.proa.so/r/{name}.json"
-                }
-            }"#,
+            generated_rust_config(&ProjectConfig {
+                paths: ProjectPaths {
+                    components: "../outside".into(),
+                    assets: "/tmp/assets".into(),
+                    public: Some("../public".into()),
+                    ..Default::default()
+                },
+                registries: BTreeMap::from([
+                    ("@proa".into(), "https://ui.proa.so/r/component.json".into()),
+                    (
+                        "@proa-pro".into(),
+                        "http://console.proa.so/r/{name}.json".into(),
+                    ),
+                ]),
+                ..inferred_project_config()
+            })
+            .unwrap(),
         )
         .unwrap();
 
@@ -655,6 +547,13 @@ mod tests {
             validation
                 .errors
                 .iter()
+                .any(|error| error.contains("paths.public")),
+            "{validation:?}"
+        );
+        assert!(
+            validation
+                .errors
+                .iter()
                 .any(|error| error.contains("exactly one `{name}`")),
             "{validation:?}"
         );
@@ -668,36 +567,15 @@ mod tests {
     }
 
     #[test]
-    fn load_reports_unknown_keys() {
-        let temp = tempfile::tempdir().unwrap();
-        fs::write(temp.path().join(CONFIG_FILE), r#"{ "prot": 3001 }"#).unwrap();
-
-        let (_, unknown) = load_project_config_with_unknown_keys(temp.path()).unwrap();
-        assert_eq!(unknown, ["prot"]);
-    }
-
-    #[test]
-    fn generated_config_includes_tailwind_asset_when_requested() {
-        let json = generated_project_config(true).unwrap();
-
-        assert!(json.contains("\"$schema\": \"https://proa.so/schema/proa.config.json\""));
-        assert!(json.contains("\"components\": \"src/components\""));
-        assert!(json.contains("\"@proa\""));
-        assert!(json.contains("https://console.proa.so/r/{name}.json"));
-        assert!(json.contains("\"command\": ["));
-        assert!(json.contains("\"cargo\""));
-        assert!(json.contains("\"kind\": \"tailwind\""));
-        assert!(json.contains("\"styles/input.css\""));
-        assert!(!json.contains("\"config\""));
-        assert!(!json.contains("frontend"));
-    }
-
-    #[test]
-    fn generated_config_can_omit_assets() {
-        let json = generated_project_config(false).unwrap();
-
-        assert!(json.contains("\"assets\": []"));
-        assert!(!json.contains("\"kind\": \"tailwind\""));
+    fn generated_config_has_a_typed_entry_and_explicit_asset_choice() {
+        for tailwind in [false, true] {
+            let source = generated_project_config(tailwind).unwrap();
+            assert!(syn::parse_file(&source).is_ok());
+            assert!(source.contains("dev: \"cargo run\""));
+            assert!(source.contains("build: \"cargo build --release\""));
+            assert_eq!(source.contains("styles/input.css"), tailwind);
+            assert_eq!(source.contains("assets: Some(vec![])"), !tailwind);
+        }
     }
 
     #[test]

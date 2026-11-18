@@ -4,7 +4,7 @@
 //! `proa build`: build assets and compile one exact Proa binary through the
 //! linked RSJS pipeline.
 
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::Result;
 use clap::Args;
@@ -16,6 +16,9 @@ pub(crate) struct BuildArgs {
     /// Proa project root. Defaults to the nearest root.
     #[arg(long)]
     root: Option<PathBuf>,
+    /// Enter the built-in linked build from a project script.
+    #[arg(long)]
+    linked: bool,
     /// Cargo profile override, e.g. release-fast.
     #[arg(long)]
     profile: Option<String>,
@@ -57,14 +60,14 @@ pub(crate) struct BuildArgs {
     /// the Cargo target directory or a path outside the selected package source tree.
     #[arg(long, value_name = "PATH")]
     artifact_out: Option<PathBuf>,
-    /// Override the configured Cargo build command. Custom non-Cargo commands are not supported.
+    /// Enter the linked build with an exact Cargo build command.
     /// Example: -- cargo build --release -p app --bin app.
     #[arg(last = true)]
     command: Vec<String>,
 }
 
-pub(crate) fn run(args: BuildArgs) -> Result<()> {
-    lifecycle::build(lifecycle::BuildOptions {
+pub(crate) fn run(args: BuildArgs, arguments: &[OsString]) -> Result<()> {
+    let options = lifecycle::BuildOptions {
         root: args.root,
         profile: args.profile,
         package: args.package,
@@ -80,7 +83,12 @@ pub(crate) fn run(args: BuildArgs) -> Result<()> {
         no_assets: args.no_assets,
         artifact_out: args.artifact_out,
         command: args.command,
-    })
+    };
+    if args.linked {
+        lifecycle::build(options)
+    } else {
+        lifecycle::build_from_cli(options, Some(arguments))
+    }
 }
 
 #[cfg(test)]

@@ -14,7 +14,8 @@ cd my-app && proa dev --open
 
 The first `proa dev` build downloads dependencies and compiles the Rust crates,
 which can take several minutes. Build stages appear in the terminal, and
-`--open` opens your browser once the server accepts connections.
+`--open` opens the browser URL reported by the server when it is ready.
+Custom servers that only bind a socket use the configured HTTP address.
 
 To study a complete production-shaped application, scaffold ORIGIN:
 
@@ -121,7 +122,7 @@ The default `app` preset generates:
     ci.yml
 .env.example
 Cargo.toml
-proa.config.json
+proa.config.rs
 proa.lock.json
 build.rs
 rust-toolchain.toml
@@ -166,7 +167,7 @@ What each directory holds:
 | `tests/` | Integration tests, including the representation and data-loading contracts. |
 | `build.rs` | Build-time wiring. The `origin` template also runs the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
 
-`proa.config.json` controls the `proa dev` and `proa build` lifecycle commands
+`proa.config.rs` controls the `proa dev` and `proa build` lifecycle commands
 and records component registry aliases. `proa.lock.json` records the scaffold
 capabilities and every component installed by `proa ui add`. The generated
 Cargo dependencies on Proa crates resolve from crates.io. A generated standalone
@@ -237,7 +238,7 @@ just does not tell the browser. Use `--no-css-hot-swap` for that, and note that
 `--no-assets` disables it too, since there is nothing left to rebuild.
 
 The fast path only sees stylesheets under a watched path. `dev.watch` defaults
-to `src`, `styles`, `Cargo.toml`, `build.rs`, and `proa.config.json`, so a site
+to `src`, `styles`, `Cargo.toml`, `build.rs`, and `proa.config.rs`, so a site
 whose only stylesheet is `public/styles.css` (what `--no-tailwind` generates)
 needs `public` added to `dev.watch` before edits to it are noticed at all.
 

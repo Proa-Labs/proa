@@ -53,8 +53,14 @@ The default application includes:
 - static data under `src/static_data/` and public assets under `public/`;
 - Tailwind source plus a checked-in prebuilt stylesheet, so the first page is
   styled even when a local Tailwind executable is unavailable;
-- `proa.config.json`, registry lock metadata, local environment examples, and
+- `proa.config.rs`, registry lock metadata, local environment examples, and
   optional provider-native deployment files.
+
+The generated `proa.config.rs` sits next to `Cargo.toml` and exports
+`pub async fn config() -> proa_config::Result<proa_config::Config>`.
+It declares both lifecycle commands under `scripts`.
+The CLI generates a host runner under Cargo's target directory. Its main
+module imports the config by path and awaits it before the app build.
 
 Run the generated app with:
 
@@ -64,8 +70,8 @@ proa db migrate
 proa dev
 ```
 
-Use `proa build` for a linked release build and `proa start` to run an already
-built release without compiling or watching.
+Use `proa build` for a linked release build. Use `proa start --bin <path>`
+to run an exported executable without loading the build config.
 
 `proa test` creates a unique migrated SQLite database under
 `target/proa-tests/`, runs binary and integration-test targets through the

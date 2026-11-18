@@ -10,17 +10,20 @@ From this directory:
 
 ```console
 ./scripts/setup.sh
-bash scripts/dev.sh
+cargo proa dev
 ```
 
 The setup script creates a short-lived local CA, a localhost certificate, ignored `.local/` key material, and `.env`. Review the printed `security add-trusted-cert` command before running it if you want Chrome to trust the local HTTPS certificate. The app listens on `https://localhost:5570`; the demo OAuth issuer listens on `https://127.0.0.1:5571`.
 
-`scripts/dev.sh` builds assets and watches for source and stylesheet changes through
-`proa dev`. It uses the installed CLI, or `cargo proa` inside this checkout,
-and keeps one watcher per example. Refresh the browser after changes; this
-custom HTTPS shell does not embed the browser reload client. Use
-`bash scripts/build.sh` for a release build. Both scripts forward additional
-CLI arguments. Run the TLS setup once before starting development.
+`proa.config.rs` declares `bash scripts/dev.sh` as the dev entry. The wrapper
+sets up the watcher and enters `proa dev --linked` to build assets and watch
+source files and the configured `public/` directory. Both HTTPS origins serve the published
+catalog, including the fingerprinted favicon and revalidating stylesheets.
+An edit to a public file publishes the catalog and restarts the server.
+The wrapper keeps one watcher per example. Refresh the browser after changes
+when using this custom HTTPS shell. Use `cargo proa build` for a release build.
+Both wrappers forward CLI arguments and can also be entered directly with
+Bash. Run the TLS setup once before starting development.
 
 The first application start prints one password for each seeded demo account. Save those values locally. To rotate Alice's password later, stop the app and run `cargo run --bin mcp-incident-desk -- reset-password alice`. The accounts are Alice (Aster maintainer), Ben (Aster viewer), and Casey (Harbor maintainer). The database is `sqlite://data/mcp-incident-desk.db`; startup runs the committed SQLx migrations and seeds only when the seed marker is absent.
 

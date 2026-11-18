@@ -64,6 +64,17 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(!stderr(&output).contains("Tailwind CSS CLI v4 was not found on PATH"));
     assert!(temp.path().join("demo/styles/input.css").exists());
     assert!(temp.path().join("demo/public/styles.css").exists());
+    let app = temp.path().join("demo");
+    assert!(app.join("proa.config.rs").is_file());
+    let added = proa(&["add", "docs", "--yes"], &app);
+    assert!(added.status.success(), "{}", stderr(&added));
+    let effective = proa(&["config", "show"], &app);
+    assert!(effective.status.success(), "{}", stderr(&effective));
+    let config: serde_json::Value = serde_json::from_str(&stdout(&effective)).unwrap();
+    assert_eq!(config["application"]["package"], "demo");
+    assert_eq!(config["content"]["docs"]["enabled"], true);
+    assert_eq!(config["scripts"]["dev"], "cargo run");
+    assert_eq!(config["scripts"]["build"], "cargo build --release");
 }
 
 #[cfg(unix)]
@@ -243,25 +254,45 @@ fn check_fails_on_warning_unless_allowed() {
 }
 
 #[test]
-fn config_validate_reports_typos_and_fails_on_bad_kind() {
+fn config_validate_checks_typed_fields_and_asset_kinds() {
     let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("Cargo.toml"), "[package]\nname=\"demo\"\n").unwrap();
-    fs::create_dir_all(temp.path().join("src")).unwrap();
+    fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+    let authored = temp.path().join("proa.config.rs");
     fs::write(
-        temp.path().join("proa.config.json"),
-        r#"{
-            "style": "default",
-            "dev": { "prot": 3001 },
-            "build": { "assets": [{ "kind": "webpack", "input": "a", "output": "b" }] }
-        }"#,
+        &authored,
+        r#"use proa_config::{AssetConfig, BuildConfig, Config, Result, ScriptsConfig};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "cargo build '--release",
+            ..Default::default()
+        },
+        build: BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "webpack".into(),
+                input: "a".into(),
+                output: "b".into(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
     )
     .unwrap();
-
     let output = proa(&["config", "validate"], temp.path());
     assert!(!output.status.success());
-    let text = stdout(&output);
-    assert!(text.contains("dev.prot"), "{text}");
-    assert!(text.contains("webpack"), "{text}");
+    assert!(stdout(&output).contains("webpack"), "{}", stderr(&output));
+    assert!(stdout(&output).contains("scripts.build has invalid quoting"));
+
+    let source = fs::read_to_string(&authored).unwrap();
+    fs::write(&authored, source.replace("assets:", "asseets:")).unwrap();
+    let output = proa(&["config", "validate"], temp.path());
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("asseets"));
 }
 
 #[test]
@@ -275,6 +306,38 @@ fn config_validate_json_is_machine_readable() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
     assert!(parsed["warnings"].is_array());
     assert!(parsed["errors"].is_array());
+}
+
+#[test]
+fn authored_config_requires_explicit_lifecycle_commands() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+    fs::write(
+        temp.path().join("proa.config.rs"),
+        r#"
+use proa_config::{Config, Result};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config::default())
+}
+"#,
+    )
+    .unwrap();
+
+    let validation = proa(&["config", "validate", "--json"], temp.path());
+    assert!(!validation.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&validation.stdout).unwrap();
+    assert_eq!(
+        report["errors"],
+        serde_json::json!([
+            "scripts.dev must specify a command",
+            "scripts.build must specify a command"
+        ])
+    );
+
+    let show = proa(&["config", "show"], temp.path());
+    assert!(!show.status.success());
+    assert!(stderr(&show).contains("scripts.dev must specify a command in proa.config.rs"));
 }
 
 #[test]
