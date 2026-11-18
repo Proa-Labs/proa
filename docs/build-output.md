@@ -26,7 +26,7 @@ pub async fn config() -> Result<Config> {
             ..Default::default()
         },
         paths: ProjectPaths {
-            public: Some("public".into()),
+            public: Some("public"),
             ..Default::default()
         },
         build: BuildConfig {

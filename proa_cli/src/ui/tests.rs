@@ -12,14 +12,8 @@ fn write_project(root: &Path, public: &Path, pro: &Path) {
     .unwrap();
     fs::write(root.join("fixture-lib.rs"), "").unwrap();
     let mut config = config::inferred_project_config();
-    config.registries.insert(
-        PUBLIC_REGISTRY.to_string(),
-        public.join("{name}.json").display().to_string(),
-    );
-    config.registries.insert(
-        PRO_REGISTRY.to_string(),
-        pro.join("{name}.json").display().to_string(),
-    );
+    config.registries.proa = Some(public.join("{name}.json").display().to_string());
+    config.registries.proa_pro = Some(pro.join("{name}.json").display().to_string());
     fs::write(
         root.join(config::CONFIG_FILE),
         config::generated_rust_config(&config).unwrap(),

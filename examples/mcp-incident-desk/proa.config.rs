@@ -3,54 +3,44 @@
 
 use proa_config::{
     ApplicationConfig, AssetConfig, BuildConfig, Config, DatabaseConfig, DatabaseDriver,
-    DeployConfig, HtmlRepresentationConfig, MarkdownRepresentationConfig, ProjectPaths,
+    DeployConfig, MarkdownRepresentationConfig, ProjectPaths, RegistriesConfig,
     RepresentationsConfig, Result, ScriptsConfig, StylingConfig, UiConfig,
 };
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
         application: Some(ApplicationConfig {
-            binary: "mcp-incident-desk".into(),
-            package: "mcp-incident-desk".into(),
-            kind: "site".into(),
-            starter: "blank".into(),
-            template: "app".into(),
+            binary: "mcp-incident-desk",
+            package: "mcp-incident-desk",
+            starter: "blank",
+            template: "app",
+            ..Default::default()
         }),
         database: Some(DatabaseConfig {
             driver: DatabaseDriver::Sqlite,
-            migrations: Some("migrations".into()),
-            run_migrations_on_startup: Some(true),
             ..Default::default()
         }),
-        ui: Some(UiConfig {
-            provider: "proa".into(),
-        }),
+        ui: Some(UiConfig { provider: "proa" }),
         representations: Some(RepresentationsConfig {
-            html: Some(HtmlRepresentationConfig { enabled: true }),
-            markdown: Some(MarkdownRepresentationConfig::site()),
+            markdown: Some(MarkdownRepresentationConfig {
+                enabled: true,
+                ..Default::default()
+            }),
+            ..Default::default()
         }),
         styling: Some(StylingConfig {
-            kind: "tailwind".into(),
-            input: Some("styles/input.css".into()),
-            output: Some("public/styles.css".into()),
+            kind: "tailwind",
+            input: Some("styles/input.css"),
+            output: Some("public/styles.css"),
         }),
         deploy: Some(DeployConfig {
-            provider: "none".into(),
+            provider: "none",
             ..Default::default()
         }),
-        registries: std::collections::BTreeMap::from([(
-            "@proa".into(),
-            "https://ui.proa.so/r/{name}.json".into(),
-        )]),
+        registries: RegistriesConfig::public_only(),
         paths: ProjectPaths {
-            components: "src/components".into(),
-            assets: "public/proa".into(),
-            pages: Some("src/pages".into()),
-            endpoints: Some("src/endpoints".into()),
-            layouts: Some("src/layouts".into()),
-            models: Some("src/models".into()),
-            public: Some("public".into()),
-            runtime_data: Some("data".into()),
+            public: Some("public"),
+            ..Default::default()
         },
         scripts: ScriptsConfig {
             dev: "bash scripts/dev.sh",
@@ -59,11 +49,10 @@ pub async fn config() -> Result<Config> {
         },
         build: BuildConfig {
             assets: Some(vec![AssetConfig {
-                kind: "tailwind".into(),
-                command: vec![],
-                input: "styles/input.css".into(),
-                output: "public/styles.css".into(),
-                config: None,
+                kind: "tailwind",
+                input: "styles/input.css",
+                output: "public/styles.css",
+                ..Default::default()
             }]),
             ..Default::default()
         },

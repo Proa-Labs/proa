@@ -15,14 +15,37 @@ mod model;
 mod rust;
 pub(crate) use rust::DevConfigRunner;
 
-use model::{default_registries, default_watch_paths};
+use model::default_watch_paths;
 pub use model::{
-    ApplicationConfig, AssetConfig, BuildConfig, CdnConfig, Config, ContentCollectionConfig,
-    ContentConfig, DatabaseConfig, DatabaseDriver, DeployConfig, DevConfig,
-    HtmlRepresentationConfig, MarkdownRepresentationConfig, ProjectPaths, RepresentationsConfig,
-    ScriptConfig, ScriptsConfig, StylingConfig, TestConfig, UiConfig, CONFIG_FILE,
+    Config, ContentCollectionConfig, ContentConfig, DatabaseDriver, HtmlRepresentationConfig,
+    CONFIG_FILE,
 };
-pub type ProjectConfig = Config<String>;
+pub type ProjectConfig = Config<String, PathBuf>;
+
+macro_rules! owned_config_sections {
+    ($($name:ident <$($storage:ty),+ $(,)?>),+ $(,)?) => {
+        $(pub type $name = model::$name<$($storage),+>;)*
+    };
+}
+
+owned_config_sections! {
+    ApplicationConfig<String>,
+    AssetConfig<String, PathBuf>,
+    BuildConfig<String, PathBuf>,
+    CdnConfig<String>,
+    DatabaseConfig<String, PathBuf>,
+    DeployConfig<String>,
+    DevConfig<String, PathBuf>,
+    MarkdownRepresentationConfig<String>,
+    ProjectPaths<PathBuf>,
+    RegistriesConfig<String>,
+    RepresentationsConfig<String>,
+    ScriptConfig<String, PathBuf>,
+    ScriptsConfig<String, PathBuf>,
+    StylingConfig<String, PathBuf>,
+    TestConfig<String>,
+    UiConfig<String>,
+}
 
 pub const LOCK_FILE: &str = "proa.lock.json";
 pub const LOCK_SCHEMA_URL: &str = "https://proa.so/schema/proa.lock.json";
@@ -237,12 +260,12 @@ pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
             .push("paths.components and paths.assets must be different".to_string());
     }
 
-    if !config.registries.contains_key("@proa") {
+    if config.registries.proa.is_none() {
         validation
             .errors
             .push("registries.@proa is required".to_string());
     }
-    for (registry, template) in &config.registries {
+    for (registry, template) in config.registries.iter() {
         if let Err(error) = validate_registry_template(template) {
             validation
                 .errors
@@ -352,9 +375,9 @@ pub fn load_component_lock(root: &Path) -> Result<ComponentLockFile> {
 pub fn generated_project_config(tailwind: bool) -> Result<String> {
     let assets = if tailwind {
         r#"vec![proa_config::AssetConfig {
-                kind: "tailwind".into(),
-                input: "styles/input.css".into(),
-                output: "public/styles.css".into(),
+                kind: "tailwind",
+                input: "styles/input.css",
+                output: "public/styles.css",
                 ..Default::default()
             }]"#
     } else {
@@ -421,8 +444,8 @@ fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
     if config.paths.assets.as_os_str().is_empty() {
         config.paths.assets = ProjectPaths::default().assets;
     }
-    if config.registries.is_empty() {
-        config.registries = default_registries();
+    if config.registries.proa.is_none() && config.registries.proa_pro.is_none() {
+        config.registries = RegistriesConfig::default();
     }
     if config.dev.host.is_empty() {
         config.dev.host = DevConfig::default().host;
@@ -467,7 +490,7 @@ mod tests {
         let source = r#"
 use proa_config::{CdnConfig, Config, DeployConfig, ProjectPaths, ScriptsConfig, tokio};
 
-pub async fn config() -> std::io::Result<Config> {
+pub async fn config() -> std::io::Result<Config<&'static str, String>> {
     let public = tokio::fs::read_to_string("public-dir.txt").await?;
     return Ok(Config {
         scripts: ScriptsConfig {
@@ -475,9 +498,9 @@ pub async fn config() -> std::io::Result<Config> {
             build: "cargo build --release",
             ..Default::default()
         },
-        paths: ProjectPaths { public: Some(public.into()), ..Default::default() },
+        paths: ProjectPaths { public: Some(public), ..Default::default() },
         deploy: Some(DeployConfig {
-            cdn: Some(CdnConfig::Command { command: vec!["purge-cache".into()] }),
+            cdn: Some(CdnConfig::Command { command: vec!["purge-cache"] }),
             ..Default::default()
         }),
         ..Config::default()
@@ -536,13 +559,10 @@ pub async fn config() -> std::io::Result<Config> {
                     public: Some("../public".into()),
                     ..Default::default()
                 },
-                registries: BTreeMap::from([
-                    ("@proa".into(), "https://ui.proa.so/r/component.json".into()),
-                    (
-                        "@proa-pro".into(),
-                        "http://console.proa.so/r/{name}.json".into(),
-                    ),
-                ]),
+                registries: RegistriesConfig {
+                    proa: Some("https://ui.proa.so/r/component.json".into()),
+                    proa_pro: Some("http://console.proa.so/r/{name}.json".into()),
+                },
                 ..inferred_project_config()
             })
             .unwrap(),

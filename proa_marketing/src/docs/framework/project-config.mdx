@@ -23,14 +23,14 @@ pub async fn config() -> Result<Config> {
             ..Default::default()
         },
         paths: ProjectPaths {
-            public: Some("public".into()),
+            public: Some("public"),
             ..Default::default()
         },
         build: BuildConfig {
             assets: Some(vec![AssetConfig {
-                kind: "tailwind".into(),
-                input: "styles/input.css".into(),
-                output: "public/styles.css".into(),
+                kind: "tailwind",
+                input: "styles/input.css",
+                output: "public/styles.css",
                 ..Default::default()
             }]),
             ..Default::default()
@@ -47,15 +47,15 @@ with this field in the `Config` literal.
 ```rust
 database: Some(DatabaseConfig {
     driver: DatabaseDriver::Sqlite,
-    migrations: Some("migrations".into()),
-    run_migrations_on_startup: Some(true),
     ..Default::default()
 }),
 ```
 
 Import `DatabaseConfig` and `DatabaseDriver` from `proa_config`.
-Use a computed `String` directly for an owned string field. Use `.into()`
-when assigning a string literal to a `String` or `PathBuf` field.
+`Config` accepts string literals directly, including in path fields.
+For a computed path, return `Config<&'static str, String>` and move the
+computed string into the path field. Use `PathBuf` as the second type
+argument if you build paths with `std::path`.
 
 For settings read from a file, use `proa_config::tokio` and propagate I/O
 errors with `?`. Add extra watch paths in the dev script.
@@ -63,7 +63,7 @@ errors with `?`. Add extra watch paths in the dev script.
 ```rust
 use proa_config::{Config, ProjectPaths, Result, tokio, ScriptsConfig};
 
-pub async fn config() -> Result<Config> {
+pub async fn config() -> Result<Config<&'static str, String>> {
     let public = tokio::fs::read_to_string("public-dir.txt").await?;
 
     Ok(Config {
@@ -73,7 +73,7 @@ pub async fn config() -> Result<Config> {
             ..Default::default()
         },
         paths: ProjectPaths {
-            public: Some(public.trim().into()),
+            public: Some(public.trim().to_owned()),
             ..Default::default()
         },
         ..Config::default()
@@ -82,6 +82,16 @@ pub async fn config() -> Result<Config> {
 ```
 
 In `scripts/dev.sh`, pass `--watch public-dir.txt` to the linked watcher.
+
+## Paths and registries
+
+Set `paths.public` to publish a directory through the public asset catalog.
+The `components` and `assets` paths are install destinations for
+`proa ui add`. They default to `src/components` and `public/proa`.
+
+Use `RegistriesConfig::public_only()` to select the built-in public
+registry. To configure a mirror, set `RegistriesConfig.proa` to its URL
+template. Use `proa_pro` to configure the Pro registry.
 
 ## How Proa builds the config
 
@@ -150,7 +160,7 @@ exec "${PROA_SCRIPT_EXECUTABLE:-proa}" build --linked "$@"
 operations. The scaffolds spell out these commands. They are also the
 commands used when a project has no config file. Proa honors quoted
 arguments in the command string. For computed commands, return
-`Result<Config<String>>`.
+`Result<Config<String, &'static str>>` to own text and keep path literals.
 
 Define reusable commands in `scripts.named`. List their names in
 `build.before` for linked builds or `dev.before` for dev builds. This
@@ -166,19 +176,19 @@ pub async fn config() -> Result<Config> {
             dev: "cargo run",
             build: "cargo build --release",
             named: BTreeMap::from([(
-                "generate-assets".into(),
+                "generate-assets",
                 ScriptConfig {
-                    command: vec!["python3".into(), "scripts/generate_assets.py".into()],
+                    command: vec!["python3", "scripts/generate_assets.py"],
                     ..Default::default()
                 },
             )]),
         },
         build: BuildConfig {
-            before: vec!["generate-assets".into()],
+            before: vec!["generate-assets"],
             ..Default::default()
         },
         dev: DevConfig {
-            before: vec!["generate-assets".into()],
+            before: vec!["generate-assets"],
             ..Default::default()
         },
         ..Config::default()

@@ -35,7 +35,7 @@ fn main() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let config: Config<_> = runtime.block_on(authored::config())?;
+    let config: Config<_, _> = runtime.block_on(authored::config())?;
     let output = std::env::args_os().nth(1).expect("missing config output path");
     serde_json::to_writer(std::fs::File::create(output)?, &config)?;
     Ok(())
@@ -353,7 +353,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     macro_rules! section {
         ($($field:ident),+ $(,)?) => {
             $(if let Some(value) = &config.$field {
-                writeln!(source, "        {}: Some({}),", stringify!($field), value.rust_expr(8)?)?;
+                writeln!(source, "        {}: Some({}),", stringify!($field), value.rust_expr(8, TextSource::Literal)?)?;
             })+
         };
     }
@@ -379,26 +379,22 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
         )?;
         for (name, script) in &config.scripts.named {
             let description = &script.description;
-            let command = string_vec(&script.command);
+            let command = string_vec(&script.command, TextSource::Literal);
             let cwd = path_literal(&script.cwd)?;
-            let depends_on = string_vec(&script.depends_on);
-            let inputs = string_vec(&script.inputs);
+            let depends_on = string_vec(&script.depends_on, TextSource::Literal);
+            let inputs = string_vec(&script.inputs, TextSource::Literal);
             writeln!(
                 source,
-                "                ({name:?}.into(), proa_config::ScriptConfig {{
-                    description: {description:?}.into(),
+                "                ({name:?}, proa_config::ScriptConfig {{
+                    description: {description:?},
                     command: {command},
-                    cwd: {cwd}.into(),
+                    cwd: {cwd},
                     depends_on: {depends_on},
                     inputs: {inputs},
                     outputs: vec!["
             )?;
             for path in &script.outputs {
-                writeln!(
-                    source,
-                    "                        {}.into(),",
-                    path_literal(path)?
-                )?;
+                writeln!(source, "                        {},", path_literal(path)?)?;
             }
             writeln!(source, "                    ],")?;
             writeln!(
@@ -406,36 +402,38 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
                 "                    env: std::collections::BTreeMap::from(["
             )?;
             for (key, value) in &script.env {
-                writeln!(
-                    source,
-                    "                        ({key:?}.into(), {value:?}.into()),"
-                )?;
+                writeln!(source, "                        ({key:?}, {value:?}),")?;
             }
             writeln!(source, "                    ]),\n                }}),")?;
         }
         writeln!(source, "            ]),")?;
     }
     writeln!(source, "        }},")?;
-    if config.registries != ProjectConfig::default().registries {
+    if config.registries == super::RegistriesConfig::public_only() {
         writeln!(
             source,
-            "        registries: std::collections::BTreeMap::from(["
+            "        registries: proa_config::RegistriesConfig::public_only(),"
         )?;
-        for (name, url) in &config.registries {
-            writeln!(source, "            ({name:?}.into(), {url:?}.into()),")?;
-        }
-        writeln!(source, "        ]),")?;
+    } else if config.registries != ProjectConfig::default().registries {
+        writeln!(
+            source,
+            "        registries: {},",
+            config.registries.rust_expr(8, TextSource::Literal)?,
+        )?;
     }
     writeln!(source, "        paths: ProjectPaths {{")?;
-    for (field, path) in [
-        ("components", config.paths.components.as_path()),
-        ("assets", config.paths.assets.as_path()),
+    let default_paths = super::ProjectPaths::default();
+    for (field, path, default) in [
+        (
+            "components",
+            &config.paths.components,
+            &default_paths.components,
+        ),
+        ("assets", &config.paths.assets, &default_paths.assets),
     ] {
-        writeln!(
-            source,
-            "            {field}: {}.into(),",
-            path_literal(path)?
-        )?;
+        if path != default {
+            writeln!(source, "            {field}: {},", path_literal(path)?)?;
+        }
     }
     for (field, path) in [
         ("pages", &config.paths.pages),
@@ -448,7 +446,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
         if let Some(path) = path {
             writeln!(
                 source,
-                "            {field}: Some({}.into()),",
+                "            {field}: Some({}),",
                 path_literal(path)?
             )?;
         }
@@ -456,18 +454,18 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     writeln!(source, "            ..Default::default()\n        }},")?;
     if config.dev != super::DevConfig::default() {
         writeln!(source, "        dev: proa_config::DevConfig {{")?;
-        writeln!(source, "            host: {:?}.into(),", config.dev.host)?;
+        writeln!(source, "            host: {:?},", config.dev.host)?;
         writeln!(source, "            port: {},", config.dev.port)?;
         writeln!(
             source,
             "            before: {},",
-            string_vec(&config.dev.before)
+            string_vec(&config.dev.before, TextSource::Literal)
         )?;
         let watch = config
             .dev
             .watch
             .iter()
-            .map(|path| Ok(format!("{}.into()", path_literal(path)?)))
+            .map(|path| path_literal(path))
             .collect::<Result<Vec<_>>>()?
             .join(", ");
         writeln!(source, "            watch: vec![{watch}],\n        }},")?;
@@ -481,7 +479,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     writeln!(
         source,
         "            before: {},",
-        string_vec(&config.build.before)
+        string_vec(&config.build.before, TextSource::Literal)
     )?;
     match &config.build.assets {
         Some(assets) if assets.is_empty() => writeln!(source, "            assets: Some(vec![]),")?,
@@ -489,26 +487,26 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
             writeln!(source, "            assets: Some(vec![")?;
             for asset in assets {
                 writeln!(source, "                proa_config::AssetConfig {{")?;
-                writeln!(source, "                    kind: {:?}.into(),", asset.kind)?;
+                writeln!(source, "                    kind: {:?},", asset.kind)?;
                 writeln!(
                     source,
                     "                    command: {},",
-                    string_vec(&asset.command)
+                    string_vec(&asset.command, TextSource::Literal)
                 )?;
                 writeln!(
                     source,
-                    "                    input: {}.into(),",
+                    "                    input: {},",
                     path_literal(&asset.input)?
                 )?;
                 writeln!(
                     source,
-                    "                    output: {}.into(),",
+                    "                    output: {},",
                     path_literal(&asset.output)?
                 )?;
                 if let Some(path) = &asset.config {
                     writeln!(
                         source,
-                        "                    config: Some({}.into()),",
+                        "                    config: Some({}),",
                         path_literal(path)?
                     )?;
                 } else {
@@ -531,47 +529,62 @@ fn path_literal(path: &Path) -> Result<String> {
     ))
 }
 
-fn string_vec(values: &[String]) -> String {
+fn string_vec(values: &[String], text: TextSource) -> String {
     let values = values
         .iter()
-        .map(|value| format!("{value:?}.into()"))
+        .map(|value| text.render(format!("{value:?}")))
         .collect::<Vec<_>>();
     format!("vec![{}]", values.join(", "))
 }
 
+#[derive(Clone, Copy)]
+enum TextSource {
+    Literal,
+    Convert,
+}
+
+impl TextSource {
+    fn render(self, mut literal: String) -> String {
+        if matches!(self, Self::Convert) {
+            literal.push_str(".into()");
+        }
+        literal
+    }
+}
+
 // Render typed values back into source for scaffolding and capability edits.
 trait ConfigSource {
-    fn rust_expr(&self, indent: usize) -> Result<String>;
+    fn rust_expr(&self, indent: usize, text: TextSource) -> Result<String>;
 }
 
 impl ConfigSource for String {
-    fn rust_expr(&self, _: usize) -> Result<String> {
-        Ok(format!("{self:?}.into()"))
+    fn rust_expr(&self, _: usize, text: TextSource) -> Result<String> {
+        Ok(text.render(format!("{self:?}")))
     }
 }
 
 impl ConfigSource for std::path::PathBuf {
-    fn rust_expr(&self, _: usize) -> Result<String> {
-        Ok(format!("{}.into()", path_literal(self)?))
+    fn rust_expr(&self, _: usize, text: TextSource) -> Result<String> {
+        Ok(text.render(path_literal(self)?))
     }
 }
 
 impl ConfigSource for bool {
-    fn rust_expr(&self, _: usize) -> Result<String> {
+    fn rust_expr(&self, _: usize, _: TextSource) -> Result<String> {
         Ok(self.to_string())
     }
 }
 
 impl ConfigSource for Vec<String> {
-    fn rust_expr(&self, _: usize) -> Result<String> {
-        Ok(string_vec(self))
+    fn rust_expr(&self, _: usize, text: TextSource) -> Result<String> {
+        Ok(string_vec(self, text))
     }
 }
 
 impl<T: ConfigSource> ConfigSource for Option<T> {
-    fn rust_expr(&self, indent: usize) -> Result<String> {
+    fn rust_expr(&self, indent: usize, text: TextSource) -> Result<String> {
         match self {
-            Some(value) => Ok(format!("Some({})", value.rust_expr(indent)?)),
+            Some(value) => Ok(format!("Some({})", value.rust_expr(indent, text)?)),
             None => Ok("None".into()),
         }
     }
@@ -580,7 +593,7 @@ impl<T: ConfigSource> ConfigSource for Option<T> {
 macro_rules! config_sections {
     ($($name:ident { $($field:ident),+ $(,)? }),+ $(,)?) => {
         $(impl ConfigSource for super::$name {
-            fn rust_expr(&self, indent: usize) -> Result<String> {
+            fn rust_expr(&self, indent: usize, text: TextSource) -> Result<String> {
                 use std::fmt::Write as _;
                 let default = Self::default();
                 if *self == default {
@@ -591,7 +604,7 @@ macro_rules! config_sections {
                 $(if self.$field != default.$field {
                     writeln!(
                         result, "{:padding$}{}: {},", "", stringify!($field),
-                        self.$field.rust_expr(padding)?,
+                        self.$field.rust_expr(padding, text)?,
                     )?;
                 })+
                 write!(result, "{:padding$}..Default::default()\n{:indent$}}}", "", "")?;
@@ -602,6 +615,7 @@ macro_rules! config_sections {
 }
 
 config_sections! {
+    RegistriesConfig { proa, proa_pro },
     ApplicationConfig { binary, package, kind, starter, template },
     DatabaseConfig { driver, migrations, run_migrations_on_startup, integration },
     UiConfig { provider },
@@ -616,7 +630,7 @@ config_sections! {
 }
 
 impl ConfigSource for super::DatabaseDriver {
-    fn rust_expr(&self, _: usize) -> Result<String> {
+    fn rust_expr(&self, _: usize, _: TextSource) -> Result<String> {
         Ok(match self {
             Self::None => "proa_config::DatabaseDriver::None",
             Self::Sqlite => "proa_config::DatabaseDriver::Sqlite",
@@ -626,16 +640,16 @@ impl ConfigSource for super::DatabaseDriver {
 }
 
 impl ConfigSource for super::CdnConfig {
-    fn rust_expr(&self, indent: usize) -> Result<String> {
+    fn rust_expr(&self, indent: usize, text: TextSource) -> Result<String> {
         let padding = indent + 4;
         match self {
             Self::Cloudflare { zone_id, hostname } => Ok(format!(
                 "proa_config::CdnConfig::Cloudflare {{\n{:padding$}zone_id: {},\n{:padding$}hostname: {},\n{:indent$}}}",
-                "", zone_id.rust_expr(padding)?, "", hostname.rust_expr(padding)?, "",
+                "", zone_id.rust_expr(padding, text)?, "", hostname.rust_expr(padding, text)?, "",
             )),
             Self::Command { command } => Ok(format!(
                 "proa_config::CdnConfig::Command {{\n{:padding$}command: {},\n{:indent$}}}",
-                "", command.rust_expr(padding)?, "",
+                "", command.rust_expr(padding, text)?, "",
             )),
         }
     }
@@ -657,7 +671,7 @@ pub(super) fn with_capability_changes(
                     changes,
                     "    configured.{} = {};",
                     stringify!($field),
-                    after.$field.rust_expr(4)?
+                    after.$field.rust_expr(4, TextSource::Convert)?
                 )?;
             }
         };
@@ -672,7 +686,7 @@ pub(super) fn with_capability_changes(
                         "    configured.{}.get_or_insert_with(Default::default).{} = {};",
                         stringify!($section),
                         stringify!($field),
-                        value.rust_expr(4)?,
+                        value.rust_expr(4, TextSource::Convert)?,
                     )?;
                 }
             }

@@ -125,8 +125,8 @@ pub async fn config() -> Result<Config> {
         },
         deploy: Some(DeployConfig {
             cdn: Some(CdnConfig::Cloudflare {
-                zone_id: "your-cloudflare-zone-id".into(),
-                hostname: "www.example.com".into(),
+                zone_id: "your-cloudflare-zone-id",
+                hostname: "www.example.com",
             }),
             ..Default::default()
         }),
@@ -158,14 +158,14 @@ pub async fn config() -> Result<Config> {
         deploy: Some(DeployConfig {
             cdn: Some(CdnConfig::Command {
                 command: vec![
-                    "aws".into(),
-                    "cloudfront".into(),
-                    "create-invalidation".into(),
-                    "--distribution-id".into(),
-                    "YOUR_DISTRIBUTION_ID".into(),
-                    "--paths".into(),
-                    "/*".into(),
-                    "--no-cli-pager".into(),
+                    "aws",
+                    "cloudfront",
+                    "create-invalidation",
+                    "--distribution-id",
+                    "YOUR_DISTRIBUTION_ID",
+                    "--paths",
+                    "/*",
+                    "--no-cli-pager",
                 ],
             }),
             ..Default::default()

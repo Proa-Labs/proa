@@ -43,7 +43,7 @@ pub(crate) fn run(args: RegistryArgs) -> Result<()> {
                 println!("{}", serde_json::to_string_pretty(&config.registries)?);
             } else {
                 println!("Proa registries for {}", root.display());
-                for (alias, template) in config.registries {
+                for (alias, template) in config.registries.iter() {
                     println!("{alias:>10}  {template}");
                 }
             }

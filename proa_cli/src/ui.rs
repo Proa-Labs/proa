@@ -460,7 +460,7 @@ impl<'a> Resolver<'a> {
                 .map_err(|error| fetch_error_to_anyhow(registry, slug, error));
         }
 
-        let public_not_found = if self.config.registries.contains_key(PUBLIC_REGISTRY) {
+        let public_not_found = if self.config.registries.get(PUBLIC_REGISTRY).is_some() {
             match self.fetch_manifest(PUBLIC_REGISTRY, slug) {
                 Ok(manifest) => return Ok((PUBLIC_REGISTRY, manifest)),
                 Err(FetchError::NotFound(detail)) => Some(detail),
@@ -472,7 +472,7 @@ impl<'a> Resolver<'a> {
             None
         };
 
-        if self.config.registries.contains_key(PRO_REGISTRY) {
+        if self.config.registries.get(PRO_REGISTRY).is_some() {
             match self.fetch_manifest(PRO_REGISTRY, slug) {
                 Ok(manifest) => return Ok((PRO_REGISTRY, manifest)),
                 Err(error) => {

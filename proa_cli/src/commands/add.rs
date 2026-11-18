@@ -126,9 +126,8 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         } => {
             project.database = Some(config::DatabaseConfig {
                 driver: config::DatabaseDriver::Sqlite,
-                migrations: Some("migrations".into()),
-                run_migrations_on_startup: Some(true),
                 integration: "manual".into(),
+                ..Default::default()
             });
             add_sqlx_dependency(&root, &mut files)?;
             files.push((PathBuf::from("data/.gitkeep"), String::new()));

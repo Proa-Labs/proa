@@ -2,54 +2,108 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Shared by the CLI and the host executable that evaluates proa.config.rs.
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{borrow::Borrow, collections::BTreeMap};
 
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "proa.config.rs";
 
+/// Text storage for authored config. String literals work with the default type.
+pub trait ConfigText: Borrow<str> + Ord + ConfigPath {}
+impl<T: Borrow<str> + Ord + ConfigPath> ConfigText for T {}
+
+/// Path storage for authored config. Use an owned type for computed paths.
+pub trait ConfigPath: Default + From<&'static str> {}
+impl<T: Default + From<&'static str>> ConfigPath for T {}
+
+fn text_is_empty(text: &impl ConfigText) -> bool {
+    text.borrow().is_empty()
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(
-    default,
-    bound(deserialize = "Command: Deserialize<'de> + From<&'static str>")
-)]
-pub struct Config<Command = &'static str> {
+#[serde(default)]
+pub struct Config<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub application: Option<ApplicationConfig>,
+    pub application: Option<ApplicationConfig<Text>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub database: Option<DatabaseConfig>,
+    pub database: Option<DatabaseConfig<Text, Path>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ui: Option<UiConfig>,
+    pub ui: Option<UiConfig<Text>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub representations: Option<RepresentationsConfig>,
+    pub representations: Option<RepresentationsConfig<Text>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub styling: Option<StylingConfig>,
+    pub styling: Option<StylingConfig<Text, Path>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deploy: Option<DeployConfig>,
+    pub deploy: Option<DeployConfig<Text>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<ContentConfig>,
-    pub scripts: ScriptsConfig<Command>,
+    pub scripts: ScriptsConfig<Text, Path>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub test: Option<TestConfig>,
-    pub paths: ProjectPaths,
-    pub registries: BTreeMap<String, String>,
-    pub dev: DevConfig,
-    pub build: BuildConfig,
+    pub test: Option<TestConfig<Text>>,
+    pub paths: ProjectPaths<Path>,
+    pub registries: RegistriesConfig<Text>,
+    pub dev: DevConfig<Text, Path>,
+    pub build: BuildConfig<Text, Path>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistriesConfig<Text: ConfigText = &'static str> {
+    #[serde(rename = "@proa", skip_serializing_if = "Option::is_none")]
+    pub proa: Option<Text>,
+    #[serde(rename = "@proa-pro", skip_serializing_if = "Option::is_none")]
+    pub proa_pro: Option<Text>,
+}
+
+impl<Text: ConfigText> RegistriesConfig<Text> {
+    pub fn public_only() -> Self {
+        Self {
+            proa: Some("https://ui.proa.so/r/{name}.json".into()),
+            proa_pro: None,
+        }
+    }
+
+    pub fn get(&self, alias: &str) -> Option<&str> {
+        match alias {
+            "@proa" => self.proa.as_ref(),
+            "@proa-pro" => self.proa_pro.as_ref(),
+            _ => None,
+        }
+        .map(Text::borrow)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
+        [
+            ("@proa", self.proa.as_ref()),
+            ("@proa-pro", self.proa_pro.as_ref()),
+        ]
+        .into_iter()
+        .filter_map(|(alias, url)| url.map(|url| (alias, url.borrow())))
+    }
+}
+
+impl<Text: ConfigText> Default for RegistriesConfig<Text> {
+    fn default() -> Self {
+        Self {
+            proa_pro: Some("https://console.proa.so/r/{name}.json".into()),
+            ..Self::public_only()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct ApplicationConfig {
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub binary: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub package: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub kind: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub starter: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub template: String,
+pub struct ApplicationConfig<Text: ConfigText = &'static str> {
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub binary: Text,
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub package: Text,
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub kind: Text,
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub starter: Text,
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub template: Text,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -71,29 +125,29 @@ impl DatabaseDriver {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct DatabaseConfig {
+pub struct DatabaseConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
     pub driver: DatabaseDriver,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub migrations: Option<PathBuf>,
+    pub migrations: Option<Path>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_migrations_on_startup: Option<bool>,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub integration: String,
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub integration: Text,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct UiConfig {
-    pub provider: String,
+pub struct UiConfig<Text: ConfigText = &'static str> {
+    pub provider: Text,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct RepresentationsConfig {
+pub struct RepresentationsConfig<Text: ConfigText = &'static str> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub html: Option<HtmlRepresentationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub markdown: Option<MarkdownRepresentationConfig>,
+    pub markdown: Option<MarkdownRepresentationConfig<Text>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -104,17 +158,17 @@ pub struct HtmlRepresentationConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct MarkdownRepresentationConfig {
+pub struct MarkdownRepresentationConfig<Text: ConfigText = &'static str> {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negotiate_on_canonical_path: Option<bool>,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub explicit_suffix: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub root_path: String,
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub explicit_suffix: Text,
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub root_path: Text,
 }
 
-impl MarkdownRepresentationConfig {
+impl<Text: ConfigText> MarkdownRepresentationConfig<Text> {
     pub fn site() -> Self {
         Self {
             enabled: true,
@@ -127,33 +181,33 @@ impl MarkdownRepresentationConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct StylingConfig {
-    pub kind: String,
+pub struct StylingConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
+    pub kind: Text,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub input: Option<PathBuf>,
+    pub input: Option<Path>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output: Option<PathBuf>,
+    pub output: Option<Path>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct DeployConfig {
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub provider: String,
+pub struct DeployConfig<Text: ConfigText = &'static str> {
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub provider: Text,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cdn: Option<CdnConfig>,
+    pub cdn: Option<CdnConfig<Text>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "provider", rename_all = "lowercase", deny_unknown_fields)]
-pub enum CdnConfig {
+pub enum CdnConfig<Text: ConfigText = &'static str> {
     Cloudflare {
         #[serde(rename = "zoneId")]
-        zone_id: String,
-        hostname: String,
+        zone_id: Text,
+        hostname: Text,
     },
     Command {
-        command: Vec<String>,
+        command: Vec<Text>,
     },
 }
 
@@ -174,99 +228,96 @@ pub struct ContentCollectionConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct TestConfig {
-    pub before: Vec<String>,
+pub struct TestConfig<Text: ConfigText = &'static str> {
+    pub before: Vec<Text>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(
-    default,
-    bound(deserialize = "Command: Deserialize<'de> + From<&'static str>")
-)]
-pub struct ScriptsConfig<Command = &'static str> {
+#[serde(default)]
+pub struct ScriptsConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
     /// Project script or linked Cargo shorthand for `proa dev`.
-    pub dev: Command,
+    pub dev: Text,
     /// Project script or linked Cargo shorthand for `proa build`.
-    pub build: Command,
+    pub build: Text,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub named: BTreeMap<String, ScriptConfig>,
+    pub named: BTreeMap<Text, ScriptConfig<Text, Path>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct ScriptConfig {
-    pub description: String,
-    pub command: Vec<String>,
-    pub cwd: PathBuf,
+pub struct ScriptConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
+    pub description: Text,
+    pub command: Vec<Text>,
+    pub cwd: Path,
     #[serde(alias = "dependencies")]
-    pub depends_on: Vec<String>,
-    pub inputs: Vec<String>,
-    pub outputs: Vec<PathBuf>,
-    pub env: BTreeMap<String, String>,
+    pub depends_on: Vec<Text>,
+    pub inputs: Vec<Text>,
+    pub outputs: Vec<Path>,
+    pub env: BTreeMap<Text, Text>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
-pub struct ProjectPaths {
-    pub components: PathBuf,
-    pub assets: PathBuf,
+pub struct ProjectPaths<Path: ConfigPath = &'static str> {
+    pub components: Path,
+    pub assets: Path,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pages: Option<PathBuf>,
+    pub pages: Option<Path>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub endpoints: Option<PathBuf>,
+    pub endpoints: Option<Path>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub layouts: Option<PathBuf>,
+    pub layouts: Option<Path>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<PathBuf>,
+    pub models: Option<Path>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub public: Option<PathBuf>,
+    pub public: Option<Path>,
     #[serde(rename = "runtimeData", skip_serializing_if = "Option::is_none")]
-    pub runtime_data: Option<PathBuf>,
+    pub runtime_data: Option<Path>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
-pub struct DevConfig {
-    pub host: String,
+pub struct DevConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
+    pub host: Text,
     pub port: u16,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub before: Vec<String>,
-    pub watch: Vec<PathBuf>,
+    pub before: Vec<Text>,
+    pub watch: Vec<Path>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
-pub struct BuildConfig {
+pub struct BuildConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
     /// Minify the generated RSJS modules and runtimes served by Axum. Defaults to true.
     pub minify_rsjs: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub before: Vec<String>,
+    pub before: Vec<Text>,
     /// `None` when the key is absent, so a Tailwind asset can be inferred.
     /// `Some(vec![])` is an explicit "build no assets" and is left alone --
     /// with a plain `Vec` the two were indistinguishable and an empty array
     /// silently grew a Tailwind step back.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub assets: Option<Vec<AssetConfig>>,
+    pub assets: Option<Vec<AssetConfig<Text, Path>>>,
 }
 
-impl BuildConfig {
-    pub fn assets(&self) -> &[AssetConfig] {
+impl<Text: ConfigText, Path: ConfigPath> BuildConfig<Text, Path> {
+    pub fn assets(&self) -> &[AssetConfig<Text, Path>] {
         self.assets.as_deref().unwrap_or_default()
     }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
-pub struct AssetConfig {
-    pub kind: String,
-    pub command: Vec<String>,
-    pub input: PathBuf,
-    pub output: PathBuf,
+pub struct AssetConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
+    pub kind: Text,
+    pub command: Vec<Text>,
+    pub input: Path,
+    pub output: Path,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<PathBuf>,
+    pub config: Option<Path>,
 }
 
-impl<Command: From<&'static str>> Default for Config<Command> {
+impl<Text: ConfigText, Path: ConfigPath> Default for Config<Text, Path> {
     fn default() -> Self {
         Self {
             application: None,
@@ -279,14 +330,14 @@ impl<Command: From<&'static str>> Default for Config<Command> {
             scripts: ScriptsConfig::default(),
             test: None,
             paths: ProjectPaths::default(),
-            registries: default_registries(),
+            registries: RegistriesConfig::default(),
             dev: DevConfig::default(),
             build: BuildConfig::default(),
         }
     }
 }
 
-impl<Command: From<&'static str>> Default for ScriptsConfig<Command> {
+impl<Text: ConfigText, Path: ConfigPath> Default for ScriptsConfig<Text, Path> {
     fn default() -> Self {
         Self {
             dev: "".into(),
@@ -296,10 +347,10 @@ impl<Command: From<&'static str>> Default for ScriptsConfig<Command> {
     }
 }
 
-impl Default for ScriptConfig {
+impl<Text: ConfigText, Path: ConfigPath> Default for ScriptConfig<Text, Path> {
     fn default() -> Self {
         Self {
-            description: String::new(),
+            description: Text::default(),
             command: Vec::new(),
             cwd: ".".into(),
             depends_on: Vec::new(),
@@ -310,15 +361,15 @@ impl Default for ScriptConfig {
     }
 }
 
-impl Default for ProjectPaths {
+impl<Path: ConfigPath> Default for ProjectPaths<Path> {
     fn default() -> Self {
         Self {
-            components: PathBuf::from("src/components"),
+            components: Path::from("src/components"),
             // Must sit under the directory the generated server actually serves.
             // `static/` is the URL prefix, not the folder: the axum scaffold mounts
             // `public/` at `/static`, so assets written to `static/proa` were never
             // reachable and every documented `/static/proa/...` link 404'd.
-            assets: PathBuf::from("public/proa"),
+            assets: Path::from("public/proa"),
             pages: None,
             endpoints: None,
             layouts: None,
@@ -329,7 +380,7 @@ impl Default for ProjectPaths {
     }
 }
 
-impl Default for DevConfig {
+impl<Text: ConfigText, Path: ConfigPath> Default for DevConfig<Text, Path> {
     fn default() -> Self {
         Self {
             host: "127.0.0.1".into(),
@@ -340,7 +391,7 @@ impl Default for DevConfig {
     }
 }
 
-impl Default for BuildConfig {
+impl<Text: ConfigText, Path: ConfigPath> Default for BuildConfig<Text, Path> {
     fn default() -> Self {
         Self {
             minify_rsjs: true,
@@ -350,31 +401,21 @@ impl Default for BuildConfig {
     }
 }
 
-impl Default for AssetConfig {
+impl<Text: ConfigText, Path: ConfigPath> Default for AssetConfig<Text, Path> {
     fn default() -> Self {
         Self {
             kind: "command".into(),
             command: Vec::new(),
-            input: PathBuf::new(),
-            output: PathBuf::new(),
+            input: Path::default(),
+            output: Path::default(),
             config: None,
         }
     }
 }
 
-pub(super) fn default_registries() -> BTreeMap<String, String> {
-    [
-        ("@proa", "https://ui.proa.so/r/{name}.json"),
-        ("@proa-pro", "https://console.proa.so/r/{name}.json"),
-    ]
-    .into_iter()
-    .map(|(key, value)| (key.to_string(), value.to_string()))
-    .collect()
-}
-
 // Cargo.lock is intentionally not watched: `cargo run` can rewrite it during
 // the build the watcher just triggered, which restarts the dev loop forever.
-pub(super) fn default_watch_paths() -> Vec<PathBuf> {
+pub(super) fn default_watch_paths<Path: ConfigPath>() -> Vec<Path> {
     [
         "src",
         "styles",
@@ -385,6 +426,6 @@ pub(super) fn default_watch_paths() -> Vec<PathBuf> {
         "proa.lock.json",
     ]
     .into_iter()
-    .map(PathBuf::from)
+    .map(Path::from)
     .collect()
 }

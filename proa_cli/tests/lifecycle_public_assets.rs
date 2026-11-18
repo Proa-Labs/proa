@@ -11,7 +11,7 @@ use std::{
 const PUBLIC_CONFIG: &str = r#"
 use proa_config::{BuildConfig, Config, DevConfig, ProjectPaths, Result, ScriptsConfig};
 
-pub async fn config() -> Result<Config> {
+pub async fn config() -> Result<Config<&'static str, String>> {
     let public = proa_config::tokio::fs::read_to_string("asset-root.txt")
         .await
         .map_err(|error| format!("read asset-root.txt: {error}"))?;
@@ -22,7 +22,7 @@ pub async fn config() -> Result<Config> {
             ..Default::default()
         },
         paths: ProjectPaths {
-            public: Some(public.into()),
+            public: Some(public),
             ..Default::default()
         },
         build: BuildConfig {

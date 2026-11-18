@@ -263,8 +263,6 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
     let database = match selection.database {
         DatabaseChoice::Sqlite => DatabaseConfig {
             driver: DatabaseDriver::Sqlite,
-            migrations: Some("migrations".into()),
-            run_migrations_on_startup: Some(true),
             ..Default::default()
         },
         DatabaseChoice::None => DatabaseConfig::default(),
@@ -287,11 +285,11 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
     };
     crate::config::generated_rust_config(&ProjectConfig {
         application: Some(ApplicationConfig {
-            kind: "site".into(),
             package: package.into(),
             binary: package.into(),
             template: selection.template.as_str().into(),
             starter: selection.starter.as_str().into(),
+            ..Default::default()
         }),
         database: Some(database),
         ui: Some(UiConfig {
@@ -307,12 +305,7 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
             output: Some("public/styles.css".into()),
         }),
         paths: ProjectPaths {
-            pages: Some("src/pages".into()),
-            endpoints: Some("src/endpoints".into()),
-            layouts: Some("src/layouts".into()),
-            models: Some("src/models".into()),
             public: Some("public".into()),
-            runtime_data: Some("data".into()),
             ..Default::default()
         },
         deploy: Some(DeployConfig {
@@ -324,7 +317,7 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
             ..Default::default()
         },
         test: Some(TestConfig::default()),
-        registries: BTreeMap::from([("@proa".into(), "https://ui.proa.so/r/{name}.json".into())]),
+        registries: crate::config::RegistriesConfig::public_only(),
         ..crate::config::inferred_project_config()
     })
 }

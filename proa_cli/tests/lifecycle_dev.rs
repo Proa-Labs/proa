@@ -286,7 +286,7 @@ pub async fn config() -> Result<Config> {{
             ..Default::default()
         }},
         dev: DevConfig {{
-            host: "0.0.0.0".into(),
+            host: "0.0.0.0",
             port: {port},
             ..Default::default()
         }},

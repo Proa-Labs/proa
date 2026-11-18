@@ -78,7 +78,7 @@ pub async fn config() -> Result<Config> {{
             build: "cargo build --release",
             ..Default::default()
         }},
-        application: Some(ApplicationConfig {{ binary: {configured_binary:?}.into(), ..Default::default() }}),
+        application: Some(ApplicationConfig {{ binary: {configured_binary:?}, ..Default::default() }}),
         ..Config::default()
     }})
 }}

@@ -69,6 +69,7 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(authored.contains("application: Some(proa_config::ApplicationConfig"));
     assert!(authored.contains("database: Some(proa_config::DatabaseConfig"));
     assert!(!authored.contains("json!"));
+    assert!(!authored.contains(".into()"));
     let added = proa(&["add", "docs", "--yes"], &app);
     assert!(added.status.success(), "{}", stderr(&added));
     let effective = proa(&["config", "show"], &app);
@@ -80,6 +81,10 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert_eq!(config["scripts"]["build"], "cargo build --release");
     assert_eq!(config["database"]["driver"], "sqlite");
     assert_eq!(config["styling"]["kind"], "tailwind");
+    assert_eq!(
+        config["registries"],
+        serde_json::json!({"@proa": "https://ui.proa.so/r/{name}.json"})
+    );
 }
 
 #[cfg(unix)]
@@ -275,9 +280,9 @@ pub async fn config() -> Result<Config> {
         },
         build: BuildConfig {
             assets: Some(vec![AssetConfig {
-                kind: "webpack".into(),
-                input: "a".into(),
-                output: "b".into(),
+                kind: "webpack",
+                input: "a",
+                output: "b",
                 ..Default::default()
             }]),
             ..Default::default()
