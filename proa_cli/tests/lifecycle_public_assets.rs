@@ -249,6 +249,7 @@ fn main() {
 
     let source = root.join("src/main.rs");
     let valid_source = fs::read(&source).unwrap();
+    let config_builds = cargo_calls();
     fs::write(
         &source,
         b"compile_error!(\"broken while output is missing\");",
@@ -259,6 +260,11 @@ fn main() {
     assert!(
         broken.contains("broken while output is missing"),
         "{broken}"
+    );
+    assert_eq!(
+        cargo_calls(),
+        config_builds,
+        "an application edit outside the config inputs should reuse the config executable"
     );
     fs::remove_file(output.join("manifest.json")).unwrap();
 

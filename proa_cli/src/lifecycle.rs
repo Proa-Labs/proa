@@ -322,21 +322,8 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
 
         notify(reload.as_ref(), &ReloadEvent::Building);
         let mut failure_snapshot = trigger_snapshot;
-        let changed = changed_paths(&debouncer.committed, &failure_snapshot);
-        let asset_edit = !changed.is_empty()
-            && changed.iter().all(|path| {
-                config
-                    .paths
-                    .public
-                    .as_ref()
-                    .is_some_and(|public| path.starts_with(public))
-                    || path
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("css"))
-            });
-        if !asset_edit {
-            runner.invalidate();
-        }
+        // The cached runner rechecks rustc's recorded inputs and Cargo settings
+        // itself, so any edit that leaves them untouched skips the runner build.
         let evaluated = load_dev_config(&root, &options, Some(&mut runner)).and_then(|mut next| {
             if let Some(script) = &mut watched_script {
                 script.apply(&mut next.scripts.dev)?;

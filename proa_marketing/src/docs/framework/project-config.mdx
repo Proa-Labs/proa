@@ -103,9 +103,10 @@ or build using `--linked`. Proa runs each script from the project directory
 and forwards flags such as `--offline` or `--profile`.
 Each CLI invocation evaluates the config in its own environment. Cargo
 reuses the compiled host runner while its Rust inputs and target directory
-stay the same. On a public-file or stylesheet edit, the watcher can run that
-executable directly. Async file reads see the new contents. Editing a file
-referenced by `include_bytes!` or `include_str!` makes Cargo check the runner.
+stay the same. During `proa dev`, the watcher runs that executable directly
+until one of its recorded Rust inputs changes. Async file reads see the new
+contents. Editing a file referenced by `include_bytes!` or `include_str!`
+makes Cargo check the runner.
 
 Changing `scripts.dev` from one shell wrapper to another prints a restart
 notice. Run `proa dev` again to enter the new wrapper.

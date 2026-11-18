@@ -47,12 +47,6 @@ pub(crate) struct DevConfigRunner {
     cached: Option<CachedRunner>,
 }
 
-impl DevConfigRunner {
-    pub(crate) fn invalidate(&mut self) {
-        self.cached = None;
-    }
-}
-
 type InputStamps = BTreeMap<PathBuf, Option<(SystemTime, u64)>>;
 
 struct CachedRunner {
