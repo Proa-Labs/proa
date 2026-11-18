@@ -48,11 +48,11 @@ the config when they change. The first build uses Cargo's registry cache
 or fetches the runner's pinned dependencies.
 
 The linked watcher evaluates `config().await` after each batch of edits.
-For edits confined to managed public files or CSS it can run the same host
-executable directly. It checks rustc's recorded inputs, including files used
-by `include_str!` and `include_bytes!`, before doing so. A changed input or
-an uncertain dependency list sends the runner back through Cargo. Files
-read inside the async function are read afresh either way.
+It runs the same host executable directly while rustc's recorded inputs,
+including files used by `include_str!` and `include_bytes!`, and the Cargo
+settings it depends on are unchanged. A changed input or an uncertain
+dependency list sends the runner back through Cargo. Files read inside the
+async function are read afresh either way.
 
 `cargo proa init` and `cargo proa new site` generate the Rust file.
 Use `cargo proa config validate` to check the authored settings.
@@ -232,6 +232,9 @@ prefix selects the catalog even if `paths.public` names a different directory.
 Nested and streamed components inherit the catalog from the request. Lookup
 shares the URL prepared at startup and a missing asset returns a render error.
 For an owned URL outside a template, use `cx.url(path).try_to_string()?`.
+RSJS query and mutation request URLs run in the browser, which has no
+catalog, so `cx.url("public/…")` there is a compile error. Resolve the URL
+during SSR and pass it through a signal instead.
 Literal attributes are emitted as written. Ordinary links such as
 `cx.url("/products")` continue to use the app's base path.
 

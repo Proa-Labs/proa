@@ -91,6 +91,29 @@ fn live_catalog_clones_protect_objects_until_the_last_reader_drops() {
 }
 
 #[test]
+fn cleanup_keeps_stale_objects_while_an_active_object_is_incomplete() {
+    let f = Fixture::new();
+    f.write("movie.mp4", b"old movie");
+    f.publish();
+    let reader = AssetCatalog::load(&f.output).unwrap();
+    let stale = reader.object_path("movie.mp4").unwrap();
+    f.write("movie.mp4", b"new movie");
+    f.publish();
+    drop(reader);
+    let active = AssetCatalog::load(&f.output)
+        .unwrap()
+        .object_path("movie.mp4")
+        .unwrap();
+    fs::write(&active, b"new").unwrap();
+    let mut writer = OutputStore::open(&f.output).unwrap();
+    assert!(matches!(writer.cleanup(), Err(AssetError::Integrity(_))));
+    assert!(stale.exists());
+    fs::write(&active, b"new movie").unwrap();
+    assert_eq!(writer.cleanup().unwrap().removed_objects, 1);
+    assert!(!stale.exists());
+}
+
+#[test]
 fn collision_reservations_survive_object_cleanup() {
     let f = Fixture::new();
     f.write("logo.svg", b"old");

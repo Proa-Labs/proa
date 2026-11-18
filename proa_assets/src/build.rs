@@ -269,10 +269,12 @@ impl OutputStore {
             .map(|entry| entry.object.as_str())
             .collect();
         let objects = self.root.join("objects");
-        // Refuse to prune around a damaged active generation.
+        // Refuse to prune around an incomplete active generation. Publication
+        // and catalog loading verify bytes; pruning needs only the live set,
+        // so it does not reread the whole public tree on every dev restart.
         for entry in manifest.assets.values() {
             let path = confined_file(&objects, &entry.object)?;
-            if hash_file(&path)? != (entry.sha256.clone(), entry.byte_length) {
+            if at(&path, fs::symlink_metadata(&path))?.len() != entry.byte_length {
                 return Err(AssetError::Integrity(entry.object.clone()));
             }
         }
