@@ -94,9 +94,7 @@ fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
     if project
         .test
         .as_ref()
-        .and_then(|test| test.get("before"))
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|tasks| tasks.iter().any(|task| task.as_str() == Some(name)))
+        .is_some_and(|test| test.before.iter().any(|task| task == name))
     {
         phases.push("test");
     }

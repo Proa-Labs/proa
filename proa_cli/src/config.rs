@@ -17,8 +17,10 @@ pub(crate) use rust::DevConfigRunner;
 
 use model::{default_registries, default_watch_paths};
 pub use model::{
-    AssetConfig, BuildConfig, Config, DevConfig, ProjectPaths, ScriptConfig, ScriptsConfig,
-    CONFIG_FILE,
+    ApplicationConfig, AssetConfig, BuildConfig, CdnConfig, Config, ContentCollectionConfig,
+    ContentConfig, DatabaseConfig, DatabaseDriver, DeployConfig, DevConfig,
+    HtmlRepresentationConfig, MarkdownRepresentationConfig, ProjectPaths, RepresentationsConfig,
+    ScriptConfig, ScriptsConfig, StylingConfig, TestConfig, UiConfig, CONFIG_FILE,
 };
 pub type ProjectConfig = Config<String>;
 
@@ -169,8 +171,8 @@ pub(crate) fn generated_rust_config(config: &ProjectConfig) -> Result<String> {
 
 pub(crate) fn add_rust_capability(
     source: &str,
-    before: &serde_json::Value,
-    after: &serde_json::Value,
+    before: &ProjectConfig,
+    after: &ProjectConfig,
 ) -> Result<String> {
     rust::with_capability_changes(source, before, after)
 }
@@ -463,7 +465,7 @@ mod tests {
     fn adding_a_capability_preserves_an_async_config_and_its_error_type() {
         let temp = tempfile::tempdir().unwrap();
         let source = r#"
-use proa_config::{Config, ProjectPaths, ScriptsConfig, tokio};
+use proa_config::{CdnConfig, Config, DeployConfig, ProjectPaths, ScriptsConfig, tokio};
 
 pub async fn config() -> std::io::Result<Config> {
     let public = tokio::fs::read_to_string("public-dir.txt").await?;
@@ -474,19 +476,38 @@ pub async fn config() -> std::io::Result<Config> {
             ..Default::default()
         },
         paths: ProjectPaths { public: Some(public.into()), ..Default::default() },
+        deploy: Some(DeployConfig {
+            cdn: Some(CdnConfig::Command { command: vec!["purge-cache".into()] }),
+            ..Default::default()
+        }),
         ..Config::default()
     });
 }
 "#;
-        let before = serde_json::to_value(ProjectConfig::default()).unwrap();
+        let before = ProjectConfig::default();
         let mut after = before.clone();
-        after["database"] = serde_json::json!({ "driver": "sqlite" });
+        after.database = Some(DatabaseConfig {
+            driver: DatabaseDriver::Sqlite,
+            ..Default::default()
+        });
+        after.deploy = Some(DeployConfig {
+            provider: "docker".into(),
+            ..Default::default()
+        });
         let patched = add_rust_capability(source, &before, &after).unwrap();
         fs::write(temp.path().join(CONFIG_FILE), patched).unwrap();
         fs::write(temp.path().join("public-dir.txt"), "public").unwrap();
         let actual = load_project_config(temp.path()).unwrap();
         assert_eq!(actual.paths.public, Some("public".into()));
-        assert_eq!(actual.database, Some(after["database"].clone()));
+        assert_eq!(actual.database, after.database);
+        let deploy = actual.deploy.unwrap();
+        assert_eq!(deploy.provider, "docker");
+        assert_eq!(
+            deploy.cdn,
+            Some(CdnConfig::Command {
+                command: vec!["purge-cache".into()]
+            })
+        );
     }
 
     #[test]

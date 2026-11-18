@@ -52,10 +52,11 @@ pub(crate) struct BuildArgs {
     /// Skip Proa format/lint/site checks.
     #[arg(long)]
     no_check: bool,
-    /// Skip configured asset builds.
+    /// Skip asset commands and public catalog publication.
     #[arg(long)]
     no_assets: bool,
     /// Copy the attested final executable to this path after a successful linked build.
+    /// The public catalog remains in the directory reported by the build.
     /// Relative paths are resolved from the Proa project root. For warm rebuilds, prefer
     /// the Cargo target directory or a path outside the selected package source tree.
     #[arg(long, value_name = "PATH")]

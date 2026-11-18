@@ -65,7 +65,10 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(temp.path().join("demo/styles/input.css").exists());
     assert!(temp.path().join("demo/public/styles.css").exists());
     let app = temp.path().join("demo");
-    assert!(app.join("proa.config.rs").is_file());
+    let authored = fs::read_to_string(app.join("proa.config.rs")).unwrap();
+    assert!(authored.contains("application: Some(proa_config::ApplicationConfig"));
+    assert!(authored.contains("database: Some(proa_config::DatabaseConfig"));
+    assert!(!authored.contains("json!"));
     let added = proa(&["add", "docs", "--yes"], &app);
     assert!(added.status.success(), "{}", stderr(&added));
     let effective = proa(&["config", "show"], &app);
@@ -75,6 +78,8 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert_eq!(config["content"]["docs"]["enabled"], true);
     assert_eq!(config["scripts"]["dev"], "cargo run");
     assert_eq!(config["scripts"]["build"], "cargo build --release");
+    assert_eq!(config["database"]["driver"], "sqlite");
+    assert_eq!(config["styling"]["kind"], "tailwind");
 }
 
 #[cfg(unix)]
@@ -868,6 +873,7 @@ fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
     assert!(help.status.success(), "{}", stderr(&help));
     let help = stdout(&help);
     for flag in [
+        "--watch",
         "--no-reload",
         "--no-css-hot-swap",
         "--reload-port",

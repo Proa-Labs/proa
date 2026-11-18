@@ -83,38 +83,42 @@ pub(crate) fn run(args: SiteArgs) -> Result<()> {
 
 fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let root = scaffold::resolve_root(root)?;
-    let config = serde_json::to_value(crate::config::load_project_config(&root)?)?;
+    let config = crate::config::load_project_config(&root)?;
     let lock: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
         root.join(crate::config::LOCK_FILE),
     )?)?;
-    let package = config
-        .pointer("/application/package")
-        .and_then(serde_json::Value::as_str)
+    let application = config.application.as_ref();
+    let database_config = config.database.as_ref();
+    let package = application
+        .map(|app| app.package.as_str())
+        .filter(|name| !name.is_empty())
         .unwrap_or("Proa site");
-    let template = config
-        .pointer("/application/template")
-        .and_then(serde_json::Value::as_str)
+    let template = application
+        .map(|app| app.template.as_str())
+        .filter(|name| !name.is_empty())
         .unwrap_or("custom");
-    let starter = config
-        .pointer("/application/starter")
-        .and_then(serde_json::Value::as_str)
+    let starter = application
+        .map(|app| app.starter.as_str())
+        .filter(|name| !name.is_empty())
         .unwrap_or("custom");
-    let database = config
-        .pointer("/database/driver")
-        .and_then(serde_json::Value::as_str)
+    let database = database_config
+        .map(|db| db.driver.as_str())
         .unwrap_or("none");
-    let database_integration = config
-        .pointer("/database/integration")
-        .and_then(serde_json::Value::as_str)
+    let database_integration = database_config
+        .map(|db| db.integration.as_str())
+        .filter(|value| !value.is_empty())
         .unwrap_or("integrated");
     let styling = config
-        .pointer("/styling/kind")
-        .and_then(serde_json::Value::as_str)
+        .styling
+        .as_ref()
+        .map(|style| style.kind.as_str())
+        .filter(|value| !value.is_empty())
         .unwrap_or("css");
     let markdown = config
-        .pointer("/representations/markdown/enabled")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+        .representations
+        .as_ref()
+        .and_then(|formats| formats.markdown.as_ref())
+        .is_some_and(|format| format.enabled);
     let components = lock
         .get("components")
         .and_then(serde_json::Value::as_object)

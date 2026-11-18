@@ -32,12 +32,17 @@ fn start_launches_the_host_release_executable_and_preserves_explicit_paths() {
     fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
     let release = temp.path().join("target/release");
     fs::create_dir_all(&release).unwrap();
+    let catalog = temp.path().join("copied catalog");
+    fs::create_dir_all(&catalog).unwrap();
+    fs::write(catalog.join("manifest.json"), "{}").unwrap();
     let executable = release.join(format!("server.prod{}", env::consts::EXE_SUFFIX));
     let source = temp.path().join("server.rs");
     fs::write(
         &source,
         r#"fn main() {
-            println!("{}|{}", std::env::var("PROA_HOST").unwrap(), std::env::var("PORT").unwrap());
+            let assets = std::env::var_os("PROA_PUBLIC_ASSETS");
+            let assets = assets.as_deref().and_then(|path| std::path::Path::new(path).file_name());
+            println!("{}|{}|{}", std::env::var("PROA_HOST").unwrap(), std::env::var("PORT").unwrap(), assets.and_then(|name| name.to_str()).unwrap_or_default());
         }"#,
     )
     .unwrap();
@@ -65,7 +70,7 @@ fn start_launches_the_host_release_executable_and_preserves_explicit_paths() {
         fs::write(
             temp.path().join("proa.config.rs"),
             format!(
-                r#"use proa_config::{{json::json, Config, Result, ScriptsConfig}};
+                r#"use proa_config::{{ApplicationConfig, Config, Result, ScriptsConfig}};
 pub async fn config() -> Result<Config> {{
     Ok(Config {{
         scripts: ScriptsConfig {{
@@ -73,7 +78,7 @@ pub async fn config() -> Result<Config> {{
             build: "cargo build --release",
             ..Default::default()
         }},
-        application: Some(json!({{ "binary": {configured_binary:?} }})),
+        application: Some(ApplicationConfig {{ binary: {configured_binary:?}.into(), ..Default::default() }}),
         ..Config::default()
     }})
 }}
@@ -88,9 +93,17 @@ pub async fn config() -> Result<Config> {{
         let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
         command
             .current_dir(temp.path())
+            .env_remove("PROA_PUBLIC_ASSETS")
             .args(["start", "--host", "127.0.0.2", "--port", "8123"]);
         if custom {
-            command.arg("--bin").arg(explicit.file_name().unwrap());
+            command
+                .current_dir(temp.path().parent().unwrap())
+                .arg("--root")
+                .arg(temp.path().file_name().unwrap())
+                .arg("--bin")
+                .arg(explicit.file_name().unwrap())
+                .arg("--public-assets")
+                .arg(catalog.file_name().unwrap());
         }
         let output = command.output().unwrap();
         assert!(
@@ -100,7 +113,11 @@ pub async fn config() -> Result<Config> {{
         );
         assert_eq!(
             String::from_utf8_lossy(&output.stdout).trim(),
-            "127.0.0.2|8123"
+            if custom {
+                "127.0.0.2|8123|copied catalog"
+            } else {
+                "127.0.0.2|8123|"
+            }
         );
     }
 }

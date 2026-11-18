@@ -40,6 +40,23 @@ pub async fn config() -> Result<Config> {
 }
 ```
 
+Application, database, UI, representations, styling, deployment, content, and
+test options also use Rust structs. For example, enable the SQLite capability
+with this field in the `Config` literal.
+
+```rust
+database: Some(DatabaseConfig {
+    driver: DatabaseDriver::Sqlite,
+    migrations: Some("migrations".into()),
+    run_migrations_on_startup: Some(true),
+    ..Default::default()
+}),
+```
+
+Import `DatabaseConfig` and `DatabaseDriver` from `proa_config`.
+Use a computed `String` directly for an owned string field. Use `.into()`
+when assigning a string literal to a `String` or `PathBuf` field.
+
 For settings read from a file, use `proa_config::tokio` and propagate I/O
 errors with `?`. Add files that should trigger a dev reload to `dev.watch`.
 
@@ -101,6 +118,18 @@ pub async fn config() -> Result<Config> {
 The wrappers can prepare their environment and enter Proa's built-in watcher
 or build using `--linked`. Proa runs each script from the project directory
 and forwards flags such as `--offline` or `--profile`.
+
+A dev wrapper can set the listener arguments and add watch paths when it
+enters the linked watcher.
+
+```bash
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev --linked \
+    --port "${PORT:-5570}" --watch content "$@"
+```
+
+The server binds its listener. The CLI passes `--host` and `--port` through
+the server environment and uses them for fallback readiness. Proa also watches
+the configured public directory so asset edits refresh the catalog.
 Each CLI invocation evaluates the config in its own environment. Cargo
 reuses the compiled host runner while its Rust inputs and target directory
 stay the same. During `proa dev`, the watcher runs that executable directly

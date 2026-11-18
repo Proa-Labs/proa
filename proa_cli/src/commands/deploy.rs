@@ -141,8 +141,8 @@ fn require_provider(root: &std::path::Path, expected: &str) -> Result<()> {
     let actual = project
         .deploy
         .as_ref()
-        .and_then(|deploy| deploy.get("provider"))
-        .and_then(serde_json::Value::as_str)
+        .map(|deploy| deploy.provider.as_str())
+        .filter(|provider| !provider.is_empty())
         .unwrap_or("none");
     if actual != expected {
         bail!("deployment capability `{expected}` is not configured\nAdd it with: proa add deploy {expected}");

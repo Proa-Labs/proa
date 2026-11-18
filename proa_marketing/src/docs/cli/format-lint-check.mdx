@@ -44,6 +44,28 @@ proa lint --github --changed --base origin/main
 
 The linter checks template formatting, accessibility-sensitive markup, render-path performance, component composition, content coverage across render targets, and `rsjs` slot restrictions.
 
+### Managed public assets
+
+Use logical public paths in URL-bearing attributes and component URL fields.
+
+```rust
+<a href={cx.url("public/catalog.pdf")}>"Catalog"</a>
+<img src={cx.url("public/images/cover.png")} alt="Book cover" />
+{Image { src: cx.url("public/images/cover.png") }}
+```
+
+- `asset/public-url` flags literal public paths in these positions, including
+  managed candidates in a literal `srcset`.
+- `asset/logical-path` flags leading `/` or `./` before `public/` in a URL
+  resolver call.
+- `asset/generated-url` flags hard-coded paths under the generated asset
+  mount. Resolve the source path to follow future fingerprints.
+
+The rules check literal paths in templates and in URL-shaped struct fields in
+render bodies. Route URLs such as `/products`, remote URLs, and dynamically
+computed values are outside these checks.
+
+
 | Flag | Behavior |
 |------|----------|
 | `--deny-warnings` | Exit non-zero when warnings are found. |

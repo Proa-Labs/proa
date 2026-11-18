@@ -223,8 +223,8 @@ pub(crate) fn site_check_with_config(
     let template = config
         .application
         .as_ref()
-        .and_then(|value| value.get("template"))
-        .and_then(serde_json::Value::as_str)
+        .map(|value| value.template.as_str())
+        .filter(|value| !value.is_empty())
         .unwrap_or("")
         .to_string();
     let origin_template = template == "origin";
@@ -283,17 +283,13 @@ pub(crate) fn site_check_with_config(
                     .to_string(),
             );
         }
-        let database = config
-            .database
-            .as_ref()
-            .and_then(|value| value.get("driver"))
-            .and_then(serde_json::Value::as_str);
-        if database == Some("sqlite") {
+        let database = config.database.as_ref().map(|value| value.driver);
+        if database == Some(crate::config::DatabaseDriver::Sqlite) {
             let manual = config
                 .database
                 .as_ref()
-                .and_then(|value| value.get("integration"))
-                .and_then(serde_json::Value::as_str)
+                .map(|value| value.integration.as_str())
+                .filter(|value| !value.is_empty())
                 == Some("manual");
             let required_database_files: &[&str] = if manual {
                 &["src/db.rs", "data/.gitkeep", "migrations/.gitkeep"]
@@ -329,9 +325,8 @@ pub(crate) fn site_check_with_config(
         let markdown = config
             .representations
             .as_ref()
-            .and_then(|value| value.pointer("/markdown/enabled"))
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+            .and_then(|value| value.markdown.as_ref())
+            .is_some_and(|markdown| markdown.enabled);
         if markdown {
             if origin_template {
                 let library = fs::read_to_string(root.join("src/lib.rs")).unwrap_or_default();
@@ -517,9 +512,8 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
         let markdown = config
             .representations
             .as_ref()
-            .and_then(|value| value.pointer("/markdown/enabled"))
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+            .and_then(|value| value.markdown.as_ref())
+            .is_some_and(|markdown| markdown.enabled);
         let mut routes = vec![RouteInfo {
             method: "GET",
             path: "/".to_string(),

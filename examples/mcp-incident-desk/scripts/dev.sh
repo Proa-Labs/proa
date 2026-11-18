@@ -73,6 +73,9 @@ proa_dev_has_flag() {
 }
 
 dev_args=()
+if ! proa_dev_has_flag --port "$@"; then
+  dev_args+=(--port "${PORT:-5570}")
+fi
 if proa_dev_is_off "$PROA_DEV_RELOAD" PROA_DEV_RELOAD && ! proa_dev_has_flag --no-reload "$@"; then
   dev_args+=(--no-reload)
 fi

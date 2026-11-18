@@ -87,6 +87,11 @@ impl RequestContext {
         self.public_assets = urls;
     }
 
+    /// Whether the host installed a managed public asset catalog for this request.
+    pub fn has_public_assets(&self) -> bool {
+        self.public_assets.is_some()
+    }
+
     /// Compose an application URL or resolve a logical `public/...` path.
     pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
         match path.strip_prefix("public/") {

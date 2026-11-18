@@ -100,30 +100,36 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         config::project_config_path(&root).context("initialize project config with proa init")?;
     let original_source = fs::read_to_string(&config_path)?;
     let lock_path = root.join(config::LOCK_FILE);
-    let mut config_value = serde_json::to_value(config::load_project_config(&root)?)?;
-    let original_config = config_value.clone();
+    let mut project = config::load_project_config(&root)?;
+    let original_config = project.clone();
     let mut lock_value: serde_json::Value = if lock_path.exists() {
         serde_json::from_str(&fs::read_to_string(&lock_path)?)?
     } else {
         serde_json::json!({"schemaVersion":1,"scaffold":{"capabilities":[]},"components":{}})
     };
-    let package = config_value
-        .pointer("/application/package")
-        .and_then(serde_json::Value::as_str)
+    let package = project
+        .application
+        .as_ref()
+        .map(|app| app.package.as_str())
+        .filter(|package| !package.is_empty())
         .unwrap_or("app")
-        .to_string();
-    let has_database = config_value.pointer("/database/driver").is_some();
+        .to_owned();
+    let has_database = project
+        .database
+        .as_ref()
+        .is_some_and(|database| database.driver == config::DatabaseDriver::Sqlite);
     let mut files = Vec::<(PathBuf, String)>::new();
     let mut warnings = Vec::new();
     let (id, changes, partial) = match args.capability {
         AddCapability::Database {
             driver: Database::Sqlite,
         } => {
-            set_pointer(
-                &mut config_value,
-                "database",
-                serde_json::json!({"driver":"sqlite","migrations":"migrations","runMigrationsOnStartup":true,"integration":"manual"}),
-            )?;
+            project.database = Some(config::DatabaseConfig {
+                driver: config::DatabaseDriver::Sqlite,
+                migrations: Some("migrations".into()),
+                run_migrations_on_startup: Some(true),
+                integration: "manual".into(),
+            });
             add_sqlx_dependency(&root, &mut files)?;
             files.push((PathBuf::from("data/.gitkeep"), String::new()));
             files.push((PathBuf::from("migrations/.gitkeep"), String::new()));
@@ -138,12 +144,10 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         AddCapability::Representation {
             representation: Representation::Markdown,
         } => {
-            let representations = config_value
-                .as_object_mut()
-                .context("project config must be an object")?
-                .entry("representations")
-                .or_insert_with(|| serde_json::json!({}));
-            representations.as_object_mut().context("representations must be an object")?.insert("markdown".to_string(), serde_json::json!({"enabled":true,"negotiateOnCanonicalPath":true,"explicitSuffix":".md","rootPath":"/index.md"}));
+            project
+                .representations
+                .get_or_insert_with(Default::default)
+                .markdown = Some(config::MarkdownRepresentationConfig::site());
             (
                 "representation:markdown",
                 vec!["representations.markdown.enabled=true".to_string()],
@@ -151,21 +155,15 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
             )
         }
         AddCapability::Ui => {
-            set_pointer(
-                &mut config_value,
-                "ui",
-                serde_json::json!({"provider":"proa"}),
-            )?;
-            config_value
-                .as_object_mut()
-                .unwrap()
-                .entry("registries")
-                .or_insert_with(|| serde_json::json!({"@proa":"https://ui.proa.so/r/{name}.json"}));
+            project.ui = Some(config::UiConfig {
+                provider: "proa".into(),
+            });
             files.push((PathBuf::from("src/components/mod.rs"), String::new()));
             ("ui:proa", vec!["ui.provider=proa".to_string()], false)
         }
         AddCapability::Docs => {
-            set_content_capability(&mut config_value, "docs")?;
+            project.content.get_or_insert_with(Default::default).docs =
+                Some(config::ContentCollectionConfig { enabled: true });
             files.push((
                 PathBuf::from("src/docs/index.md"),
                 "# Documentation\n\nStart writing here.\n".to_string(),
@@ -177,7 +175,8 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
             )
         }
         AddCapability::Blog => {
-            set_content_capability(&mut config_value, "blog")?;
+            project.content.get_or_insert_with(Default::default).blog =
+                Some(config::ContentCollectionConfig { enabled: true });
             files.push((
                 PathBuf::from("src/blog/first-post.md"),
                 "# First post\n\nWrite your first post here.\n".to_string(),
@@ -194,11 +193,7 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
                 Deployment::Railway => "railway",
                 Deployment::Coolify => "coolify",
             };
-            set_pointer(
-                &mut config_value,
-                "deploy",
-                serde_json::json!({"provider":provider_name}),
-            )?;
+            project.deploy.get_or_insert_with(Default::default).provider = provider_name.into();
             files.extend(deployment_files(provider, &package, has_database));
             (
                 match provider {
@@ -212,8 +207,7 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         }
     };
     add_capability_lock(&mut lock_value, id, partial)?;
-    let config_source =
-        config::add_rust_capability(&original_source, &original_config, &config_value)?;
+    let config_source = config::add_rust_capability(&original_source, &original_config, &project)?;
     let lock_source = format!("{}\n", serde_json::to_string_pretty(&lock_value)?);
     let mut mutations = vec![
         (
@@ -277,27 +271,6 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
             eprintln!("warning: {warning}");
         }
     }
-    Ok(())
-}
-
-fn set_pointer(config: &mut serde_json::Value, key: &str, value: serde_json::Value) -> Result<()> {
-    config
-        .as_object_mut()
-        .context("project config must be an object")?
-        .insert(key.to_string(), value);
-    Ok(())
-}
-
-fn set_content_capability(config: &mut serde_json::Value, name: &str) -> Result<()> {
-    let content = config
-        .as_object_mut()
-        .context("project config must be an object")?
-        .entry("content")
-        .or_insert_with(|| serde_json::json!({}));
-    content
-        .as_object_mut()
-        .context("content config must be an object")?
-        .insert(name.to_string(), serde_json::json!({ "enabled": true }));
     Ok(())
 }
 

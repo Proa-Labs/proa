@@ -1,25 +1,43 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_config::{BuildConfig, Config, DevConfig, ProjectPaths, Result, ScriptsConfig};
+use proa_config::{
+    ApplicationConfig, AssetConfig, BuildConfig, Config, DatabaseConfig, DatabaseDriver,
+    DeployConfig, HtmlRepresentationConfig, MarkdownRepresentationConfig, ProjectPaths,
+    RepresentationsConfig, Result, ScriptsConfig, StylingConfig, UiConfig,
+};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
-        application: Some(
-            proa_config::json::json!({ "binary": "mcp-incident-desk", "kind": "site", "package": "mcp-incident-desk", "starter": "blank", "template": "app" }),
-        ),
-        database: Some(
-            proa_config::json::json!({ "driver": "sqlite", "migrations": "migrations", "runMigrationsOnStartup": true }),
-        ),
-        ui: Some(proa_config::json::json!({ "provider": "proa" })),
-        representations: Some(
-            proa_config::json::json!({ "html": { "enabled": true }, "markdown": { "enabled": true, "explicitSuffix": ".md", "negotiateOnCanonicalPath": true, "rootPath": "/index.md" } }),
-        ),
-        styling: Some(
-            proa_config::json::json!({ "input": "styles/input.css", "kind": "tailwind", "output": "public/styles.css" }),
-        ),
-        deploy: Some(proa_config::json::json!({ "provider": "none" })),
-        test: Some(proa_config::json::json!({ "before": [] })),
+        application: Some(ApplicationConfig {
+            binary: "mcp-incident-desk".into(),
+            package: "mcp-incident-desk".into(),
+            kind: "site".into(),
+            starter: "blank".into(),
+            template: "app".into(),
+        }),
+        database: Some(DatabaseConfig {
+            driver: DatabaseDriver::Sqlite,
+            migrations: Some("migrations".into()),
+            run_migrations_on_startup: Some(true),
+            ..Default::default()
+        }),
+        ui: Some(UiConfig {
+            provider: "proa".into(),
+        }),
+        representations: Some(RepresentationsConfig {
+            html: Some(HtmlRepresentationConfig { enabled: true }),
+            markdown: Some(MarkdownRepresentationConfig::site()),
+        }),
+        styling: Some(StylingConfig {
+            kind: "tailwind".into(),
+            input: Some("styles/input.css".into()),
+            output: Some("public/styles.css".into()),
+        }),
+        deploy: Some(DeployConfig {
+            provider: "none".into(),
+            ..Default::default()
+        }),
         registries: std::collections::BTreeMap::from([(
             "@proa".into(),
             "https://ui.proa.so/r/{name}.json".into(),
@@ -39,24 +57,8 @@ pub async fn config() -> Result<Config> {
             build: "bash scripts/build.sh",
             ..Default::default()
         },
-        dev: DevConfig {
-            host: "127.0.0.1".into(),
-            port: 5570,
-            before: vec![],
-            watch: vec![
-                "src".into(),
-                "styles".into(),
-                "migrations".into(),
-                "Cargo.toml".into(),
-                "build.rs".into(),
-                "proa.config.rs".into(),
-                "proa.lock.json".into(),
-                "public/incident.css".into(),
-            ],
-        },
         build: BuildConfig {
-            before: vec![],
-            assets: Some(vec![proa_config::AssetConfig {
+            assets: Some(vec![AssetConfig {
                 kind: "tailwind".into(),
                 command: vec![],
                 input: "styles/input.css".into(),

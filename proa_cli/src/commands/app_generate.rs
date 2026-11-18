@@ -107,9 +107,8 @@ pub fn page(
     let configured_markdown = project
         .representations
         .as_ref()
-        .and_then(|value| value.pointer("/markdown/enabled"))
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+        .and_then(|value| value.markdown.as_ref())
+        .is_some_and(|markdown| markdown.enabled);
     let markdown = force_markdown || (!no_markdown && configured_markdown);
     if force_markdown && !configured_markdown {
         bail!("Markdown is not installed for this project; run `proa add representation markdown` first");
@@ -538,12 +537,8 @@ fn commit_mutations(root: &Path, files: &[(PathBuf, String)]) -> Result<()> {
 
 fn require_sqlite(root: &Path) -> Result<()> {
     let project = config::load_project_config(root)?;
-    if project
-        .database
-        .as_ref()
-        .and_then(|database| database.get("driver"))
-        .and_then(serde_json::Value::as_str)
-        != Some("sqlite")
+    if project.database.as_ref().map(|database| database.driver)
+        != Some(crate::config::DatabaseDriver::Sqlite)
     {
         bail!("No database capability is configured.\nAdd one with: proa add database sqlite");
     }

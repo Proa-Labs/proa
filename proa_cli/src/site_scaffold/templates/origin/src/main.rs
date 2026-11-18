@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(address = %listener.local_addr()?, "ORIGIN listening");
     let _ = proa::axum::serve(
         listener,
-        __CRATE_IDENT__::app_with_base_path(base_path),
+        __CRATE_IDENT__::try_app_with_base_path(base_path)?,
         std::time::Duration::from_secs(30),
     )
     .await?;

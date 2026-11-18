@@ -147,6 +147,7 @@ fn main() {
     )
     .unwrap();
     fs::write(root.join("public/icon.svg"), "one").unwrap();
+    fs::write(root.join("extra-input.txt"), "one").unwrap();
     fs::create_dir(root.join("scripts")).unwrap();
     for name in ["a", "b"] {
         fs::write(
@@ -176,6 +177,8 @@ fn main() {
                 "dev",
                 "--offline",
                 "--no-reload",
+                "--watch",
+                "extra-input.txt",
                 "--port",
                 &port.to_string(),
             ])
@@ -279,6 +282,10 @@ fn main() {
     let recovered = wait(ready, 8);
     assert_eq!(recovered.matches(build_started).count(), 7, "{recovered}");
     assert!(output.join("manifest.json").is_file(), "{recovered}");
+
+    fs::write(root.join("extra-input.txt"), "two").unwrap();
+    let watched = wait(ready, 9);
+    assert_eq!(watched.matches(build_started).count(), 8, "{watched}");
 }
 
 #[cfg(unix)]

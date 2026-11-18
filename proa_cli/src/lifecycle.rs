@@ -72,6 +72,7 @@ pub struct DevOptions {
     pub root: Option<PathBuf>,
     pub host: Option<String>,
     pub port: Option<u16>,
+    pub watch: Vec<PathBuf>,
     pub open: bool,
     pub offline: bool,
     pub no_assets: bool,
@@ -842,8 +843,8 @@ pub fn check(mut options: CheckOptions) -> Result<()> {
         options.bin = config
             .application
             .as_ref()
-            .and_then(|application| application.get("binary"))
-            .and_then(serde_json::Value::as_str)
+            .map(|application| application.binary.as_str())
+            .filter(|value| !value.is_empty())
             .map(ToString::to_string);
     }
     let command = check_command(&options);
@@ -890,8 +891,8 @@ pub fn test(mut options: TestOptions) -> Result<()> {
         options.bin = config
             .application
             .as_ref()
-            .and_then(|application| application.get("binary"))
-            .and_then(serde_json::Value::as_str)
+            .map(|application| application.binary.as_str())
+            .filter(|value| !value.is_empty())
             .map(ToString::to_string);
         if options.bin.is_none() {
             bail!(
@@ -988,12 +989,8 @@ impl IsolatedTestDatabase {
 }
 
 fn project_uses_sqlite(config: &ProjectConfig) -> bool {
-    config
-        .database
-        .as_ref()
-        .and_then(|database| database.get("driver"))
-        .and_then(serde_json::Value::as_str)
-        == Some("sqlite")
+    config.database.as_ref().map(|database| database.driver)
+        == Some(crate::config::DatabaseDriver::Sqlite)
 }
 
 fn run_test_session(
@@ -1048,8 +1045,7 @@ fn watched_test_loop(
     let migrations = config
         .database
         .as_ref()
-        .and_then(|database| database.get("migrations"))
-        .and_then(serde_json::Value::as_str)
+        .and_then(|database| database.migrations.as_deref())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("migrations"));
     if !paths.contains(&migrations) {
@@ -1118,21 +1114,8 @@ fn run_test_cycle(
     let before = config
         .test
         .as_ref()
-        .and_then(|test| test.get("before"))
-        .and_then(serde_json::Value::as_array)
-        .map(|tasks| {
-            tasks
-                .iter()
-                .map(|task| {
-                    task.as_str()
-                        .map(ToString::to_string)
-                        .context("test.before entries must be task names")
-                })
-                .collect::<Result<Vec<_>>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
-    task::run_lifecycle_tasks(root, config, &before, environment)?;
+        .map_or(&[][..], |test| test.before.as_slice());
+    task::run_lifecycle_tasks(root, config, before, environment)?;
     for command in commands {
         run_linked_execute_with_environment(
             root,
@@ -1668,6 +1651,11 @@ fn apply_dev_overrides(config: &mut ProjectConfig, options: &DevOptions) {
     }
     if let Some(port) = options.port {
         config.dev.port = port;
+    }
+    for path in &options.watch {
+        if !config.dev.watch.contains(path) {
+            config.dev.watch.push(path.clone());
+        }
     }
 }
 

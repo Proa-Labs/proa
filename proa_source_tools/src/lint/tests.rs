@@ -4,6 +4,56 @@
 use super::*;
 
 #[test]
+fn public_asset_lints_follow_html_and_typed_component_url_fields() {
+    let source = r#"
+impl WebRenderSync for Product {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let thumbnail = Image { src: Some(String::from("public/image.png")) };
+        html_sync! {
+            <a href="public/catalog.pdf">"Catalog"</a>
+            <img src={"./public/cover.png"} alt="Cover" />
+            <source srcset="https://cdn.example/logo.png 1x, public/large.png 2x" />
+            <img src={cx.url("/public/logo.png")} alt="Bad prefix" />
+            <img src="/shop/_proa/assets/img/logo.a1b2c3d4.svg" alt="Hard-coded" />
+            <img src={cx.url("public/ok.png")} alt="Resolved" />
+            <img srcset="data:image/png,public/fake.png 1x, https://cdn.example/image.png 2x" alt="Remote" />
+            <a href="/products">"Products"</a>
+            <a href="//cdn.example/public/a">"Remote"</a>
+            <div data-source="public/label.txt"></div>
+            {Image { src: "public/child.png".into() }}
+            {thumbnail}
+        }.render(cx)
+    }
+}
+fn copy_input() { let _ = FileCopy { src: "public/local.png" }; }
+"#;
+    let diagnostics: Vec<_> = lint_file(Path::new("src/product.rs"), source)
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code.starts_with("asset/"))
+        .collect();
+    let mut hits: Vec<_> = diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.code))
+        .collect();
+    hits.sort_unstable();
+    assert_eq!(
+        hits,
+        [
+            (4, "asset/public-url"),
+            (6, "asset/public-url"),
+            (7, "asset/public-url"),
+            (8, "asset/public-url"),
+            (9, "asset/logical-path"),
+            (10, "asset/generated-url"),
+            (16, "asset/public-url"),
+        ]
+    );
+    assert!(diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.severity == Severity::Warning));
+}
+
+#[test]
 fn head_hooks_require_explicit_metadata_roles() {
     for (render_trait, hook) in [
         ("WebRender", "render_head"),

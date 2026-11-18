@@ -306,6 +306,14 @@ For deployment, copy the complete output directory with the binary and set
 `PROA_PUBLIC_ASSETS` to its deployment location. `--artifact-out` exports only
 the executable. The catalog can be loaded from a read-only deployment; the
 reader lock file must be included. Do not manually modify immutable objects.
+
+To start a packaged app with the CLI, pass the copied catalog alongside the
+exported executable.
+
+```bash
+proa start --root . --bin ./app --public-assets ./public-assets
+```
+
 If the deployment path is set and the catalog is missing or invalid,
 `FrameworkBuilder::try_build` reports a startup error. Apps can also use
 `with_public_assets` to supply an explicit catalog or check required logical

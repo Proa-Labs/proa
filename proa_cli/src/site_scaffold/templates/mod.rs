@@ -45,7 +45,12 @@ pub fn populate(
     plan.write(".gitignore", gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
     plan.write("README.md", readme(package, title, selection))?;
-    plan.write("build.rs", build_rs(has_database))?;
+    if has_database {
+        plan.write(
+            "build.rs",
+            "fn main() {\n    println!(\"cargo:rerun-if-changed=migrations\");\n}\n",
+        )?;
+    }
     plan.write(
         crate::config::CONFIG_FILE,
         project_config(package, selection)?,
@@ -248,73 +253,80 @@ fn gitignore() -> &'static str {
     ".env\n/target/\n/data/*.db\n/data/*.db-shm\n/data/*.db-wal\n"
 }
 
-fn build_rs(has_database: bool) -> &'static str {
-    if has_database {
-        "fn main() {\n    println!(\"cargo:rerun-if-changed=migrations\");\n    println!(\"cargo:rerun-if-changed=public\");\n}\n"
-    } else {
-        "fn main() {\n    println!(\"cargo:rerun-if-changed=public\");\n}\n"
-    }
-}
-
 fn project_config(package: &str, selection: CapabilitySelection) -> Result<String> {
+    use crate::config::{
+        ApplicationConfig, AssetConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig,
+        HtmlRepresentationConfig, MarkdownRepresentationConfig, ProjectConfig, ProjectPaths,
+        RepresentationsConfig, StylingConfig, TestConfig, UiConfig,
+    };
+
     let database = match selection.database {
-        DatabaseChoice::Sqlite => json!({
-            "driver": "sqlite",
-            "migrations": "migrations",
-            "runMigrationsOnStartup": true
-        }),
-        DatabaseChoice::None => json!({ "driver": "none" }),
+        DatabaseChoice::Sqlite => DatabaseConfig {
+            driver: DatabaseDriver::Sqlite,
+            migrations: Some("migrations".into()),
+            run_migrations_on_startup: Some(true),
+            ..Default::default()
+        },
+        DatabaseChoice::None => DatabaseConfig::default(),
     };
     let markdown = if selection.markdown {
-        json!({
-            "enabled": true,
-            "negotiateOnCanonicalPath": true,
-            "explicitSuffix": ".md",
-            "rootPath": "/index.md"
-        })
+        MarkdownRepresentationConfig::site()
     } else {
-        json!({ "enabled": false })
+        MarkdownRepresentationConfig::default()
     };
-    let styling = match selection.styling {
-        StylingChoice::Tailwind => json!({
-            "kind": "tailwind", "input": "styles/input.css", "output": "public/styles.css"
+    let tailwind = selection.styling == StylingChoice::Tailwind;
+    let assets = if tailwind {
+        vec![AssetConfig {
+            kind: "tailwind".into(),
+            input: "styles/input.css".into(),
+            output: "public/styles.css".into(),
+            ..Default::default()
+        }]
+    } else {
+        vec![]
+    };
+    crate::config::generated_rust_config(&ProjectConfig {
+        application: Some(ApplicationConfig {
+            kind: "site".into(),
+            package: package.into(),
+            binary: package.into(),
+            template: selection.template.as_str().into(),
+            starter: selection.starter.as_str().into(),
         }),
-        StylingChoice::Css => json!({ "kind": "css", "output": "public/styles.css" }),
-        StylingChoice::Docs => json!({ "kind": "docs", "output": "public/styles.css" }),
-    };
-    let assets = if selection.styling == StylingChoice::Tailwind {
-        json!([{ "kind": "tailwind", "input": "styles/input.css", "output": "public/styles.css" }])
-    } else {
-        json!([])
-    };
-    let value = json!({
-        "application": {
-            "kind": "site", "package": package, "binary": package,
-            "template": selection.template.as_str(), "starter": selection.starter.as_str()
+        database: Some(database),
+        ui: Some(UiConfig {
+            provider: selection.ui.as_str().into(),
+        }),
+        representations: Some(RepresentationsConfig {
+            html: Some(HtmlRepresentationConfig { enabled: true }),
+            markdown: Some(markdown),
+        }),
+        styling: Some(StylingConfig {
+            kind: selection.styling.as_str().into(),
+            input: tailwind.then(|| "styles/input.css".into()),
+            output: Some("public/styles.css".into()),
+        }),
+        paths: ProjectPaths {
+            pages: Some("src/pages".into()),
+            endpoints: Some("src/endpoints".into()),
+            layouts: Some("src/layouts".into()),
+            models: Some("src/models".into()),
+            public: Some("public".into()),
+            runtime_data: Some("data".into()),
+            ..Default::default()
         },
-        "database": database,
-        "ui": { "provider": selection.ui.as_str() },
-        "representations": { "html": { "enabled": true }, "markdown": markdown },
-        "styling": styling,
-        "paths": {
-            "pages": "src/pages", "endpoints": "src/endpoints",
-            "components": "src/components", "layouts": "src/layouts",
-            "models": "src/models", "public": "public", "runtimeData": "data"
+        deploy: Some(DeployConfig {
+            provider: selection.deploy.as_str().into(),
+            ..Default::default()
+        }),
+        build: BuildConfig {
+            assets: Some(assets),
+            ..Default::default()
         },
-        "deploy": { "provider": selection.deploy.as_str() },
-        "scripts": {
-            "dev": crate::config::DEFAULT_DEV_COMMAND,
-            "build": crate::config::DEFAULT_BUILD_COMMAND
-        },
-        "dev": {
-            "before": [],
-            "watch": ["src", "styles", "migrations", "Cargo.toml", "build.rs", crate::config::CONFIG_FILE, "proa.lock.json"]
-        },
-        "build": { "before": [], "assets": assets },
-        "test": { "before": [] },
-        "registries": { "@proa": "https://ui.proa.so/r/{name}.json" }
-    });
-    crate::config::generated_rust_config(&serde_json::from_value(value)?)
+        test: Some(TestConfig::default()),
+        registries: BTreeMap::from([("@proa".into(), "https://ui.proa.so/r/{name}.json".into())]),
+        ..crate::config::inferred_project_config()
+    })
 }
 
 fn lock_file(
@@ -617,9 +629,9 @@ fn representation_test(has_database: bool, starter: StarterChoice) -> String {
         r#"let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
     let pool = db::connect(&database_url).await.unwrap();
     let loader = Arc::new(loader::AppLoader::new(pool.clone()));
-    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa::BasePath::new("/apps/demo").unwrap());"#
+    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa::BasePath::new("/apps/demo").unwrap()).unwrap();"#
     } else {
-        "let app = routes::router(app::AppState, proa::BasePath::new(\"/apps/demo\").unwrap());"
+        "let app = routes::router(app::AppState, proa::BasePath::new(\"/apps/demo\").unwrap()).unwrap();"
     };
     let close = if has_database {
         "pool.close().await;"

@@ -26,6 +26,7 @@ use crate::source::{
     display_path, file_line_column_for_body_span, find_macros, MacroDialect, MacroInvocation,
 };
 
+mod asset_urls;
 pub mod content;
 pub mod live;
 mod predicates;
@@ -128,6 +129,9 @@ fn lint_file_with_cache(
                     lint_indentation(&display, inv, root, &mut diagnostics);
                 }
                 lint_template_accessibility(&display, inv, root, &suppressions, &mut diagnostics);
+                if inv.dialect == MacroDialect::Html {
+                    asset_urls::lint_markup(&display, inv, root, &suppressions, &mut diagnostics);
+                }
                 lint_perf(
                     &display,
                     inv,
@@ -659,6 +663,7 @@ fn lint_render_impl(
             continue;
         }
         check_render_block_perf(path, &method.block, suppressions, diagnostics, true);
+        asset_urls::lint_render_block(path, &method.block, suppressions, diagnostics);
         check_render_api_perf(path, item_impl, method, suppressions, diagnostics);
         check_owned_view_model_perf(path, &method.block, structs, suppressions, diagnostics);
         check_large_render_clone_perf(path, &method.block, suppressions, diagnostics);

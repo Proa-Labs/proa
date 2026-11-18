@@ -15,26 +15,167 @@ pub const CONFIG_FILE: &str = "proa.config.rs";
 )]
 pub struct Config<Command = &'static str> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub application: Option<serde_json::Value>,
+    pub application: Option<ApplicationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub database: Option<serde_json::Value>,
+    pub database: Option<DatabaseConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ui: Option<serde_json::Value>,
+    pub ui: Option<UiConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub representations: Option<serde_json::Value>,
+    pub representations: Option<RepresentationsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub styling: Option<serde_json::Value>,
+    pub styling: Option<StylingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deploy: Option<serde_json::Value>,
+    pub deploy: Option<DeployConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<serde_json::Value>,
+    pub content: Option<ContentConfig>,
     pub scripts: ScriptsConfig<Command>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub test: Option<serde_json::Value>,
+    pub test: Option<TestConfig>,
     pub paths: ProjectPaths,
     pub registries: BTreeMap<String, String>,
     pub dev: DevConfig,
     pub build: BuildConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ApplicationConfig {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub binary: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub package: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub starter: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub template: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DatabaseDriver {
+    #[default]
+    None,
+    Sqlite,
+}
+
+impl DatabaseDriver {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Sqlite => "sqlite",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct DatabaseConfig {
+    pub driver: DatabaseDriver,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub migrations: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_migrations_on_startup: Option<bool>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub integration: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UiConfig {
+    pub provider: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RepresentationsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub html: Option<HtmlRepresentationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub markdown: Option<MarkdownRepresentationConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HtmlRepresentationConfig {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct MarkdownRepresentationConfig {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub negotiate_on_canonical_path: Option<bool>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub explicit_suffix: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub root_path: String,
+}
+
+impl MarkdownRepresentationConfig {
+    pub fn site() -> Self {
+        Self {
+            enabled: true,
+            negotiate_on_canonical_path: Some(true),
+            explicit_suffix: ".md".into(),
+            root_path: "/index.md".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct StylingConfig {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DeployConfig {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cdn: Option<CdnConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "provider", rename_all = "lowercase", deny_unknown_fields)]
+pub enum CdnConfig {
+    Cloudflare {
+        #[serde(rename = "zoneId")]
+        zone_id: String,
+        hostname: String,
+    },
+    Command {
+        command: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ContentConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub docs: Option<ContentCollectionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blog: Option<ContentCollectionConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ContentCollectionConfig {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TestConfig {
+    pub before: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -83,7 +224,7 @@ pub struct ProjectPaths {
     pub runtime_data: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct DevConfig {
     pub host: String,
@@ -234,8 +375,16 @@ pub(super) fn default_registries() -> BTreeMap<String, String> {
 // Cargo.lock is intentionally not watched: `cargo run` can rewrite it during
 // the build the watcher just triggered, which restarts the dev loop forever.
 pub(super) fn default_watch_paths() -> Vec<PathBuf> {
-    ["src", "styles", "Cargo.toml", "build.rs", CONFIG_FILE]
-        .into_iter()
-        .map(PathBuf::from)
-        .collect()
+    [
+        "src",
+        "styles",
+        "migrations",
+        "Cargo.toml",
+        "build.rs",
+        CONFIG_FILE,
+        "proa.lock.json",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
 }

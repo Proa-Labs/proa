@@ -730,6 +730,7 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         root: None,
         host: None,
         port: None,
+        watch: vec![],
         open: false,
         offline: false,
         no_assets: false,

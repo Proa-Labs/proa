@@ -18,9 +18,11 @@ use reqwest::{
     header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE},
     redirect::Policy,
 };
-use serde::Deserialize;
 
-use crate::{config, util::resolve_config_root};
+use crate::{
+    config::{self, CdnConfig},
+    util::resolve_config_root,
+};
 
 #[derive(Debug, Args)]
 pub struct RunArgs {
@@ -32,19 +34,6 @@ pub struct RunArgs {
     /// Upload-only or detached deployment commands are not sufficient.
     #[arg(last = true, required = true, num_args = 1..)]
     command: Vec<OsString>,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "provider", rename_all = "lowercase", deny_unknown_fields)]
-enum CdnConfig {
-    Cloudflare {
-        #[serde(rename = "zoneId")]
-        zone_id: String,
-        hostname: String,
-    },
-    Command {
-        command: Vec<String>,
-    },
 }
 
 enum Invalidation {
@@ -59,11 +48,8 @@ enum Invalidation {
 pub fn run(args: RunArgs) -> Result<()> {
     let root = resolve_config_root(args.root)?;
     let project = config::load_project_config(&root)?;
-    let cdn = project.deploy.as_ref().and_then(|deploy| deploy.get("cdn"))
+    let cdn = project.deploy.and_then(|deploy| deploy.cdn)
         .context("configure deploy.cdn in proa.config.rs before using proa deploy run; alternatively, use your hosting platform's deployment invalidation")?;
-    let cdn: CdnConfig = serde_json::from_value(cdn.clone()).context(
-        "invalid deploy.cdn configuration; supported providers are cloudflare and command",
-    )?;
     // Prepare the selected integration before changing the running deployment.
     let invalidation = prepare(cdn)?;
     let (program, arguments) = args

@@ -348,22 +348,25 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     use std::fmt::Write as _;
 
     let mut source = String::from(
-        "use proa_config::{BuildConfig, Config, DevConfig, ProjectPaths, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
+        "use proa_config::{BuildConfig, Config, ProjectPaths, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
     );
-    for (field, value) in [
-        ("application", &config.application),
-        ("database", &config.database),
-        ("ui", &config.ui),
-        ("representations", &config.representations),
-        ("styling", &config.styling),
-        ("deploy", &config.deploy),
-        ("content", &config.content),
-        ("test", &config.test),
-    ] {
-        if let Some(value) = value {
-            writeln!(source, "        {field}: Some({}),", value_expr(value))?;
-        }
+    macro_rules! section {
+        ($($field:ident),+ $(,)?) => {
+            $(if let Some(value) = &config.$field {
+                writeln!(source, "        {}: Some({}),", stringify!($field), value.rust_expr(8)?)?;
+            })+
+        };
     }
+    section!(
+        application,
+        database,
+        ui,
+        representations,
+        styling,
+        deploy,
+        content,
+        test
+    );
     writeln!(source, "        scripts: proa_config::ScriptsConfig {{")?;
     writeln!(source, "            dev: {:?},", config.scripts.dev)?;
     writeln!(source, "            build: {:?},", config.scripts.build)?;
@@ -451,22 +454,24 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
         }
     }
     writeln!(source, "            ..Default::default()\n        }},")?;
-    writeln!(source, "        dev: DevConfig {{")?;
-    writeln!(source, "            host: {:?}.into(),", config.dev.host)?;
-    writeln!(source, "            port: {},", config.dev.port)?;
-    writeln!(
-        source,
-        "            before: {},",
-        string_vec(&config.dev.before)
-    )?;
-    let watch = config
-        .dev
-        .watch
-        .iter()
-        .map(|path| Ok(format!("{}.into()", path_literal(path)?)))
-        .collect::<Result<Vec<_>>>()?
-        .join(", ");
-    writeln!(source, "            watch: vec![{watch}],\n        }},")?;
+    if config.dev != super::DevConfig::default() {
+        writeln!(source, "        dev: proa_config::DevConfig {{")?;
+        writeln!(source, "            host: {:?}.into(),", config.dev.host)?;
+        writeln!(source, "            port: {},", config.dev.port)?;
+        writeln!(
+            source,
+            "            before: {},",
+            string_vec(&config.dev.before)
+        )?;
+        let watch = config
+            .dev
+            .watch
+            .iter()
+            .map(|path| Ok(format!("{}.into()", path_literal(path)?)))
+            .collect::<Result<Vec<_>>>()?
+            .join(", ");
+        writeln!(source, "            watch: vec![{watch}],\n        }},")?;
+    }
     writeln!(source, "        build: BuildConfig {{")?;
     writeln!(
         source,
@@ -534,49 +539,152 @@ fn string_vec(values: &[String]) -> String {
     format!("vec![{}]", values.join(", "))
 }
 
-fn value_expr(value: &serde_json::Value) -> String {
-    fn literal(value: &serde_json::Value) -> String {
-        use serde_json::Value::*;
-        match value {
-            Null => "null".into(),
-            Bool(value) => value.to_string(),
-            Number(value) => {
-                let suffix = if value.is_i64() {
-                    "i64"
-                } else if value.is_u64() {
-                    "u64"
-                } else {
-                    "f64"
-                };
-                format!("{value}{suffix}")
-            }
-            String(value) => format!("{value:?}"),
-            Array(values) => format!(
-                "[{}]",
-                values.iter().map(literal).collect::<Vec<_>>().join(", ")
-            ),
-            Object(values) => {
-                let fields = values
-                    .iter()
-                    .map(|(name, value)| format!("{name:?}: {}", literal(value)))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{{ {fields} }}")
-            }
+// Render typed values back into source for scaffolding and capability edits.
+trait ConfigSource {
+    fn rust_expr(&self, indent: usize) -> Result<String>;
+}
+
+impl ConfigSource for String {
+    fn rust_expr(&self, _: usize) -> Result<String> {
+        Ok(format!("{self:?}.into()"))
+    }
+}
+
+impl ConfigSource for std::path::PathBuf {
+    fn rust_expr(&self, _: usize) -> Result<String> {
+        Ok(format!("{}.into()", path_literal(self)?))
+    }
+}
+
+impl ConfigSource for bool {
+    fn rust_expr(&self, _: usize) -> Result<String> {
+        Ok(self.to_string())
+    }
+}
+
+impl ConfigSource for Vec<String> {
+    fn rust_expr(&self, _: usize) -> Result<String> {
+        Ok(string_vec(self))
+    }
+}
+
+impl<T: ConfigSource> ConfigSource for Option<T> {
+    fn rust_expr(&self, indent: usize) -> Result<String> {
+        match self {
+            Some(value) => Ok(format!("Some({})", value.rust_expr(indent)?)),
+            None => Ok("None".into()),
         }
     }
-    format!("proa_config::json::json!({})", literal(value))
+}
+
+macro_rules! config_sections {
+    ($($name:ident { $($field:ident),+ $(,)? }),+ $(,)?) => {
+        $(impl ConfigSource for super::$name {
+            fn rust_expr(&self, indent: usize) -> Result<String> {
+                use std::fmt::Write as _;
+                let default = Self::default();
+                if *self == default {
+                    return Ok(concat!("proa_config::", stringify!($name), "::default()").into());
+                }
+                let mut result = String::from(concat!("proa_config::", stringify!($name), " {\n"));
+                let padding = indent + 4;
+                $(if self.$field != default.$field {
+                    writeln!(
+                        result, "{:padding$}{}: {},", "", stringify!($field),
+                        self.$field.rust_expr(padding)?,
+                    )?;
+                })+
+                write!(result, "{:padding$}..Default::default()\n{:indent$}}}", "", "")?;
+                Ok(result)
+            }
+        })+
+    };
+}
+
+config_sections! {
+    ApplicationConfig { binary, package, kind, starter, template },
+    DatabaseConfig { driver, migrations, run_migrations_on_startup, integration },
+    UiConfig { provider },
+    RepresentationsConfig { html, markdown },
+    HtmlRepresentationConfig { enabled },
+    MarkdownRepresentationConfig { enabled, negotiate_on_canonical_path, explicit_suffix, root_path },
+    StylingConfig { kind, input, output },
+    DeployConfig { provider, cdn },
+    ContentConfig { docs, blog },
+    ContentCollectionConfig { enabled },
+    TestConfig { before },
+}
+
+impl ConfigSource for super::DatabaseDriver {
+    fn rust_expr(&self, _: usize) -> Result<String> {
+        Ok(match self {
+            Self::None => "proa_config::DatabaseDriver::None",
+            Self::Sqlite => "proa_config::DatabaseDriver::Sqlite",
+        }
+        .into())
+    }
+}
+
+impl ConfigSource for super::CdnConfig {
+    fn rust_expr(&self, indent: usize) -> Result<String> {
+        let padding = indent + 4;
+        match self {
+            Self::Cloudflare { zone_id, hostname } => Ok(format!(
+                "proa_config::CdnConfig::Cloudflare {{\n{:padding$}zone_id: {},\n{:padding$}hostname: {},\n{:indent$}}}",
+                "", zone_id.rust_expr(padding)?, "", hostname.rust_expr(padding)?, "",
+            )),
+            Self::Command { command } => Ok(format!(
+                "proa_config::CdnConfig::Command {{\n{:padding$}command: {},\n{:indent$}}}",
+                "", command.rust_expr(padding)?, "",
+            )),
+        }
+    }
 }
 
 pub(super) fn with_capability_changes(
     source: &str,
-    before: &serde_json::Value,
-    after: &serde_json::Value,
+    before: &ProjectConfig,
+    after: &ProjectConfig,
 ) -> Result<String> {
     use quote::ToTokens as _;
     use std::fmt::Write as _;
 
-    if before == after {
+    let mut changes = String::new();
+    macro_rules! replace_section {
+        ($field:ident) => {
+            if before.$field != after.$field {
+                writeln!(
+                    changes,
+                    "    configured.{} = {};",
+                    stringify!($field),
+                    after.$field.rust_expr(4)?
+                )?;
+            }
+        };
+    }
+    macro_rules! replace_field {
+        ($section:ident, $field:ident) => {
+            let previous = before.$section.as_ref().map(|section| &section.$field);
+            if let Some(value) = after.$section.as_ref().map(|section| &section.$field) {
+                if previous != Some(value) {
+                    writeln!(
+                        changes,
+                        "    configured.{}.get_or_insert_with(Default::default).{} = {};",
+                        stringify!($section),
+                        stringify!($field),
+                        value.rust_expr(4)?,
+                    )?;
+                }
+            }
+        };
+    }
+    replace_section!(database);
+    replace_section!(ui);
+    replace_field!(deploy, provider);
+    replace_field!(representations, markdown);
+    replace_field!(content, docs);
+    replace_field!(content, blog);
+    if changes.is_empty() {
         return Ok(source.to_owned());
     }
     let parsed = syn::parse_file(source).context("parse proa.config.rs for capability addition")?;
@@ -603,24 +711,7 @@ pub(super) fn with_capability_changes(
         function.sig.output.to_token_stream(),
         &source[start + 1..end],
     );
-    for field in ["database", "ui", "deploy"] {
-        if before.get(field) != after.get(field) {
-            writeln!(
-                patched,
-                "    configured.{field} = Some({});",
-                value_expr(&after[field])
-            )?;
-        }
-    }
-    for field in ["representations", "content"] {
-        if let Some(entries) = after[field].as_object() {
-            for (name, value) in entries {
-                if before[field].get(name) != Some(value) {
-                    writeln!(patched, "    configured.{field}\n        .get_or_insert_with(|| proa_config::json::json!({{}}))\n        .as_object_mut().expect(\"{field} config must be an object\")\n        .insert({name:?}.into(), {});", value_expr(value))?;
-                }
-            }
-        }
-    }
+    patched.push_str(&changes);
     patched.push_str("    Ok(configured)\n");
     patched.push_str(&source[end..]);
     Ok(patched)
