@@ -801,10 +801,11 @@ analyzed slot is reserved for a compiler-composable component edge. An unbound
 direct path such as `{Badge}` or `{crate::ui::Badge}` has the same meaning for
 a unit component; imported, renamed, and re-exported paths work through
 rustc-resolved identity. A single-segment path naming a tracked prelude or loop
-local remains an ordinary value. Keep
-`rsjs::server_attr(...)` for static-per-render dynamic attributes.
-`rsjs::server_only(...)` remains a compatibility escape hatch for syntax the
-tolerant frontend cannot yet classify; it is not the routine authoring path.
+local remains an ordinary value. Write server-rendered attributes directly,
+for example `src={cx.url("public/images/logo.svg")}`. Reserve
+`rsjs::server_attr(...)` and `rsjs::server_only(...)` for intentional
+snapshots of inbound values or server syntax the tolerant frontend cannot
+classify.
 
 Compiler-backed v2 lint may report `rsjs/unnecessary-server-only` when the
 wrapper surrounds a proven ordinary server local. It must not suggest removing
@@ -835,7 +836,8 @@ Use `rsjs::server_only(...)` or `rsjs::server_attr(...)` when a prop is
 intentionally static for that render. Parent signals and handler references
 cannot cross such a snapshot boundary.
 
-Opaque server-only dynamic attributes use `rsjs::server_attr(...)`:
+This attribute deliberately computes its class from the server snapshot of
+the inbound `self.size`:
 
 ```rust
 <input class={rsjs::server_attr(crate::components::input_classes(self.size))} />

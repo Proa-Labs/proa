@@ -129,10 +129,11 @@ do not use full-repo results as a merge gate until those are cleaned up.
   outside `render`.
 - Replace owned view models built inside `render` with borrowed props,
   precomputed data, or child components.
-- Replace unsupported rsjs slot logic with a named handler, a pure helper
-  annotated once with `#[rsjs::client]`, `rsjs::server_only(...)`, or supported
-  reactive expressions. `#[rsjs::client_module]` is optional grouping, not
-  helper eligibility.
+- Use ordinary server expressions such as `cx.url(...)` directly in slots
+  and attributes. For browser-reachable logic, use a named handler, a pure
+  `#[rsjs::client]` helper, or a supported reactive expression. Reserve
+  `rsjs::server_only(...)` and `rsjs::server_attr(...)` for intentional
+  snapshots or server expressions the compiler cannot classify.
 - If `proa lint` reports an async render without await, switch to
   `WebRenderSync` and `html_sync!`.
 - Keep tests simple; the lint skips `#[cfg(test)] mod tests` by default.

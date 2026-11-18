@@ -289,9 +289,14 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
             .is_some_and(|output| !output.join(proa_build::assets::MANIFEST_FILE).is_file());
         let trigger_snapshot = match debouncer.observe(clock.elapsed(), current) {
             DevWatchDecision::Ready(changed) => changed,
-            DevWatchDecision::Idle if missing_catalog && Instant::now() >= retry_catalog_at => {
+            // Disappearing output can trigger recovery on idle inputs, but a
+            // failed build already recorded those inputs. A later edit must
+            // take the normal debounced path before attempting another build.
+            DevWatchDecision::Idle
+                if missing_catalog && !last_build_failed && Instant::now() >= retry_catalog_at =>
+            {
                 retry_catalog_at = Instant::now() + Duration::from_secs(2);
-                if !last_build_failed && launch.executable.is_file() {
+                if launch.executable.is_file() {
                     let output = launch
                         .public_assets
                         .as_ref()
@@ -309,8 +314,7 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                     retry_catalog_at = Instant::now();
                     continue;
                 }
-                // Rebuild after a full clean or a failed edit. Publishing the
-                // failed candidate's assets could disagree with the live app.
+                // A full clean removed the executable as well as the catalog.
                 debouncer.committed.clone()
             }
             _ => continue,
@@ -354,7 +358,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
             Ok(inputs) => inputs,
             Err(error) => {
                 last_build_failed = true;
-                retry_catalog_at = Instant::now() + Duration::from_secs(2);
                 eprintln!(
                     "dev preparation failed; keeping the last valid server running:\n{error:#}"
                 );
@@ -461,7 +464,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
             }
             Err(error) => {
                 last_build_failed = true;
-                retry_catalog_at = Instant::now() + Duration::from_secs(2);
                 eprintln!(
                     "linked dev rebuild failed; keeping the last valid server running:\n{error:#}"
                 );

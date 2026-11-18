@@ -439,7 +439,11 @@ fn readiness_waits_for_a_listener_and_gives_up_on_a_dead_port() {
     )
     .is_none());
 
-    drop(listener);
+    // Reserve a TCP port without listening so another test or child process
+    // cannot claim it during this probe.
+    let inactive = tokio::net::TcpSocket::new_v4().unwrap();
+    inactive.bind((Ipv4Addr::LOCALHOST, 0).into()).unwrap();
+    let port = inactive.local_addr().unwrap().port();
     let started = Instant::now();
     assert!(wait_until_serving(
         "127.0.0.1",

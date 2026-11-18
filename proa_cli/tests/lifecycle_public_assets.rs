@@ -185,11 +185,11 @@ fn main() {
             .spawn()
             .unwrap(),
     );
-    let mut wait = |launches| {
+    let mut wait = |message, count| {
         let deadline = Instant::now() + Duration::from_secs(120);
         loop {
             let text = fs::read_to_string(&log).unwrap();
-            if text.matches("Proa dev ready:").count() >= launches {
+            if text.matches(message).count() >= count {
                 break text;
             }
             assert!(
@@ -200,15 +200,16 @@ fn main() {
         }
     };
     let cargo_calls = || fs::read_to_string(&cargo_trace).unwrap().lines().count();
-    let first = wait(1);
+    let ready = "Proa dev ready:";
+    let first = wait(ready, 1);
     let output = published(&first);
     let builds = cargo_calls();
     assert_eq!(builds, 2, "{first}");
     let original = fs::read(output.join("manifest.json")).unwrap();
     fs::remove_file(output.join("manifest.json")).unwrap();
-    let repaired = wait(2);
+    let repaired = wait(ready, 2);
     fs::rename(&output, artifacts.path().join("moved-catalog")).unwrap();
-    let recreated = wait(3);
+    let recreated = wait(ready, 3);
     for text in [&repaired, &recreated] {
         assert_eq!(
             text.matches("running linked RSJS Cargo dev build").count(),
@@ -220,14 +221,14 @@ fn main() {
     assert_eq!(cargo_calls(), builds);
 
     fs::write(root.join("public/logo.svg"), "two").unwrap();
-    assert!(wait(4).contains("CONFIG one two"));
+    assert!(wait(ready, 4).contains("CONFIG one two"));
     assert_eq!(
         cargo_calls(),
         builds,
         "runtime read should reuse the config executable"
     );
     fs::write(root.join("public/icon.svg"), "new-icon").unwrap();
-    assert!(wait(5).contains("CONFIG new-icon two"));
+    assert!(wait(ready, 5).contains("CONFIG new-icon two"));
     assert_eq!(
         cargo_calls(),
         builds + 1,
@@ -238,13 +239,13 @@ fn main() {
         config.replace("scripts/a.sh", "scripts/b.sh"),
     )
     .unwrap();
-    let changed = wait(6);
+    let changed = wait(ready, 6);
     assert!(changed.contains("scripts.dev changed to \"bash scripts/b.sh\". Run `proa dev` again"));
     assert_eq!(changed.matches("WRAPPER-a").count(), 1);
     assert!(!changed.contains("WRAPPER-b"));
 
     fs::rename(&target, artifacts.path().join("moved-target")).unwrap();
-    let rebuilt = wait(7);
+    let rebuilt = wait(ready, 7);
     assert!(output.join("manifest.json").is_file());
     assert_eq!(rebuilt.matches("scripts.dev changed to").count(), 1);
     assert_eq!(
@@ -253,6 +254,34 @@ fn main() {
             .count(),
         5
     );
+
+    let source = root.join("src/main.rs");
+    let valid_source = fs::read(&source).unwrap();
+    fs::write(
+        &source,
+        b"compile_error!(\"broken while output is missing\");",
+    )
+    .unwrap();
+    fs::remove_file(output.join("manifest.json")).unwrap();
+    let failed = "linked dev rebuild failed";
+    let broken = wait(failed, 1);
+    assert!(
+        broken.contains("broken while output is missing"),
+        "{broken}"
+    );
+
+    // Watch past the missing-catalog retry interval while the files are idle.
+    std::thread::sleep(Duration::from_secs(3));
+    let idle = fs::read_to_string(&log).unwrap();
+    let build_started = "running linked RSJS Cargo dev build";
+    assert_eq!(idle.matches(build_started).count(), 6, "{idle}");
+    assert_eq!(idle.matches(failed).count(), 1, "{idle}");
+    assert!(!output.join("manifest.json").exists(), "{idle}");
+
+    fs::write(&source, valid_source).unwrap();
+    let recovered = wait(ready, 8);
+    assert_eq!(recovered.matches(build_started).count(), 7, "{recovered}");
+    assert!(output.join("manifest.json").is_file(), "{recovered}");
 }
 
 #[cfg(unix)]

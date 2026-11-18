@@ -85,6 +85,19 @@ class RepositoryBoundary(unittest.TestCase):
         self.assertIn("include path", output)
         self.assertIn("targets local-only content", output)
 
+    def test_generated_rust_includes_resolve_in_the_generated_project(self) -> None:
+        self.write(
+            "src/lib.rs",
+            'const GENERATED: &str = r#"\n'
+            'const SVG: &str = include_str!("public/icon.svg");\n'
+            '"#;\n'
+            'const GUIDE: &str = include_str!("../docs/missing.md");\n',
+        )
+        status, output = self.check()
+        self.assertEqual(status, 1, output)
+        self.assertIn("src/lib.rs:4: include path '../docs/missing.md' is missing", output)
+        self.assertNotIn("public/icon.svg", output)
+
     def test_public_markdown_cannot_link_to_private_notes(self) -> None:
         self.write("docs/guide.md", "[Notes](../.local/knowledge-base/notes.md)\n")
         status, output = self.check()
