@@ -322,7 +322,7 @@ pub struct RouteContextLayer {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
-    public_asset_urls: Option<PublicAssetUrls>,
+    public_assets: Option<crate::PublicAssets>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -335,7 +335,7 @@ impl RouteContextLayer {
             computed_metadata,
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
-            public_asset_urls: None,
+            public_assets: None,
             head: None,
         }
     }
@@ -352,8 +352,12 @@ impl RouteContextLayer {
         self
     }
 
-    pub(crate) fn with_public_asset_urls(mut self, urls: Option<PublicAssetUrls>) -> Self {
-        self.public_asset_urls = urls;
+    /// Use this catalog and its base path when rendering through a custom router.
+    /// Merge [`PublicAssets::router`](crate::PublicAssets::router) to serve the URLs.
+    /// The layer also provides the catalog as an Axum request extension.
+    pub fn with_public_assets(mut self, assets: crate::PublicAssets) -> Self {
+        self.base_path = assets.base_path().clone();
+        self.public_assets = Some(assets);
         self
     }
 
@@ -373,7 +377,7 @@ impl<S> Layer<S> for RouteContextLayer {
             computed_metadata: self.computed_metadata.clone(),
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
-            public_asset_urls: self.public_asset_urls.clone(),
+            public_assets: self.public_assets.clone(),
             head: self.head.clone(),
         }
     }
@@ -385,7 +389,7 @@ pub struct RouteContextService<S> {
     computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
-    public_asset_urls: Option<PublicAssetUrls>,
+    public_assets: Option<crate::PublicAssets>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -422,7 +426,10 @@ where
         context.set_current_request_parts(current_method, current_headers, current_uri);
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
-        context.public_asset_urls = self.public_asset_urls.clone();
+        if let Some(assets) = &self.public_assets {
+            context.public_asset_urls = Some(assets.render_urls());
+            req.extensions_mut().insert(assets.clone());
+        }
 
         if prepare_ascii_params(&req, &mut context) {
             // Static and ordinary named paths keep the original ready-service

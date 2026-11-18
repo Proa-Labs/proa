@@ -236,6 +236,78 @@ async fn only_manifest_routes_are_public_and_names_are_encoded_once() {
 }
 
 #[tokio::test]
+async fn custom_router_and_buffered_render_share_catalog_urls_with_suffixes() {
+    use crate::{RouteContextLayer, RouteResponse};
+    use axum::Extension;
+    use proa_core::{WebContext, WebRenderSync, WriteError};
+    use proa_macros::html_sync;
+
+    struct Icon;
+
+    impl WebRenderSync for Icon {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            let fragment = cx.url("public/icons.svg#home");
+            let query_and_fragment = cx.url("public/icons.svg?v=2&theme=dark#home");
+            let home = cx.url("/products");
+            html_sync! {
+                <svg><use href={fragment}></use></svg>
+                <img src={query_and_fragment} alt="" />
+                <a href={home}>"Products"</a>
+            }
+            .render(cx)
+        }
+    }
+
+    let f = Fixture::new();
+    f.write("icons.svg", b"sprite");
+    let assets = f.load("/shop");
+    let url = assets.url("icons.svg").unwrap();
+    let buffered = RouteResponse::ssr(Icon)
+        .render_to_bytes_with_public_assets(&assets)
+        .unwrap();
+    let html = std::str::from_utf8(&buffered).unwrap();
+    assert!(html.contains(&format!(r#"href="{url}#home""#)), "{html}");
+    assert!(
+        html.contains(&format!(r#"src="{url}?v=2&amp;theme=dark#home""#)),
+        "{html}"
+    );
+    assert!(html.contains(r#"href="/shop/products""#), "{html}");
+
+    let key = assets.cache_key().to_owned();
+    let app = Router::new()
+        .route(
+            "/",
+            get(move |Extension(assets): Extension<PublicAssets>| {
+                let key = key.clone();
+                async move {
+                    assert_eq!(assets.cache_key(), key);
+                    RouteResponse::ssr(Icon)
+                }
+            }),
+        )
+        .merge(assets.router())
+        .layer(RouteContextLayer::new(Default::default()).with_public_assets(assets.clone()));
+    let page = app
+        .clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(to_bytes(page.into_body(), 1024).await.unwrap(), buffered);
+    let asset = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("{}?v=2", url.strip_prefix("/shop").unwrap()))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert_eq!(to_bytes(asset.into_body(), 1024).await.unwrap(), "sprite");
+}
+
+#[tokio::test]
 async fn stable_js_and_css_rewrite_once_and_validate_the_delivered_bytes() {
     let f = Fixture::new();
     // Parser fixtures, not application-authored browser behavior.

@@ -1116,6 +1116,9 @@ fn run_test_cycle(
         .as_ref()
         .map_or(&[][..], |test| test.before.as_slice());
     task::run_lifecycle_tasks(root, config, before, environment)?;
+    if public_assets::source(root, config, true)?.is_some() {
+        build_assets(root, config)?;
+    }
     for command in commands {
         run_linked_execute_with_environment(
             root,
@@ -1235,17 +1238,15 @@ fn run_linked_execute_with_environment(
     compile_environment.extend(rsjs_minify_environment(config.build.minify_rsjs));
     let mut prepared =
         prepare_linked_cargo_with_environment(root, command, action, &compile_environment)?;
-    let public_source = if action == LinkedCargoAction::Run {
-        public_assets::defer_execution(&mut prepared);
-        let source = public_assets::source(root, config, true)?;
-        if source.is_some() {
-            task::run_lifecycle_tasks(root, config, &config.build.before, &BTreeMap::new())?;
-            build_assets(root, config)?;
-        }
-        source
-    } else {
-        None
-    };
+    let public_source = public_assets::source(root, config, true)?;
+    let defer_execution = action == LinkedCargoAction::Run || public_source.is_some();
+    if defer_execution {
+        public_assets::defer_execution(&mut prepared, action);
+    }
+    if action == LinkedCargoAction::Run && public_source.is_some() {
+        task::run_lifecycle_tasks(root, config, &config.build.before, &BTreeMap::new())?;
+        build_assets(root, config)?;
+    }
     println!(
         "running linked RSJS Cargo {}: {}",
         action.command_name(),
@@ -1255,20 +1256,25 @@ fn run_linked_execute_with_environment(
         .with_context(|| format!("linked RSJS {} failed", action.command_name()))?;
     print_linked_cache_reuse(action, &output);
     print_linked_cargo_output(action, &prepared.request, &output);
-    if action == LinkedCargoAction::Run {
+    if defer_execution {
         let executable = select_final_root_executable(&prepared.request, &output, action)?;
         let public_output =
             public_assets::publish(public_source.as_deref(), &prepared.public_output_directory)?;
         let mut command = Command::new(executable);
+        let execution_root = if action == LinkedCargoAction::Test {
+            &prepared.package_source_root
+        } else {
+            root
+        };
         command
-            .current_dir(root)
+            .current_dir(execution_root)
             .args(&prepared.runtime_args)
             .envs(environment);
         public_assets::runtime_environment(&mut command, public_output.as_deref());
         let status = command
             .status()
-            .context("start final linked server with public assets")?;
-        exit_status_to_result(status, "linked server")?;
+            .with_context(|| format!("start final linked {}", action.command_name()))?;
+        exit_status_to_result(status, action.command_name())?;
     }
     Ok(())
 }
@@ -2135,8 +2141,8 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     // The wrapper adds one explicit object output even when Cargo selected
     // `check`, so linked checks can keep descriptor and final rustc unit
     // coordinates identical. Tests require their exact `cfg(test)`/harness
-    // compilation, so both phases use `cargo test`; only the descriptor phase
-    // adds `--no-run`.
+    // compilation, so both phases use `cargo test`. The descriptor harness
+    // never runs. Managed tests launch the final harness after publication.
     descriptor_cargo_args[0] = OsString::from(action.descriptor_subcommand());
     if action == LinkedCargoAction::Test {
         descriptor_cargo_args.push("--no-run".into());

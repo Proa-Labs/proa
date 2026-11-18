@@ -151,6 +151,52 @@ fn collision_reservations_survive_object_cleanup() {
 }
 
 #[test]
+fn history_keeps_only_public_fingerprint_reservations() {
+    let f = Fixture::new();
+    f.write("icon.svg", b"old image");
+    f.write("style.css", b"old css");
+    f.write("main.mjs", b"old js");
+    let first = f.publish().manifest;
+    let mut writer = OutputStore::open(&f.output).unwrap();
+    let mut legacy = writer.history().unwrap();
+    for logical in ["style.css", "main.mjs"] {
+        let asset = &first.assets[logical];
+        legacy
+            .assignments
+            .insert(asset.object.clone(), asset.sha256.clone());
+    }
+    fs::write(
+        f.output.join(HISTORY_FILE),
+        serde_json::to_vec(&legacy).unwrap(),
+    )
+    .unwrap();
+
+    f.write("icon.svg", b"new image");
+    f.write("style.css", b"new css");
+    f.write("main.mjs", b"new js");
+    let second = writer.publish(&f.source).unwrap().manifest;
+    assert_eq!(
+        writer.history().unwrap().assignments,
+        [&first, &second]
+            .into_iter()
+            .map(|manifest| {
+                let icon = &manifest.assets["icon.svg"];
+                (icon.public_path.clone(), icon.sha256.clone())
+            })
+            .collect()
+    );
+    for logical in ["style.css", "main.mjs"] {
+        assert_eq!(second.assets[logical].public_path, logical);
+        assert_ne!(first.assets[logical].object, second.assets[logical].object);
+        assert!(!f
+            .output
+            .join("objects")
+            .join(&first.assets[logical].object)
+            .exists());
+    }
+}
+
+#[test]
 fn warm_publish_repairs_deleted_output_and_removes_deleted_inputs() {
     let f = Fixture::new();
     f.write("one.png", b"1");

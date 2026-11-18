@@ -103,6 +103,61 @@ fn main_manifest(stdout: &str) -> AssetManifest {
     serde_json::from_str(json).unwrap()
 }
 
+#[test]
+fn tests_execute_after_publication_with_runtime_only_assets_and_harness_args() {
+    let temp = fixture();
+    let root = temp.path();
+    fs::create_dir(root.join("tests")).unwrap();
+    fs::write(
+        root.join("build.rs"),
+        r#"
+fn main() {
+    assert!(std::env::var_os("PROA_PUBLIC_ASSETS").is_none());
+    std::fs::write("public/generated.svg", b"build output").unwrap();
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/page.rs"),
+        r#"
+#[test]
+fn managed_page() {
+    assert!(option_env!("PROA_PUBLIC_ASSETS").is_none());
+    let output = std::path::PathBuf::from(std::env::var_os("PROA_PUBLIC_ASSETS").unwrap());
+    let manifest = std::fs::read_to_string(output.join("manifest.json")).unwrap();
+    assert!(manifest.contains("generated.svg"), "{manifest}");
+}
+
+#[test]
+fn filtered_out() {
+    panic!("the CLI must forward the harness filter");
+}
+"#,
+    )
+    .unwrap();
+    let output = cli(
+        root,
+        &[
+            "test",
+            "--test",
+            "page",
+            "--offline",
+            "--",
+            "--exact",
+            "managed_page",
+        ],
+    );
+    let stdout = success(&output);
+    assert!(stdout.contains("test managed_page ... ok"), "{stdout}");
+    let published = published(&stdout);
+    let catalog = AssetCatalog::load(published).unwrap();
+    assert_eq!(
+        fs::read(catalog.object_path("generated.svg").unwrap()).unwrap(),
+        b"build output"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn watcher_recovers_output_and_rechecks_only_config_compile_inputs_on_asset_edits() {

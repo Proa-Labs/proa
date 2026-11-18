@@ -58,17 +58,17 @@ Use a computed `String` directly for an owned string field. Use `.into()`
 when assigning a string literal to a `String` or `PathBuf` field.
 
 For settings read from a file, use `proa_config::tokio` and propagate I/O
-errors with `?`. Add files that should trigger a dev reload to `dev.watch`.
+errors with `?`. Add extra watch paths in the dev script.
 
 ```rust
-use proa_config::{Config, DevConfig, ProjectPaths, Result, tokio, ScriptsConfig};
+use proa_config::{Config, ProjectPaths, Result, tokio, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     let public = tokio::fs::read_to_string("public-dir.txt").await?;
 
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "cargo run",
+            dev: "bash scripts/dev.sh",
             build: "cargo build --release",
             ..Default::default()
         },
@@ -76,14 +76,12 @@ pub async fn config() -> Result<Config> {
             public: Some(public.trim().into()),
             ..Default::default()
         },
-        dev: DevConfig {
-            watch: vec!["src".into(), "public-dir.txt".into()],
-            ..Default::default()
-        },
         ..Config::default()
     })
 }
 ```
+
+In `scripts/dev.sh`, pass `--watch public-dir.txt` to the linked watcher.
 
 ## How Proa builds the config
 

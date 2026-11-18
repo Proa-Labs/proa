@@ -92,14 +92,14 @@ pub(super) fn runtime_environment(command: &mut Command, output: Option<&Path>) 
     }
 }
 
-pub(super) fn defer_execution(prepared: &mut PreparedLinkedCargo) {
-    prepared.request.final_cargo_args[0] = "build".into();
-    if let Some(separator) = prepared
-        .request
-        .final_cargo_args
-        .iter()
-        .position(|arg| arg == "--")
-    {
-        prepared.request.final_cargo_args.truncate(separator);
+pub(super) fn defer_execution(prepared: &mut PreparedLinkedCargo, action: LinkedCargoAction) {
+    let args = &mut prepared.request.final_cargo_args;
+    if let Some(separator) = args.iter().position(|arg| arg == "--") {
+        args.truncate(separator);
+    }
+    match action {
+        LinkedCargoAction::Run => args[0] = "build".into(),
+        LinkedCargoAction::Test => args.push("--no-run".into()),
+        _ => unreachable!("only run and test execute in the final Cargo pass"),
     }
 }

@@ -110,6 +110,11 @@ impl OutputStore {
         )?;
         let mut manifest = AssetManifest::default();
         let mut history = self.history()?;
+        // Older builds reserved private object names too. An object whose
+        // extension requires revalidation could never be an immutable URL.
+        history
+            .assignments
+            .retain(|path, _| cache_policy(path) == CachePolicy::Immutable);
         let mut staged = Vec::new();
         for (index, logical) in files.iter().enumerate() {
             let input = confined_file(&source, logical)?;
@@ -125,7 +130,6 @@ impl OutputStore {
             }
             let (digest, byte_length) = hash_file(&snapshot)?;
             let object = fingerprinted_path(logical, &digest);
-            reserve(&mut history, &object, &digest)?;
             // A new logical alias cannot take over an earlier immutable URL.
             if let Some(previous) = history.assignments.get(logical) {
                 if previous != &digest {
@@ -134,7 +138,10 @@ impl OutputStore {
             }
             let cache_policy = cache_policy(logical);
             let public_path = match cache_policy {
-                CachePolicy::Immutable => object.clone(),
+                CachePolicy::Immutable => {
+                    reserve(&mut history, &object, &digest)?;
+                    object.clone()
+                }
                 CachePolicy::Revalidate => logical.clone(),
             };
             manifest.assets.insert(

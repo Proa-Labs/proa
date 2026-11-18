@@ -568,15 +568,14 @@ impl FrameworkBuilder {
             app = app.merge(dynamic_router);
         }
 
-        let public_asset_urls = public_assets.as_ref().map(PublicAssets::render_urls);
-        if let Some(assets) = public_assets {
-            app = app.merge(assets.router()).layer(axum::Extension(assets));
-        }
-
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
-        let layer = RouteContextLayer::new(computed_metadata)
+        let mut layer = RouteContextLayer::new(computed_metadata);
+        if let Some(assets) = public_assets {
+            app = app.merge(assets.router());
+            layer = layer.with_public_assets(assets);
+        }
+        let layer = layer
             .with_base_path(base_path)
-            .with_public_asset_urls(public_asset_urls)
             .with_local_stream_executor_config(local_stream_executor);
         let layer = if let Some(head) = head {
             layer.with_head(head)

@@ -43,8 +43,8 @@ Its `src/main.rs` imports `proa.config.rs` using `#[path = "..."]`, exports
 the `proa_config` types, and awaits `config()` on Tokio. The CLI uses the
 result before starting the application build. Author-side Rust can use the
 standard library, `proa_config::tokio`, and local modules declared with
-`#[path = "..."]`. List additional config inputs in `dev.watch` to reload
-the config when they change. The first build uses Cargo's registry cache
+`#[path = "..."]`. Add `--watch PATH` to the linked dev command in the wrapper
+to reload the config when an additional input changes. The first build uses Cargo's registry cache
 or fetches the runner's pinned dependencies.
 
 The linked watcher evaluates `config().await` after each batch of edits.
@@ -169,7 +169,7 @@ target/proa-output/<application-target>/<selection-sha256>/
   staging/attempt-*/           incomplete work, never served
   objects/images/logo.<hash8>.svg
   manifest.json                active logical-path catalog
-  fingerprints.json            durable URL-to-full-digest reservations
+  fingerprints.json            durable immutable URL-to-full-digest reservations
 ```
 
 The selection includes package, Cargo target kind/name, profile, explicit
@@ -194,6 +194,8 @@ work; this catalog does not claim to eliminate their costs.
 
 `proa run` and `proa dev` set `PROA_PUBLIC_ASSETS` on the server process after
 publication. `FrameworkBuilder` loads and mounts that catalog at startup.
+`proa test` also publishes the configured public directory and sets
+`PROA_PUBLIC_ASSETS` when launching the selected test executable.
 With the configuration above, place the source image at
 `public/images/logo.svg` and use that same path in the template.
 
@@ -231,6 +233,9 @@ fn app() -> Result<Router, FrameworkBuildError> {
 prefix selects the catalog even if `paths.public` names a different directory.
 Nested and streamed components inherit the catalog from the request. Lookup
 shares the URL prepared at startup and a missing asset returns a render error.
+Query strings and fragments are preserved. For example,
+`cx.url("public/icons.svg?v=2#home")` resolves `icons.svg` and appends
+`?v=2#home` to its fingerprinted URL.
 For an owned URL outside a template, use `cx.url(path).try_to_string()?`.
 RSJS query and mutation request URLs run in the browser, which has no
 catalog, so `cx.url("public/…")` there is a compile error. Resolve the URL
@@ -239,6 +244,10 @@ Literal attributes are emitted as written. Ordinary links such as
 `cx.url("/products")` continue to use the app's base path.
 
 The built-in page cache includes the catalog and base path in its cache key.
+For a custom Axum router, merge `assets.router()` and apply
+`RouteContextLayer::with_public_assets(assets)` to the combined router. For a
+buffered render, pass the loaded catalog to
+`RouteResponse::render_to_bytes_with_public_assets(&assets)`.
 For custom HTML caches, include `PublicAssets::cache_key()` or discard cached
 HTML on catalog replacement.
 
@@ -257,6 +266,9 @@ and media type. Preferred opaque-file URLs use the first eight hex characters,
 matching generated fonts' filename convention. Already fingerprinted names
 whose suffix matches their bytes are retained. A different full digest claiming
 the same URL fails publication, including after the earlier object was pruned.
+The reservation history records published immutable URLs. Editing JS or CSS
+updates the stable URL's validator without adding a reservation for its
+private storage object.
 Generated fonts keep their existing names and bytes; the catalog does not run
 font generation again. When fonts are inside the configured public directory,
 they are included in the deployable copy and their copied bytes are verified.

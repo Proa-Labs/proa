@@ -47,6 +47,7 @@ pub struct PublicAssets(Arc<PreparedCatalog>);
 
 struct PreparedCatalog {
     _catalog: AssetCatalog,
+    base_path: BasePath,
     urls: PublicAssetUrls,
     routes: BTreeMap<String, PreparedFile>,
     cache_key: String,
@@ -162,6 +163,7 @@ impl PublicAssets {
         );
         Ok(Self(Arc::new(PreparedCatalog {
             _catalog: catalog,
+            base_path: base_path.clone(),
             urls: PublicAssetUrls::new(urls),
             routes,
             cache_key,
@@ -175,6 +177,10 @@ impl PublicAssets {
     /// Share the prepared URL table with a manually constructed render context.
     pub fn render_urls(&self) -> PublicAssetUrls {
         self.0.urls.clone()
+    }
+
+    pub(crate) fn base_path(&self) -> &BasePath {
+        &self.0.base_path
     }
 
     /// Include this in application caches that hold HTML containing asset URLs.

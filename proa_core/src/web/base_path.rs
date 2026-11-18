@@ -95,10 +95,26 @@ impl PublicAssetUrls {
     }
 
     pub(super) fn resolve<'a>(urls: Option<&Self>, logical: &'a str) -> AppUrl<'a> {
-        match urls.and_then(|urls| urls.0.get(logical)) {
-            Some(url) => AppUrl(UrlKind::Public(url.clone())),
-            None => AppUrl(UrlKind::MissingPublic(logical)),
+        if let Some(urls) = urls {
+            // Literal filenames can contain URL delimiters. A catalog entry
+            // for the exact spelling takes precedence and is already encoded.
+            if let Some(url) = urls.0.get(logical) {
+                return AppUrl(UrlKind::Public {
+                    url: url.clone(),
+                    suffix: "",
+                });
+            }
+            if let Some(split) = logical.find(['?', '#']) {
+                let (path, suffix) = logical.split_at(split);
+                if let Some(url) = urls.0.get(path) {
+                    return AppUrl(UrlKind::Public {
+                        url: url.clone(),
+                        suffix,
+                    });
+                }
+            }
         }
+        AppUrl(UrlKind::MissingPublic(logical))
     }
 }
 
@@ -114,7 +130,7 @@ pub struct AppUrl<'a>(UrlKind<'a>);
 #[derive(Clone, Debug)]
 enum UrlKind<'a> {
     Path(BasePath, &'a str),
-    Public(Arc<str>),
+    Public { url: Arc<str>, suffix: &'a str },
     MissingPublic(&'a str),
 }
 
@@ -129,7 +145,7 @@ impl AppUrl<'_> {
                 };
                 Ok((prefix, path))
             }
-            UrlKind::Public(url) => Ok(("", url)),
+            UrlKind::Public { url, suffix } => Ok((url, suffix)),
             UrlKind::MissingPublic(path) => Err(path),
         }
     }
@@ -166,7 +182,7 @@ impl AttrValue for AppUrl<'_> {
     fn url_str(&self) -> Option<&str> {
         match &self.0 {
             UrlKind::Path(_, path) => Some(path),
-            UrlKind::Public(url) => Some(url),
+            UrlKind::Public { url, .. } => Some(url),
             UrlKind::MissingPublic(_) => None,
         }
     }
