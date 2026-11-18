@@ -201,6 +201,7 @@ fn main() {
     };
     let cargo_calls = || fs::read_to_string(&cargo_trace).unwrap().lines().count();
     let ready = "Proa dev ready:";
+    let build_started = "running linked RSJS Cargo dev build";
     let first = wait(ready, 1);
     let output = published(&first);
     let builds = cargo_calls();
@@ -211,11 +212,7 @@ fn main() {
     fs::rename(&output, artifacts.path().join("moved-catalog")).unwrap();
     let recreated = wait(ready, 3);
     for text in [&repaired, &recreated] {
-        assert_eq!(
-            text.matches("running linked RSJS Cargo dev build").count(),
-            1,
-            "{text}"
-        );
+        assert_eq!(text.matches(build_started).count(), 1, "{text}");
     }
     assert_eq!(fs::read(output.join("manifest.json")).unwrap(), original);
     assert_eq!(cargo_calls(), builds);
@@ -248,12 +245,7 @@ fn main() {
     let rebuilt = wait(ready, 7);
     assert!(output.join("manifest.json").is_file());
     assert_eq!(rebuilt.matches("scripts.dev changed to").count(), 1);
-    assert_eq!(
-        rebuilt
-            .matches("running linked RSJS Cargo dev build")
-            .count(),
-        5
-    );
+    assert_eq!(rebuilt.matches(build_started).count(), 5, "{rebuilt}");
 
     let source = root.join("src/main.rs");
     let valid_source = fs::read(&source).unwrap();
@@ -262,18 +254,17 @@ fn main() {
         b"compile_error!(\"broken while output is missing\");",
     )
     .unwrap();
-    fs::remove_file(output.join("manifest.json")).unwrap();
     let failed = "linked dev rebuild failed";
     let broken = wait(failed, 1);
     assert!(
         broken.contains("broken while output is missing"),
         "{broken}"
     );
+    fs::remove_file(output.join("manifest.json")).unwrap();
 
     // Watch past the missing-catalog retry interval while the files are idle.
     std::thread::sleep(Duration::from_secs(3));
     let idle = fs::read_to_string(&log).unwrap();
-    let build_started = "running linked RSJS Cargo dev build";
     assert_eq!(idle.matches(build_started).count(), 6, "{idle}");
     assert_eq!(idle.matches(failed).count(), 1, "{idle}");
     assert!(!output.join("manifest.json").exists(), "{idle}");
