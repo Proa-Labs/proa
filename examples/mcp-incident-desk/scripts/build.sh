@@ -32,4 +32,4 @@ for arg in "$@"; do
       ;;
   esac
 done
-exec "${proa_cli[@]}" build --linked --root "$ROOT" ${target_args[@]+"${target_args[@]}"} "$@"
+exec "${proa_cli[@]}" run build --root "$ROOT" ${target_args[@]+"${target_args[@]}"} "$@"

@@ -88,8 +88,8 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(effective.status.success(), "{}", stderr(&effective));
     let config: serde_json::Value = serde_json::from_str(&stdout(&effective)).unwrap();
     assert_eq!(config["application"]["binary"], "demo");
-    assert_eq!(config["scripts"]["dev"], "cargo run");
-    assert_eq!(config["scripts"]["build"], "cargo build --release");
+    assert_eq!(config["scripts"]["dev"], "proa run dev");
+    assert_eq!(config["scripts"]["build"], "proa run build");
     assert_eq!(config["database"]["driver"], "sqlite");
     assert_eq!(config["build"]["assets"][0]["kind"], "tailwind");
     assert_eq!(
@@ -354,7 +354,7 @@ fn config_validate_json_is_machine_readable() {
 }
 
 #[test]
-fn authored_config_requires_explicit_lifecycle_commands() {
+fn authored_config_defaults_to_builtin_workflows_and_rejects_empty_overrides() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
     fs::write(
@@ -369,6 +369,30 @@ pub async fn config() -> Result<Config> {
     )
     .unwrap();
 
+    let show = proa(&["config", "show", "--json"], temp.path());
+    assert!(show.status.success(), "{}", stderr(&show));
+    let config: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
+    assert_eq!(config["scripts"]["dev"], "proa run dev");
+    assert_eq!(config["scripts"]["build"], "proa run build");
+
+    fs::write(
+        temp.path().join("proa.config.rs"),
+        r#"
+use proa::config::{Config, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "",
+            build: "",
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
     let validation = proa(&["config", "validate", "--json"], temp.path());
     assert!(!validation.status.success());
     let report: serde_json::Value = serde_json::from_slice(&validation.stdout).unwrap();

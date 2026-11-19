@@ -107,4 +107,4 @@ export CARGO_TARGET_DIR="${PROA_DEV_CARGO_TARGET_DIR:-${CARGO_TARGET_DIR:-$ROOT/
 # `${dev_args[@]+...}` expands an empty array safely under `set -u`, which
 # bash 3.2 (still the system bash on macOS) otherwise treats as unbound.
 proa_watch_lock_acquire "dev" "$ROOT"
-proa_watch_run "${proa_cli[@]}" dev --linked --root "$ROOT" ${dev_args[@]+"${dev_args[@]}"} "$@" ${cargo_args[@]+"${cargo_args[@]}"}
+proa_watch_run "${proa_cli[@]}" run dev --root "$ROOT" ${dev_args[@]+"${dev_args[@]}"} "$@" ${cargo_args[@]+"${cargo_args[@]}"}

@@ -58,7 +58,8 @@ The default application includes:
 
 The generated `proa.config.rs` sits next to `Cargo.toml` and exports
 `pub async fn config() -> proa::config::Result<proa::config::Config>`.
-It declares both lifecycle commands under `scripts`.
+It shows the default lifecycle commands, `proa run dev` and `proa run build`.
+Use `scripts.dev` or `scripts.build` to select a project script instead.
 The CLI generates a host runner under Cargo's target directory. Its main
 module imports the config by path and awaits it before the app build.
 

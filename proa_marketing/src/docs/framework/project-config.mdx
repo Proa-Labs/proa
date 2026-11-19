@@ -9,8 +9,8 @@ Place `proa.config.rs` next to the project's `Cargo.toml` and export
 operations such as file reads via `?`. Your application owns its routes,
 base path, listeners, and runtime settings.
 
-Wrap a `Config` struct literal in `Ok`. Set `scripts.dev` and
-`scripts.build` explicitly and use `..Config::default()` for other settings.
+Use `Config::default()` or wrap a `Config` struct literal in `Ok` to override
+only the settings you need. These are the default lifecycle commands.
 
 ```rust
 use proa::config::{Config, Result, ScriptsConfig};
@@ -18,8 +18,8 @@ use proa::config::{Config, Result, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "cargo run",
-            build: "cargo build --release",
+            dev: "proa run dev",
+            build: "proa run build",
             ..Default::default()
         },
         ..Config::default()
@@ -56,7 +56,6 @@ pub async fn config() -> Result<Config<&'static str, String>> {
     Ok(Config {
         scripts: ScriptsConfig {
             dev: "bash scripts/dev.sh",
-            build: "cargo build --release",
             ..Default::default()
         },
         paths: ProjectPaths {
@@ -137,15 +136,16 @@ pub async fn config() -> Result<Config> {
 }
 ```
 
-The wrappers can prepare their environment and enter Proa's built-in watcher
-or build using `--linked`. Proa runs each script from the project directory
-and forwards flags such as `--offline` or `--profile`.
+The wrappers can prepare their environment and enter the built-in workflows
+with `proa run dev` or `proa run build`. These commands go straight to the
+built-in workflow. Proa runs each script from the project directory and
+forwards flags such as `--offline` or `--profile`.
 
 A dev wrapper can set the listener arguments and add watch paths when it
 enters the linked watcher.
 
 ```bash
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev --linked \
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run dev \
     --port "${PORT:-5570}" --watch content "$@"
 ```
 
@@ -163,17 +163,16 @@ Changing `scripts.dev` from one shell wrapper to another prints a restart
 notice. Run `proa dev` again to enter the new wrapper.
 
 ```bash filename="scripts/dev.sh"
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev --linked "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run dev "$@"
 ```
 
 ```bash filename="scripts/build.sh"
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" build --linked "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run build "$@"
 ```
 
-`cargo run` and `cargo build --release` are shorthand for the linked
-operations. The scaffolds spell out these commands. They are also the
-commands used when a project has no config file. Proa honors quoted
-arguments in the command string. For computed commands, return
+The scaffolds spell out the defaults. A project without a config file also
+uses the defaults. Proa honors quoted arguments in command strings. For
+computed commands, return
 `Result<Config<String, &'static str>>` to own text and keep path literals.
 
 Define reusable commands in `scripts.named`. List their names in
@@ -187,8 +186,6 @@ use proa::config::{Config, Result, ScriptConfig, ScriptHooks, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "cargo run",
-            build: "cargo build --release",
             named: BTreeMap::from([(
                 "generate-assets",
                 ScriptConfig {
@@ -227,15 +224,10 @@ Linked Proa builds enable RSJS minification by default. Set
 `build.minify_rsjs` to `false` for readable JavaScript while debugging.
 
 ```rust
-use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, Result};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
-        scripts: ScriptsConfig {
-            dev: "cargo run",
-            build: "cargo build --release",
-            ..Default::default()
-        },
         build: BuildConfig {
             minify_rsjs: false,
             ..Default::default()

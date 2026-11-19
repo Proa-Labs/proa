@@ -15,8 +15,8 @@ mod model;
 mod rust;
 pub(crate) use rust::DevConfigRunner;
 
-pub(crate) use model::DEFAULT_PUBLIC_DIRECTORY;
 pub use model::{Config, DatabaseDriver, CONFIG_FILE};
+pub(crate) use model::{DEFAULT_BUILD_COMMAND, DEFAULT_DEV_COMMAND, DEFAULT_PUBLIC_DIRECTORY};
 pub type ProjectConfig = Config<String, PathBuf>;
 
 macro_rules! owned_config_sections {
@@ -41,8 +41,6 @@ owned_config_sections! {
 
 pub const LOCK_FILE: &str = "proa.lock.json";
 pub const LOCK_SCHEMA_URL: &str = "https://proa.so/schema/proa.lock.json";
-pub(crate) const DEFAULT_DEV_COMMAND: &str = "cargo run";
-pub(crate) const DEFAULT_BUILD_COMMAND: &str = "cargo build --release";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
@@ -195,14 +193,7 @@ fn lifecycle_commands(config: &ProjectConfig) -> [(&'static str, &str); 2] {
 }
 
 pub(crate) fn inferred_project_config() -> ProjectConfig {
-    ProjectConfig {
-        scripts: ScriptsConfig {
-            dev: DEFAULT_DEV_COMMAND.to_owned(),
-            build: DEFAULT_BUILD_COMMAND.to_owned(),
-            ..Default::default()
-        },
-        ..ProjectConfig::default()
-    }
+    ProjectConfig::default()
 }
 
 pub(crate) fn project_config_path(root: &Path) -> Option<PathBuf> {
@@ -383,18 +374,17 @@ pub fn load_component_lock(root: &Path) -> Result<ComponentLockFile> {
 }
 
 pub fn generated_project_config(tailwind: bool) -> Result<String> {
-    let assets = if tailwind {
-        r#"vec![proa::config::AssetConfig {
-                kind: "tailwind",
-                input: "styles/input.css",
-                output: "public/styles.css",
-                ..Default::default()
-            }]"#
+    let build = if tailwind {
+        ""
     } else {
-        "vec![]"
+        r#"        build: proa::config::BuildConfig {
+            assets: Some(vec![]),
+            ..Default::default()
+        },
+"#
     };
     Ok(format!(
-        r#"use proa::config::{{BuildConfig, Config, Result, ScriptsConfig}};
+        r#"use proa::config::{{Config, Result, ScriptsConfig}};
 
 pub async fn config() -> Result<Config> {{
     Ok(Config {{
@@ -403,11 +393,7 @@ pub async fn config() -> Result<Config> {{
             build: {DEFAULT_BUILD_COMMAND:?},
             ..Default::default()
         }},
-        build: BuildConfig {{
-            assets: Some({assets}),
-            ..Default::default()
-        }},
-        ..Config::default()
+{build}        ..Config::default()
     }})
 }}
 "#
@@ -427,7 +413,7 @@ pub fn init_project_files(root: &Path, force: bool) -> Result<ConfigInitReport> 
     let mut wrote_lock = false;
 
     if force || !config_path.exists() {
-        fs::write(&config_path, generated_project_config(false)?)
+        fs::write(&config_path, generated_project_config(true)?)
             .with_context(|| format!("write {}", config_path.display()))?;
         wrote_config = true;
     }
@@ -636,9 +622,8 @@ pub async fn config() -> std::io::Result<Config<&'static str, String>> {
         for tailwind in [false, true] {
             let source = generated_project_config(tailwind).unwrap();
             assert!(syn::parse_file(&source).is_ok());
-            assert!(source.contains("dev: \"cargo run\""));
-            assert!(source.contains("build: \"cargo build --release\""));
-            assert_eq!(source.contains("styles/input.css"), tailwind);
+            assert!(source.contains("dev: \"proa run dev\""));
+            assert!(source.contains("build: \"proa run build\""));
             assert_eq!(source.contains("assets: Some(vec![])"), !tailwind);
         }
     }

@@ -64,7 +64,7 @@ pub(crate) struct DevArgs {
     command: Vec<String>,
 }
 
-pub(crate) fn run(args: DevArgs, arguments: &[OsString]) -> Result<()> {
+pub(crate) fn run(args: DevArgs, arguments: Option<&[OsString]>) -> Result<()> {
     let options = lifecycle::DevOptions {
         root: args.root,
         host: args.host,
@@ -81,9 +81,5 @@ pub(crate) fn run(args: DevArgs, arguments: &[OsString]) -> Result<()> {
         debounce_ms: args.debounce_ms,
         command: args.command,
     };
-    if args.linked {
-        lifecycle::dev(options)
-    } else {
-        lifecycle::dev_from_cli(options, Some(arguments))
-    }
+    lifecycle::dev_from_cli(options, arguments.filter(|_| !args.linked))
 }

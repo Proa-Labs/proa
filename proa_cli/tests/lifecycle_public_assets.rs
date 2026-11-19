@@ -529,9 +529,7 @@ fn configured_scripts_own_the_entrypoint_and_can_delegate_to_the_linked_pipeline
     for phase in ["dev", "build"] {
         fs::write(
             root.join(format!("scripts/{phase}.sh")),
-            format!(
-                "echo SCRIPT:{phase}\nexec \"$PROA_SCRIPT_EXECUTABLE\" {phase} --linked \"$@\"\n"
-            ),
+            format!("echo SCRIPT:{phase}\nexec \"$PROA_SCRIPT_EXECUTABLE\" run {phase} \"$@\"\n"),
         )
         .unwrap();
     }
@@ -583,7 +581,7 @@ fn configured_scripts_own_the_entrypoint_and_can_delegate_to_the_linked_pipeline
             .count(),
         1
     );
-    assert!(String::from_utf8_lossy(&recursive.stderr).contains("use `proa dev --linked`"));
+    assert!(String::from_utf8_lossy(&recursive.stderr).contains("use `proa run dev`"));
 }
 
 #[test]

@@ -60,7 +60,7 @@ pub(crate) enum Command {
     Build(build::BuildArgs),
     /// Create, migrate, inspect, reset, or remove the configured database.
     Db(db::DbArgs),
-    /// Compile and run one exact Proa binary through the linked RSJS pipeline.
+    /// Run a built-in workflow or compile and run one exact Proa binary.
     Run(run::RunArgs),
     /// Start an already-built release without compiling or watching.
     Start(start::StartArgs),
@@ -101,9 +101,9 @@ pub(crate) fn dispatch(command: Command, arguments: &[OsString]) -> Result<()> {
         Command::Config(args) => config::run(args),
         Command::Add(args) => add::run(args),
         Command::New(args) => new::run(args),
-        Command::Dev(args) => dev::run(args, arguments),
+        Command::Dev(args) => dev::run(args, Some(arguments)),
         Command::Deploy(args) => deploy::run(args),
-        Command::Build(args) => build::run(args, arguments),
+        Command::Build(args) => build::run(args, Some(arguments)),
         Command::Db(args) => db::run(args),
         Command::Run(args) => run::run(args),
         Command::Start(args) => start::run(args),

@@ -1,17 +1,19 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! `proa run`: compile and run one exact Proa binary through the linked RSJS
-//! pipeline.
+//! `proa run`: enter a built-in workflow or run one exact linked binary.
 
 use anyhow::Result;
-use clap::Args;
+use clap::{Args, Subcommand};
 
-use super::linked::LinkedExecuteArgs;
+use super::{build, dev, linked::LinkedExecuteArgs};
 use crate::lifecycle;
 
 #[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true)]
 pub(crate) struct RunArgs {
+    #[command(subcommand)]
+    workflow: Option<Workflow>,
     #[command(flatten)]
     cargo: LinkedExecuteArgs,
     /// Arguments forwarded unchanged to the selected binary after Cargo's `--`.
@@ -19,7 +21,20 @@ pub(crate) struct RunArgs {
     arguments: Vec<String>,
 }
 
+#[derive(Debug, Subcommand)]
+enum Workflow {
+    /// Start the built-in dev watcher.
+    Dev(dev::DevArgs),
+    /// Run the built-in production build.
+    Build(build::BuildArgs),
+}
+
 pub(crate) fn run(args: RunArgs) -> Result<()> {
+    match args.workflow {
+        Some(Workflow::Dev(args)) => return dev::run(args, None),
+        Some(Workflow::Build(args)) => return build::run(args, None),
+        None => {}
+    }
     lifecycle::run(lifecycle::RunOptions {
         root: args.cargo.root,
         profile: args.cargo.profile,

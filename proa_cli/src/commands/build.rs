@@ -67,7 +67,7 @@ pub(crate) struct BuildArgs {
     command: Vec<String>,
 }
 
-pub(crate) fn run(args: BuildArgs, arguments: &[OsString]) -> Result<()> {
+pub(crate) fn run(args: BuildArgs, arguments: Option<&[OsString]>) -> Result<()> {
     let options = lifecycle::BuildOptions {
         root: args.root,
         profile: args.profile,
@@ -85,11 +85,7 @@ pub(crate) fn run(args: BuildArgs, arguments: &[OsString]) -> Result<()> {
         artifact_out: args.artifact_out,
         command: args.command,
     };
-    if args.linked {
-        lifecycle::build(options)
-    } else {
-        lifecycle::build_from_cli(options, Some(arguments))
-    }
+    lifecycle::build_from_cli(options, arguments.filter(|_| !args.linked))
 }
 
 #[cfg(test)]

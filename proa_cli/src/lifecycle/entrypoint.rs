@@ -6,10 +6,10 @@ use std::{env, ffi::OsString, path::Path, process::Command};
 use anyhow::{ensure, Context, Result};
 
 use super::{is_cargo_program, LinkedCargoAction};
-use crate::config::{parse_script_command, DEFAULT_BUILD_COMMAND, DEFAULT_DEV_COMMAND};
+use crate::config::parse_script_command;
 
-/// Launch project scripts from the project root. The Cargo shorthand enters
-/// the linked pipeline in the calling process.
+/// Launch project scripts from the project root. Built-in commands and older
+/// Cargo shorthands enter the linked pipeline in the calling process.
 pub(super) fn run_script(
     root: &Path,
     action: LinkedCargoAction,
@@ -19,14 +19,14 @@ pub(super) fn run_script(
     let phase = action.command_name();
     let field = format!("scripts.{phase}");
     let argv = parse_script_command(&field, source)?;
-    if is_linked_command(&argv, action) {
+    if is_builtin_command(&argv, action) || is_cargo_command(&argv, action) {
         return Ok(false);
     }
 
     let active = format!("PROA_{}_SCRIPT_ACTIVE", phase.to_ascii_uppercase());
     ensure!(
         env::var_os(&active).is_none(),
-        "{field} called `proa {phase}` again; use `proa {phase} --linked` inside the script"
+        "{field} called `proa {phase}` again; use `proa run {phase}` inside the script"
     );
 
     let mut command = Command::new(&argv[0]);
@@ -66,18 +66,22 @@ pub(super) fn run_script(
 pub(super) fn linked_command(action: LinkedCargoAction, source: &str) -> Result<Vec<String>> {
     let field = format!("scripts.{}", action.command_name());
     let argv = parse_script_command(&field, source)?;
-    if is_linked_command(&argv, action) {
+    if is_cargo_command(&argv, action) {
         return Ok(argv);
     }
     let default = match action {
-        LinkedCargoAction::Dev => DEFAULT_DEV_COMMAND,
-        LinkedCargoAction::Build => DEFAULT_BUILD_COMMAND,
+        LinkedCargoAction::Dev => "cargo run",
+        LinkedCargoAction::Build => "cargo build --release",
         _ => unreachable!("entrypoint only supports dev and build"),
     };
     parse_script_command(&field, default)
 }
 
-fn is_linked_command(command: &[String], action: LinkedCargoAction) -> bool {
+fn is_builtin_command(command: &[String], action: LinkedCargoAction) -> bool {
+    command == ["proa", "run", action.command_name()]
+}
+
+fn is_cargo_command(command: &[String], action: LinkedCargoAction) -> bool {
     is_cargo_program(&command[0]) && command.get(1).map(String::as_str) == Some(action.subcommand())
 }
 
@@ -102,7 +106,9 @@ impl WatchedDevScript {
     pub(super) fn apply(&mut self, configured: &mut String) -> Result<()> {
         let next = parse_script_command("scripts.dev", configured)?;
         if next == parse_script_command("scripts.dev", &self.active)?
-            || (!self.in_wrapper && is_linked_command(&next, LinkedCargoAction::Dev))
+            || (!self.in_wrapper
+                && (is_builtin_command(&next, LinkedCargoAction::Dev)
+                    || is_cargo_command(&next, LinkedCargoAction::Dev)))
         {
             self.active.clone_from(configured);
             self.last_notice = None;

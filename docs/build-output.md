@@ -9,9 +9,10 @@ compilation pass.
 
 ## Configure the inputs
 
-Author `proa.config.rs` in the project root. Wrap a `Config` struct literal
-in `Ok` and set both commands under `scripts`. Fill in other fields with
-`..Config::default()`.
+To customize the build, author `proa.config.rs` in the project root. Wrap
+a `Config` struct literal in `Ok` and inherit other settings with
+`..Config::default()`. Dev and build default to `proa run dev` and
+`proa run build`.
 
 Proa manages `public/` by default. Set `paths.public` to select a different
 directory or set it to `None` to opt out.
@@ -51,8 +52,8 @@ settings it depends on are unchanged. A changed input or an uncertain
 dependency list sends the runner back through Cargo. Files read inside the
 async function are read afresh either way.
 
-`cargo proa init` and `cargo proa new site` generate the Rust file.
-Use `cargo proa config validate` to check the authored settings.
+`proa init` and `proa new site` generate the Rust file.
+Use `proa config validate` to check the authored settings.
 
 `proa dev` and `proa build` launch the configured scripts in the project
 directory and forward their CLI flags. In this example each wrapper enters
@@ -60,16 +61,16 @@ the linked pipeline using the CLI that launched it.
 
 ```bash
 # scripts/dev.sh
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev --linked "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run dev "$@"
 ```
 
 ```bash
 # scripts/build.sh
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" build --linked "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run build "$@"
 ```
 
-The direct `cargo run` and `cargo build` forms are shorthand for entering the
-linked pipeline. Use `scripts.named` with `scripts.before.build` or
+The `proa run dev` and `proa run build` commands enter the built-in linked
+pipeline directly. Use `scripts.named` with `scripts.before.build` or
 `scripts.before.dev` for preparation commands. Cargo discovers `build.rs` scripts in the application
 and its dependencies during the Cargo passes.
 
@@ -86,9 +87,9 @@ keep their existing unmanaged serving path.
 `--no-assets` on `build` or `dev` skips both asset commands and publication.
 
 ```sh
-cargo proa build --root path/to/app --profile dev
-cargo proa run --root path/to/app
-cargo proa dev --root path/to/app
+proa build --root path/to/app --profile dev
+proa run --root path/to/app
+proa dev --root path/to/app
 ```
 
 The descriptor and final Cargo passes remain unchanged. For a configured
@@ -131,15 +132,10 @@ For readable JavaScript while debugging, set `build.minify_rsjs` to `false`
 in `proa.config.rs`.
 
 ```rust
-use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, Result};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
-        scripts: ScriptsConfig {
-            dev: "cargo run",
-            build: "cargo build --release",
-            ..Default::default()
-        },
         build: BuildConfig {
             minify_rsjs: false,
             ..Default::default()

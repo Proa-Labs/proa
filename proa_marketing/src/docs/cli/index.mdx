@@ -147,21 +147,17 @@ cargo proa fmt --check --verify src
 
 Generated sites include `proa.config.rs` and `proa.lock.json`. Return a
 `Config` struct literal wrapped in `Ok` to set lifecycle options and component
-registry aliases. Set both commands under `scripts` and use
-`..Config::default()` for other settings.
+registry aliases. Use `..Config::default()` for other settings. These are the
+built-in commands selected by `proa dev` and `proa build`.
 
 ```rust
-use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
+use proa::config::{Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "cargo run",
-            build: "cargo build --release",
-            ..Default::default()
-        },
-        build: BuildConfig {
-            assets: Some(vec![]),
+            dev: "proa run dev",
+            build: "proa run build",
             ..Default::default()
         },
         ..Config::default()
