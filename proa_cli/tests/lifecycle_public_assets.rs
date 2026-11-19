@@ -188,7 +188,7 @@ impl Drop for Watcher {
 
 #[cfg(unix)]
 #[test]
-fn test_watch_tracks_public_and_extra_inputs_without_looping_on_generated_css() {
+fn test_watch_tracks_authored_inputs_without_looping_on_preparation_outputs() {
     use std::{os::unix::process::CommandExt, time::Duration};
 
     let temp = fixture();
@@ -211,14 +211,36 @@ fn page_inputs() {
     .unwrap();
     fs::write(
         root.join("proa.config.rs"),
-        PUBLIC_CONFIG.replace(
-            "Some(vec![])",
-            r#"Some(vec![proa::config::AssetConfig {
+        PUBLIC_CONFIG
+            .replace(
+                "scripts: ScriptsConfig {",
+                r#"scripts: ScriptsConfig {
+            before: proa::config::ScriptHooks {
+                test: vec!["prepare-fixture"],
+                ..Default::default()
+            },
+            named: std::collections::BTreeMap::from([
+                ("prepare-public", proa::config::ScriptConfig {
+                    command: vec!["sh", "-c", "echo fixture > public/prepared.svg"],
+                    ..Default::default()
+                }),
+                ("prepare-fixture", proa::config::ScriptConfig {
+                    command: vec!["sh", "-c", "echo fixture > content/generated.txt"],
+                    depends_on: vec!["prepare-public"],
+                    outputs: vec!["content/generated.txt".to_owned()],
+                    ..Default::default()
+                })
+            ]),
+"#,
+            )
+            .replace(
+                "Some(vec![])",
+                r#"Some(vec![proa::config::AssetConfig {
             command: vec!["sh", "-c", "echo '.test {}' > public/generated.css"],
             output: "public/generated.css".to_owned(),
             ..Default::default()
         }])"#,
-        ),
+            ),
     )
     .unwrap();
     // Warm the config runner before starting the watcher deadline.
@@ -261,6 +283,7 @@ fn page_inputs() {
     );
     std::thread::sleep(Duration::from_millis(650));
     let text = fs::read_to_string(&log).unwrap();
+    assert_eq!(text.matches("Task prepare-public").count(), 3, "{text}");
     assert_eq!(
         text.matches("building asset: public/generated.css").count(),
         3,

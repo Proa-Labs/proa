@@ -1023,7 +1023,8 @@ fn run_test_session(
     }
     let result = (|| {
         let environment = test_environment(root, database.as_ref())?;
-        prepare_test_inputs(root, config, &environment)?;
+        run_test_hooks(root, config, &environment)?;
+        prepare_test_assets(root, config)?;
         run_test_targets(root, config, commands, &environment)
     })();
     finish_test_database(database.as_ref(), keep_database && result.is_err())?;
@@ -1075,14 +1076,37 @@ fn watched_test_loop(
     paths.push(migrations.clone());
     paths.sort_unstable();
     paths.dedup();
+    let hooks = &config.scripts.before.test;
+    // Hook execution reports invalid task names or dependency cycles.
+    let mut hook_outputs = task::lifecycle_output_paths(config, hooks).unwrap_or_default();
+    if !hooks.is_empty() {
+        hook_outputs.extend(config.paths.public.as_deref());
+    }
+    let asset_outputs: Vec<_> = config
+        .paths
+        .public
+        .iter()
+        .flat_map(|_| {
+            config
+                .build
+                .assets()
+                .iter()
+                .map(|asset| asset.output.as_path())
+        })
+        .collect();
     let mut baseline = watch_snapshot(root, &paths)?;
     let mut last_failed;
 
     loop {
         let environment = test_environment(root, database)?;
-        let prepared = prepare_test_inputs(root, config, &environment);
-        if config.paths.public.is_some() && !config.build.assets().is_empty() {
-            refresh_test_asset_outputs(root, config, &paths, &mut baseline)?;
+        let mut prepared = run_test_hooks(root, config, &environment);
+        // After the hooks, the asset builder and test targets see the new
+        // public inputs. Authored inputs outside these scopes still trigger
+        // another run if they changed while a hook was running.
+        refresh_test_watch_outputs(root, &paths, &hook_outputs, &mut baseline)?;
+        if prepared.is_ok() {
+            prepared = prepare_test_assets(root, config);
+            refresh_test_watch_outputs(root, &paths, &asset_outputs, &mut baseline)?;
         }
         match prepared.and_then(|()| run_test_targets(root, config, commands, &environment)) {
             Ok(()) => last_failed = false,
@@ -1125,20 +1149,23 @@ fn watched_test_loop(
     Ok(last_failed)
 }
 
-fn refresh_test_asset_outputs(
+fn refresh_test_watch_outputs(
     root: &Path,
-    config: &ProjectConfig,
     watch_paths: &[PathBuf],
+    outputs: &[&Path],
     baseline: &mut WatchSnapshot,
 ) -> Result<()> {
+    if outputs.is_empty() {
+        return Ok(());
+    }
     let prepared = watch_snapshot(root, watch_paths)?;
-    // Consume writes by the asset commands without swallowing concurrent
-    // changes to authored inputs. The final test build still sees any later edit.
-    for asset in config.build.assets() {
-        if asset.output.as_os_str().is_empty() {
+    // Consume preparation writes for these paths. The next test build sees
+    // edits made after this snapshot.
+    for output in outputs {
+        if output.as_os_str().is_empty() {
             continue;
         }
-        let output = root.join(&asset.output);
+        let output = root.join(output);
         let path = output.strip_prefix(root).unwrap_or(&output);
         baseline.retain(|file, _| !file.starts_with(path));
         baseline.extend(
@@ -1151,7 +1178,7 @@ fn refresh_test_asset_outputs(
     Ok(())
 }
 
-fn prepare_test_inputs(
+fn run_test_hooks(
     root: &Path,
     config: &ProjectConfig,
     environment: &BTreeMap<OsString, OsString>,
@@ -1159,7 +1186,10 @@ fn prepare_test_inputs(
     if TEST_INTERRUPTED.load(Ordering::SeqCst) {
         bail!("test interrupted");
     }
-    task::run_lifecycle_tasks(root, config, &config.scripts.before.test, environment)?;
+    task::run_lifecycle_tasks(root, config, &config.scripts.before.test, environment)
+}
+
+fn prepare_test_assets(root: &Path, config: &ProjectConfig) -> Result<()> {
     if public_assets::source(root, config, true)?.is_some() {
         build_assets(root, config)?;
     }

@@ -71,16 +71,35 @@ pub(crate) fn run_lifecycle_tasks(
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
     let scripts = &project.scripts.named;
+    for task_name in lifecycle_order(scripts, names)? {
+        execute(root, &task_name, &scripts[&task_name], false, environment)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn lifecycle_output_paths<'a>(
+    project: &'a config::ProjectConfig,
+    names: &[String],
+) -> Result<Vec<&'a Path>> {
+    let scripts = &project.scripts.named;
+    let order = lifecycle_order(scripts, names)?;
+    Ok(order
+        .iter()
+        .flat_map(|name| scripts[name].outputs.iter().map(PathBuf::as_path))
+        .collect())
+}
+
+fn lifecycle_order(
+    scripts: &BTreeMap<String, ScriptConfig>,
+    names: &[String],
+) -> Result<Vec<String>> {
     let mut visiting = BTreeSet::new();
     let mut visited = BTreeSet::new();
     let mut order = Vec::new();
     for name in names {
         visit_dependency(name, scripts, &mut visiting, &mut visited, &mut order)?;
     }
-    for task_name in order {
-        execute(root, &task_name, &scripts[&task_name], false, environment)?;
-    }
-    Ok(())
+    Ok(order)
 }
 
 fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
