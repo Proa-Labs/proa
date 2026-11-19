@@ -53,6 +53,7 @@ pub async fn config() -> Result<Config> {{
                 dev: vec!["probe_hot_generation"],
                 ..Default::default()
             }},
+            ..Default::default()
         }},
         ..Config::default()
     }})

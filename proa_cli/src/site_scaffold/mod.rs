@@ -376,7 +376,9 @@ mod tests {
         // the starter design so the first asset build retains that design.
         let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
         assert!(!config.contains("build: proa::config::BuildConfig"));
+        assert!(!config.contains("paths: proa::config::ProjectPaths"));
         let config = crate::config::load_project_config(&root).unwrap();
+        assert_eq!(config.paths.public.as_deref(), Some(Path::new("public")));
         let [asset] = config.build.assets() else {
             panic!("expected one inferred Tailwind asset");
         };

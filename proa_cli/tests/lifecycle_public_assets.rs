@@ -103,12 +103,15 @@ fn main_manifest(stdout: &str) -> AssetManifest {
 fn tests_execute_after_publication_with_runtime_only_assets_and_harness_args() {
     let temp = fixture();
     let root = temp.path();
+    fs::remove_file(root.join("proa.config.rs")).unwrap();
+    fs::remove_dir_all(root.join("public")).unwrap();
     fs::create_dir(root.join("tests")).unwrap();
     fs::write(
         root.join("build.rs"),
         r#"
 fn main() {
     assert!(std::env::var_os("PROA_PUBLIC_ASSETS").is_none());
+    std::fs::create_dir_all("public").unwrap();
     std::fs::write("public/generated.svg", b"build output").unwrap();
 }
 "#,
@@ -152,6 +155,32 @@ fn filtered_out() {
         fs::read(catalog.object_path("generated.svg").unwrap()).unwrap(),
         b"build output"
     );
+}
+
+#[test]
+fn default_public_directory_can_be_absent_or_disabled() {
+    let temp = fixture();
+    let root = temp.path();
+    fs::remove_file(root.join("proa.config.rs")).unwrap();
+    fs::remove_dir_all(root.join("public")).unwrap();
+    fs::write(
+        root.join("src/main.rs"),
+        r#"fn main() { assert!(std::env::var_os("PROA_PUBLIC_ASSETS").is_none()); }"#,
+    )
+    .unwrap();
+    let run = success(&cli(root, &["run", "--offline"]));
+    assert!(!run.contains(" public assets to "), "{run}");
+    assert!(!root.join("public").exists());
+
+    fs::create_dir(root.join("public")).unwrap();
+    fs::write(root.join("public/logo.svg"), "logo").unwrap();
+    fs::write(
+        root.join("proa.config.rs"),
+        PUBLIC_CONFIG.replace("public: Some(public)", "public: None"),
+    )
+    .unwrap();
+    let run = success(&cli(root, &["run", "--offline"]));
+    assert!(!run.contains(" public assets to "), "{run}");
 }
 
 #[cfg(unix)]
@@ -707,7 +736,7 @@ fn build_then_run_refreshes_assets_without_rebinding_the_binary_and_keeps_failur
         "fn main() { panic!(\"must not launch\"); }",
     )
     .unwrap();
-    fs::remove_dir_all(root.join("public")).unwrap();
+    fs::write(root.join("asset-root.txt"), "missing-custom").unwrap();
     let missing = cli(root, &["run", "--offline"]);
     assert!(!missing.status.success());
     assert!(

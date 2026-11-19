@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use proa::config::{
-    ApplicationConfig, Config, DatabaseConfig, DatabaseDriver, ProjectPaths, RegistriesConfig,
-    Result, ScriptsConfig,
+    ApplicationConfig, Config, DatabaseConfig, DatabaseDriver, RegistriesConfig, Result,
+    ScriptsConfig,
 };
 
 pub async fn config() -> Result<Config> {
@@ -16,10 +16,6 @@ pub async fn config() -> Result<Config> {
             ..Default::default()
         }),
         registries: RegistriesConfig::public_only(),
-        paths: ProjectPaths {
-            public: Some("public"),
-            ..Default::default()
-        },
         scripts: ScriptsConfig {
             dev: "bash scripts/dev.sh",
             build: "bash scripts/build.sh",

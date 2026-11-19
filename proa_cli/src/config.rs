@@ -15,6 +15,7 @@ mod model;
 mod rust;
 pub(crate) use rust::DevConfigRunner;
 
+pub(crate) use model::DEFAULT_PUBLIC_DIRECTORY;
 pub use model::{Config, DatabaseDriver, CONFIG_FILE};
 pub type ProjectConfig = Config<String, PathBuf>;
 
@@ -460,7 +461,7 @@ fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
         && config.build.assets.is_none()
         && root.join("styles/input.css").exists()
     {
-        config.build.assets = Some(vec![tailwind_asset()]);
+        config.build.assets = Some(vec![tailwind_asset(stylesheet_output(config))]);
     }
 }
 
@@ -469,16 +470,20 @@ pub(crate) fn css_script_asset(config: &ProjectConfig) -> Result<Option<AssetCon
     if script.is_empty() {
         return Ok(None);
     }
-    let public = config
+    Ok(Some(AssetConfig {
+        command: parse_script_command("scripts.css", script)?,
+        output: stylesheet_output(config),
+        ..Default::default()
+    }))
+}
+
+fn stylesheet_output(config: &ProjectConfig) -> PathBuf {
+    config
         .paths
         .public
         .as_deref()
-        .unwrap_or(Path::new("public"));
-    Ok(Some(AssetConfig {
-        command: parse_script_command("scripts.css", script)?,
-        output: public.join("styles.css"),
-        ..Default::default()
-    }))
+        .unwrap_or(Path::new(DEFAULT_PUBLIC_DIRECTORY))
+        .join("styles.css")
 }
 
 pub(crate) fn parse_script_command(field: &str, source: &str) -> Result<Vec<String>> {
@@ -487,12 +492,12 @@ pub(crate) fn parse_script_command(field: &str, source: &str) -> Result<Vec<Stri
     Ok(command)
 }
 
-fn tailwind_asset() -> AssetConfig {
+fn tailwind_asset(output: PathBuf) -> AssetConfig {
     AssetConfig {
         kind: "tailwind".into(),
         command: Vec::new(),
         input: PathBuf::from("styles/input.css"),
-        output: PathBuf::from("public/styles.css"),
+        output,
         // Tailwind v4 discovers sources from the CSS entrypoint's `@source`
         // directives. The optional config field remains supported for older
         // and custom projects, but generated v4 sites do not need `-c`.

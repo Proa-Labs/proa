@@ -7,6 +7,7 @@ use std::{borrow::Borrow, collections::BTreeMap};
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "proa.config.rs";
+pub const DEFAULT_PUBLIC_DIRECTORY: &str = "public";
 
 /// Text storage for authored config. String literals work with the default type.
 pub trait ConfigText: Borrow<str> + Ord + ConfigPath {}
@@ -188,7 +189,7 @@ pub struct ScriptConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text
 pub struct ProjectPaths<Path: ConfigPath = &'static str> {
     pub components: Path,
     pub assets: Path,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Public directory for managed assets. Set to `None` to disable publication.
     pub public: Option<Path>,
 }
 
@@ -271,7 +272,7 @@ impl<Path: ConfigPath> Default for ProjectPaths<Path> {
             // `public/` at `/static`, so assets written to `static/proa` were never
             // reachable and every documented `/static/proa/...` link 404'd.
             assets: Path::from("public/proa"),
-            public: None,
+            public: Some(Path::from(DEFAULT_PUBLIC_DIRECTORY)),
         }
     }
 }

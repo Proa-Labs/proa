@@ -4,23 +4,19 @@
 use super::*;
 use proa_build::assets::{OutputStore, OUTPUT_ENV};
 
-pub(super) fn source(
-    root: &Path,
-    config: &ProjectConfig,
-    enabled: bool,
-) -> Result<Option<PathBuf>> {
+pub(super) fn configured_path(config: &ProjectConfig, enabled: bool) -> Result<Option<&Path>> {
     if !enabled {
         return Ok(None);
     }
     config
         .paths
         .public
-        .as_ref()
+        .as_deref()
         .map(|path| {
             crate::config::validate_project_relative_path(path)
                 .map_err(anyhow::Error::msg)
                 .context("invalid paths.public")?;
-            Ok(root.join(path))
+            Ok(path)
         })
         .transpose()
 }
@@ -52,12 +48,24 @@ pub(super) fn output_directory(
         .join(digest))
 }
 
-pub(super) fn publish(source: Option<&Path>, output: &Path) -> Result<Option<PathBuf>> {
-    let Some(source) = source else {
+pub(super) fn publish(
+    root: &Path,
+    directory: Option<&Path>,
+    output: &Path,
+) -> Result<Option<PathBuf>> {
+    let Some(directory) = directory else {
         return Ok(None);
     };
+    let source = root.join(directory);
+    // Asset commands and Cargo build scripts may create the default directory.
+    // Check it after they run and leave missing custom paths as errors.
+    if directory == Path::new(crate::config::DEFAULT_PUBLIC_DIRECTORY)
+        && fs::symlink_metadata(&source).is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+    {
+        return Ok(None);
+    }
     let report = OutputStore::open(output)?
-        .publish(source)
+        .publish(&source)
         .with_context(|| format!("publish configured public directory `{}`", source.display()))?;
     if let Err(error) = report.cleanup {
         eprintln!("warning: public asset cleanup deferred: {error}");

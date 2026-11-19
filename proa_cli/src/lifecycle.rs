@@ -220,14 +220,8 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                 .then(|| crate::hot_static::HotState::prepare(&root))
                 .transpose(),
         )?;
-        let source = public_assets::source(&root, &config, !options.no_assets)?;
-        let launch = run_linked_dev_cycle(
-            &root,
-            &config,
-            &command,
-            hot_state.as_ref(),
-            source.as_deref(),
-        )?;
+        let source = public_assets::configured_path(&config, !options.no_assets)?;
+        let launch = run_linked_dev_cycle(&root, &config, &command, hot_state.as_ref(), source)?;
         return run_linked_dev_foreground(&root, &launch, address.0, address.1, options.open);
     }
 
@@ -238,7 +232,7 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
     if !options.no_assets {
         build_assets(&root, &config)?;
     }
-    let mut watch_paths = dev_watch_paths(&root, &config, &options)?;
+    let mut watch_paths = dev_watch_paths(&config, &options)?;
     let baseline = watch_snapshot(&root, &watch_paths)?;
     let mut hot_state = hot_scan_or_rustc_diagnostics(
         &root,
@@ -250,14 +244,8 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
             .then(|| crate::hot_static::HotState::prepare(&root))
             .transpose(),
     )?;
-    let source = public_assets::source(&root, &config, !options.no_assets)?;
-    let mut launch = run_linked_dev_cycle(
-        &root,
-        &config,
-        &command,
-        hot_state.as_ref(),
-        source.as_deref(),
-    )?;
+    let source = public_assets::configured_path(&config, !options.no_assets)?;
+    let mut launch = run_linked_dev_cycle(&root, &config, &command, hot_state.as_ref(), source)?;
     let mut child = spawn_linked_dev(&root, &launch, address.0, address.1, reload.as_ref())?;
     announce_dev_start(options.open, address.0, address.1, &mut child);
 
@@ -294,20 +282,24 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                         .public_assets
                         .as_ref()
                         .expect("missing active catalog");
-                    let source = public_assets::source(&root, &config, true)?;
-                    if let Err(error) = public_assets::publish(source.as_deref(), output) {
-                        eprintln!("could not restore the public asset catalog: {error:#}");
-                        notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
-                        continue;
+                    let source = public_assets::configured_path(&config, true)?;
+                    match public_assets::publish(&root, source, output) {
+                        Ok(Some(_)) => {
+                            println!("restored the public asset catalog without Cargo");
+                            // A recreated catalog has a new reader lock. Reopen it.
+                            child.restart(&root, &launch, address, None, reload.as_ref())?;
+                            retry_catalog_at = Instant::now();
+                            continue;
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            eprintln!("could not restore the public asset catalog: {error:#}");
+                            notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
+                            continue;
+                        }
                     }
-                    println!("restored the public asset catalog without Cargo");
-                    // A recreated output directory has a new reader lock. Reopen
-                    // it even when all URLs still point to exactly the same bytes.
-                    child.restart(&root, &launch, address, None, reload.as_ref())?;
-                    retry_catalog_at = Instant::now();
-                    continue;
                 }
-                // A full clean removed the executable as well as the catalog.
+                // Rebuild when the executable or the default public directory vanished.
                 debouncer.committed.clone()
             }
             _ => continue,
@@ -396,13 +388,13 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                     .map(|state| state.candidate(&root))
                     .transpose(),
             )?;
-            let source = public_assets::source(&root, &next_config, !options.no_assets)?;
+            let source = public_assets::configured_path(&next_config, !options.no_assets)?;
             let launch = run_linked_dev_cycle(
                 &root,
                 &next_config,
                 &command,
                 next_hot_state.as_ref(),
-                source.as_deref(),
+                source,
             )?;
             Ok(LinkedDevRebuild {
                 config: next_config,
@@ -469,7 +461,7 @@ fn prepare_dev_inputs(
 ) -> Result<PreparedDevInputs> {
     // Failure snapshots must use the same watch set as the next poll, even
     // when a config edit changes watched paths and preparation then fails.
-    *watch_paths = dev_watch_paths(root, &config, options)?;
+    *watch_paths = dev_watch_paths(&config, options)?;
     let tasks =
         task::run_lifecycle_tasks(root, &config, &config.scripts.before.dev, &BTreeMap::new());
     // Include generated writes from pre-dev tasks, even if a task fails. Capture
@@ -479,8 +471,11 @@ fn prepare_dev_inputs(
     *failure_snapshot = snapshot.clone();
     tasks?;
     let changed = changed_paths(committed, &snapshot);
-    let managed_public = !options.no_assets && config.paths.public.is_some();
-    let css_only = !managed_public
+    let public = public_assets::configured_path(&config, !options.no_assets)?;
+    let managed_public = public.is_some_and(|path| {
+        path != Path::new(crate::config::DEFAULT_PUBLIC_DIRECTORY) || root.join(path).exists()
+    });
+    let mut css_only = !managed_public
         && !options.no_css_hot_swap
         && !options.no_assets
         && is_stylesheet_only_change(&changed);
@@ -500,17 +495,18 @@ fn prepare_dev_inputs(
     if !options.no_assets {
         build_assets(root, &config)?;
     }
-    if managed_public {
-        let after_assets = watch_snapshot(root, watch_paths)?;
-        if config.paths.public.as_ref().is_some_and(|public| {
-            changed_paths(committed, &after_assets)
-                .iter()
-                .any(|path| path.starts_with(public))
-        }) {
+    if let Some(public) = public {
+        let changed = if managed_public || root.join(public).exists() {
+            changed_paths(committed, &watch_snapshot(root, watch_paths)?)
+        } else {
+            changed
+        };
+        if changed.iter().any(|path| path.starts_with(public)) {
             // The running server holds a fixed public catalog. Restart it when
             // inputs (including generated files) change. Keep the pre-command
             // snapshot so concurrent authored edits still schedule another cycle.
             hot_update = None;
+            css_only = false;
         }
     }
     Ok(PreparedDevInputs {
@@ -702,25 +698,16 @@ fn default_watch_paths() -> Vec<PathBuf> {
     .collect()
 }
 
-fn dev_watch_paths(
-    root: &Path,
-    config: &ProjectConfig,
-    options: &DevOptions,
-) -> Result<Vec<PathBuf>> {
+fn dev_watch_paths(config: &ProjectConfig, options: &DevOptions) -> Result<Vec<PathBuf>> {
     let mut paths = default_watch_paths();
     for path in &options.watch {
         if !paths.contains(path) {
             paths.push(path.clone());
         }
     }
-    if public_assets::source(root, config, !options.no_assets)?.is_some() {
-        let public = config
-            .paths
-            .public
-            .as_ref()
-            .expect("configured public source");
-        if !paths.contains(public) {
-            paths.push(public.clone());
+    if let Some(public) = public_assets::configured_path(config, !options.no_assets)? {
+        if !paths.iter().any(|path| path == public) {
+            paths.push(public.to_path_buf());
         }
     }
     Ok(paths)
@@ -796,7 +783,7 @@ pub(crate) fn build_from_cli(options: BuildOptions, arguments: Option<&[OsString
         LinkedCargoAction::Build,
         &rsjs_minify_environment(config.build.minify_rsjs),
     )?;
-    let public_source = public_assets::source(&root, &config, !options.no_assets)?;
+    let public_source = public_assets::configured_path(&config, !options.no_assets)?;
     let artifact_destination = options
         .artifact_out
         .as_deref()
@@ -827,7 +814,7 @@ pub(crate) fn build_from_cli(options: BuildOptions, arguments: Option<&[OsString
         .context("linked RSJS build failed")?;
     print_linked_cache_reuse(LinkedCargoAction::Build, &output);
     print_linked_cargo_output(LinkedCargoAction::Build, &prepared.request, &output);
-    public_assets::publish(public_source.as_deref(), &prepared.public_output_directory)?;
+    public_assets::publish(&root, public_source, &prepared.public_output_directory)?;
     if let Some(destination) = artifact_destination.as_deref() {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
@@ -1064,7 +1051,7 @@ fn watched_test_loop(
     let mut paths = default_watch_paths();
     paths.extend(["tests", ".env", ".env.test"].map(PathBuf::from));
     paths.extend(watch_paths.iter().cloned());
-    if public_assets::source(root, config, true)?.is_some() {
+    if public_assets::configured_path(config, true)?.is_some() {
         paths.extend(config.paths.public.iter().cloned());
     }
     let migrations = config
@@ -1192,7 +1179,7 @@ fn run_test_hooks(
 }
 
 fn prepare_test_assets(root: &Path, config: &ProjectConfig) -> Result<()> {
-    if public_assets::source(root, config, true)?.is_some() {
+    if public_assets::configured_path(config, true)?.is_some() {
         build_assets(root, config)?;
     }
     Ok(())
@@ -1323,7 +1310,7 @@ fn run_linked_execute_with_environment(
     compile_environment.extend(rsjs_minify_environment(config.build.minify_rsjs));
     let mut prepared =
         prepare_linked_cargo_with_environment(root, command, action, &compile_environment)?;
-    let public_source = public_assets::source(root, config, true)?;
+    let public_source = public_assets::configured_path(config, true)?;
     let defer_execution = action == LinkedCargoAction::Run || public_source.is_some();
     if defer_execution {
         public_assets::defer_execution(&mut prepared, action);
@@ -1344,7 +1331,7 @@ fn run_linked_execute_with_environment(
     if defer_execution {
         let executable = select_final_root_executable(&prepared.request, &output, action)?;
         let public_output =
-            public_assets::publish(public_source.as_deref(), &prepared.public_output_directory)?;
+            public_assets::publish(root, public_source, &prepared.public_output_directory)?;
         let mut command = Command::new(executable);
         let execution_root = if action == LinkedCargoAction::Test {
             &prepared.package_source_root
@@ -1432,7 +1419,8 @@ fn run_linked_dev_cycle(
     .context("linked RSJS dev build failed")?;
     let executable =
         select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Dev)?;
-    let public_assets = public_assets::publish(public_source, &prepared.public_output_directory)?;
+    let public_assets =
+        public_assets::publish(root, public_source, &prepared.public_output_directory)?;
     let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
     let reused_descriptor_artifacts = output
         .descriptor

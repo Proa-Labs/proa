@@ -151,17 +151,13 @@ registry aliases. Set both commands under `scripts` and use
 `..Config::default()` for other settings.
 
 ```rust
-use proa::config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
             dev: "cargo run",
             build: "cargo build --release",
-            ..Default::default()
-        },
-        paths: ProjectPaths {
-            public: Some("public".into()),
             ..Default::default()
         },
         build: BuildConfig {

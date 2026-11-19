@@ -255,8 +255,7 @@ fn gitignore() -> &'static str {
 
 fn project_config(package: &str, selection: CapabilitySelection) -> Result<String> {
     use crate::config::{
-        ApplicationConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig,
-        ProjectConfig, ProjectPaths,
+        ApplicationConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig, ProjectConfig,
     };
 
     let database = (selection.database == DatabaseChoice::Sqlite).then(|| DatabaseConfig {
@@ -268,10 +267,6 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
             binary: package.into(),
         }),
         database,
-        paths: ProjectPaths {
-            public: Some("public".into()),
-            ..Default::default()
-        },
         deploy: (selection.deploy != crate::capabilities::DeployChoice::None).then(|| {
             DeployConfig {
                 provider: selection.deploy.as_str().into(),

@@ -13,17 +13,13 @@ Wrap a `Config` struct literal in `Ok`. Set `scripts.dev` and
 `scripts.build` explicitly and use `..Config::default()` for other settings.
 
 ```rust
-use proa::config::{Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
             dev: "cargo run",
             build: "cargo build --release",
-            ..Default::default()
-        },
-        paths: ProjectPaths {
-            public: Some("public"),
             ..Default::default()
         },
         ..Config::default()
@@ -76,7 +72,9 @@ In `scripts/dev.sh`, pass `--watch public-dir.txt` to the linked watcher.
 
 ## Paths and registries
 
-Set `paths.public` to publish a directory through the public asset catalog.
+Proa publishes `public/` through the public asset catalog by default. Set
+`paths.public` to choose a different directory, or set it to `None` to disable
+publication. If `public/` is absent after the build, Proa skips publication.
 The `components` and `assets` paths are install destinations for
 `proa ui add`. They default to `src/components` and `public/proa`.
 
@@ -87,8 +85,8 @@ template. Use `proa_pro` to configure the Pro registry.
 ## CSS
 
 When `styles/input.css` exists, Proa runs the standalone Tailwind CLI and
-writes `public/styles.css` by default. With `paths.public` set to `public`,
-`cx.url("public/styles.css")` resolves to the stable stylesheet URL. Proa
+writes `public/styles.css` by default. `cx.url("public/styles.css")`
+resolves to the stable stylesheet URL. Proa
 fingerprints the stored file and serves the URL with `Cache-Control: no-cache`
 and an `ETag` so browsers revalidate it after changes.
 
@@ -101,8 +99,10 @@ css: "bash scripts/css.sh",
 ```
 
 The command runs from the project directory in place of inferred Tailwind.
-When `paths.public` points to a different directory, write `styles.css`
-there. Keep settings such as PostCSS plugins in the tool's own config file.
+When `paths.public` points to a different directory, Proa writes inferred
+Tailwind output there. Set the output argument in a custom `scripts.css`
+command to write `styles.css` there too. Keep settings such as PostCSS plugins
+in the tool's own config file.
 Add extra inputs such as `scripts/css.sh` and `postcss.config.mjs` to the
 linked watcher with `--watch` in your dev script. For nonstandard output
 names or additional commands, configure `build.assets`.
@@ -201,6 +201,7 @@ pub async fn config() -> Result<Config> {
                 build: vec!["generate-assets"],
                 ..Default::default()
             },
+            ..Default::default()
         },
         ..Config::default()
     })

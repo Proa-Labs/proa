@@ -1407,6 +1407,7 @@ mod dev_preparation_tests {
         fs::write(root.join("generator-input"), "const GENERATED: u8 = 1;").unwrap();
         fs::write(root.join("styles/input.css"), ".old { color: red; }").unwrap();
         let mut config = crate::config::inferred_project_config();
+        config.paths.public = None;
         if let Some(command) = before {
             config.scripts.before.dev = vec!["generate".into()];
             config.scripts.named.insert(
@@ -1455,7 +1456,8 @@ mod dev_preparation_tests {
         );
         assert_eq!(after.len(), 1);
         assert!(public_assets::publish(
-            Some(&temp.path().join("public")),
+            temp.path(),
+            Some(Path::new("public")),
             &temp.path().join("output")
         )
         .is_err());
@@ -1633,7 +1635,7 @@ mod dev_preparation_tests {
         .is_err());
         assert_eq!(
             watch_paths,
-            dev_watch_paths(root, &config, &dev_options(None)).unwrap()
+            dev_watch_paths(&config, &dev_options(None)).unwrap()
         );
         let mut watch = DevWatchDebouncer::new(failure, DEV_WATCH_DEBOUNCE);
         assert_eq!(
@@ -1672,11 +1674,9 @@ mod dev_preparation_tests {
     }
 
     #[test]
-    fn managed_public_edits_are_watched_and_require_a_catalog_restart() {
+    fn publishing_the_new_default_public_directory_requires_a_catalog_restart() {
         let (temp, mut config) = fixture(None, Some("cp styles/input.css public/styles.css"));
         let root = temp.path();
-        fs::create_dir(root.join("public")).unwrap();
-        fs::write(root.join("public/styles.css"), ".old { color: red; }").unwrap();
         config.paths.public = Some("public".into());
         fs::write(
             root.join("proa.config.rs"),
@@ -1684,8 +1684,9 @@ mod dev_preparation_tests {
         )
         .unwrap();
         let loaded = load_project_config(root).unwrap();
-        let mut watch_paths = dev_watch_paths(root, &loaded, &dev_options(None)).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
         assert!(watch_paths.contains(&PathBuf::from("public")));
+        assert!(!root.join("public").exists());
         let committed = watch_snapshot(root, &watch_paths).unwrap();
         fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
         let mut failure = committed.clone();

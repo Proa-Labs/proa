@@ -13,20 +13,17 @@ Author `proa.config.rs` in the project root. Wrap a `Config` struct literal
 in `Ok` and set both commands under `scripts`. Fill in other fields with
 `..Config::default()`.
 
-Set `paths.public` to opt into managed output.
+Proa manages `public/` by default. Set `paths.public` to select a different
+directory or set it to `None` to opt out.
 
 ```rust
-use proa::config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
             dev: "bash scripts/dev.sh",
             build: "bash scripts/build.sh",
-            ..Default::default()
-        },
-        paths: ProjectPaths {
-            public: Some("public"),
             ..Default::default()
         },
         build: BuildConfig {
@@ -82,8 +79,9 @@ wrapper and pick up its environment. Other edits continue to use the
 current wrapper.
 
 Existing asset commands can populate the public directory. `build.assets: None`
-lets Proa infer those commands, while `Some(vec![])` disables them. A missing
-configured public directory fails the build. Projects with `paths.public: None`
+lets Proa infer those commands, while `Some(vec![])` disables them. When the
+default `public/` directory is absent after the build, Proa skips publication.
+A missing custom directory fails the build. Projects with `paths.public: None`
 keep their existing unmanaged serving path.
 `--no-assets` on `build` or `dev` skips both asset commands and publication.
 

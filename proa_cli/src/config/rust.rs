@@ -350,7 +350,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     use std::fmt::Write as _;
 
     let mut source = String::from(
-        "use proa::config::{Config, ProjectPaths, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
+        "use proa::config::{Config, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
     );
     macro_rules! section {
         ($($field:ident),+ $(,)?) => {
@@ -437,24 +437,31 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
             config.registries.rust_expr(8, TextSource::Literal)?,
         )?;
     }
-    writeln!(source, "        paths: ProjectPaths {{")?;
     let default_paths = super::ProjectPaths::default();
-    for (field, path, default) in [
-        (
-            "components",
-            &config.paths.components,
-            &default_paths.components,
-        ),
-        ("assets", &config.paths.assets, &default_paths.assets),
-    ] {
-        if path != default {
-            writeln!(source, "            {field}: {},", path_literal(path)?)?;
+    let paths = &config.paths;
+    if paths.components != default_paths.components
+        || paths.assets != default_paths.assets
+        || paths.public != default_paths.public
+    {
+        writeln!(source, "        paths: proa::config::ProjectPaths {{")?;
+        for (field, path, default) in [
+            ("components", &paths.components, &default_paths.components),
+            ("assets", &paths.assets, &default_paths.assets),
+        ] {
+            if path != default {
+                writeln!(source, "            {field}: {},", path_literal(path)?)?;
+            }
         }
+        if paths.public != default_paths.public {
+            match &paths.public {
+                Some(path) => {
+                    writeln!(source, "            public: Some({}),", path_literal(path)?)?
+                }
+                None => writeln!(source, "            public: None,")?,
+            }
+        }
+        writeln!(source, "            ..Default::default()\n        }},")?;
     }
-    if let Some(path) = &config.paths.public {
-        writeln!(source, "            public: Some({}),", path_literal(path)?)?;
-    }
-    writeln!(source, "            ..Default::default()\n        }},")?;
     if !config.build.minify_rsjs || config.build.assets.is_some() {
         writeln!(source, "        build: proa::config::BuildConfig {{")?;
         writeln!(
