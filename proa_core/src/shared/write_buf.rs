@@ -332,14 +332,13 @@ pub trait WriteBuf {
 
     /// Write generated text directly into spare capacity via a closure. The
     /// closure receives a `&mut [u8]` of `max_len` bytes and returns the number
-    /// of bytes it wrote. The window's prior contents are unspecified and
-    /// differ between writers, so the closure must not read before it writes.
+    /// of bytes it wrote, up to the length of the window. The window's prior
+    /// contents are unspecified and differ between writers, so the closure
+    /// must not read before it writes.
     ///
     /// Implementations with contiguous spare capacity (Vec, WriteCursor, etc.)
     /// override this to write in-place with zero intermediate copy. The default
     /// uses a stack buffer of up to 40 bytes.
-    ///
-    /// `max_len` must be ≤ 40.
     ///
     /// # Safety
     ///
@@ -1139,12 +1138,14 @@ impl<const N: usize> WriteBuf for BumpWriter<N> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        if self.len + max_len > N {
+        if max_len > N - self.len {
             return Err(WriteError::OutOfCapacity);
         }
         // SAFETY: the bounds check above keeps the window inside the page.
         let written = f(unsafe { self.spare_window(max_len) });
-        assert!(written <= max_len, "in-place writer overran its window");
+        if written > max_len {
+            return Err(WriteError::OutOfCapacity);
+        }
         self.len += written;
         Ok(())
     }
@@ -1192,14 +1193,9 @@ pub const DEFAULT_CHAINED_BUMP_PAGE_SIZE: usize = 4096;
 
 /// The standard reusable buffer for buffered rendering.
 ///
-/// A plain `Vec<u8>` also implements [`WriteBuf`], which makes it an easy
-/// wrong answer: it reallocates and copies as the document grows, and forces a
-/// UTF-8 re-validation pass over the whole output at the end. This one bump
-/// allocates into fixed pages, never copies what it has already written, and
-/// hands back a `String` without revalidating.
-///
-/// The name is deliberately the obvious one, so reaching for `Vec::new()` is a
-/// deliberate choice rather than the path of least resistance.
+/// Writes grow in fixed pages. Byte output can take ownership of those pages
+/// directly. Converting to a `String` validates UTF-8 after the bytes are
+/// assembled.
 pub type RenderBuffer = ChainedBumpWriter<DEFAULT_CHAINED_BUMP_PAGE_SIZE>;
 
 /// Chained fixed-size bump writers for unbounded output.
@@ -1375,19 +1371,15 @@ impl<const N: usize> ChainedBumpWriter<N> {
     /// Convert the buffer contents to a `String`, reusing the underlying
     /// allocation when all data fits in a single page (the common case).
     ///
-    /// When data spans multiple pages, the pages are copied once into a
-    /// contiguous `String`. Nothing is scanned: text writes are UTF-8 by type,
-    /// raw byte writes were validated when they were written, and rewinds only
-    /// land on character boundaries.
-    #[allow(unsafe_code)]
+    /// When data spans multiple pages, copies the bytes into one allocation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer contains invalid UTF-8.
     pub fn into_string(self) -> String {
-        let bytes = self.into_vec();
-        debug_assert!(
-            core::str::from_utf8(&bytes).is_ok(),
-            "ChainedBumpWriter held non-UTF-8 bytes; a writer broke the UTF-8 contract"
-        );
-        // SAFETY: every write path keeps the buffer valid UTF-8 (see above).
-        unsafe { String::from_utf8_unchecked(bytes) }
+        String::from_utf8(self.into_vec()).unwrap_or_else(|_| {
+            panic!("ChainedBumpWriter::into_string called on non-UTF-8 buffer contents")
+        })
     }
 }
 
@@ -1508,19 +1500,16 @@ impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        let new_end = self.current.len + max_len;
-        if new_end <= N {
-            // SAFETY: the bounds check above keeps the window inside the page.
-            let written = f(unsafe { self.current.spare_window(max_len) });
-            assert!(written <= max_len, "in-place writer overran its window");
-            self.current.len += written;
-            return Ok(());
+        if max_len <= N - self.current.len {
+            // SAFETY: the caller guarantees the written bytes are valid UTF-8.
+            return unsafe { self.current.extend_with(max_len, f) };
         }
-        // Slow path: fall back to stack buffer + extend
         let mut tmp = [0u8; 40];
-        let len = f(&mut tmp[..max_len]);
+        let spare = tmp.get_mut(..max_len).ok_or(WriteError::OutOfCapacity)?;
+        let len = f(spare);
+        let written = spare.get(..len).ok_or(WriteError::OutOfCapacity)?;
         // SAFETY: the caller guarantees the written bytes are valid UTF-8.
-        self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
+        self.extend_str(unsafe { core::str::from_utf8_unchecked(written) })
     }
 
     #[inline(always)]
@@ -2756,6 +2745,28 @@ mod tests {
         assert!(cur.reserve(5).is_err());
     }
 
+    #[test]
+    #[allow(unsafe_code)]
+    fn bump_writer_rejects_invalid_callback_lengths() {
+        let mut buf = BumpWriter::<8>::new();
+        buf.extend_str("start").unwrap();
+
+        // SAFETY: the callback window contains only valid UTF-8.
+        unsafe {
+            assert_eq!(
+                buf.extend_with(usize::MAX, |_| panic!("reservation should fail")),
+                Err(WriteError::OutOfCapacity)
+            );
+            assert_eq!(
+                buf.extend_with(1, |spare| spare.len() + 1),
+                Err(WriteError::OutOfCapacity)
+            );
+        }
+
+        buf.extend_str("end").unwrap();
+        assert_eq!(buf.as_written(), b"startend");
+    }
+
     // ChainedBumpWriter tests
 
     #[test]
@@ -2786,6 +2797,52 @@ mod tests {
         buf.extend_str("123456789").unwrap();
 
         assert_eq!(buf.into_vec(), b"123456789");
+    }
+
+    #[test]
+    fn chained_into_string_transfers_single_page_allocation() {
+        let mut buf = RenderBuffer::new();
+        buf.extend_str("Grüße").unwrap();
+        let page_ptr = buf.as_slice().as_ptr();
+
+        let text = buf.into_string();
+
+        assert_eq!(text, "Grüße");
+        assert_eq!(text.as_ptr(), page_ptr);
+    }
+
+    #[test]
+    fn chained_into_string_accepts_code_point_across_pages() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("abc🦀").unwrap();
+
+        assert!(buf.page_count() > 1);
+        assert_eq!(buf.into_string(), "abc🦀");
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_rejects_invalid_callback_lengths() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("abc").unwrap();
+
+        // SAFETY: the callback windows contain only valid UTF-8.
+        unsafe {
+            assert_eq!(
+                buf.extend_with(usize::MAX, |_| panic!("reservation should fail")),
+                Err(WriteError::OutOfCapacity)
+            );
+            for max_len in [1, 2] {
+                assert_eq!(
+                    buf.extend_with(max_len, |spare| spare.len() + 1),
+                    Err(WriteError::OutOfCapacity)
+                );
+                assert_eq!(buf.as_slice(), b"abc");
+            }
+        }
+
+        buf.extend_str("de").unwrap();
+        assert_eq!(buf.into_string(), "abcde");
     }
 
     #[test]
