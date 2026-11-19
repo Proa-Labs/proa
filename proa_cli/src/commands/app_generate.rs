@@ -103,12 +103,7 @@ pub fn page(
 ) -> Result<()> {
     let root = resolve_config_root(root)?;
     let route = route_name(&raw_path)?;
-    let project = config::load_project_config(&root)?;
-    let configured_markdown = project
-        .representations
-        .as_ref()
-        .and_then(|value| value.markdown.as_ref())
-        .is_some_and(|markdown| markdown.enabled);
+    let configured_markdown = config::load_component_lock(&root)?.scaffold_markdown() == Some(true);
     let markdown = force_markdown || (!no_markdown && configured_markdown);
     if force_markdown && !configured_markdown {
         bail!("Markdown is not installed for this project; run `proa add representation markdown` first");

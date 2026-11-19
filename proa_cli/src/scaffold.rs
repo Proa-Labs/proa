@@ -322,11 +322,9 @@ pub(crate) fn site_check_with_config(
                 }
             }
         }
-        let markdown = config
-            .representations
-            .as_ref()
-            .and_then(|value| value.markdown.as_ref())
-            .is_some_and(|markdown| markdown.enabled);
+        let lock = crate::config::load_component_lock(&root)?;
+        let markdown = lock.scaffold_markdown() == Some(true)
+            && lock.scaffold_capabilities().any(|id| id == "base:site");
         if markdown {
             if origin_template {
                 let library = fs::read_to_string(root.join("src/lib.rs")).unwrap_or_default();
@@ -509,11 +507,14 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
     let root = resolve_root(root)?;
     let config = crate::config::load_project_config(&root)?;
     if config.application.is_some() {
-        let markdown = config
-            .representations
-            .as_ref()
-            .and_then(|value| value.markdown.as_ref())
-            .is_some_and(|markdown| markdown.enabled);
+        let generated_routes = fs::read_to_string(root.join("src/routes.rs")).unwrap_or_default();
+        let markdown = generated_routes.contains(".route(\"/index.md\"")
+            || (config
+                .application
+                .as_ref()
+                .is_some_and(|app| app.template == "origin")
+                && fs::read_to_string(root.join("src/lib.rs"))
+                    .is_ok_and(|source| source.contains(".route(\"/index.md\"")));
         let mut routes = vec![RouteInfo {
             method: "GET",
             path: "/".to_string(),
@@ -543,7 +544,6 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
                 file: PathBuf::from("src/endpoints/health.rs"),
             });
         }
-        let generated_routes = fs::read_to_string(root.join("src/routes.rs")).unwrap_or_default();
         for line in generated_routes.lines() {
             let trimmed = line.trim();
             if !trimmed.starts_with("Route::endpoint(\"") {

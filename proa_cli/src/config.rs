@@ -15,11 +15,7 @@ mod model;
 mod rust;
 pub(crate) use rust::DevConfigRunner;
 
-use model::default_watch_paths;
-pub use model::{
-    Config, ContentCollectionConfig, ContentConfig, DatabaseDriver, HtmlRepresentationConfig,
-    CONFIG_FILE,
-};
+pub use model::{Config, DatabaseDriver, CONFIG_FILE};
 pub type ProjectConfig = Config<String, PathBuf>;
 
 macro_rules! owned_config_sections {
@@ -35,16 +31,11 @@ owned_config_sections! {
     CdnConfig<String>,
     DatabaseConfig<String, PathBuf>,
     DeployConfig<String>,
-    DevConfig<String, PathBuf>,
-    MarkdownRepresentationConfig<String>,
     ProjectPaths<PathBuf>,
     RegistriesConfig<String>,
-    RepresentationsConfig<String>,
     ScriptConfig<String, PathBuf>,
+    ScriptHooks<String>,
     ScriptsConfig<String, PathBuf>,
-    StylingConfig<String, PathBuf>,
-    TestConfig<String>,
-    UiConfig<String>,
 }
 
 pub const LOCK_FILE: &str = "proa.lock.json";
@@ -58,6 +49,35 @@ pub struct ComponentLockFile {
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     pub components: BTreeMap<String, InstalledComponent>,
+    // Component installs rewrite this lock. Preserve scaffold metadata and
+    // version keys written by the site generator and capability commands.
+    #[serde(flatten)]
+    pub metadata: BTreeMap<String, serde_json::Value>,
+}
+
+impl ComponentLockFile {
+    pub(crate) fn scaffold_capabilities(&self) -> impl Iterator<Item = &str> {
+        self.metadata
+            .get("scaffold")
+            .and_then(|scaffold| scaffold.get("capabilities"))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|capability| capability.get("id")?.as_str())
+    }
+
+    pub(crate) fn scaffold_markdown(&self) -> Option<bool> {
+        if self
+            .scaffold_capabilities()
+            .any(|id| id == "representation:markdown")
+        {
+            Some(true)
+        } else if self.scaffold_capabilities().any(|id| id == "base:site") {
+            Some(false)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -112,6 +132,7 @@ impl Default for ComponentLockFile {
         Self {
             schema: Some(LOCK_SCHEMA_URL.into()),
             components: BTreeMap::new(),
+            metadata: BTreeMap::new(),
         }
     }
 }
@@ -226,12 +247,6 @@ pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
             validation.errors.push(error.to_string());
         }
     }
-    if config.dev.watch.is_empty() {
-        validation
-            .warnings
-            .push("dev.watch is empty; `proa dev` will never restart on changes".to_string());
-    }
-
     for (name, path) in [
         ("paths.components", &config.paths.components),
         ("paths.assets", &config.paths.assets),
@@ -240,18 +255,9 @@ pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
             validation.errors.push(format!("{name}: {error}"));
         }
     }
-    for (name, path) in [
-        ("pages", &config.paths.pages),
-        ("endpoints", &config.paths.endpoints),
-        ("layouts", &config.paths.layouts),
-        ("models", &config.paths.models),
-        ("public", &config.paths.public),
-        ("runtimeData", &config.paths.runtime_data),
-    ] {
-        if let Some(path) = path {
-            if let Err(error) = validate_project_relative_path(path) {
-                validation.errors.push(format!("paths.{name}: {error}"));
-            }
+    if let Some(path) = &config.paths.public {
+        if let Err(error) = validate_project_relative_path(path) {
+            validation.errors.push(format!("paths.public: {error}"));
         }
     }
     if config.paths.components == config.paths.assets {
@@ -447,15 +453,6 @@ fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
     if config.registries.proa.is_none() && config.registries.proa_pro.is_none() {
         config.registries = RegistriesConfig::default();
     }
-    if config.dev.host.is_empty() {
-        config.dev.host = DevConfig::default().host;
-    }
-    if config.dev.port == 0 {
-        config.dev.port = DevConfig::default().port;
-    }
-    if config.dev.watch.is_empty() {
-        config.dev.watch = default_watch_paths();
-    }
     if config.build.assets.is_none() && root.join("styles/input.css").exists() {
         config.build.assets = Some(vec![tailwind_asset()]);
     }
@@ -557,7 +554,6 @@ pub async fn config() -> std::io::Result<Config<&'static str, String>> {
                     components: "../outside".into(),
                     assets: "/tmp/assets".into(),
                     public: Some("../public".into()),
-                    ..Default::default()
                 },
                 registries: RegistriesConfig {
                     proa: Some("https://ui.proa.so/r/component.json".into()),

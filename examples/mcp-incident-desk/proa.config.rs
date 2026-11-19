@@ -3,38 +3,17 @@
 
 use proa_config::{
     ApplicationConfig, AssetConfig, BuildConfig, Config, DatabaseConfig, DatabaseDriver,
-    DeployConfig, MarkdownRepresentationConfig, ProjectPaths, RegistriesConfig,
-    RepresentationsConfig, Result, ScriptsConfig, StylingConfig, UiConfig,
+    ProjectPaths, RegistriesConfig, Result, ScriptsConfig,
 };
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
         application: Some(ApplicationConfig {
             binary: "mcp-incident-desk",
-            package: "mcp-incident-desk",
-            starter: "blank",
             template: "app",
-            ..Default::default()
         }),
         database: Some(DatabaseConfig {
             driver: DatabaseDriver::Sqlite,
-            ..Default::default()
-        }),
-        ui: Some(UiConfig { provider: "proa" }),
-        representations: Some(RepresentationsConfig {
-            markdown: Some(MarkdownRepresentationConfig {
-                enabled: true,
-                ..Default::default()
-            }),
-            ..Default::default()
-        }),
-        styling: Some(StylingConfig {
-            kind: "tailwind",
-            input: Some("styles/input.css"),
-            output: Some("public/styles.css"),
-        }),
-        deploy: Some(DeployConfig {
-            provider: "none",
             ..Default::default()
         }),
         registries: RegistriesConfig::public_only(),

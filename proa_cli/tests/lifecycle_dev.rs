@@ -271,37 +271,32 @@ fn main() {
         command
     };
 
-    for once in [false, true] {
-        let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = reservation.local_addr().unwrap().port();
-        fs::write(
-            root.join("proa.config.rs"),
-            format!(
-                r#"use proa_config::{{Config, DevConfig, Result, ScriptsConfig}};
-pub async fn config() -> Result<Config> {{
-    Ok(Config {{
-        scripts: ScriptsConfig {{
+    fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa_config::{Config, Result, ScriptsConfig};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
             dev: "cargo run -- 'Local shop'",
             build: "cargo build --release",
             ..Default::default()
-        }},
-        dev: DevConfig {{
-            host: "0.0.0.0",
-            port: {port},
-            ..Default::default()
-        }},
+        },
         ..Config::default()
-    }})
-}}
+    })
+}
 "#,
-            ),
-        )
-        .unwrap();
+    )
+    .unwrap();
+
+    for once in [false, true] {
+        let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reservation.local_addr().unwrap().port();
         let _ = fs::remove_file(&ready_file);
         let _ = fs::remove_file(&browser_log);
         let log_path = root.join("dev.log");
         let log = fs::File::create(&log_path).unwrap();
         let mut command = command();
+        command.args(["--host", "0.0.0.0", "--port", &port.to_string()]);
         let expected_url = if once {
             let url = format!("https://localhost:{port}/shop");
             command.arg("--no-restart").env("TEST_BROWSER_URL", &url);

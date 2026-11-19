@@ -161,7 +161,6 @@ struct LinkedDevLaunch {
 
 struct LinkedDevRebuild {
     config: ProjectConfig,
-    watch_paths: Vec<PathBuf>,
     snapshot: WatchSnapshot,
     launch: LinkedDevLaunch,
     hot_state: Option<crate::hot_static::HotState>,
@@ -174,7 +173,11 @@ pub fn dev(options: DevOptions) -> Result<()> {
 pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let mut runner = crate::config::DevConfigRunner::default();
-    let mut config = load_dev_config(&root, &options, Some(&mut runner))?;
+    let mut config = crate::config::load_project_config_with_runner(&root, Some(&mut runner))?;
+    let address = (
+        options.host.as_deref().unwrap_or("127.0.0.1"),
+        options.port.unwrap_or(3000),
+    );
     let mut watched_script = entrypoint::WatchedDevScript::new(
         &config.scripts.dev,
         arguments.is_some() && options.command.is_empty(),
@@ -200,7 +203,7 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
     if options.open {
         println!("The browser will open when the server is ready.");
     }
-    task::run_lifecycle_tasks(&root, &config, &config.dev.before, &BTreeMap::new())?;
+    task::run_lifecycle_tasks(&root, &config, &config.scripts.before.dev, &BTreeMap::new())?;
 
     if options.no_restart {
         if !options.no_assets {
@@ -224,23 +227,17 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
             hot_state.as_ref(),
             source.as_deref(),
         )?;
-        return run_linked_dev_foreground(
-            &root,
-            &launch,
-            &config.dev.host,
-            config.dev.port,
-            options.open,
-        );
+        return run_linked_dev_foreground(&root, &launch, address.0, address.1, options.open);
     }
 
     // Live reload is a watch-mode feature. Without restarts there is nothing
     // to announce, so a one-shot run never pays for the event server.
-    let reload = start_reload_server(&config, &options);
+    let reload = start_reload_server(address, &options);
 
     if !options.no_assets {
         build_assets(&root, &config)?;
     }
-    let mut watch_paths = config.dev.watch.clone();
+    let mut watch_paths = dev_watch_paths(&root, &config, &options)?;
     let baseline = watch_snapshot(&root, &watch_paths)?;
     let mut hot_state = hot_scan_or_rustc_diagnostics(
         &root,
@@ -260,14 +257,8 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
         hot_state.as_ref(),
         source.as_deref(),
     )?;
-    let mut child = spawn_linked_dev(
-        &root,
-        &launch,
-        &config.dev.host,
-        config.dev.port,
-        reload.as_ref(),
-    )?;
-    announce_dev_start(options.open, &config.dev.host, config.dev.port, &mut child);
+    let mut child = spawn_linked_dev(&root, &launch, address.0, address.1, reload.as_ref())?;
+    announce_dev_start(options.open, address.0, address.1, &mut child);
 
     let clock = Instant::now();
     let mut debouncer = DevWatchDebouncer::new(baseline, debounce);
@@ -311,7 +302,7 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                     println!("restored the public asset catalog without Cargo");
                     // A recreated output directory has a new reader lock. Reopen
                     // it even when all URLs still point to exactly the same bytes.
-                    child.restart(&root, &launch, &config.dev, None, reload.as_ref())?;
+                    child.restart(&root, &launch, address, None, reload.as_ref())?;
                     retry_catalog_at = Instant::now();
                     continue;
                 }
@@ -325,12 +316,13 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
         let mut failure_snapshot = trigger_snapshot;
         // The cached runner rechecks rustc's recorded inputs and Cargo settings
         // itself, so any edit that leaves them untouched skips the runner build.
-        let evaluated = load_dev_config(&root, &options, Some(&mut runner)).and_then(|mut next| {
-            if let Some(script) = &mut watched_script {
-                script.apply(&mut next.scripts.dev)?;
-            }
-            Ok(next)
-        });
+        let evaluated = crate::config::load_project_config_with_runner(&root, Some(&mut runner))
+            .and_then(|mut next| {
+                if let Some(script) = &mut watched_script {
+                    script.apply(&mut next.scripts.dev)?;
+                }
+                Ok(next)
+            });
         let inputs = evaluated.and_then(|next| {
             prepare_dev_inputs(
                 &root,
@@ -362,7 +354,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
         } = inputs;
         if css_only && !missing_catalog {
             println!("stylesheet change stabilized; rebuilt assets without restarting");
-            watch_paths = next_config.dev.watch.clone();
             debouncer.commit(snapshot);
             notify(reload.as_ref(), &ReloadEvent::Css);
             continue;
@@ -374,7 +365,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                         "static template change stabilized; published without Cargo or restart"
                     );
                     hot_state = Some(update);
-                    watch_paths = next_config.dev.watch.clone();
                     debouncer.commit(snapshot);
                     notify(reload.as_ref(), &ReloadEvent::Reload);
                     continue;
@@ -386,12 +376,11 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
         }
         println!("change stabilized; rebuilding linked RSJS dev server");
         let rebuild = (|| -> Result<LinkedDevRebuild> {
-            let next_watch_paths = next_config.dev.watch.clone();
             let command = dev_command(&next_config, &options)?;
             // Capture the exact source/config state handed to this cycle after
             // asset generation. A change during Cargo will differ on the next
             // poll and schedule another cycle rather than being swallowed.
-            let cycle_snapshot = watch_snapshot(&root, &next_watch_paths)?;
+            let cycle_snapshot = watch_snapshot(&root, &watch_paths)?;
             failure_snapshot = cycle_snapshot.clone();
             // Stage after tasks/assets may have generated Rust sources,
             // and after the committed snapshot. An edit during staging or
@@ -416,7 +405,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
             )?;
             Ok(LinkedDevRebuild {
                 config: next_config,
-                watch_paths: next_watch_paths,
                 snapshot: cycle_snapshot,
                 launch,
                 hot_state: next_hot_state,
@@ -426,7 +414,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
         match rebuild {
             Ok(LinkedDevRebuild {
                 config: next_config,
-                watch_paths: next_watch_paths,
                 snapshot: cycle_snapshot,
                 launch: next_launch,
                 hot_state: mut next_hot_state,
@@ -438,7 +425,7 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                 child.restart(
                     &root,
                     &next_launch,
-                    &next_config.dev,
+                    address,
                     next_hot_state.as_mut(),
                     reload.as_ref(),
                 )?;
@@ -447,7 +434,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
                 retry_catalog_at = Instant::now();
                 last_build_failed = false;
                 hot_state = next_hot_state;
-                watch_paths = next_watch_paths;
                 debouncer = DevWatchDebouncer::new(cycle_snapshot, debounce);
             }
             Err(error) => {
@@ -482,12 +468,13 @@ fn prepare_dev_inputs(
 ) -> Result<PreparedDevInputs> {
     // Failure snapshots must use the same watch set as the next poll, even
     // when a config edit changes watched paths and preparation then fails.
-    *watch_paths = config.dev.watch.clone();
-    let tasks = task::run_lifecycle_tasks(root, &config, &config.dev.before, &BTreeMap::new());
-    // Include dev.before's generated writes, even if a task fails. Capture
+    *watch_paths = dev_watch_paths(root, &config, options)?;
+    let tasks =
+        task::run_lifecycle_tasks(root, &config, &config.scripts.before.dev, &BTreeMap::new());
+    // Include generated writes from pre-dev tasks, even if a task fails. Capture
     // before scanning/publishing templates or running asset commands so edits
     // during those operations still schedule another cycle.
-    let snapshot = watch_snapshot(root, &config.dev.watch)?;
+    let snapshot = watch_snapshot(root, watch_paths)?;
     *failure_snapshot = snapshot.clone();
     tasks?;
     let changed = changed_paths(committed, &snapshot);
@@ -513,7 +500,7 @@ fn prepare_dev_inputs(
         build_assets(root, &config)?;
     }
     if managed_public {
-        let after_assets = watch_snapshot(root, &config.dev.watch)?;
+        let after_assets = watch_snapshot(root, watch_paths)?;
         if config.paths.public.as_ref().is_some_and(|public| {
             changed_paths(committed, &after_assets)
                 .iter()
@@ -533,7 +520,7 @@ fn prepare_dev_inputs(
     })
 }
 
-fn start_reload_server(config: &ProjectConfig, options: &DevOptions) -> Option<ReloadServer> {
+fn start_reload_server(address: (&str, u16), options: &DevOptions) -> Option<ReloadServer> {
     if options.no_reload {
         println!("Proa dev live reload: off");
         return None;
@@ -546,13 +533,13 @@ fn start_reload_server(config: &ProjectConfig, options: &DevOptions) -> Option<R
     // stable: one whose stream endpoint has moved reloads itself and picks up
     // the current one from the page.
     let requested = options.reload_port.unwrap_or_default();
-    if requested != 0 && requested == config.dev.port {
+    if requested != 0 && requested == address.1 {
         eprintln!(
             "Proa dev live reload: off (--reload-port {requested} is the port the site itself uses)"
         );
         return None;
     }
-    match ReloadServer::bind(&config.dev.host, requested) {
+    match ReloadServer::bind(address.0, requested) {
         Ok(server) => {
             println!("Proa dev live reload: on (port {})", server.port());
             Some(server)
@@ -697,28 +684,45 @@ fn is_stylesheet_only_change(changed: &[PathBuf]) -> bool {
         })
 }
 
-fn load_dev_config(
+fn default_watch_paths() -> Vec<PathBuf> {
+    // Cargo.lock can be rewritten by Cargo itself. Watching it restarts the
+    // dev loop for a change caused by the build.
+    [
+        "src",
+        "styles",
+        "migrations",
+        "Cargo.toml",
+        "build.rs",
+        crate::config::CONFIG_FILE,
+        crate::config::LOCK_FILE,
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
+fn dev_watch_paths(
     root: &Path,
+    config: &ProjectConfig,
     options: &DevOptions,
-    runner: Option<&mut crate::config::DevConfigRunner>,
-) -> Result<ProjectConfig> {
-    let mut config = crate::config::load_project_config_with_runner(root, runner)?;
-    apply_dev_overrides(&mut config, options);
-    let rust_config = PathBuf::from(crate::config::CONFIG_FILE);
-    if root.join(&rust_config).is_file() && !config.dev.watch.contains(&rust_config) {
-        config.dev.watch.push(rust_config);
+) -> Result<Vec<PathBuf>> {
+    let mut paths = default_watch_paths();
+    for path in &options.watch {
+        if !paths.contains(path) {
+            paths.push(path.clone());
+        }
     }
-    if public_assets::source(root, &config, !options.no_assets)?.is_some() {
+    if public_assets::source(root, config, !options.no_assets)?.is_some() {
         let public = config
             .paths
             .public
-            .clone()
+            .as_ref()
             .expect("configured public source");
-        if !config.dev.watch.contains(&public) {
-            config.dev.watch.push(public);
+        if !paths.contains(public) {
+            paths.push(public.clone());
         }
     }
-    Ok(config)
+    Ok(paths)
 }
 
 // The exact final server runs in its own process group so restarts can stop
@@ -804,7 +808,12 @@ pub(crate) fn build_from_cli(options: BuildOptions, arguments: Option<&[OsString
         );
     }
 
-    task::run_lifecycle_tasks(&root, &config, &config.build.before, &BTreeMap::new())?;
+    task::run_lifecycle_tasks(
+        &root,
+        &config,
+        &config.scripts.before.build,
+        &BTreeMap::new(),
+    )?;
     if !options.no_check {
         run_project_check(&root, &config)?;
     }
@@ -1041,7 +1050,8 @@ fn watched_test_loop(
     commands: &[Vec<String>],
     database: Option<&IsolatedTestDatabase>,
 ) -> Result<bool> {
-    let mut paths = config.dev.watch.clone();
+    let mut paths = default_watch_paths();
+    paths.push("tests".into());
     let migrations = config
         .database
         .as_ref()
@@ -1111,11 +1121,7 @@ fn run_test_cycle(
     if TEST_INTERRUPTED.load(Ordering::SeqCst) {
         bail!("test interrupted");
     }
-    let before = config
-        .test
-        .as_ref()
-        .map_or(&[][..], |test| test.before.as_slice());
-    task::run_lifecycle_tasks(root, config, before, environment)?;
+    task::run_lifecycle_tasks(root, config, &config.scripts.before.test, environment)?;
     if public_assets::source(root, config, true)?.is_some() {
         build_assets(root, config)?;
     }
@@ -1244,7 +1250,7 @@ fn run_linked_execute_with_environment(
         public_assets::defer_execution(&mut prepared, action);
     }
     if action == LinkedCargoAction::Run && public_source.is_some() {
-        task::run_lifecycle_tasks(root, config, &config.build.before, &BTreeMap::new())?;
+        task::run_lifecycle_tasks(root, config, &config.scripts.before.build, &BTreeMap::new())?;
         build_assets(root, config)?;
     }
     println!(
@@ -1648,20 +1654,6 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
         Err(io::Error::last_os_error())
     } else {
         Ok(())
-    }
-}
-
-fn apply_dev_overrides(config: &mut ProjectConfig, options: &DevOptions) {
-    if let Some(host) = &options.host {
-        config.dev.host = host.clone();
-    }
-    if let Some(port) = options.port {
-        config.dev.port = port;
-    }
-    for path in &options.watch {
-        if !config.dev.watch.contains(path) {
-            config.dev.watch.push(path.clone());
-        }
     }
 }
 
@@ -3107,7 +3099,7 @@ impl DevChild {
         &mut self,
         root: &Path,
         launch: &LinkedDevLaunch,
-        config: &crate::config::DevConfig,
+        address: (&str, u16),
         hot: Option<&mut crate::hot_static::HotState>,
         reload: Option<&ReloadServer>,
     ) -> Result<()> {
@@ -3116,8 +3108,8 @@ impl DevChild {
         if let Some(hot) = hot {
             hot.activate()?;
         }
-        *self = spawn_linked_dev(root, launch, &config.host, config.port, reload)?;
-        announce_reload(reload, &config.host, config.port, self);
+        *self = spawn_linked_dev(root, launch, address.0, address.1, reload)?;
+        announce_reload(reload, address.0, address.1, self);
         Ok(())
     }
 }

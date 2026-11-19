@@ -1406,9 +1406,8 @@ mod dev_preparation_tests {
         fs::write(root.join("generator-input"), "const GENERATED: u8 = 1;").unwrap();
         fs::write(root.join("styles/input.css"), ".old { color: red; }").unwrap();
         let mut config = crate::config::inferred_project_config();
-        config.dev.watch = vec!["src".into(), "styles".into(), "proa.config.rs".into()];
         if let Some(command) = before {
-            config.dev.before = vec!["generate".into()];
+            config.scripts.before.dev = vec!["generate".into()];
             config.scripts.named.insert(
                 "generate".into(),
                 crate::config::ScriptConfig {
@@ -1473,21 +1472,21 @@ mod dev_preparation_tests {
 
     #[test]
     fn generated_identical_rust_is_consumed_without_another_reload() {
-        let (temp, config) = fixture(Some("cp generator-input src/generated.rs"), None);
+        let (temp, _config) = fixture(Some("cp generator-input src/generated.rs"), None);
         let root = temp.path();
         let active = crate::hot_static::HotState::prepare(root).unwrap();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
-        let trigger = watch_snapshot(root, &config.dev.watch).unwrap();
+        let trigger = watch_snapshot(root, &default_watch_paths()).unwrap();
         let mut failure = trigger.clone();
         let mut inputs = prepare_dev_inputs(
             root,
-            load_dev_config(root, &dev_options(None), None).unwrap(),
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             Some(&active),
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
         )
         .unwrap();
         assert_ne!(
@@ -1499,7 +1498,7 @@ mod dev_preparation_tests {
         assert_eq!(
             watch.observe(
                 Duration::ZERO,
-                watch_snapshot(root, &config.dev.watch).unwrap()
+                watch_snapshot(root, &default_watch_paths()).unwrap()
             ),
             DevWatchDecision::Idle
         );
@@ -1511,21 +1510,21 @@ mod dev_preparation_tests {
             (Some("cp generator-input src/generated.rs; exit 1"), None),
             (Some("cp generator-input src/generated.rs"), Some("exit 1")),
         ] {
-            let (temp, config) = fixture(before, asset);
+            let (temp, _config) = fixture(before, asset);
             let root = temp.path();
             let active = crate::hot_static::HotState::prepare(root).unwrap();
             let published = fs::read(manifest(&active)).unwrap();
-            let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+            let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
             fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
-            let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+            let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
             assert!(prepare_dev_inputs(
                 root,
-                load_dev_config(root, &dev_options(None), None).unwrap(),
+                load_project_config(root).unwrap(),
                 &dev_options(None),
                 &committed,
                 Some(&active),
                 &mut failure,
-                &mut config.dev.watch.clone(),
+                &mut default_watch_paths(),
             )
             .is_err());
             assert_eq!(fs::read(manifest(&active)).unwrap(), published);
@@ -1539,7 +1538,7 @@ mod dev_preparation_tests {
             assert_eq!(
                 watch.observe(
                     Duration::ZERO,
-                    watch_snapshot(root, &config.dev.watch).unwrap()
+                    watch_snapshot(root, &default_watch_paths()).unwrap()
                 ),
                 DevWatchDecision::Idle
             );
@@ -1548,21 +1547,21 @@ mod dev_preparation_tests {
 
     #[test]
     fn edits_during_publication_are_still_pending() {
-        let (temp, config) = fixture(None, None);
+        let (temp, _config) = fixture(None, None);
         let root = temp.path();
         let active = crate::hot_static::HotState::prepare(root).unwrap();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         let published = fs::read(manifest(&active)).unwrap();
         fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
-        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
         let mut inputs = prepare_dev_inputs(
             root,
-            load_dev_config(root, &dev_options(None), None).unwrap(),
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             Some(&active),
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
         )
         .unwrap();
         assert_eq!(fs::read(manifest(&active)).unwrap(), published);
@@ -1577,7 +1576,7 @@ mod dev_preparation_tests {
         assert_eq!(
             watch.observe(
                 Duration::ZERO,
-                watch_snapshot(root, &config.dev.watch).unwrap()
+                watch_snapshot(root, &default_watch_paths()).unwrap()
             ),
             DevWatchDecision::Debouncing
         );
@@ -1585,21 +1584,21 @@ mod dev_preparation_tests {
 
     #[test]
     fn css_cycle_with_new_generated_rust_requires_a_linked_rebuild() {
-        let (temp, config) = fixture(Some("cp generator-input src/generated.rs"), None);
+        let (temp, _config) = fixture(Some("cp generator-input src/generated.rs"), None);
         let root = temp.path();
         let active = crate::hot_static::HotState::prepare(root).unwrap();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         fs::write(root.join("generator-input"), "const GENERATED: u8 = 2;").unwrap();
         fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
-        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
         let inputs = prepare_dev_inputs(
             root,
-            load_dev_config(root, &dev_options(None), None).unwrap(),
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             Some(&active),
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
         )
         .unwrap();
         assert!(!inputs.css_only);
@@ -1610,9 +1609,9 @@ mod dev_preparation_tests {
     fn failed_preparation_keeps_the_snapshot_and_watch_paths_in_agreement() {
         let (temp, mut config) = fixture(None, Some("exit 1"));
         let root = temp.path();
-        let mut watch_paths = config.dev.watch.clone();
+        let mut watch_paths = default_watch_paths();
         let committed = watch_snapshot(root, &watch_paths).unwrap();
-        config.dev.watch.push("generated".into());
+        config.paths.public = Some("generated".into());
         fs::create_dir(root.join("generated")).unwrap();
         fs::write(root.join("generated/output.rs"), "const OUTPUT: u8 = 1;").unwrap();
         fs::write(
@@ -1623,7 +1622,7 @@ mod dev_preparation_tests {
         let mut failure = watch_snapshot(root, &watch_paths).unwrap();
         assert!(prepare_dev_inputs(
             root,
-            load_dev_config(root, &dev_options(None), None).unwrap(),
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             None,
@@ -1631,7 +1630,10 @@ mod dev_preparation_tests {
             &mut watch_paths
         )
         .is_err());
-        assert_eq!(watch_paths, config.dev.watch);
+        assert_eq!(
+            watch_paths,
+            dev_watch_paths(root, &config, &dev_options(None)).unwrap()
+        );
         let mut watch = DevWatchDebouncer::new(failure, DEV_WATCH_DEBOUNCE);
         assert_eq!(
             watch.observe(Duration::ZERO, watch_snapshot(root, &watch_paths).unwrap()),
@@ -1641,20 +1643,20 @@ mod dev_preparation_tests {
 
     #[test]
     fn stylesheet_edits_during_asset_build_are_not_swallowed() {
-        let (temp, config) = fixture(None, Some("cp late.css styles/input.css"));
+        let (temp, _config) = fixture(None, Some("cp late.css styles/input.css"));
         let root = temp.path();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
         fs::write(root.join("late.css"), ".later { color: green; }").unwrap();
-        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
         let inputs = prepare_dev_inputs(
             root,
-            load_dev_config(root, &dev_options(None), None).unwrap(),
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             None,
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
         )
         .unwrap();
         assert!(inputs.css_only);
@@ -1662,7 +1664,7 @@ mod dev_preparation_tests {
         assert_eq!(
             watch.observe(
                 Duration::ZERO,
-                watch_snapshot(root, &config.dev.watch).unwrap()
+                watch_snapshot(root, &default_watch_paths()).unwrap()
             ),
             DevWatchDecision::Debouncing
         );
@@ -1680,19 +1682,20 @@ mod dev_preparation_tests {
             crate::config::generated_rust_config(&config).unwrap(),
         )
         .unwrap();
-        let loaded = load_dev_config(root, &dev_options(None), None).unwrap();
-        assert!(loaded.dev.watch.contains(&PathBuf::from("public")));
-        let committed = watch_snapshot(root, &loaded.dev.watch).unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(root, &loaded, &dev_options(None)).unwrap();
+        assert!(watch_paths.contains(&PathBuf::from("public")));
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
         fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
         let mut failure = committed.clone();
         let inputs = prepare_dev_inputs(
             root,
-            load_dev_config(root, &dev_options(None), None).unwrap(),
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             None,
             &mut failure,
-            &mut loaded.dev.watch.clone(),
+            &mut watch_paths,
         )
         .unwrap();
         assert!(!inputs.css_only);

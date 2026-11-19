@@ -357,22 +357,32 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
             })+
         };
     }
-    section!(
-        application,
-        database,
-        ui,
-        representations,
-        styling,
-        deploy,
-        content,
-        test
-    );
+    section!(application, database, deploy);
     writeln!(source, "        scripts: proa_config::ScriptsConfig {{")?;
     writeln!(source, "            dev: {:?},", config.scripts.dev)?;
     writeln!(source, "            build: {:?},", config.scripts.build)?;
-    if config.scripts.named.is_empty() {
-        writeln!(source, "            ..Default::default()")?;
-    } else {
+    let before = &config.scripts.before;
+    if !before.is_empty() {
+        writeln!(source, "            before: proa_config::ScriptHooks {{")?;
+        for (phase, tasks) in [
+            ("dev", &before.dev),
+            ("build", &before.build),
+            ("test", &before.test),
+        ] {
+            if !tasks.is_empty() {
+                writeln!(
+                    source,
+                    "                {phase}: {},",
+                    string_vec(tasks, TextSource::Literal)
+                )?;
+            }
+        }
+        writeln!(
+            source,
+            "                ..Default::default()\n            }},"
+        )?;
+    }
+    if !config.scripts.named.is_empty() {
         writeln!(
             source,
             "            named: std::collections::BTreeMap::from(["
@@ -408,6 +418,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
         }
         writeln!(source, "            ]),")?;
     }
+    writeln!(source, "            ..Default::default()")?;
     writeln!(source, "        }},")?;
     if config.registries == super::RegistriesConfig::public_only() {
         writeln!(
@@ -435,51 +446,15 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
             writeln!(source, "            {field}: {},", path_literal(path)?)?;
         }
     }
-    for (field, path) in [
-        ("pages", &config.paths.pages),
-        ("endpoints", &config.paths.endpoints),
-        ("layouts", &config.paths.layouts),
-        ("models", &config.paths.models),
-        ("public", &config.paths.public),
-        ("runtime_data", &config.paths.runtime_data),
-    ] {
-        if let Some(path) = path {
-            writeln!(
-                source,
-                "            {field}: Some({}),",
-                path_literal(path)?
-            )?;
-        }
+    if let Some(path) = &config.paths.public {
+        writeln!(source, "            public: Some({}),", path_literal(path)?)?;
     }
     writeln!(source, "            ..Default::default()\n        }},")?;
-    if config.dev != super::DevConfig::default() {
-        writeln!(source, "        dev: proa_config::DevConfig {{")?;
-        writeln!(source, "            host: {:?},", config.dev.host)?;
-        writeln!(source, "            port: {},", config.dev.port)?;
-        writeln!(
-            source,
-            "            before: {},",
-            string_vec(&config.dev.before, TextSource::Literal)
-        )?;
-        let watch = config
-            .dev
-            .watch
-            .iter()
-            .map(|path| path_literal(path))
-            .collect::<Result<Vec<_>>>()?
-            .join(", ");
-        writeln!(source, "            watch: vec![{watch}],\n        }},")?;
-    }
     writeln!(source, "        build: BuildConfig {{")?;
     writeln!(
         source,
         "            minify_rsjs: {},",
         config.build.minify_rsjs
-    )?;
-    writeln!(
-        source,
-        "            before: {},",
-        string_vec(&config.build.before, TextSource::Literal)
     )?;
     match &config.build.assets {
         Some(assets) if assets.is_empty() => writeln!(source, "            assets: Some(vec![]),")?,
@@ -569,12 +544,6 @@ impl ConfigSource for std::path::PathBuf {
     }
 }
 
-impl ConfigSource for bool {
-    fn rust_expr(&self, _: usize, _: TextSource) -> Result<String> {
-        Ok(self.to_string())
-    }
-}
-
 impl ConfigSource for Vec<String> {
     fn rust_expr(&self, _: usize, text: TextSource) -> Result<String> {
         Ok(string_vec(self, text))
@@ -616,17 +585,9 @@ macro_rules! config_sections {
 
 config_sections! {
     RegistriesConfig { proa, proa_pro },
-    ApplicationConfig { binary, package, kind, starter, template },
-    DatabaseConfig { driver, migrations, run_migrations_on_startup, integration },
-    UiConfig { provider },
-    RepresentationsConfig { html, markdown },
-    HtmlRepresentationConfig { enabled },
-    MarkdownRepresentationConfig { enabled, negotiate_on_canonical_path, explicit_suffix, root_path },
-    StylingConfig { kind, input, output },
+    ApplicationConfig { binary, template },
+    DatabaseConfig { driver, migrations, integration },
     DeployConfig { provider, cdn },
-    ContentConfig { docs, blog },
-    ContentCollectionConfig { enabled },
-    TestConfig { before },
 }
 
 impl ConfigSource for super::DatabaseDriver {
@@ -693,11 +654,7 @@ pub(super) fn with_capability_changes(
         };
     }
     replace_section!(database);
-    replace_section!(ui);
     replace_field!(deploy, provider);
-    replace_field!(representations, markdown);
-    replace_field!(content, docs);
-    replace_field!(content, blog);
     if changes.is_empty() {
         return Ok(source.to_owned());
     }

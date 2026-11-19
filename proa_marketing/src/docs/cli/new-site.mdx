@@ -237,9 +237,8 @@ stylesheet-only change still rebuilds assets without restarting the server, it
 just does not tell the browser. Use `--no-css-hot-swap` for that, and note that
 `--no-assets` disables it too, since there is nothing left to rebuild.
 
-The fast path only sees stylesheets under a watched path. `dev.watch` defaults
-to `src`, `styles`, `Cargo.toml`, `build.rs`, and `proa.config.rs`, so a site
-whose only stylesheet is `public/styles.css` (what `--no-tailwind` generates)
-needs `public` added to `dev.watch` before edits to it are noticed at all.
+The fast path sees stylesheets under watched paths. Proa automatically watches
+the configured public directory along with application sources. Pass
+`--watch PATH` to the linked dev command in your dev script to watch more inputs.
 
 When `--deploy coolify` is enabled, the generated project also includes `Dockerfile`, `.dockerignore`, `coolify.env.example`, and `COOLIFY.md`. See [Coolify](/docs/framework/coolify) for the deployment flow and pull request preview URL setup.

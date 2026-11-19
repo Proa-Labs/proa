@@ -84,22 +84,17 @@ pub(crate) fn run(args: SiteArgs) -> Result<()> {
 fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let root = scaffold::resolve_root(root)?;
     let config = crate::config::load_project_config(&root)?;
-    let lock: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        root.join(crate::config::LOCK_FILE),
-    )?)?;
+    let lock = crate::config::load_component_lock(&root)?;
     let application = config.application.as_ref();
     let database_config = config.database.as_ref();
-    let package = application
-        .map(|app| app.package.as_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("Proa site");
+    let package = crate::util::cargo_package_name(&root).unwrap_or_else(|| "Proa site".into());
     let template = application
         .map(|app| app.template.as_str())
         .filter(|name| !name.is_empty())
         .unwrap_or("custom");
-    let starter = application
-        .map(|app| app.starter.as_str())
-        .filter(|name| !name.is_empty())
+    let starter = lock
+        .scaffold_capabilities()
+        .find_map(|id| id.strip_prefix("starter:"))
         .unwrap_or("custom");
     let database = database_config
         .map(|db| db.driver.as_str())
@@ -108,21 +103,19 @@ fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         .map(|db| db.integration.as_str())
         .filter(|value| !value.is_empty())
         .unwrap_or("integrated");
-    let styling = config
-        .styling
-        .as_ref()
-        .map(|style| style.kind.as_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("css");
-    let markdown = config
-        .representations
-        .as_ref()
-        .and_then(|formats| formats.markdown.as_ref())
-        .is_some_and(|format| format.enabled);
-    let components = lock
-        .get("components")
-        .and_then(serde_json::Value::as_object)
-        .map_or(0, serde_json::Map::len);
+    let styling = if config
+        .build
+        .assets()
+        .iter()
+        .any(|asset| asset.kind == "tailwind")
+    {
+        "tailwind"
+    } else {
+        "css"
+    };
+    let scaffold_markdown = lock.scaffold_markdown();
+    let markdown = scaffold_markdown.unwrap_or(false);
+    let components = lock.components.len();
     let value = serde_json::json!({
         "package": package,
         "template": template,
@@ -139,19 +132,11 @@ fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         println!("{package}");
         println!("  Template      {template} · {starter}");
         println!(
-            "  Routes        {}",
-            if markdown {
-                "1 page · 2 endpoints · 1 Markdown alias"
-            } else {
-                "1 page · 2 endpoints"
-            }
-        );
-        println!(
-            "  Representations {}",
-            if markdown {
-                "HTML + Markdown · Accept negotiation enabled"
-            } else {
-                "HTML"
+            "  Page scaffolding {}",
+            match scaffold_markdown {
+                Some(true) => "HTML + Markdown",
+                Some(false) => "HTML",
+                None => "Defined by the application",
             }
         );
         println!("  Database      {database}");

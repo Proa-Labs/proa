@@ -256,22 +256,13 @@ fn gitignore() -> &'static str {
 fn project_config(package: &str, selection: CapabilitySelection) -> Result<String> {
     use crate::config::{
         ApplicationConfig, AssetConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig,
-        HtmlRepresentationConfig, MarkdownRepresentationConfig, ProjectConfig, ProjectPaths,
-        RepresentationsConfig, StylingConfig, TestConfig, UiConfig,
+        ProjectConfig, ProjectPaths,
     };
 
-    let database = match selection.database {
-        DatabaseChoice::Sqlite => DatabaseConfig {
-            driver: DatabaseDriver::Sqlite,
-            ..Default::default()
-        },
-        DatabaseChoice::None => DatabaseConfig::default(),
-    };
-    let markdown = if selection.markdown {
-        MarkdownRepresentationConfig::site()
-    } else {
-        MarkdownRepresentationConfig::default()
-    };
+    let database = (selection.database == DatabaseChoice::Sqlite).then(|| DatabaseConfig {
+        driver: DatabaseDriver::Sqlite,
+        ..Default::default()
+    });
     let tailwind = selection.styling == StylingChoice::Tailwind;
     let assets = if tailwind {
         vec![AssetConfig {
@@ -285,38 +276,24 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
     };
     crate::config::generated_rust_config(&ProjectConfig {
         application: Some(ApplicationConfig {
-            package: package.into(),
             binary: package.into(),
             template: selection.template.as_str().into(),
-            starter: selection.starter.as_str().into(),
-            ..Default::default()
         }),
-        database: Some(database),
-        ui: Some(UiConfig {
-            provider: selection.ui.as_str().into(),
-        }),
-        representations: Some(RepresentationsConfig {
-            html: Some(HtmlRepresentationConfig { enabled: true }),
-            markdown: Some(markdown),
-        }),
-        styling: Some(StylingConfig {
-            kind: selection.styling.as_str().into(),
-            input: tailwind.then(|| "styles/input.css".into()),
-            output: Some("public/styles.css".into()),
-        }),
+        database,
         paths: ProjectPaths {
             public: Some("public".into()),
             ..Default::default()
         },
-        deploy: Some(DeployConfig {
-            provider: selection.deploy.as_str().into(),
-            ..Default::default()
+        deploy: (selection.deploy != crate::capabilities::DeployChoice::None).then(|| {
+            DeployConfig {
+                provider: selection.deploy.as_str().into(),
+                ..Default::default()
+            }
         }),
         build: BuildConfig {
             assets: Some(assets),
             ..Default::default()
         },
-        test: Some(TestConfig::default()),
         registries: crate::config::RegistriesConfig::public_only(),
         ..crate::config::inferred_project_config()
     })

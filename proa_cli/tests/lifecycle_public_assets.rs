@@ -9,7 +9,7 @@ use std::{
 };
 
 const PUBLIC_CONFIG: &str = r#"
-use proa_config::{BuildConfig, Config, DevConfig, ProjectPaths, Result, ScriptsConfig};
+use proa_config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config<&'static str, String>> {
     let public = proa_config::tokio::fs::read_to_string("asset-root.txt")
@@ -27,10 +27,6 @@ pub async fn config() -> Result<Config<&'static str, String>> {
         },
         build: BuildConfig {
             assets: Some(vec![]),
-            ..Default::default()
-        },
-        dev: DevConfig {
-            watch: vec!["src".into()],
             ..Default::default()
         },
         ..Config::default()

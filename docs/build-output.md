@@ -72,8 +72,8 @@ exec "${PROA_SCRIPT_EXECUTABLE:-proa}" build --linked "$@"
 ```
 
 The direct `cargo run` and `cargo build` forms are shorthand for entering the
-linked pipeline. Use `scripts.named` with `build.before` or `dev.before` for
-preparation commands. Cargo discovers `build.rs` scripts in the application
+linked pipeline. Use `scripts.named` with `scripts.before.build` or
+`scripts.before.dev` for preparation commands. Cargo discovers `build.rs` scripts in the application
 and its dependencies during the Cargo passes.
 
 If you change which Bash command `scripts.dev` selects during a session,

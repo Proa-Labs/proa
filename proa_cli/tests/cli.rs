@@ -72,19 +72,54 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(!authored.contains(".into()"));
     let added = proa(&["add", "docs", "--yes"], &app);
     assert!(added.status.success(), "{}", stderr(&added));
+    assert_eq!(
+        fs::read_to_string(app.join("proa.config.rs")).unwrap(),
+        authored
+    );
+    assert!(app.join("src/docs/index.md").is_file());
+    let lock: serde_json::Value =
+        serde_json::from_slice(&fs::read(app.join("proa.lock.json")).unwrap()).unwrap();
+    assert!(lock["scaffold"]["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == "content:docs"));
     let effective = proa(&["config", "show"], &app);
     assert!(effective.status.success(), "{}", stderr(&effective));
     let config: serde_json::Value = serde_json::from_str(&stdout(&effective)).unwrap();
-    assert_eq!(config["application"]["package"], "demo");
-    assert_eq!(config["content"]["docs"]["enabled"], true);
+    assert_eq!(config["application"]["binary"], "demo");
     assert_eq!(config["scripts"]["dev"], "cargo run");
     assert_eq!(config["scripts"]["build"], "cargo build --release");
     assert_eq!(config["database"]["driver"], "sqlite");
-    assert_eq!(config["styling"]["kind"], "tailwind");
+    assert_eq!(config["build"]["assets"][0]["kind"], "tailwind");
     assert_eq!(
         config["registries"],
         serde_json::json!({"@proa": "https://ui.proa.so/r/{name}.json"})
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn adding_markdown_changes_page_scaffolding_without_rewriting_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let generated = proa(
+        &["new", "site", "demo", "--template", "minimal", "--no-git"],
+        temp.path(),
+    );
+    assert!(generated.status.success(), "{}", stderr(&generated));
+    let root = temp.path().join("demo");
+    let before = fs::read(root.join("proa.config.rs")).unwrap();
+    let unavailable = proa(&["generate", "page", "about", "--markdown"], &root);
+    assert!(!unavailable.status.success());
+    assert!(stderr(&unavailable).contains("proa add representation markdown"));
+    let added = proa(&["add", "representation", "markdown", "--yes"], &root);
+    assert!(added.status.success(), "{}", stderr(&added));
+    let page = proa(&["generate", "page", "about"], &root);
+    assert!(page.status.success(), "{}", stderr(&page));
+    assert!(fs::read_to_string(root.join("src/routes.rs"))
+        .unwrap()
+        .contains("/about.md"));
+    assert_eq!(fs::read(root.join("proa.config.rs")).unwrap(), before);
 }
 
 #[cfg(unix)]

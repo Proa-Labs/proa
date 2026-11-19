@@ -35,24 +35,24 @@ def main():
     hook = ('from pathlib import Path; p=Path("src/page_0.rs"); s=p.read_text(); '
             'n=s.replace("HOOK_PENDING_A", "EDIT_MARKER_A").replace("HOOK_PENDING_B", "HOOK_PUBLISHED"); '
             'p.write_text(n) if n != s else None')
-    command = ', '.join(json.dumps(arg, ensure_ascii=False) + '.into()'
+    command = ', '.join(json.dumps(arg, ensure_ascii=False)
                         for arg in [sys.executable, '-c', hook])
     config_path.write_text(f"""use std::collections::BTreeMap;
-use proa_config::{{Config, DevConfig, Result, ScriptConfig, ScriptsConfig}};
+use proa_config::{{Config, Result, ScriptConfig, ScriptHooks, ScriptsConfig}};
 
 pub async fn config() -> Result<Config> {{
     Ok(Config {{
         scripts: ScriptsConfig {{
             dev: "cargo run",
             build: "cargo build --release",
-            named: BTreeMap::from([("probe_hot_generation".into(), ScriptConfig {{
+            named: BTreeMap::from([("probe_hot_generation", ScriptConfig {{
                 command: vec![{command}],
                 ..Default::default()
             }})]),
-        }},
-        dev: DevConfig {{
-            before: vec!["probe_hot_generation".into()],
-            ..Default::default()
+            before: ScriptHooks {{
+                dev: vec!["probe_hot_generation"],
+                ..Default::default()
+            }},
         }},
         ..Config::default()
     }})

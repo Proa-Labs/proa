@@ -84,20 +84,15 @@ pub(crate) fn run_lifecycle_tasks(
 }
 
 fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
-    let mut phases = Vec::new();
-    if project.dev.before.iter().any(|task| task == name) {
-        phases.push("dev");
-    }
-    if project.build.before.iter().any(|task| task == name) {
-        phases.push("build");
-    }
-    if project
-        .test
-        .as_ref()
-        .is_some_and(|test| test.before.iter().any(|task| task == name))
-    {
-        phases.push("test");
-    }
+    let before = &project.scripts.before;
+    let phases: Vec<_> = [
+        ("dev", &before.dev),
+        ("build", &before.build),
+        ("test", &before.test),
+    ]
+    .into_iter()
+    .filter_map(|(phase, tasks)| tasks.iter().any(|task| task == name).then_some(phase))
+    .collect();
     if phases.is_empty() {
         "manual".to_string()
     } else {

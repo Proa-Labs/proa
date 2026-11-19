@@ -83,8 +83,9 @@ still win; neither file is rewritten.
 
 ## Evolve an existing site
 
-Capability commands update configuration and owned files through the same
-plan/commit machinery:
+Capability commands record applied choices in `proa.lock.json` and update
+any owned files. Database and deployment commands also update their
+operational settings in `proa.config.rs`.
 
 ```text
 proa add database

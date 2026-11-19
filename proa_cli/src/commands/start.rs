@@ -36,15 +36,11 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         let project = config::load_project_config(&root)?;
         let configured_binary = project
             .application
-            .as_ref()
-            .and_then(|application| {
-                [&application.binary, &application.package]
-                    .into_iter()
-                    .find(|name| !name.is_empty())
-                    .map(String::as_str)
-            })
-            .unwrap_or("app");
-        let mut filename = std::ffi::OsString::from(configured_binary);
+            .map(|application| application.binary)
+            .filter(|name| !name.is_empty())
+            .or_else(|| crate::util::cargo_package_name(&root))
+            .unwrap_or_else(|| "app".into());
+        let mut filename = std::ffi::OsString::from(&configured_binary);
         let suffix = std::env::consts::EXE_SUFFIX;
         if !suffix.is_empty() && !configured_binary.to_ascii_lowercase().ends_with(suffix) {
             filename.push(suffix);

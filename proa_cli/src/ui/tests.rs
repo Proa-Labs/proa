@@ -133,6 +133,11 @@ fn installs_free_component_and_writes_lock() {
     let project = temp.path().join("project");
     fs::create_dir(&project).unwrap();
     write_project(&project, &public, &pro);
+    fs::write(
+        project.join(LOCK_FILE),
+        r#"{"schemaVersion":1,"scaffold":{"capabilities":[{"id":"representation:markdown","planVersion":1}]},"components":{}}"#,
+    )
+    .unwrap();
     write_manifest(
         &public,
         "button",
@@ -152,6 +157,8 @@ fn installs_free_component_and_writes_lock() {
         b"pub struct Button;\n"
     );
     let lock = config::load_component_lock(&project).unwrap();
+    assert_eq!(lock.scaffold_markdown(), Some(true));
+    assert_eq!(lock.metadata["schemaVersion"], 1);
     let installed = &lock.components["@proa/button"];
     assert_eq!(installed.version, "1.0.0");
     assert_eq!(

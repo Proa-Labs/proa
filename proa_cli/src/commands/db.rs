@@ -158,11 +158,8 @@ fn resolve(args: ConnectionArgs) -> Result<DatabaseContext> {
         .unwrap_or_else(|| {
             format!(
                 "sqlite://data/{}.db",
-                project
-                    .application
-                    .as_ref()
-                    .map(|application| application.package.as_str())
-                    .filter(|value| !value.is_empty())
+                crate::util::cargo_package_name(&root)
+                    .as_deref()
                     .unwrap_or("app")
             )
         });

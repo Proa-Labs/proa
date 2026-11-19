@@ -107,13 +107,6 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
     } else {
         serde_json::json!({"schemaVersion":1,"scaffold":{"capabilities":[]},"components":{}})
     };
-    let package = project
-        .application
-        .as_ref()
-        .map(|app| app.package.as_str())
-        .filter(|package| !package.is_empty())
-        .unwrap_or("app")
-        .to_owned();
     let has_database = project
         .database
         .as_ref()
@@ -142,49 +135,24 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         }
         AddCapability::Representation {
             representation: Representation::Markdown,
-        } => {
-            project
-                .representations
-                .get_or_insert_with(Default::default)
-                .markdown = Some(config::MarkdownRepresentationConfig::site());
-            (
-                "representation:markdown",
-                vec!["representations.markdown.enabled=true".to_string()],
-                false,
-            )
-        }
+        } => ("representation:markdown", vec![], false),
         AddCapability::Ui => {
-            project.ui = Some(config::UiConfig {
-                provider: "proa".into(),
-            });
             files.push((PathBuf::from("src/components/mod.rs"), String::new()));
-            ("ui:proa", vec!["ui.provider=proa".to_string()], false)
+            ("ui:proa", vec![], false)
         }
         AddCapability::Docs => {
-            project.content.get_or_insert_with(Default::default).docs =
-                Some(config::ContentCollectionConfig { enabled: true });
             files.push((
                 PathBuf::from("src/docs/index.md"),
                 "# Documentation\n\nStart writing here.\n".to_string(),
             ));
-            (
-                "content:docs",
-                vec!["content.docs.enabled=true".to_string()],
-                false,
-            )
+            ("content:docs", vec![], false)
         }
         AddCapability::Blog => {
-            project.content.get_or_insert_with(Default::default).blog =
-                Some(config::ContentCollectionConfig { enabled: true });
             files.push((
                 PathBuf::from("src/blog/first-post.md"),
                 "# First post\n\nWrite your first post here.\n".to_string(),
             ));
-            (
-                "content:blog",
-                vec!["content.blog.enabled=true".to_string()],
-                false,
-            )
+            ("content:blog", vec![], false)
         }
         AddCapability::Deploy { provider } => {
             let provider_name = match provider {
@@ -193,6 +161,7 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
                 Deployment::Coolify => "coolify",
             };
             project.deploy.get_or_insert_with(Default::default).provider = provider_name.into();
+            let package = crate::util::cargo_package_name(&root).unwrap_or_else(|| "app".into());
             files.extend(deployment_files(provider, &package, has_database));
             (
                 match provider {
@@ -208,13 +177,13 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
     add_capability_lock(&mut lock_value, id, partial)?;
     let config_source = config::add_rust_capability(&original_source, &original_config, &project)?;
     let lock_source = format!("{}\n", serde_json::to_string_pretty(&lock_value)?);
-    let mut mutations = vec![
-        (
+    let mut mutations = vec![(PathBuf::from(config::LOCK_FILE), lock_source)];
+    if config_source != original_source {
+        mutations.push((
             PathBuf::from(config_path.file_name().context("config filename")?),
             config_source,
-        ),
-        (PathBuf::from(config::LOCK_FILE), lock_source),
-    ];
+        ));
+    }
     for (relative, source) in files {
         if root.join(&relative).exists() && relative != Path::new("Cargo.toml") {
             continue;

@@ -163,12 +163,12 @@ arguments in the command string. For computed commands, return
 `Result<Config<String, &'static str>>` to own text and keep path literals.
 
 Define reusable commands in `scripts.named`. List their names in
-`build.before` for linked builds or `dev.before` for dev builds. This
+`scripts.before.build`, `scripts.before.dev`, or `scripts.before.test`. This
 example runs an existing Python script in both workflows.
 
 ```rust
 use std::collections::BTreeMap;
-use proa_config::{BuildConfig, Config, DevConfig, Result, ScriptConfig, ScriptsConfig};
+use proa_config::{Config, Result, ScriptConfig, ScriptHooks, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
@@ -182,14 +182,11 @@ pub async fn config() -> Result<Config> {
                     ..Default::default()
                 },
             )]),
-        },
-        build: BuildConfig {
-            before: vec!["generate-assets"],
-            ..Default::default()
-        },
-        dev: DevConfig {
-            before: vec!["generate-assets"],
-            ..Default::default()
+            before: ScriptHooks {
+                dev: vec!["generate-assets"],
+                build: vec!["generate-assets"],
+                ..Default::default()
+            },
         },
         ..Config::default()
     })
@@ -197,6 +194,11 @@ pub async fn config() -> Result<Config> {
 ```
 
 Run a named script directly with `proa task generate-assets`.
+
+Package names come from `Cargo.toml`. Proa records starter choices and
+Markdown scaffolding in `proa.lock.json`. Use
+`proa add representation markdown` to enable Markdown for generated pages.
+Application routes and response formats live in Rust.
 
 `build.assets: None` lets Proa infer asset commands. Use `Some(vec![])` to
 skip them. Cargo discovers package `build.rs` scripts and runs them as part

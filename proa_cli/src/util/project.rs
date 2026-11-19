@@ -3,11 +3,17 @@
 
 //! Project-root discovery shared by commands that operate on a Proa project.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 
 use crate::config;
+
+pub(crate) fn cargo_package_name(root: &Path) -> Option<String> {
+    let source = std::fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    let manifest = source.parse::<toml::Value>().ok()?;
+    Some(manifest.get("package")?.get("name")?.as_str()?.to_owned())
+}
 
 pub(crate) fn resolve_config_root(root: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(root) = root {
