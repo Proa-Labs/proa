@@ -374,6 +374,15 @@ mod tests {
         }
         // Tailwind owns the generated public output; its input must include
         // the starter design so the first asset build retains that design.
+        let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+        assert!(!config.contains("build: proa::config::BuildConfig"));
+        let config = crate::config::load_project_config(&root).unwrap();
+        let [asset] = config.build.assets() else {
+            panic!("expected one inferred Tailwind asset");
+        };
+        assert_eq!(asset.kind, "tailwind");
+        assert_eq!(asset.input, Path::new("styles/input.css"));
+        assert_eq!(asset.output, Path::new("public/styles.css"));
         let input = std::fs::read_to_string(root.join("styles/input.css")).unwrap();
         assert!(input.contains("@import \"./starter.css\" layer(components);"));
         let starter = std::fs::read_to_string(root.join("styles/starter.css")).unwrap();
@@ -478,6 +487,8 @@ mod tests {
         value.overrides.styling = Some(StylingChoice::Css);
         value.vscode = false;
         new_site(value).unwrap();
+        let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+        assert!(config.contains("assets: Some(vec![])"));
         assert!(!root.join("src/db.rs").exists());
         assert!(!root.join("src/components/badge").exists());
         assert!(!root.join("styles").exists());

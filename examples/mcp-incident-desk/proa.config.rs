@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use proa::config::{
-    ApplicationConfig, AssetConfig, BuildConfig, Config, DatabaseConfig, DatabaseDriver,
-    ProjectPaths, RegistriesConfig, Result, ScriptsConfig,
+    ApplicationConfig, Config, DatabaseConfig, DatabaseDriver, ProjectPaths, RegistriesConfig,
+    Result, ScriptsConfig,
 };
 
 pub async fn config() -> Result<Config> {
@@ -23,15 +23,6 @@ pub async fn config() -> Result<Config> {
         scripts: ScriptsConfig {
             dev: "bash scripts/dev.sh",
             build: "bash scripts/build.sh",
-            ..Default::default()
-        },
-        build: BuildConfig {
-            assets: Some(vec![AssetConfig {
-                kind: "tailwind",
-                input: "styles/input.css",
-                output: "public/styles.css",
-                ..Default::default()
-            }]),
             ..Default::default()
         },
         ..Config::default()

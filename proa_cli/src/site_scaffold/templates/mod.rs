@@ -255,7 +255,7 @@ fn gitignore() -> &'static str {
 
 fn project_config(package: &str, selection: CapabilitySelection) -> Result<String> {
     use crate::config::{
-        ApplicationConfig, AssetConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig,
+        ApplicationConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig,
         ProjectConfig, ProjectPaths,
     };
 
@@ -263,17 +263,6 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
         driver: DatabaseDriver::Sqlite,
         ..Default::default()
     });
-    let tailwind = selection.styling == StylingChoice::Tailwind;
-    let assets = if tailwind {
-        vec![AssetConfig {
-            kind: "tailwind".into(),
-            input: "styles/input.css".into(),
-            output: "public/styles.css".into(),
-            ..Default::default()
-        }]
-    } else {
-        vec![]
-    };
     crate::config::generated_rust_config(&ProjectConfig {
         application: Some(ApplicationConfig {
             binary: package.into(),
@@ -290,7 +279,7 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
             }
         }),
         build: BuildConfig {
-            assets: Some(assets),
+            assets: (selection.styling != StylingChoice::Tailwind).then(Vec::new),
             ..Default::default()
         },
         registries: crate::config::RegistriesConfig::public_only(),

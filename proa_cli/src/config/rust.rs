@@ -350,7 +350,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     use std::fmt::Write as _;
 
     let mut source = String::from(
-        "use proa::config::{BuildConfig, Config, ProjectPaths, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
+        "use proa::config::{Config, ProjectPaths, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
     );
     macro_rules! section {
         ($($field:ident),+ $(,)?) => {
@@ -452,50 +452,55 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
         writeln!(source, "            public: Some({}),", path_literal(path)?)?;
     }
     writeln!(source, "            ..Default::default()\n        }},")?;
-    writeln!(source, "        build: BuildConfig {{")?;
-    writeln!(
-        source,
-        "            minify_rsjs: {},",
-        config.build.minify_rsjs
-    )?;
-    match &config.build.assets {
-        Some(assets) if assets.is_empty() => writeln!(source, "            assets: Some(vec![]),")?,
-        Some(assets) => {
-            writeln!(source, "            assets: Some(vec![")?;
-            for asset in assets {
-                writeln!(source, "                proa::config::AssetConfig {{")?;
-                writeln!(source, "                    kind: {:?},", asset.kind)?;
-                writeln!(
-                    source,
-                    "                    command: {},",
-                    string_vec(&asset.command, TextSource::Literal)
-                )?;
-                writeln!(
-                    source,
-                    "                    input: {},",
-                    path_literal(&asset.input)?
-                )?;
-                writeln!(
-                    source,
-                    "                    output: {},",
-                    path_literal(&asset.output)?
-                )?;
-                if let Some(path) = &asset.config {
+    if !config.build.minify_rsjs || config.build.assets.is_some() {
+        writeln!(source, "        build: proa::config::BuildConfig {{")?;
+        writeln!(
+            source,
+            "            minify_rsjs: {},",
+            config.build.minify_rsjs
+        )?;
+        match &config.build.assets {
+            Some(assets) if assets.is_empty() => {
+                writeln!(source, "            assets: Some(vec![]),")?
+            }
+            Some(assets) => {
+                writeln!(source, "            assets: Some(vec![")?;
+                for asset in assets {
+                    writeln!(source, "                proa::config::AssetConfig {{")?;
+                    writeln!(source, "                    kind: {:?},", asset.kind)?;
                     writeln!(
                         source,
-                        "                    config: Some({}),",
-                        path_literal(path)?
+                        "                    command: {},",
+                        string_vec(&asset.command, TextSource::Literal)
                     )?;
-                } else {
-                    writeln!(source, "                    config: None,")?;
+                    writeln!(
+                        source,
+                        "                    input: {},",
+                        path_literal(&asset.input)?
+                    )?;
+                    writeln!(
+                        source,
+                        "                    output: {},",
+                        path_literal(&asset.output)?
+                    )?;
+                    if let Some(path) = &asset.config {
+                        writeln!(
+                            source,
+                            "                    config: Some({}),",
+                            path_literal(path)?
+                        )?;
+                    } else {
+                        writeln!(source, "                    config: None,")?;
+                    }
+                    writeln!(source, "                }},")?;
                 }
-                writeln!(source, "                }},")?;
+                writeln!(source, "            ]),")?;
             }
-            writeln!(source, "            ]),")?;
+            None => writeln!(source, "            assets: None,")?,
         }
-        None => writeln!(source, "            assets: None,")?,
+        source.push_str("        },\n");
     }
-    source.push_str("        },\n        ..Config::default()\n    })\n}\n");
+    source.push_str("        ..Config::default()\n    })\n}\n");
     Ok(source)
 }
 

@@ -13,7 +13,7 @@ Wrap a `Config` struct literal in `Ok`. Set `scripts.dev` and
 `scripts.build` explicitly and use `..Config::default()` for other settings.
 
 ```rust
-use proa::config::{AssetConfig, BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{Config, ProjectPaths, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
@@ -24,15 +24,6 @@ pub async fn config() -> Result<Config> {
         },
         paths: ProjectPaths {
             public: Some("public"),
-            ..Default::default()
-        },
-        build: BuildConfig {
-            assets: Some(vec![AssetConfig {
-                kind: "tailwind",
-                input: "styles/input.css",
-                output: "public/styles.css",
-                ..Default::default()
-            }]),
             ..Default::default()
         },
         ..Config::default()
@@ -92,6 +83,34 @@ The `components` and `assets` paths are install destinations for
 Use `RegistriesConfig::public_only()` to select the built-in public
 registry. To configure a mirror, set `RegistriesConfig.proa` to its URL
 template. Use `proa_pro` to configure the Pro registry.
+
+## CSS
+
+When `styles/input.css` exists, Proa runs the standalone Tailwind CLI and
+writes `public/styles.css` by default. Reference the result with
+`cx.url("public/styles.css")` to get the fingerprinted URL when `public` is
+configured in `paths.public`.
+
+Set `build.assets` to use PostCSS, Lightning CSS, or another processor. For
+example, `scripts/css.sh` can run your CSS tool and write `public/styles.css`.
+Import `AssetConfig` and `BuildConfig` from `proa::config` and add this field
+to the `Config` literal.
+
+```rust
+build: BuildConfig {
+    assets: Some(vec![AssetConfig {
+        command: vec!["bash", "scripts/css.sh"],
+        output: "public/styles.css",
+        ..Default::default()
+    }]),
+    ..Default::default()
+},
+```
+
+The command runs from the project directory. Keep settings such as PostCSS
+plugins in the tool's own config file, and add extra inputs to the linked
+watcher with `--watch` in your dev script. Use `assets: Some(vec![])` to turn
+off inferred Tailwind processing.
 
 ## How Proa builds the config
 
