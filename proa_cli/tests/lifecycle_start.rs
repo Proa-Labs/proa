@@ -4,6 +4,101 @@
 use std::{env, fs, process::Command};
 
 #[test]
+fn run_scripts_chain_commands_and_use_the_cli_that_launched_them() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+    fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, Result, ScriptsConfig};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "proa --version && echo shell-arguments",
+            build: "echo configured-build",
+            named: std::collections::BTreeMap::from([("report", proa::config::ScriptConfig {
+                command: vec!["proa", "--version"],
+                ..Default::default()
+            })]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    if cfg!(windows) {
+        fs::write(root.join("proa.cmd"), "@echo wrong-cli & exit /b 99\n").unwrap();
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let wrong_cli = root.join("proa");
+        fs::write(&wrong_cli, "#!/bin/sh\necho wrong-cli\nexit 99\n").unwrap();
+        fs::set_permissions(wrong_cli, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mut paths = vec![root.to_path_buf()];
+    paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
+    let path = env::join_paths(paths).unwrap();
+    let cli = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_proa"))
+            .current_dir(root)
+            .env("PATH", &path)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let output = cli(&["run", "dev", "--port", "A & B"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains(env!("CARGO_PKG_VERSION")), "{stdout}");
+    assert!(
+        stdout.contains("shell-arguments") && stdout.contains("A & B"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("wrong-cli"), "{stdout}");
+
+    let output = cli(&["run", "build"]);
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("configured-build"));
+    let output = cli(&[
+        "build",
+        "--root",
+        ".",
+        "--no-assets",
+        "--no-check",
+        "--offline",
+    ]);
+    assert!(
+        !output.status.success(),
+        "the empty workspace has no target"
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("configured-build"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("use `proa run build`"), "{stderr}");
+
+    let output = cli(&["run", "report"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains(env!("CARGO_PKG_VERSION")));
+    let output = cli(&["run", "--list"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("report"));
+}
+
+#[test]
 fn cargo_subcommand_dispatches_through_the_installed_executable_name() {
     let temp = tempfile::tempdir().unwrap();
     let executable = std::path::Path::new(env!("CARGO_BIN_EXE_cargo-proa"));

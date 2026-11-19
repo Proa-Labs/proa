@@ -88,8 +88,8 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(effective.status.success(), "{}", stderr(&effective));
     let config: serde_json::Value = serde_json::from_str(&stdout(&effective)).unwrap();
     assert_eq!(config["application"]["binary"], "demo");
-    assert_eq!(config["scripts"]["dev"], "proa run dev");
-    assert_eq!(config["scripts"]["build"], "proa run build");
+    assert_eq!(config["scripts"]["dev"], "proa dev");
+    assert_eq!(config["scripts"]["build"], "proa build");
     assert_eq!(config["database"]["driver"], "sqlite");
     assert_eq!(config["build"]["assets"][0]["kind"], "tailwind");
     assert_eq!(
@@ -310,7 +310,7 @@ pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
             dev: "cargo run",
-            build: "cargo build '--release",
+            build: "",
             ..Default::default()
         },
         build: BuildConfig {
@@ -331,7 +331,7 @@ pub async fn config() -> Result<Config> {
     let output = proa(&["config", "validate"], temp.path());
     assert!(!output.status.success());
     assert!(stdout(&output).contains("webpack"), "{}", stderr(&output));
-    assert!(stdout(&output).contains("scripts.build has invalid quoting"));
+    assert!(stdout(&output).contains("scripts.build must specify a command"));
 
     let source = fs::read_to_string(&authored).unwrap();
     fs::write(&authored, source.replace("assets:", "asseets:")).unwrap();
@@ -372,8 +372,8 @@ pub async fn config() -> Result<Config> {
     let show = proa(&["config", "show", "--json"], temp.path());
     assert!(show.status.success(), "{}", stderr(&show));
     let config: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
-    assert_eq!(config["scripts"]["dev"], "proa run dev");
-    assert_eq!(config["scripts"]["build"], "proa run build");
+    assert_eq!(config["scripts"]["dev"], "proa dev");
+    assert_eq!(config["scripts"]["build"], "proa build");
 
     fs::write(
         temp.path().join("proa.config.rs"),
@@ -404,9 +404,9 @@ pub async fn config() -> Result<Config> {
         ])
     );
 
-    let show = proa(&["config", "show"], temp.path());
-    assert!(!show.status.success());
-    assert!(stderr(&show).contains("scripts.dev must specify a command in proa.config.rs"));
+    let run = proa(&["run", "dev"], temp.path());
+    assert!(!run.status.success());
+    assert!(stderr(&run).contains("scripts.dev must specify a command"));
 }
 
 #[test]

@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "proa.config.rs";
 pub const DEFAULT_PUBLIC_DIRECTORY: &str = "public";
-pub const DEFAULT_DEV_COMMAND: &str = "proa run dev";
-pub const DEFAULT_BUILD_COMMAND: &str = "proa run build";
+pub const DEFAULT_DEV_COMMAND: &str = "proa dev";
+pub const DEFAULT_BUILD_COMMAND: &str = "proa build";
 
 /// Text storage for authored config. String literals work with the default type.
 pub trait ConfigText: Borrow<str> + Ord + ConfigPath {}
@@ -142,9 +142,9 @@ pub enum CdnConfig<Text: ConfigText = &'static str> {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ScriptsConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
-    /// Command for `proa dev`. Defaults to `proa run dev`.
+    /// Shell command for `proa run dev`. Defaults to `proa dev`.
     pub dev: Text,
-    /// Command for `proa build`. Defaults to `proa run build`.
+    /// Shell command for `proa run build`. Defaults to `proa build`.
     pub build: Text,
     /// Command that builds `styles.css` in the public directory.
     #[serde(skip_serializing_if = "text_is_empty")]

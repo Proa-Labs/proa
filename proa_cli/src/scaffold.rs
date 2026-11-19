@@ -341,10 +341,9 @@ pub(crate) fn site_check_with_config(
                     .push("RootDocument must remain HTML-only".to_string());
             }
         }
-        if let Ok(validation) = crate::config::validate_project_config(&root) {
-            report.errors.extend(validation.errors);
-            report.warnings.extend(validation.warnings);
-        }
+        let validation = crate::config::validate_build_config(&root, config);
+        report.errors.extend(validation.errors);
+        report.warnings.extend(validation.warnings);
         for rel in [
             ".vscode/extensions.json",
             ".vscode/settings.json",

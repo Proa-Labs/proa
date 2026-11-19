@@ -24,7 +24,6 @@ use rsjs_transport::TRANSPORT_FORMAT_VERSION;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-mod entrypoint;
 mod public_assets;
 mod readiness;
 mod reload;
@@ -34,8 +33,10 @@ use reload::{ReloadEvent, ReloadServer};
 #[cfg(not(windows))]
 use crate::rsjs::final_compile::snapshot_wrapper_executable;
 use crate::{
-    commands::{db, task},
-    config::{load_project_config, AssetConfig, ProjectConfig},
+    commands::{db, script, task},
+    config::{
+        load_project_config, AssetConfig, ProjectConfig, DEFAULT_BUILD_COMMAND, DEFAULT_DEV_COMMAND,
+    },
     diagnostic::Severity,
     rsjs::build::{
         DescriptorCargoRequest, DESCRIPTOR_TARGET_POLICY_VERSION,
@@ -168,35 +169,18 @@ struct LinkedDevRebuild {
 }
 
 pub fn dev(options: DevOptions) -> Result<()> {
-    dev_from_cli(options, None)
-}
-
-pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let mut runner = crate::config::DevConfigRunner::default();
     let mut config = crate::config::load_project_config_with_runner(&root, Some(&mut runner))?;
+    script::hint("dev", &config.scripts.dev, DEFAULT_DEV_COMMAND);
     let address = (
         options.host.as_deref().unwrap_or("127.0.0.1"),
         options.port.unwrap_or(3000),
     );
-    let mut watched_script = entrypoint::WatchedDevScript::new(
-        &config.scripts.dev,
-        arguments.is_some() && options.command.is_empty(),
-    );
-    if let Some(arguments) = arguments.filter(|_| options.command.is_empty()) {
-        if entrypoint::run_script(
-            &root,
-            LinkedCargoAction::Dev,
-            &config.scripts.dev,
-            arguments,
-        )? {
-            return Ok(());
-        }
-    }
     // Reject an impossible watch window before anything is built, bound, or
     // spawned. A flag error should cost nothing to recover from.
     let debounce = dev_watch_debounce(&options)?;
-    let command = dev_command(&config, &options)?;
+    let command = dev_command(&options);
     install_dev_signal_handler();
 
     println!("Proa dev root: {}", root.display());
@@ -309,13 +293,7 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
         let mut failure_snapshot = trigger_snapshot;
         // The cached runner rechecks rustc's recorded inputs and Cargo settings
         // itself, so any edit that leaves them untouched skips the runner build.
-        let evaluated = crate::config::load_project_config_with_runner(&root, Some(&mut runner))
-            .and_then(|mut next| {
-                if let Some(script) = &mut watched_script {
-                    script.apply(&mut next.scripts.dev)?;
-                }
-                Ok(next)
-            });
+        let evaluated = crate::config::load_project_config_with_runner(&root, Some(&mut runner));
         let inputs = evaluated.and_then(|next| {
             prepare_dev_inputs(
                 &root,
@@ -369,7 +347,6 @@ pub(crate) fn dev_from_cli(options: DevOptions, arguments: Option<&[OsString]>) 
         }
         println!("change stabilized; rebuilding linked RSJS dev server");
         let rebuild = (|| -> Result<LinkedDevRebuild> {
-            let command = dev_command(&next_config, &options)?;
             // Capture the exact source/config state handed to this cycle after
             // asset generation. A change during Cargo will differ on the next
             // poll and schedule another cycle rather than being swallowed.
@@ -757,23 +734,10 @@ fn install_dev_signal_handler() {
 }
 
 pub fn build(options: BuildOptions) -> Result<()> {
-    build_from_cli(options, None)
-}
-
-pub(crate) fn build_from_cli(options: BuildOptions, arguments: Option<&[OsString]>) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let config = load_project_config(&root)?;
-    if let Some(arguments) = arguments.filter(|_| options.command.is_empty()) {
-        if entrypoint::run_script(
-            &root,
-            LinkedCargoAction::Build,
-            &config.scripts.build,
-            arguments,
-        )? {
-            return Ok(());
-        }
-    }
-    let command = build_command(&config, &options)?;
+    script::hint("build", &config.scripts.build, DEFAULT_BUILD_COMMAND);
+    let command = build_command(&options);
     // Validate and resolve the exact Cargo root before running configured asset
     // commands. An unsupported deployment command must fail without partially
     // executing a build.
@@ -1070,13 +1034,19 @@ fn watched_test_loop(
     if !hooks.is_empty() {
         successful_hook_outputs.extend(config.paths.public.as_deref());
     }
-    let css_asset = crate::config::css_script_asset(config)?;
+    let css_output = crate::config::css_script_output(config);
     let asset_outputs: Vec<_> = config
         .paths
         .public
         .iter()
-        .flat_map(|_| css_asset.iter().chain(config.build.assets()))
-        .map(|asset| asset.output.as_path())
+        .flat_map(|_| {
+            config
+                .build
+                .assets()
+                .iter()
+                .map(|asset| asset.output.as_path())
+                .chain(css_output.as_deref())
+        })
         .collect();
     let mut baseline = watch_snapshot(root, &paths)?;
     let mut last_failed;
@@ -1724,9 +1694,9 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
-fn dev_command(config: &ProjectConfig, options: &DevOptions) -> Result<Vec<String>> {
+fn dev_command(options: &DevOptions) -> Vec<String> {
     let mut command = if options.command.is_empty() {
-        entrypoint::linked_command(LinkedCargoAction::Dev, &config.scripts.dev)?
+        vec!["cargo".into(), "run".into()]
     } else {
         options.command.clone()
     };
@@ -1739,10 +1709,10 @@ fn dev_command(config: &ProjectConfig, options: &DevOptions) -> Result<Vec<Strin
             command.insert(cargo_end, "--offline".into());
         }
     }
-    Ok(command)
+    command
 }
 
-fn build_command(config: &ProjectConfig, options: &BuildOptions) -> Result<Vec<String>> {
+fn build_command(options: &BuildOptions) -> Vec<String> {
     let mut command = if !options.command.is_empty() {
         options.command.clone()
     } else if let Some(profile) = &options.profile {
@@ -1753,7 +1723,7 @@ fn build_command(config: &ProjectConfig, options: &BuildOptions) -> Result<Vec<S
             profile.clone(),
         ]
     } else {
-        entrypoint::linked_command(LinkedCargoAction::Build, &config.scripts.build)?
+        vec!["cargo".into(), "build".into(), "--release".into()]
     };
 
     if let Some(package) = &options.package {
@@ -1789,7 +1759,7 @@ fn build_command(config: &ProjectConfig, options: &BuildOptions) -> Result<Vec<S
         command.push("--offline".into());
     }
 
-    Ok(command)
+    command
 }
 
 fn check_command(options: &CheckOptions) -> Vec<String> {
@@ -3044,8 +3014,14 @@ pub fn build_assets_for_project(root: &Path) -> Result<()> {
 }
 
 fn build_assets(root: &Path, config: &ProjectConfig) -> Result<()> {
-    let css_asset = crate::config::css_script_asset(config)?;
-    for asset in css_asset.iter().chain(config.build.assets()) {
+    if let Some(output) = crate::config::css_script_output(config) {
+        prepare_asset_output(root, &output)?;
+        let status = script::command(root, "css", &config.scripts.css, &[])?
+            .status()
+            .context("run scripts.css")?;
+        exit_status_to_result(status, "scripts.css")?;
+    }
+    for asset in config.build.assets() {
         build_asset(root, asset)?;
     }
     Ok(())
@@ -3077,14 +3053,19 @@ fn build_asset(root: &Path, asset: &AssetConfig) -> Result<()> {
         );
     }
 
-    if let Some(output_parent) = asset.output.parent() {
+    prepare_asset_output(root, &asset.output)?;
+    run_command_status(root, &command, "asset command")
+}
+
+fn prepare_asset_output(root: &Path, output: &Path) -> Result<()> {
+    if let Some(output_parent) = output.parent() {
         let output_parent = root.join(output_parent);
         fs::create_dir_all(&output_parent)
             .with_context(|| format!("create {}", output_parent.display()))?;
     }
 
-    println!("building asset: {}", asset.output.display());
-    run_command_status(root, &command, "asset command")
+    println!("building asset: {}", output.display());
+    Ok(())
 }
 
 fn asset_command(root: &Path, asset: &AssetConfig) -> Result<Vec<String>> {

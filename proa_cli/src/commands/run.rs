@@ -1,40 +1,73 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! `proa run`: enter a built-in workflow or run one exact linked binary.
+//! `proa run <name>` runs a project script. Bare `proa run` runs a linked binary.
 
-use anyhow::Result;
-use clap::{Args, Subcommand};
+use std::ffi::OsString;
 
-use super::{build, dev, linked::LinkedExecuteArgs};
-use crate::lifecycle;
+use anyhow::{ensure, Context, Result};
+use clap::Args;
+
+use super::{linked::LinkedExecuteArgs, script, task};
+use crate::{config, lifecycle, util::resolve_config_root};
 
 #[derive(Debug, Args)]
-#[command(args_conflicts_with_subcommands = true)]
 pub(crate) struct RunArgs {
-    #[command(subcommand)]
-    workflow: Option<Workflow>,
     #[command(flatten)]
     cargo: LinkedExecuteArgs,
-    /// Arguments forwarded unchanged to the selected binary after Cargo's `--`.
-    #[arg(last = true)]
-    arguments: Vec<String>,
+    /// List project scripts and their lifecycle use.
+    #[arg(long)]
+    list: bool,
+    /// Run a named task even if its inputs and outputs are up to date.
+    #[arg(long)]
+    force: bool,
+    /// Script name and its arguments, or just binary arguments after `--`.
+    #[arg(value_name = "SCRIPT", trailing_var_arg = true)]
+    arguments: Vec<OsString>,
 }
 
-#[derive(Debug, Subcommand)]
-enum Workflow {
-    /// Start the built-in dev watcher.
-    Dev(dev::DevArgs),
-    /// Run the built-in production build.
-    Build(build::BuildArgs),
-}
-
-pub(crate) fn run(args: RunArgs) -> Result<()> {
-    match args.workflow {
-        Some(Workflow::Dev(args)) => return dev::run(args, None),
-        Some(Workflow::Build(args)) => return build::run(args, None),
-        None => {}
+pub(crate) fn run(args: RunArgs, raw: &[OsString]) -> Result<()> {
+    // Clap discards the separator when it precedes the first positional.
+    // Preserve the distinction between `run dev` and binary `run -- dev`.
+    let before = raw.len().saturating_sub(args.arguments.len());
+    let binary_arguments = before > 0 && raw[before - 1] == "--";
+    let script = args.arguments.split_first().filter(|_| !binary_arguments);
+    if args.list || script.is_some() {
+        ensure!(
+            !args.cargo.selects_binary(),
+            "binary selection flags belong to bare `proa run`; put script flags after the script name"
+        );
+        let root = resolve_config_root(args.cargo.root)?;
+        let project = config::load_project_config(&root)?;
+        if args.list {
+            ensure!(
+                script.is_none() && !args.force && args.arguments.is_empty(),
+                "use `proa run --list` without a script or arguments"
+            );
+            task::list(&project);
+            return Ok(());
+        }
+        let (name, arguments) = script.expect("checked script name");
+        let name = name.to_str().context("script name must be UTF-8")?;
+        let arguments = arguments
+            .strip_prefix(&[OsString::from("--")])
+            .unwrap_or(arguments);
+        let source = match name {
+            "dev" => Some(project.scripts.dev.as_str()),
+            "build" => Some(project.scripts.build.as_str()),
+            "css" if !project.scripts.css.trim().is_empty() => Some(project.scripts.css.as_str()),
+            _ => None,
+        };
+        if let Some(source) = source {
+            ensure!(
+                !args.force,
+                "`--force` applies to named tasks with cached outputs"
+            );
+            return script::run(&root, name, source, arguments);
+        }
+        return task::run_named(&root, &project, name, args.force, arguments);
     }
+    ensure!(!args.force, "`--force` requires a named task");
     lifecycle::run(lifecycle::RunOptions {
         root: args.cargo.root,
         profile: args.cargo.profile,
@@ -46,7 +79,15 @@ pub(crate) fn run(args: RunArgs) -> Result<()> {
         no_default_features: args.cargo.no_default_features,
         locked: args.cargo.locked,
         offline: args.cargo.offline,
-        arguments: args.arguments,
+        arguments: args
+            .arguments
+            .into_iter()
+            .map(|arg| {
+                arg.into_string().map_err(|arg| {
+                    anyhow::anyhow!("binary argument `{}` must be UTF-8", arg.to_string_lossy())
+                })
+            })
+            .collect::<Result<_>>()?,
     })
 }
 

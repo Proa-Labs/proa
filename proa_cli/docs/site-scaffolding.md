@@ -58,8 +58,8 @@ The default application includes:
 
 The generated `proa.config.rs` sits next to `Cargo.toml` and exports
 `pub async fn config() -> proa::config::Result<proa::config::Config>`.
-It shows the default lifecycle commands, `proa run dev` and `proa run build`.
-Use `scripts.dev` or `scripts.build` to select a project script instead.
+It shows the default scripts, `proa dev` and `proa build`. Use `proa run dev`
+or `proa run build` to run those scripts or your project overrides.
 The CLI generates a host runner under Cargo's target directory. Its main
 module imports the config by path and awaits it before the app build.
 
@@ -68,10 +68,10 @@ Run the generated app with:
 ```text
 cd atlas
 proa db migrate
-proa dev
+proa run dev
 ```
 
-Use `proa build` for a linked release build. Use `proa start --bin <path>`
+Use `proa run build` for a linked release build. Use `proa start --bin <path>`
 to run an exported executable without loading the build config.
 
 `proa test` creates a unique migrated SQLite database under

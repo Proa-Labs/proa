@@ -93,7 +93,7 @@ pub fn populate(
         )?;
         plan.write(
             "src/docs/getting-started.md",
-            "# Getting started\n\nEdit this collection and run `proa dev`.\n",
+            "# Getting started\n\nEdit this collection and run `proa run dev`.\n",
         )?;
     }
     if has_database {
@@ -338,7 +338,7 @@ fn components_mod(has_database: bool, has_ui: bool) -> String {
 
 fn readme(package: &str, title: &str, selection: CapabilitySelection) -> String {
     format!(
-        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
+        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa run dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa run build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
         selection.template.as_str(),
         if selection.markdown { " and the same typed resource has semantic Markdown at `/index.md`" } else { "" }
     )
@@ -674,7 +674,7 @@ fn vscode_settings() -> &'static str {
 
 fn vscode_tasks(has_database: bool) -> String {
     let mut tasks = vec![
-        json!({ "label": "proa: dev", "type": "process", "command": "proa", "args": ["dev", "--open"], "problemMatcher": [] }),
+        json!({ "label": "proa: dev", "type": "process", "command": "proa", "args": ["run", "dev", "--open"], "problemMatcher": [] }),
         json!({ "label": "proa: check", "type": "process", "command": "proa", "args": ["check", "--all"], "problemMatcher": ["$rustc"] }),
     ];
     if has_database {

@@ -271,23 +271,6 @@ fn main() {
         command
     };
 
-    fs::write(
-        root.join("proa.config.rs"),
-        r#"use proa::config::{Config, Result, ScriptsConfig};
-pub async fn config() -> Result<Config> {
-    Ok(Config {
-        scripts: ScriptsConfig {
-            dev: "cargo run -- 'Local shop'",
-            build: "cargo build --release",
-            ..Default::default()
-        },
-        ..Config::default()
-    })
-}
-"#,
-    )
-    .unwrap();
-
     for once in [false, true] {
         let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = reservation.local_addr().unwrap().port();
@@ -305,6 +288,7 @@ pub async fn config() -> Result<Config> {
             format!("http://127.0.0.1:{port}")
         };
         command
+            .args(["--", "cargo", "run", "--", "Local shop"])
             .stdout(log.try_clone().unwrap())
             .stderr(log)
             .process_group(0);

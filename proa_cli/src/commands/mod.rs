@@ -25,6 +25,7 @@ mod new;
 mod registry;
 mod rsjs;
 mod run;
+pub(crate) mod script;
 mod selection;
 mod site;
 mod start;
@@ -52,22 +53,20 @@ pub(crate) enum Command {
     Add(add::AddArgs),
     /// Create a new Proa project.
     New(new::NewArgs),
-    /// Run the project's dev script or watch and restart its linked server.
+    /// Watch the project and restart its linked development server.
     Dev(dev::DevArgs),
     /// Deploy through transparent provider-native workflows.
     Deploy(deploy::DeployArgs),
-    /// Run the project's build script or build one exact linked binary and its assets.
+    /// Run the built-in build for one linked binary and its assets.
     Build(build::BuildArgs),
     /// Create, migrate, inspect, reset, or remove the configured database.
     Db(db::DbArgs),
-    /// Run a built-in workflow or compile and run one exact Proa binary.
+    /// Run a project script, or compile and run an application binary with no script name.
     Run(run::RunArgs),
     /// Start an already-built release without compiling or watching.
     Start(start::StartArgs),
     /// Run application tests with linked compilation and isolated database state.
     Test(test::TestArgs),
-    /// Run a structured application-specific task from proa.config.rs.
-    Task(task::TaskArgs),
     /// Generate files inside an existing Proa project.
     Generate(generate::GenerateArgs),
     /// Inspect configured component registries.
@@ -101,14 +100,13 @@ pub(crate) fn dispatch(command: Command, arguments: &[OsString]) -> Result<()> {
         Command::Config(args) => config::run(args),
         Command::Add(args) => add::run(args),
         Command::New(args) => new::run(args),
-        Command::Dev(args) => dev::run(args, Some(arguments)),
+        Command::Dev(args) => dev::run(args),
         Command::Deploy(args) => deploy::run(args),
-        Command::Build(args) => build::run(args, Some(arguments)),
+        Command::Build(args) => build::run(args),
         Command::Db(args) => db::run(args),
-        Command::Run(args) => run::run(args),
+        Command::Run(args) => run::run(args, arguments),
         Command::Start(args) => start::run(args),
         Command::Test(args) => test::run(args),
-        Command::Task(args) => task::run(args),
         Command::Generate(args) => generate::run(args),
         Command::Registry(args) => registry::run(args),
         Command::Ui(args) => ui::run(args),

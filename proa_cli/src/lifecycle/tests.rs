@@ -522,27 +522,23 @@ fn descriptor_producer_version_is_explicitly_versioned() {
 
 #[test]
 fn build_command_uses_profile_override() {
-    let command = build_command(
-        &ProjectConfig::default(),
-        &BuildOptions {
-            root: None,
-            profile: Some("release-fast".to_string()),
-            package: Some("demo".to_string()),
-            bin: Some("server".to_string()),
-            example: None,
-            target: Some("aarch64-apple-darwin".to_string()),
-            features: vec!["hydration".to_string(), "metrics".to_string()],
-            all_features: false,
-            no_default_features: true,
-            locked: true,
-            offline: true,
-            no_check: false,
-            no_assets: false,
-            artifact_out: None,
-            command: Vec::new(),
-        },
-    )
-    .unwrap();
+    let command = build_command(&BuildOptions {
+        root: None,
+        profile: Some("release-fast".to_string()),
+        package: Some("demo".to_string()),
+        bin: Some("server".to_string()),
+        example: None,
+        target: Some("aarch64-apple-darwin".to_string()),
+        features: vec!["hydration".to_string(), "metrics".to_string()],
+        all_features: false,
+        no_default_features: true,
+        locked: true,
+        offline: true,
+        no_check: false,
+        no_assets: false,
+        artifact_out: None,
+        command: Vec::new(),
+    });
 
     assert_eq!(
         command,

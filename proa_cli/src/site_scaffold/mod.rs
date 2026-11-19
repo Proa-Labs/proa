@@ -129,7 +129,7 @@ pub fn new_site(options: NewSiteOptions) -> Result<()> {
     }
     if options.start || options.open {
         let root_arg = root.to_string_lossy().into_owned();
-        let mut args = vec!["dev", "--root", root_arg.as_str()];
+        let mut args = vec!["run", "--root", root_arg.as_str(), "dev"];
         if options.open {
             args.push("--open");
         }
@@ -279,7 +279,7 @@ fn print_success(
         }
     );
     println!("  Health      /healthz · /readyz");
-    println!("\nNext:\n  cd {} && proa dev --open", root.display());
+    println!("\nNext:\n  cd {} && proa run dev --open", root.display());
     Ok(())
 }
 
@@ -312,7 +312,7 @@ fn operation_report<'a>(
             title,
             selection,
             files: plan.files.len(),
-            next: format!("cd {} && proa dev --open", plan.destination.display()),
+            next: format!("cd {} && proa run dev --open", plan.destination.display()),
         },
     }
 }

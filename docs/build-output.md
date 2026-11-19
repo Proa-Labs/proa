@@ -11,8 +11,8 @@ compilation pass.
 
 To customize the build, author `proa.config.rs` in the project root. Wrap
 a `Config` struct literal in `Ok` and inherit other settings with
-`..Config::default()`. Dev and build default to `proa run dev` and
-`proa run build`.
+`..Config::default()`. Use `proa run dev` and `proa run build` to run the
+configured scripts. They default to the `proa dev` and `proa build` workflows.
 
 Proa manages `public/` by default. Set `paths.public` to select a different
 directory or set it to `None` to opt out.
@@ -55,29 +55,24 @@ async function are read afresh either way.
 `proa init` and `proa new site` generate the Rust file.
 Use `proa config validate` to check the authored settings.
 
-`proa dev` and `proa build` launch the configured scripts in the project
+`proa run dev` and `proa run build` launch the configured scripts in the project
 directory and forward their CLI flags. In this example each wrapper enters
 the linked pipeline using the CLI that launched it.
 
 ```bash
 # scripts/dev.sh
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run dev "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev "$@"
 ```
 
 ```bash
 # scripts/build.sh
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run build "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" build "$@"
 ```
 
-The `proa run dev` and `proa run build` commands enter the built-in linked
+The `proa dev` and `proa build` commands enter the built-in linked
 pipeline directly. Use `scripts.named` with `scripts.before.build` or
 `scripts.before.dev` for preparation commands. Cargo discovers `build.rs` scripts in the application
 and its dependencies during the Cargo passes.
-
-If you change which Bash command `scripts.dev` selects during a session,
-the watcher prints the new command. Run `proa dev` again to enter that
-wrapper and pick up its environment. Other edits continue to use the
-current wrapper.
 
 Existing asset commands can populate the public directory. `build.assets: None`
 lets Proa infer those commands, while `Some(vec![])` disables them. When the
@@ -87,9 +82,9 @@ keep their existing unmanaged serving path.
 `--no-assets` on `build` or `dev` skips both asset commands and publication.
 
 ```sh
-proa build --root path/to/app --profile dev
+proa run --root path/to/app build --profile dev
 proa run --root path/to/app
-proa dev --root path/to/app
+proa run --root path/to/app dev
 ```
 
 The descriptor and final Cargo passes remain unchanged. For a configured
@@ -110,7 +105,7 @@ executable so it acquires the restored catalog's reader lock. Removing the
 executable along with the catalog triggers a linked build. A normal atomic
 manifest replacement does not trigger recovery.
 
-`proa dev --open` uses the browser URL reported by the app. Proa's Axum
+`proa run dev --open` uses the browser URL reported by the app. Proa's Axum
 serve helper reports its bound HTTP listener. A custom server can report
 its own HTTPS origin or mounted path.
 

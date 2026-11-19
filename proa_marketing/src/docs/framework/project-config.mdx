@@ -18,8 +18,8 @@ use proa::config::{Config, Result, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "proa run dev",
-            build: "proa run build",
+            dev: "proa dev",
+            build: "proa build",
             ..Default::default()
         },
         ..Config::default()
@@ -118,7 +118,17 @@ the app.
 
 ## Build commands and hooks
 
-`proa dev` and `proa build` run the entries in `scripts`.
+`proa run dev` and `proa run build` run the entries in `scripts`.
+`proa dev` and `proa build` always enter the built-in workflows. Set flags
+directly in a script entry to reuse them on each invocation.
+
+```rust
+scripts: ScriptsConfig {
+    dev: "proa dev --port 5570 --watch content",
+    ..Default::default()
+},
+```
+
 For an app with Bash wrappers, declare the files in `proa.config.rs`.
 
 ```rust
@@ -136,16 +146,21 @@ pub async fn config() -> Result<Config> {
 }
 ```
 
-The wrappers can prepare their environment and enter the built-in workflows
-with `proa run dev` or `proa run build`. These commands go straight to the
-built-in workflow. Proa runs each script from the project directory and
-forwards flags such as `--offline` or `--profile`.
+Wrappers can prepare their environment and call `proa dev` or `proa build`.
+Proa runs scripts from the project directory in the system shell (`sh` on
+Unix, `cmd.exe` on Windows). Shell operators such as `&&` work, and arguments
+after the script name are forwarded to the script. A leading `proa` uses
+the executable that launched the script.
+
+```rust
+dev: "python3 scripts/generate.py && proa dev --watch content",
+```
 
 A dev wrapper can set the listener arguments and add watch paths when it
 enters the linked watcher.
 
 ```bash
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run dev \
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev \
     --port "${PORT:-5570}" --watch content "$@"
 ```
 
@@ -159,15 +174,12 @@ until one of its recorded Rust inputs changes. Async file reads see the new
 contents. Editing a file referenced by `include_bytes!` or `include_str!`
 makes Cargo check the runner.
 
-Changing `scripts.dev` from one shell wrapper to another prints a restart
-notice. Run `proa dev` again to enter the new wrapper.
-
 ```bash filename="scripts/dev.sh"
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run dev "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" dev "$@"
 ```
 
 ```bash filename="scripts/build.sh"
-exec "${PROA_SCRIPT_EXECUTABLE:-proa}" run build "$@"
+exec "${PROA_SCRIPT_EXECUTABLE:-proa}" build "$@"
 ```
 
 The scaffolds spell out the defaults. A project without a config file also
@@ -205,7 +217,8 @@ pub async fn config() -> Result<Config> {
 }
 ```
 
-Run a named script directly with `proa task generate-assets`.
+Run a named task directly with `proa run generate-assets`, or list scripts
+with `proa run --list`. Bare `proa run` builds and runs the application binary.
 
 Package names come from `Cargo.toml`. Proa records starter choices and
 Markdown scaffolding in `proa.lock.json`. Use

@@ -161,14 +161,7 @@ pub(crate) fn load_project_config_with_runner(
     runner: Option<&mut DevConfigRunner>,
 ) -> Result<ProjectConfig> {
     let path = project_config_path(root);
-    let config = evaluate_project_config(root, path.as_deref(), runner)?;
-    for (field, command) in lifecycle_commands(&config) {
-        anyhow::ensure!(
-            !command.trim().is_empty(),
-            "{field} must specify a command in {CONFIG_FILE}"
-        );
-    }
-    Ok(config)
+    evaluate_project_config(root, path.as_deref(), runner)
 }
 
 fn evaluate_project_config(
@@ -183,13 +176,6 @@ fn evaluate_project_config(
     };
     fill_inferred_defaults(root, &mut config);
     Ok(config)
-}
-
-fn lifecycle_commands(config: &ProjectConfig) -> [(&'static str, &str); 2] {
-    [
-        ("scripts.dev", &config.scripts.dev),
-        ("scripts.build", &config.scripts.build),
-    ]
 }
 
 pub(crate) fn inferred_project_config() -> ProjectConfig {
@@ -221,26 +207,36 @@ pub struct ConfigValidation {
 }
 
 pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
+    let config = load_project_config(root)?;
+    let mut validation = validate_build_config(root, &config);
+    for (name, command) in [
+        ("dev", &config.scripts.dev),
+        ("build", &config.scripts.build),
+    ] {
+        if let Err(error) = crate::commands::script::validate(name, command) {
+            validation.errors.push(error.to_string());
+        }
+    }
+    Ok(validation)
+}
+
+pub(crate) fn validate_build_config(root: &Path, config: &ProjectConfig) -> ConfigValidation {
     let mut validation = ConfigValidation {
         config_path: project_config_path(root),
         warnings: Vec::new(),
         errors: Vec::new(),
     };
 
-    let config = evaluate_project_config(root, validation.config_path.as_deref(), None)?;
     if validation.config_path.is_none() {
         validation
             .warnings
             .push(format!("{CONFIG_FILE} not found; using inferred defaults"));
     }
 
-    for (field, command) in lifecycle_commands(&config) {
-        if let Err(error) = parse_script_command(field, command) {
+    if !config.scripts.css.trim().is_empty() {
+        if let Err(error) = crate::commands::script::validate("css", &config.scripts.css) {
             validation.errors.push(error.to_string());
         }
-    }
-    if let Err(error) = css_script_asset(&config) {
-        validation.errors.push(error.to_string());
     }
     for (name, path) in [
         ("paths.components", &config.paths.components),
@@ -302,7 +298,7 @@ pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
         }
     }
 
-    Ok(validation)
+    validation
 }
 
 pub(crate) fn validate_project_relative_path(path: &Path) -> std::result::Result<(), String> {
@@ -451,16 +447,8 @@ fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
     }
 }
 
-pub(crate) fn css_script_asset(config: &ProjectConfig) -> Result<Option<AssetConfig>> {
-    let script = config.scripts.css.trim();
-    if script.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(AssetConfig {
-        command: parse_script_command("scripts.css", script)?,
-        output: stylesheet_output(config),
-        ..Default::default()
-    }))
+pub(crate) fn css_script_output(config: &ProjectConfig) -> Option<PathBuf> {
+    (!config.scripts.css.trim().is_empty()).then(|| stylesheet_output(config))
 }
 
 fn stylesheet_output(config: &ProjectConfig) -> PathBuf {
@@ -470,12 +458,6 @@ fn stylesheet_output(config: &ProjectConfig) -> PathBuf {
         .as_deref()
         .unwrap_or(Path::new(DEFAULT_PUBLIC_DIRECTORY))
         .join("styles.css")
-}
-
-pub(crate) fn parse_script_command(field: &str, source: &str) -> Result<Vec<String>> {
-    let command = shlex::split(source).with_context(|| format!("{field} has invalid quoting"))?;
-    anyhow::ensure!(!command.is_empty(), "{field} must specify a command");
-    Ok(command)
 }
 
 fn tailwind_asset(output: PathBuf) -> AssetConfig {
@@ -622,8 +604,8 @@ pub async fn config() -> std::io::Result<Config<&'static str, String>> {
         for tailwind in [false, true] {
             let source = generated_project_config(tailwind).unwrap();
             assert!(syn::parse_file(&source).is_ok());
-            assert!(source.contains("dev: \"proa run dev\""));
-            assert!(source.contains("build: \"proa run build\""));
+            assert!(source.contains("dev: \"proa dev\""));
+            assert!(source.contains("build: \"proa build\""));
             assert_eq!(source.contains("assets: Some(vec![])"), !tailwind);
         }
     }

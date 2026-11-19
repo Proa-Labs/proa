@@ -4,7 +4,7 @@
 //! `proa build`: build assets and compile one exact Proa binary through the
 //! linked RSJS pipeline.
 
-use std::{ffi::OsString, path::PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
@@ -16,9 +16,6 @@ pub(crate) struct BuildArgs {
     /// Proa project root. Defaults to the nearest root.
     #[arg(long)]
     root: Option<PathBuf>,
-    /// Enter the built-in linked build from a project script.
-    #[arg(long)]
-    linked: bool,
     /// Cargo profile override, e.g. release-fast.
     #[arg(long)]
     profile: Option<String>,
@@ -67,7 +64,7 @@ pub(crate) struct BuildArgs {
     command: Vec<String>,
 }
 
-pub(crate) fn run(args: BuildArgs, arguments: Option<&[OsString]>) -> Result<()> {
+pub(crate) fn run(args: BuildArgs) -> Result<()> {
     let options = lifecycle::BuildOptions {
         root: args.root,
         profile: args.profile,
@@ -85,7 +82,7 @@ pub(crate) fn run(args: BuildArgs, arguments: Option<&[OsString]>) -> Result<()>
         artifact_out: args.artifact_out,
         command: args.command,
     };
-    lifecycle::build_from_cli(options, arguments.filter(|_| !args.linked))
+    lifecycle::build(options)
 }
 
 #[cfg(test)]

@@ -13,47 +13,44 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use clap::Args;
 use sha2::{Digest, Sha256};
 
-use crate::{
-    config::{self, ScriptConfig},
-    util::resolve_config_root,
-};
+use crate::config::{self, ScriptConfig};
 
-#[derive(Debug, Args)]
-pub(crate) struct TaskArgs {
-    /// Configured task name.
-    name: Option<String>,
-    #[arg(long)]
-    root: Option<PathBuf>,
-    /// List configured tasks and their lifecycle use.
-    #[arg(long)]
-    list: bool,
-    /// Bypass the successful-input cache.
-    #[arg(long)]
-    force: bool,
+pub(super) fn list(project: &config::ProjectConfig) {
+    let scripts = &project.scripts;
+    println!("{:<24} {}", "dev", scripts.dev);
+    println!("{:<24} {}", "build", scripts.build);
+    if !scripts.css.trim().is_empty() {
+        println!("{:<24} {}", "css", scripts.css);
+    }
+    for (name, task) in &scripts.named {
+        if matches!(name.as_str(), "dev" | "build")
+            || name == "css" && !scripts.css.trim().is_empty()
+        {
+            continue;
+        }
+        let lifecycle = lifecycle_usage(project, name);
+        println!("{name:<24} {:<28} {}", task.description, lifecycle);
+    }
 }
 
-pub(crate) fn run(args: TaskArgs) -> Result<()> {
-    let root = resolve_config_root(args.root)?;
-    let project = config::load_project_config(&root)?;
+pub(super) fn run_named(
+    root: &Path,
+    project: &config::ProjectConfig,
+    name: &str,
+    force: bool,
+    arguments: &[OsString],
+) -> Result<()> {
     let scripts = &project.scripts.named;
-    if args.list {
-        for (name, task) in scripts {
-            let lifecycle = lifecycle_usage(&project, name);
-            println!("{name:<24} {:<28} {}", task.description, lifecycle);
-        }
-        return Ok(());
-    }
-    let name = args.name.context("provide a task name or use --list")?;
-    let order = dependency_order(scripts, &name)?;
+    let order = dependency_order(scripts, name)?;
     for task_name in order {
         execute(
-            &root,
+            root,
             &task_name,
             &scripts[&task_name],
-            args.force,
+            force,
+            if task_name == name { arguments } else { &[] },
             &BTreeMap::new(),
         )?;
     }
@@ -72,7 +69,14 @@ pub(crate) fn run_lifecycle_tasks(
 ) -> Result<()> {
     let scripts = &project.scripts.named;
     for task_name in lifecycle_order(scripts, names)? {
-        execute(root, &task_name, &scripts[&task_name], false, environment)?;
+        execute(
+            root,
+            &task_name,
+            &scripts[&task_name],
+            false,
+            &[],
+            environment,
+        )?;
     }
     Ok(())
 }
@@ -161,6 +165,7 @@ fn execute(
     name: &str,
     task: &ScriptConfig,
     force: bool,
+    arguments: &[OsString],
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
     let executable = task
@@ -168,7 +173,7 @@ fn execute(
         .first()
         .with_context(|| format!("task `{name}` has an empty command"))?;
     let cwd = root.join(&task.cwd);
-    let key = task_cache_key(root, task)?;
+    let key = task_cache_key(root, task, arguments)?;
     let cache = root
         .join("target/proa/tasks")
         .join(format!("{name}.sha256"));
@@ -179,9 +184,17 @@ fn execute(
         return Ok(());
     }
     println!("Task {name}");
-    let status = Command::new(executable)
+    let current = crate::util::current_executable()?;
+    let program = if executable == "proa" {
+        current.as_os_str()
+    } else {
+        std::ffi::OsStr::new(executable)
+    };
+    let status = Command::new(program)
         .args(&task.command[1..])
+        .args(arguments)
         .current_dir(&cwd)
+        .env("PROA_SCRIPT_EXECUTABLE", &current)
         .envs(environment)
         .envs(&task.env)
         .status()
@@ -198,11 +211,15 @@ fn execute(
     Ok(())
 }
 
-fn task_cache_key(root: &Path, task: &ScriptConfig) -> Result<String> {
+fn task_cache_key(root: &Path, task: &ScriptConfig, arguments: &[OsString]) -> Result<String> {
     let mut digest = Sha256::new();
     digest.update(env!("CARGO_PKG_VERSION"));
     for argument in &task.command {
         digest.update(argument.as_bytes());
+        digest.update([0]);
+    }
+    for argument in arguments {
+        digest.update(argument.as_encoded_bytes());
         digest.update([0]);
     }
     for pattern in &task.inputs {

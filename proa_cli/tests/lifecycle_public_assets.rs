@@ -390,7 +390,7 @@ fn main() {
     for name in ["a", "b"] {
         fs::write(
             root.join(format!("scripts/{name}.sh")),
-            format!("echo WRAPPER-{name}\nexec \"$PROA_SCRIPT_EXECUTABLE\" dev --linked \"$@\"\n"),
+            format!("echo WRAPPER-{name}\nexit 33\n"),
         )
         .unwrap();
     }
@@ -433,7 +433,7 @@ fn main() {
     let first = wait(ready, 1);
     let output = published(&first);
     let builds = cargo_calls();
-    assert_eq!(builds, 2, "{first}");
+    assert_eq!(builds, 1, "{first}");
     let original = fs::read(output.join("manifest.json")).unwrap();
     fs::remove_file(output.join("manifest.json")).unwrap();
     let repaired = wait(ready, 2);
@@ -465,14 +465,13 @@ fn main() {
     )
     .unwrap();
     let changed = wait(ready, 6);
-    assert!(changed.contains("scripts.dev changed to \"bash scripts/b.sh\". Run `proa dev` again"));
-    assert_eq!(changed.matches("WRAPPER-a").count(), 1);
-    assert!(!changed.contains("WRAPPER-b"));
+    assert!(changed.contains("use `proa run dev`"));
+    assert!(!changed.contains("WRAPPER-"));
 
     fs::rename(&target, artifacts.path().join("moved-target")).unwrap();
     let rebuilt = wait(ready, 7);
     assert!(output.join("manifest.json").is_file());
-    assert_eq!(rebuilt.matches("scripts.dev changed to").count(), 1);
+    assert_eq!(rebuilt.matches("use `proa run dev`").count(), 1);
     assert_eq!(rebuilt.matches(build_started).count(), 5, "{rebuilt}");
 
     let source = root.join("src/main.rs");
@@ -515,7 +514,7 @@ fn main() {
 
 #[cfg(unix)]
 #[test]
-fn configured_scripts_own_the_entrypoint_and_can_delegate_to_the_linked_pipeline() {
+fn run_dispatches_configured_scripts_and_builtins_bypass_them() {
     let temp = fixture();
     let root = temp.path();
     fs::create_dir(root.join("scripts")).unwrap();
@@ -529,7 +528,7 @@ fn configured_scripts_own_the_entrypoint_and_can_delegate_to_the_linked_pipeline
     for phase in ["dev", "build"] {
         fs::write(
             root.join(format!("scripts/{phase}.sh")),
-            format!("echo SCRIPT:{phase}\nexec \"$PROA_SCRIPT_EXECUTABLE\" run {phase} \"$@\"\n"),
+            format!("echo SCRIPT:{phase}\nexec \"$PROA_SCRIPT_EXECUTABLE\" {phase} \"$@\"\n"),
         )
         .unwrap();
     }
@@ -543,10 +542,15 @@ fn configured_scripts_own_the_entrypoint_and_can_delegate_to_the_linked_pipeline
             .unwrap()
     };
     let relative_root = root.file_name().unwrap().to_str().unwrap();
+    let direct = cli(&["dev", "--root", relative_root, "--no-restart", "--offline"]);
+    assert!(!success(&direct).contains("SCRIPT:dev"));
+    assert!(String::from_utf8_lossy(&direct.stderr).contains("use `proa run dev`"));
+
     let dev = success(&cli(&[
-        "dev",
+        "run",
         "--root",
         relative_root,
+        "dev",
         "--no-restart",
         "--offline",
     ]));
@@ -556,8 +560,9 @@ fn configured_scripts_own_the_entrypoint_and_can_delegate_to_the_linked_pipeline
 
     let artifact = "custom-target/exported shop";
     let build = success(&cli(&[
-        "build",
+        "run",
         &format!("--root={relative_root}"),
+        "build",
         "--profile",
         "dev",
         "--no-check",
@@ -568,20 +573,17 @@ fn configured_scripts_own_the_entrypoint_and_can_delegate_to_the_linked_pipeline
     assert_eq!(build.matches("SCRIPT:build").count(), 1, "{build}");
     assert!(root.join(artifact).is_file());
 
-    fs::write(
-        root.join("scripts/dev.sh"),
-        "echo SCRIPT:dev\nexec \"$PROA_SCRIPT_EXECUTABLE\" dev \"$@\"\n",
-    )
-    .unwrap();
-    let recursive = cli(&["dev", "--root", relative_root, "--offline"]);
-    assert!(!recursive.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&recursive.stdout)
-            .matches("SCRIPT:dev")
-            .count(),
-        1
-    );
-    assert!(String::from_utf8_lossy(&recursive.stderr).contains("use `proa run dev`"));
+    let direct = cli(&[
+        "build",
+        "--root",
+        relative_root,
+        "--profile",
+        "dev",
+        "--no-check",
+        "--offline",
+    ]);
+    assert!(!success(&direct).contains("SCRIPT:build"));
+    assert!(String::from_utf8_lossy(&direct.stderr).contains("use `proa run build`"));
 }
 
 #[test]

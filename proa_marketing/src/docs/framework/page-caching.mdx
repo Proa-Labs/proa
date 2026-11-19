@@ -119,8 +119,8 @@ use proa::config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "cargo run",
-            build: "cargo build --release",
+            dev: "proa dev",
+            build: "proa build",
             ..Default::default()
         },
         deploy: Some(DeployConfig {
@@ -151,8 +151,8 @@ use proa::config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "cargo run",
-            build: "cargo build --release",
+            dev: "proa dev",
+            build: "proa build",
             ..Default::default()
         },
         deploy: Some(DeployConfig {

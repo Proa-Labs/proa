@@ -9,7 +9,7 @@ name, and `--title` controls the human-facing title independently:
 
 ```bash
 proa new site my-app --yes
-cd my-app && proa dev --open
+cd my-app && proa run dev --open
 ```
 
 The first `proa dev` build downloads dependencies and compiles the Rust crates,
@@ -167,7 +167,7 @@ What each directory holds:
 | `tests/` | Integration tests, including the representation and data-loading contracts. |
 | `build.rs` | Build-time wiring. The `origin` template also runs the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
 
-`proa.config.rs` controls the `proa dev` and `proa build` lifecycle commands
+`proa.config.rs` controls the `proa run dev` and `proa run build` scripts
 and records component registry aliases. `proa.lock.json` records the scaffold
 capabilities and every component installed by `proa ui add`. The generated
 Cargo dependencies on Proa crates resolve from crates.io. A generated standalone
