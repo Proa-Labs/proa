@@ -148,9 +148,10 @@ pub async fn config() -> Result<Config> {
 
 Wrappers can prepare their environment and call `proa dev` or `proa build`.
 Proa runs scripts from the project directory in the system shell (`sh` on
-Unix, `cmd.exe` on Windows). Shell operators such as `&&` work, and arguments
-after the script name are forwarded to the script. A leading `proa` uses
-the executable that launched the script.
+Unix, `cmd.exe` on Windows). Shell operators such as `&&` work. Arguments
+after the script name go to the final command. For shell control flow, put
+the logic in a wrapper file and handle the arguments there. A leading `proa`
+uses the executable that launched the script.
 
 ```rust
 dev: "python3 scripts/generate.py && proa dev --watch content",

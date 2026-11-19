@@ -9,24 +9,52 @@ pub(super) fn run(root: &Path, name: &str, source: &str, args: &[OsString]) -> R
     let mut process = command(root, name, source, args)?;
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt;
-        Err(process.exec()).with_context(|| format!("run script `{name}`"))
+        use std::{
+            io::IsTerminal,
+            os::unix::process::{CommandExt, ExitStatusExt},
+        };
+
+        // A foreground shell keeps the terminal's process group and job
+        // control. A supervisor can signal only the CLI PID, so give a
+        // noninteractive script its own group and relay signals to the group.
+        if std::io::stdin().is_terminal() {
+            return Err(process.exec()).with_context(|| format!("run script `{name}`"));
+        }
+        crate::lifecycle::install_child_group_signal_handler();
+        let mut child = process
+            .process_group(0)
+            .spawn()
+            .with_context(|| format!("run script `{name}`"))?;
+        crate::lifecycle::set_active_child_group(&child);
+        let status = child.wait();
+        crate::lifecycle::clear_active_child_group();
+        let status = status.with_context(|| format!("wait for script `{name}`"))?;
+        if let Some(signal) = status.signal() {
+            std::process::exit(128 + signal);
+        }
+        exit_with_status(status)
     }
     #[cfg(not(unix))]
-    {
-        let status = process
+    exit_with_status(
+        process
             .status()
-            .with_context(|| format!("run script `{name}`"))?;
-        if !status.success() {
-            std::process::exit(status.code().unwrap_or(1));
-        }
-        Ok(())
+            .with_context(|| format!("run script `{name}`"))?,
+    )
+}
+
+fn exit_with_status(status: std::process::ExitStatus) -> Result<()> {
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
     }
+    Ok(())
 }
 
 pub(crate) fn command(root: &Path, name: &str, source: &str, args: &[OsString]) -> Result<Command> {
     let source = source.trim();
     ensure!(!source.is_empty(), "scripts.{name} must specify a command");
+    #[cfg(windows)]
+    let mut command = shell(source, args)?;
+    #[cfg(not(windows))]
     let mut command = shell(source, args);
     let executable = crate::util::external_path(&crate::util::current_executable()?);
     command
@@ -68,74 +96,120 @@ pub(crate) fn hint(name: &str, source: &str, default: &str) {
 
 #[cfg(not(windows))]
 fn shell(source: &str, args: &[OsString]) -> Command {
-    let mut script = format!("proa() {{ \"$PROA_SCRIPT_EXECUTABLE\" \"$@\"; }}\n{source}");
-    if !args.is_empty() {
+    let mut script = String::from("proa() { \"$PROA_SCRIPT_EXECUTABLE\" \"$@\"; }\n");
+    let end = if args.is_empty() {
+        source.len()
+    } else {
+        argument_position(source)
+    };
+    script.push_str(&source[..end]);
+    if !args.is_empty() && end != 0 {
         script.push_str(" \"$@\"");
     }
+    script.push_str(&source[end..]);
     let mut command = Command::new("sh");
     command.args(["-c", &script, "proa run"]).args(args);
     command
 }
 
+#[cfg(not(windows))]
+fn argument_position(source: &str) -> usize {
+    // Keep trailing separators and shell comments after the forwarded args.
+    // The shell still parses and executes the full source.
+    let mut end = 0;
+    let mut quote = None;
+    let mut word = false;
+    let mut chars = source.char_indices();
+    while let Some((index, character)) = chars.next() {
+        match (quote, character) {
+            (None, '#') if !word => {
+                for (_, next) in chars.by_ref() {
+                    if next == '\n' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            (None, ' ' | '\t' | '\n' | ';' | '&') => {
+                word = false;
+                continue;
+            }
+            (None, '\'' | '"') => quote = Some(character),
+            (Some(open), close) if open == close => quote = None,
+            (None | Some('"'), '\\') => {
+                if let Some((index, escaped)) = chars.next() {
+                    end = index + escaped.len_utf8();
+                    word = true;
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        end = index + character.len_utf8();
+        word = true;
+    }
+    end
+}
+
 #[cfg(windows)]
-fn shell(source: &str, args: &[OsString]) -> Command {
+fn shell(source: &str, args: &[OsString]) -> Result<Command> {
     use std::os::windows::process::CommandExt;
 
-    let executable = if args.is_empty() {
-        "%PROA_SCRIPT_EXECUTABLE%"
-    } else {
-        "!PROA_SCRIPT_EXECUTABLE!"
-    };
     let mut script = match source.strip_prefix("proa") {
         Some(rest) if rest.is_empty() || rest.starts_with(char::is_whitespace) => {
-            format!("\"{executable}\"{rest}")
+            format!("\"%PROA_SCRIPT_EXECUTABLE%\"{rest}")
         }
         _ => source.to_owned(),
     };
     let mut command = Command::new("cmd.exe");
-    command.args(["/d", "/s"]);
-    if args.is_empty() {
-        command.arg("/v:off");
-    } else {
-        // Expand forwarded arguments after cmd's operator parsing. Their
-        // contents are then interpreted only by the child process.
-        command
-            .args(["/v:on"])
-            .env("PROA_SCRIPT_ARGS", windows_arguments(args));
-        script.push_str(" !PROA_SCRIPT_ARGS!");
+    if !args.is_empty() {
+        command.env("PROA_SCRIPT_ARGS", windows_arguments(args)?);
+        script.push_str(" %PROA_SCRIPT_ARGS%");
     }
-    command.arg("/c").raw_arg(format!("\"{script}\""));
     command
+        .args(["/d", "/s", "/v:off", "/c"])
+        .raw_arg(format!("\"{script}\""));
+    Ok(command)
 }
 
 #[cfg(windows)]
-fn windows_arguments(args: &[OsString]) -> OsString {
+fn windows_arguments(args: &[OsString]) -> Result<OsString> {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
+    const BACKSLASH: u16 = b'\\' as u16;
+    const QUOTE: u16 = b'"' as u16;
     let mut quoted = Vec::new();
     for arg in args {
+        ensure!(
+            !arg.as_encoded_bytes()
+                .iter()
+                .any(|&b| matches!(b, b'\r' | b'\n')),
+            "Windows command scripts cannot forward arguments containing line breaks"
+        );
         if !quoted.is_empty() {
             quoted.push(u16::from(b' '));
         }
-        quoted.push(u16::from(b'"'));
+        quoted.push(QUOTE);
         let mut backslashes = 0;
         for unit in arg.encode_wide() {
             match unit {
-                92 => backslashes += 1,
+                BACKSLASH => backslashes += 1,
+                QUOTE => {
+                    // Two adjacent quotes keep shell operators quoted and
+                    // become one literal quote in a Windows program's argv.
+                    quoted.extend(std::iter::repeat_n(BACKSLASH, backslashes * 2));
+                    quoted.extend([QUOTE, QUOTE]);
+                    backslashes = 0;
+                }
                 _ => {
-                    let escaped = if unit == u16::from(b'"') {
-                        backslashes * 2 + 1
-                    } else {
-                        backslashes
-                    };
-                    quoted.extend(std::iter::repeat_n(u16::from(b'\\'), escaped));
+                    quoted.extend(std::iter::repeat_n(BACKSLASH, backslashes));
                     quoted.push(unit);
                     backslashes = 0;
                 }
             }
         }
-        quoted.extend(std::iter::repeat_n(u16::from(b'\\'), backslashes * 2));
-        quoted.push(u16::from(b'"'));
+        quoted.extend(std::iter::repeat_n(BACKSLASH, backslashes * 2));
+        quoted.push(QUOTE);
     }
-    OsString::from_wide(&quoted)
+    Ok(OsString::from_wide(&quoted))
 }

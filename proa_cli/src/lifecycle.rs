@@ -181,7 +181,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
     // spawned. A flag error should cost nothing to recover from.
     let debounce = dev_watch_debounce(&options)?;
     let command = dev_command(&options);
-    install_dev_signal_handler();
+    install_child_group_signal_handler();
 
     println!("Proa dev root: {}", root.display());
     println!("Building your site. The first build downloads dependencies and compiles crates; this can take several minutes.");
@@ -690,28 +690,26 @@ fn dev_watch_paths(config: &ProjectConfig, options: &DevOptions) -> Result<Vec<P
     Ok(paths)
 }
 
-// The exact final server runs in its own process group so restarts can stop
-// its whole subprocess tree. That also detaches it from the terminal's
-// foreground group, so Ctrl-C / SIGTERM on `proa dev` must be forwarded to
-// the child group by hand or the server would outlive the CLI and keep the
-// port bound.
+// The final dev server and noninteractive scripts run in separate process
+// groups. Forward Ctrl-C and SIGTERM so stopping the CLI also stops the
+// active child group.
 #[cfg(unix)]
 static ACTIVE_CHILD_GROUP: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
-fn set_active_child_group(child: &Child) {
+pub(crate) fn set_active_child_group(child: &Child) {
     #[cfg(unix)]
     ACTIVE_CHILD_GROUP.store(child.id() as i32, std::sync::atomic::Ordering::SeqCst);
     #[cfg(not(unix))]
     let _ = child;
 }
 
-fn clear_active_child_group() {
+pub(crate) fn clear_active_child_group() {
     #[cfg(unix)]
     ACTIVE_CHILD_GROUP.store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[cfg(unix)]
-extern "C" fn dev_signal_handler(signal: libc::c_int) {
+extern "C" fn child_group_signal_handler(signal: libc::c_int) {
     let pgid = ACTIVE_CHILD_GROUP.load(std::sync::atomic::Ordering::SeqCst);
     if pgid > 0 {
         unsafe { libc::kill(-pgid, libc::SIGTERM) };
@@ -719,16 +717,16 @@ extern "C" fn dev_signal_handler(signal: libc::c_int) {
     unsafe { libc::_exit(128 + signal) };
 }
 
-fn install_dev_signal_handler() {
+pub(crate) fn install_child_group_signal_handler() {
     #[cfg(unix)]
     unsafe {
         libc::signal(
             libc::SIGINT,
-            dev_signal_handler as extern "C" fn(libc::c_int) as libc::sighandler_t,
+            child_group_signal_handler as extern "C" fn(libc::c_int) as libc::sighandler_t,
         );
         libc::signal(
             libc::SIGTERM,
-            dev_signal_handler as extern "C" fn(libc::c_int) as libc::sighandler_t,
+            child_group_signal_handler as extern "C" fn(libc::c_int) as libc::sighandler_t,
         );
     }
 }

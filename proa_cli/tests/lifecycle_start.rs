@@ -8,13 +8,11 @@ fn run_scripts_chain_commands_and_use_the_cli_that_launched_them() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
     fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
-    fs::write(
-        root.join("proa.config.rs"),
-        r#"use proa::config::{Config, Result, ScriptsConfig};
+    let config = r#"use proa::config::{Config, Result, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
-            dev: "proa --version && echo shell-arguments",
+            dev: DEV_SCRIPT,
             build: "echo configured-build",
             named: std::collections::BTreeMap::from([("report", proa::config::ScriptConfig {
                 command: vec!["proa", "--version"],
@@ -25,7 +23,15 @@ pub async fn config() -> Result<Config> {
         ..Config::default()
     })
 }
-"#,
+"#;
+    let script = if cfg!(windows) {
+        "proa --version && echo shell-arguments !content!"
+    } else {
+        "proa --version && echo shell-arguments; # trailing comment"
+    };
+    fs::write(
+        root.join("proa.config.rs"),
+        config.replace("DEV_SCRIPT", &format!("{script:?}")),
     )
     .unwrap();
     if cfg!(windows) {
@@ -61,6 +67,9 @@ pub async fn config() -> Result<Config> {
         stdout.contains("shell-arguments") && stdout.contains("A & B"),
         "{stdout}"
     );
+    if cfg!(windows) {
+        assert!(stdout.contains("!content!"), "{stdout}");
+    }
     assert!(!stdout.contains("wrong-cli"), "{stdout}");
 
     let output = cli(&["run", "dev"]);
@@ -104,6 +113,68 @@ pub async fn config() -> Result<Config> {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("report"));
+}
+
+#[cfg(unix)]
+#[test]
+fn terminating_a_supervised_script_stops_the_shells_children() {
+    use std::{
+        process::Stdio,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+    fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, Result, ScriptsConfig};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig { dev: "sh watcher.sh && echo finished", ..Default::default() },
+        ..Default::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("watcher.sh"),
+        "trap 'touch stopped; exit' TERM\nprintf '%s' \"$$\" > ready\nwhile :; do sleep 1; done\n",
+    )
+    .unwrap();
+    let mut cli = Command::new(env!("CARGO_BIN_EXE_proa"))
+        .current_dir(root)
+        .args(["run", "dev"])
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let watcher = loop {
+        if let Ok(ready) = fs::read_to_string(root.join("ready")) {
+            if let Ok(pid) = ready.parse::<i32>() {
+                break pid;
+            }
+        }
+        if cli.try_wait().unwrap().is_some() || Instant::now() >= deadline {
+            let _ = cli.kill();
+            let _ = cli.wait();
+            panic!("script failed to start");
+        }
+        thread::sleep(Duration::from_millis(25));
+    };
+
+    assert_eq!(unsafe { libc::kill(cli.id() as i32, libc::SIGTERM) }, 0);
+    assert_eq!(cli.wait().unwrap().code(), Some(128 + libc::SIGTERM));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !root.join("stopped").exists() {
+        if Instant::now() >= deadline {
+            unsafe { libc::kill(watcher, libc::SIGKILL) };
+            panic!("script watcher outlived the CLI");
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
 }
 
 #[test]
