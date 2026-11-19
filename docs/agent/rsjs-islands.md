@@ -1507,5 +1507,5 @@ generated mechanically from the same IR.
 
 See [`footguns.md`](footguns.md) for the full gallery.
 
-1. **`X is not a recognised IR primitive or linked #[rsjs::client] helper`** — A browser-reachable value crossed an opaque operation. Keep the operation server-only in the prelude, or annotate a portable helper with `#[rsjs::client]`.
-2. **`expected identifier, found keyword` inside `<svg>`** — Keyword tag names like `<use>` parse with the current `proa_dsl`.
+1. **`X is not a recognised IR primitive or linked #[rsjs::client] helper`**. A browser-reachable value crossed an opaque operation. Keep the operation server-only in the prelude, or annotate a portable helper with `#[rsjs::client]`.
+2. **`expected identifier, found keyword` inside `<svg>`**. Keyword tag names like `<use>` parse with the current `proa_dsl`.

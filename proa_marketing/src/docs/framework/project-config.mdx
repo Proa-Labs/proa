@@ -5,7 +5,7 @@ description: Configure the dev command, public assets, and component registries.
 
 Place `proa.config.rs` next to the project's `Cargo.toml` and export
 `pub async fn config() -> Result<Config>`. The CLI supplies the
-`proa_config` types, including a `Result` alias that accepts errors from
+`proa::config` types, including a `Result` alias that accepts errors from
 operations such as file reads via `?`. Your application owns its routes,
 base path, listeners, and runtime settings.
 
@@ -13,7 +13,7 @@ Wrap a `Config` struct literal in `Ok`. Set `scripts.dev` and
 `scripts.build` explicitly and use `..Config::default()` for other settings.
 
 ```rust
-use proa_config::{AssetConfig, BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{AssetConfig, BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
@@ -51,17 +51,17 @@ database: Some(DatabaseConfig {
 }),
 ```
 
-Import `DatabaseConfig` and `DatabaseDriver` from `proa_config`.
+Import `DatabaseConfig` and `DatabaseDriver` from `proa::config`.
 `Config` accepts string literals directly, including in path fields.
 For a computed path, return `Config<&'static str, String>` and move the
 computed string into the path field. Use `PathBuf` as the second type
 argument if you build paths with `std::path`.
 
-For settings read from a file, use `proa_config::tokio` and propagate I/O
+For settings read from a file, use `proa::config::tokio` and propagate I/O
 errors with `?`. Add extra watch paths in the dev script.
 
 ```rust
-use proa_config::{Config, ProjectPaths, Result, tokio, ScriptsConfig};
+use proa::config::{Config, ProjectPaths, Result, tokio, ScriptsConfig};
 
 pub async fn config() -> Result<Config<&'static str, String>> {
     let public = tokio::fs::read_to_string("public-dir.txt").await?;
@@ -109,7 +109,7 @@ the app.
 For an app with Bash wrappers, declare the files in `proa.config.rs`.
 
 ```rust
-use proa_config::{Config, Result, ScriptsConfig};
+use proa::config::{Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
@@ -168,7 +168,7 @@ example runs an existing Python script in both workflows.
 
 ```rust
 use std::collections::BTreeMap;
-use proa_config::{Config, Result, ScriptConfig, ScriptHooks, ScriptsConfig};
+use proa::config::{Config, Result, ScriptConfig, ScriptHooks, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
@@ -212,7 +212,7 @@ Linked Proa builds enable RSJS minification by default. Set
 `build.minify_rsjs` to `false` for readable JavaScript while debugging.
 
 ```rust
-use proa_config::{BuildConfig, Config, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {

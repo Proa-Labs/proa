@@ -273,7 +273,7 @@ fn main() {
 
     fs::write(
         root.join("proa.config.rs"),
-        r#"use proa_config::{Config, Result, ScriptsConfig};
+        r#"use proa::config::{Config, Result, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {

@@ -641,7 +641,15 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     assert_eq!(html.headers()[header::VARY], "Accept");
     assert!(html.headers()[header::LINK].to_str().unwrap().contains("/apps/demo/index.md"));
     let document = String::from_utf8(body(html).await).unwrap();
-    assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
+    let stylesheet = if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
+        "/_proa/assets/styles.css"
+    } else {
+        "/static/styles.css"
+    };
+    assert!(document.contains(&format!("href=\"/apps/demo{stylesheet}\"")));
+    let css = app.clone().oneshot(Request::builder().uri(stylesheet).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(css.status(), StatusCode::OK);
+    assert!(css.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/css"));
 __NAVIGATION_ASSERTIONS__
     let refused_markdown = app.clone().oneshot(
         Request::builder().uri("/").header(header::ACCEPT, "text/markdown;q=0, text/html").body(Body::empty()).unwrap()

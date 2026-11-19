@@ -38,7 +38,7 @@ def main():
     command = ', '.join(json.dumps(arg, ensure_ascii=False)
                         for arg in [sys.executable, '-c', hook])
     config_path.write_text(f"""use std::collections::BTreeMap;
-use proa_config::{{Config, Result, ScriptConfig, ScriptHooks, ScriptsConfig}};
+use proa::config::{{Config, Result, ScriptConfig, ScriptHooks, ScriptsConfig}};
 
 pub async fn config() -> Result<Config> {{
     Ok(Config {{

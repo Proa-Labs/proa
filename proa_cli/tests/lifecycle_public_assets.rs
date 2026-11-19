@@ -9,10 +9,10 @@ use std::{
 };
 
 const PUBLIC_CONFIG: &str = r#"
-use proa_config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config<&'static str, String>> {
-    let public = proa_config::tokio::fs::read_to_string("asset-root.txt")
+    let public = proa::config::tokio::fs::read_to_string("asset-root.txt")
         .await
         .map_err(|error| format!("read asset-root.txt: {error}"))?;
     Ok(Config {
@@ -155,22 +155,127 @@ fn filtered_out() {
 }
 
 #[cfg(unix)]
+struct Watcher(std::process::Child);
+
+#[cfg(unix)]
+impl Watcher {
+    fn wait_for(&mut self, log: &Path, message: &str, count: usize) -> String {
+        use std::time::{Duration, Instant};
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            let text = fs::read_to_string(log).unwrap();
+            if text.matches(message).count() >= count {
+                return text;
+            }
+            assert!(
+                self.0.try_wait().unwrap().is_none() && Instant::now() < deadline,
+                "{text}"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Watcher {
+    fn drop(&mut self) {
+        unsafe {
+            libc::kill(-(self.0.id() as i32), libc::SIGTERM);
+        }
+        let _ = self.0.wait();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn test_watch_tracks_public_and_extra_inputs_without_looping_on_generated_css() {
+    use std::{os::unix::process::CommandExt, time::Duration};
+
+    let temp = fixture();
+    let root = temp.path();
+    fs::create_dir(root.join("tests")).unwrap();
+    fs::create_dir(root.join("content")).unwrap();
+    fs::write(root.join("content/example.txt"), "first input").unwrap();
+    fs::write(
+        root.join("tests/page.rs"),
+        r#"
+#[test]
+fn page_inputs() {
+    let content = std::fs::read_to_string("content/example.txt").unwrap();
+    let public = std::fs::read_to_string("public/logo.svg").unwrap();
+    assert!(std::env::var_os("PROA_PUBLIC_ASSETS").is_some());
+    println!("INPUTS|{content}|{public}");
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("proa.config.rs"),
+        PUBLIC_CONFIG.replace(
+            "Some(vec![])",
+            r#"Some(vec![proa::config::AssetConfig {
+            command: vec!["sh", "-c", "echo '.test {}' > public/generated.css"],
+            output: "public/generated.css".to_owned(),
+            ..Default::default()
+        }])"#,
+        ),
+    )
+    .unwrap();
+    // Warm the config runner before starting the watcher deadline.
+    success(&cli(root, &["config", "show"]));
+    let log = root.join("test-watch.log");
+    let output = fs::File::create(&log).unwrap();
+    let mut watch = Watcher(
+        Command::new(env!("CARGO_BIN_EXE_proa"))
+            .current_dir(root)
+            .env("CARGO_TARGET_DIR", root.join("custom-target"))
+            .env_remove(OUTPUT_ENV)
+            .args([
+                "test",
+                "--test",
+                "page",
+                "--offline",
+                "--watch",
+                "--watch-path",
+                "content",
+                "--",
+                "--nocapture",
+            ])
+            .stdout(output.try_clone().unwrap())
+            .stderr(output)
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let waiting = "Watching for test input changes";
+    let first = watch.wait_for(&log, waiting, 1);
+    assert!(first.contains("INPUTS|first input|first"), "{first}");
+    fs::write(root.join("content/example.txt"), "updated input").unwrap();
+    let second = watch.wait_for(&log, waiting, 2);
+    assert!(second.contains("INPUTS|updated input|first"), "{second}");
+    fs::write(root.join("public/logo.svg"), "updated logo").unwrap();
+    let third = watch.wait_for(&log, waiting, 3);
+    assert!(
+        third.contains("INPUTS|updated input|updated logo"),
+        "{third}"
+    );
+    std::thread::sleep(Duration::from_millis(650));
+    let text = fs::read_to_string(&log).unwrap();
+    assert_eq!(
+        text.matches("building asset: public/generated.css").count(),
+        3,
+        "{text}"
+    );
+}
+
+#[cfg(unix)]
 #[test]
 fn watcher_recovers_output_and_rechecks_only_config_compile_inputs_on_asset_edits() {
     use std::{
         net::TcpListener,
         os::unix::{fs::PermissionsExt, process::CommandExt},
-        time::{Duration, Instant},
+        time::Duration,
     };
-    struct Watcher(std::process::Child);
-    impl Drop for Watcher {
-        fn drop(&mut self) {
-            unsafe {
-                libc::kill(-(self.0.id() as i32), libc::SIGTERM);
-            }
-            let _ = self.0.wait();
-        }
-    }
     let temp = fixture();
     let root = temp.path();
     let artifacts = tempfile::tempdir().unwrap();
@@ -239,20 +344,7 @@ fn main() {
             .spawn()
             .unwrap(),
     );
-    let mut wait = |message, count| {
-        let deadline = Instant::now() + Duration::from_secs(120);
-        loop {
-            let text = fs::read_to_string(&log).unwrap();
-            if text.matches(message).count() >= count {
-                break text;
-            }
-            assert!(
-                watch.0.try_wait().unwrap().is_none() && Instant::now() < deadline,
-                "{text}"
-            );
-            std::thread::sleep(Duration::from_millis(25));
-        }
-    };
+    let mut wait = |message, count| watch.wait_for(&log, message, count);
     let cargo_calls = || fs::read_to_string(&cargo_trace).unwrap().lines().count();
     let ready = "Proa dev ready:";
     let build_started = "running linked RSJS Cargo dev build";
@@ -465,7 +557,7 @@ fn main() {
     fs::write(
         root.join("proa.config.rs"),
         r#"
-use proa_config::{BuildConfig, Config, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {

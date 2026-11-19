@@ -19,23 +19,25 @@ const MODEL: &str = include_str!("model.rs");
 const MANIFEST: &str = include_str!("runner/Cargo.toml.in");
 const LOCKFILE: &str = include_str!("runner/Cargo.lock.in");
 const ENTRY: &str = r#"
-extern crate self as proa_config;
+extern crate self as proa;
 
 mod model;
-pub use model::*;
-pub use serde_json as json;
-pub use tokio;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+pub mod config {
+    pub use crate::model::*;
+    pub use tokio;
+
+    pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+}
 
 #[path = __CONFIG_PATH__]
 mod authored;
 
-fn main() -> Result<()> {
+fn main() -> config::Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let config: Config<_, _> = runtime.block_on(authored::config())?;
+    let config: config::Config<_, _> = runtime.block_on(authored::config())?;
     let output = std::env::args_os().nth(1).expect("missing config output path");
     serde_json::to_writer(std::fs::File::create(output)?, &config)?;
     Ok(())
@@ -348,7 +350,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     use std::fmt::Write as _;
 
     let mut source = String::from(
-        "use proa_config::{BuildConfig, Config, ProjectPaths, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
+        "use proa::config::{BuildConfig, Config, ProjectPaths, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
     );
     macro_rules! section {
         ($($field:ident),+ $(,)?) => {
@@ -358,12 +360,12 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
         };
     }
     section!(application, database, deploy);
-    writeln!(source, "        scripts: proa_config::ScriptsConfig {{")?;
+    writeln!(source, "        scripts: proa::config::ScriptsConfig {{")?;
     writeln!(source, "            dev: {:?},", config.scripts.dev)?;
     writeln!(source, "            build: {:?},", config.scripts.build)?;
     let before = &config.scripts.before;
     if !before.is_empty() {
-        writeln!(source, "            before: proa_config::ScriptHooks {{")?;
+        writeln!(source, "            before: proa::config::ScriptHooks {{")?;
         for (phase, tasks) in [
             ("dev", &before.dev),
             ("build", &before.build),
@@ -395,7 +397,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
             let inputs = string_vec(&script.inputs, TextSource::Literal);
             writeln!(
                 source,
-                "                ({name:?}, proa_config::ScriptConfig {{
+                "                ({name:?}, proa::config::ScriptConfig {{
                     description: {description:?},
                     command: {command},
                     cwd: {cwd},
@@ -423,7 +425,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     if config.registries == super::RegistriesConfig::public_only() {
         writeln!(
             source,
-            "        registries: proa_config::RegistriesConfig::public_only(),"
+            "        registries: proa::config::RegistriesConfig::public_only(),"
         )?;
     } else if config.registries != ProjectConfig::default().registries {
         writeln!(
@@ -461,7 +463,7 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
         Some(assets) => {
             writeln!(source, "            assets: Some(vec![")?;
             for asset in assets {
-                writeln!(source, "                proa_config::AssetConfig {{")?;
+                writeln!(source, "                proa::config::AssetConfig {{")?;
                 writeln!(source, "                    kind: {:?},", asset.kind)?;
                 writeln!(
                     source,
@@ -566,9 +568,9 @@ macro_rules! config_sections {
                 use std::fmt::Write as _;
                 let default = Self::default();
                 if *self == default {
-                    return Ok(concat!("proa_config::", stringify!($name), "::default()").into());
+                    return Ok(concat!("proa::config::", stringify!($name), "::default()").into());
                 }
-                let mut result = String::from(concat!("proa_config::", stringify!($name), " {\n"));
+                let mut result = String::from(concat!("proa::config::", stringify!($name), " {\n"));
                 let padding = indent + 4;
                 $(if self.$field != default.$field {
                     writeln!(
@@ -593,8 +595,8 @@ config_sections! {
 impl ConfigSource for super::DatabaseDriver {
     fn rust_expr(&self, _: usize, _: TextSource) -> Result<String> {
         Ok(match self {
-            Self::None => "proa_config::DatabaseDriver::None",
-            Self::Sqlite => "proa_config::DatabaseDriver::Sqlite",
+            Self::None => "proa::config::DatabaseDriver::None",
+            Self::Sqlite => "proa::config::DatabaseDriver::Sqlite",
         }
         .into())
     }
@@ -605,11 +607,11 @@ impl ConfigSource for super::CdnConfig {
         let padding = indent + 4;
         match self {
             Self::Cloudflare { zone_id, hostname } => Ok(format!(
-                "proa_config::CdnConfig::Cloudflare {{\n{:padding$}zone_id: {},\n{:padding$}hostname: {},\n{:indent$}}}",
+                "proa::config::CdnConfig::Cloudflare {{\n{:padding$}zone_id: {},\n{:padding$}hostname: {},\n{:indent$}}}",
                 "", zone_id.rust_expr(padding, text)?, "", hostname.rust_expr(padding, text)?, "",
             )),
             Self::Command { command } => Ok(format!(
-                "proa_config::CdnConfig::Command {{\n{:padding$}command: {},\n{:indent$}}}",
+                "proa::config::CdnConfig::Command {{\n{:padding$}command: {},\n{:indent$}}}",
                 "", command.rust_expr(padding, text)?, "",
             )),
         }

@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_config::{
+use proa::config::{
     ApplicationConfig, AssetConfig, BuildConfig, Config, DatabaseConfig, DatabaseDriver,
     ProjectPaths, RegistriesConfig, Result, ScriptsConfig,
 };

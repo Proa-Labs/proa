@@ -70,7 +70,7 @@ fn start_launches_the_host_release_executable_and_preserves_explicit_paths() {
         fs::write(
             temp.path().join("proa.config.rs"),
             format!(
-                r#"use proa_config::{{ApplicationConfig, Config, Result, ScriptsConfig}};
+                r#"use proa::config::{{ApplicationConfig, Config, Result, ScriptsConfig}};
 pub async fn config() -> Result<Config> {{
     Ok(Config {{
         scripts: ScriptsConfig {{

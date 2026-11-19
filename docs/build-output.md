@@ -16,7 +16,7 @@ in `Ok` and set both commands under `scripts`. Fill in other fields with
 Set `paths.public` to opt into managed output.
 
 ```rust
-use proa_config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
@@ -40,9 +40,9 @@ pub async fn config() -> Result<Config> {
 
 Proa generates a host Cargo runner under `<cargo-target>/proa-config/<key>/`.
 Its `src/main.rs` imports `proa.config.rs` using `#[path = "..."]`, exports
-the `proa_config` types, and awaits `config()` on Tokio. The CLI uses the
+the types through `proa::config`, and awaits `config()` on Tokio. The CLI uses the
 result before starting the application build. Author-side Rust can use the
-standard library, `proa_config::tokio`, and local modules declared with
+standard library, `proa::config::tokio`, and local modules declared with
 `#[path = "..."]`. Add `--watch PATH` to the linked dev command in the wrapper
 to reload the config when an additional input changes. The first build uses Cargo's registry cache
 or fetches the runner's pinned dependencies.
@@ -133,7 +133,7 @@ For readable JavaScript while debugging, set `build.minify_rsjs` to `false`
 in `proa.config.rs`.
 
 ```rust
-use proa_config::{BuildConfig, Config, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {

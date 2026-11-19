@@ -66,8 +66,8 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(temp.path().join("demo/public/styles.css").exists());
     let app = temp.path().join("demo");
     let authored = fs::read_to_string(app.join("proa.config.rs")).unwrap();
-    assert!(authored.contains("application: Some(proa_config::ApplicationConfig"));
-    assert!(authored.contains("database: Some(proa_config::DatabaseConfig"));
+    assert!(authored.contains("application: Some(proa::config::ApplicationConfig"));
+    assert!(authored.contains("database: Some(proa::config::DatabaseConfig"));
     assert!(!authored.contains("json!"));
     assert!(!authored.contains(".into()"));
     let added = proa(&["add", "docs", "--yes"], &app);
@@ -305,7 +305,7 @@ fn config_validate_checks_typed_fields_and_asset_kinds() {
     let authored = temp.path().join("proa.config.rs");
     fs::write(
         &authored,
-        r#"use proa_config::{AssetConfig, BuildConfig, Config, Result, ScriptsConfig};
+        r#"use proa::config::{AssetConfig, BuildConfig, Config, Result, ScriptsConfig};
 pub async fn config() -> Result<Config> {
     Ok(Config {
         scripts: ScriptsConfig {
@@ -360,7 +360,7 @@ fn authored_config_requires_explicit_lifecycle_commands() {
     fs::write(
         temp.path().join("proa.config.rs"),
         r#"
-use proa_config::{Config, Result};
+use proa::config::{Config, Result};
 
 pub async fn config() -> Result<Config> {
     Ok(Config::default())

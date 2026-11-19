@@ -380,7 +380,7 @@ pub fn load_component_lock(root: &Path) -> Result<ComponentLockFile> {
 
 pub fn generated_project_config(tailwind: bool) -> Result<String> {
     let assets = if tailwind {
-        r#"vec![proa_config::AssetConfig {
+        r#"vec![proa::config::AssetConfig {
                 kind: "tailwind",
                 input: "styles/input.css",
                 output: "public/styles.css",
@@ -390,7 +390,7 @@ pub fn generated_project_config(tailwind: bool) -> Result<String> {
         "vec![]"
     };
     Ok(format!(
-        r#"use proa_config::{{BuildConfig, Config, Result, ScriptsConfig}};
+        r#"use proa::config::{{BuildConfig, Config, Result, ScriptsConfig}};
 
 pub async fn config() -> Result<Config> {{
     Ok(Config {{
@@ -485,7 +485,7 @@ mod tests {
     fn adding_a_capability_preserves_an_async_config_and_its_error_type() {
         let temp = tempfile::tempdir().unwrap();
         let source = r#"
-use proa_config::{CdnConfig, Config, DeployConfig, ProjectPaths, ScriptsConfig, tokio};
+use proa::config::{CdnConfig, Config, DeployConfig, ProjectPaths, ScriptsConfig, tokio};
 
 pub async fn config() -> std::io::Result<Config<&'static str, String>> {
     let public = tokio::fs::read_to_string("public-dir.txt").await?;

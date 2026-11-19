@@ -114,7 +114,7 @@ For Cloudflare, proxy your hostname and create a Cache Rule for your public HTML
 Add `cdn` to your existing `deploy` configuration, using your zone ID and application hostname:
 
 ```rust filename="proa.config.rs"
-use proa_config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
+use proa::config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {
@@ -146,7 +146,7 @@ If your hosting platform already invalidates its cache on deployment, use that w
 For a provider with an invalidation CLI, configure its command once. For example, with the [AWS CloudFront CLI](https://docs.aws.amazon.com/cli/latest/reference/cloudfront/create-invalidation.html):
 
 ```rust filename="proa.config.rs"
-use proa_config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
+use proa::config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {

@@ -652,6 +652,7 @@ fn run_and_test_commands_place_execution_arguments_after_cargo_selection() {
         locked: false,
         offline: true,
         watch: false,
+        watch_paths: Vec::new(),
         keep_database: false,
         arguments: vec!["--nocapture".to_string(), "linked_plan".to_string()],
     });

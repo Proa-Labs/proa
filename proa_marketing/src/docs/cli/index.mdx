@@ -151,7 +151,7 @@ registry aliases. Set both commands under `scripts` and use
 `..Config::default()` for other settings.
 
 ```rust
-use proa_config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+use proa::config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
     Ok(Config {

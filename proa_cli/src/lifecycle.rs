@@ -144,6 +144,7 @@ pub struct TestOptions {
     pub locked: bool,
     pub offline: bool,
     pub watch: bool,
+    pub watch_paths: Vec<PathBuf>,
     pub keep_database: bool,
     pub arguments: Vec<String>,
 }
@@ -920,7 +921,13 @@ pub fn test(mut options: TestOptions) -> Result<()> {
         }
     }
     if options.watch {
-        run_watched_tests(&root, &config, &commands, options.keep_database)
+        run_watched_tests(
+            &root,
+            &config,
+            &commands,
+            options.keep_database,
+            &options.watch_paths,
+        )
     } else {
         run_test_session(&root, &config, &commands, options.keep_database)
     }
@@ -1016,7 +1023,8 @@ fn run_test_session(
     }
     let result = (|| {
         let environment = test_environment(root, database.as_ref())?;
-        run_test_cycle(root, config, commands, &environment)
+        prepare_test_inputs(root, config, &environment)?;
+        run_test_targets(root, config, commands, &environment)
     })();
     finish_test_database(database.as_ref(), keep_database && result.is_err())?;
     result
@@ -1027,6 +1035,7 @@ fn run_watched_tests(
     config: &ProjectConfig,
     commands: &[Vec<String>],
     keep_database: bool,
+    watch_paths: &[PathBuf],
 ) -> Result<()> {
     let database = project_uses_sqlite(config)
         .then(|| IsolatedTestDatabase::create(root))
@@ -1034,7 +1043,7 @@ fn run_watched_tests(
     if database.is_none() && keep_database {
         eprintln!("No SQLite capability is configured; --keep-database is a no-op.");
     }
-    let result = watched_test_loop(root, config, commands, database.as_ref());
+    let result = watched_test_loop(root, config, commands, database.as_ref(), watch_paths);
     let preserve = keep_database
         && match &result {
             Ok(last_failed) => *last_failed,
@@ -1049,29 +1058,33 @@ fn watched_test_loop(
     config: &ProjectConfig,
     commands: &[Vec<String>],
     database: Option<&IsolatedTestDatabase>,
+    watch_paths: &[PathBuf],
 ) -> Result<bool> {
     let mut paths = default_watch_paths();
-    paths.push("tests".into());
+    paths.extend(["tests", ".env", ".env.test"].map(PathBuf::from));
+    paths.extend(watch_paths.iter().cloned());
+    if public_assets::source(root, config, true)?.is_some() {
+        paths.extend(config.paths.public.iter().cloned());
+    }
     let migrations = config
         .database
         .as_ref()
         .and_then(|database| database.migrations.as_deref())
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("migrations"));
-    if !paths.contains(&migrations) {
-        paths.push(migrations.clone());
-    }
-    for path in [PathBuf::from(".env"), PathBuf::from(".env.test")] {
-        if !paths.contains(&path) {
-            paths.push(path);
-        }
-    }
+    paths.push(migrations.clone());
+    paths.sort_unstable();
+    paths.dedup();
     let mut baseline = watch_snapshot(root, &paths)?;
     let mut last_failed;
 
     loop {
         let environment = test_environment(root, database)?;
-        match run_test_cycle(root, config, commands, &environment) {
+        let prepared = prepare_test_inputs(root, config, &environment);
+        if config.paths.public.is_some() && !config.build.assets().is_empty() {
+            refresh_test_asset_outputs(root, config, &paths, &mut baseline)?;
+        }
+        match prepared.and_then(|()| run_test_targets(root, config, commands, &environment)) {
             Ok(()) => last_failed = false,
             Err(error) => {
                 last_failed = true;
@@ -1112,10 +1125,35 @@ fn watched_test_loop(
     Ok(last_failed)
 }
 
-fn run_test_cycle(
+fn refresh_test_asset_outputs(
     root: &Path,
     config: &ProjectConfig,
-    commands: &[Vec<String>],
+    watch_paths: &[PathBuf],
+    baseline: &mut WatchSnapshot,
+) -> Result<()> {
+    let prepared = watch_snapshot(root, watch_paths)?;
+    // Consume writes by the asset commands without swallowing concurrent
+    // changes to authored inputs. The final test build still sees any later edit.
+    for asset in config.build.assets() {
+        if asset.output.as_os_str().is_empty() {
+            continue;
+        }
+        let output = root.join(&asset.output);
+        let path = output.strip_prefix(root).unwrap_or(&output);
+        baseline.retain(|file, _| !file.starts_with(path));
+        baseline.extend(
+            prepared
+                .iter()
+                .filter(|(file, _)| file.starts_with(path))
+                .map(|(file, stamp)| (file.clone(), *stamp)),
+        );
+    }
+    Ok(())
+}
+
+fn prepare_test_inputs(
+    root: &Path,
+    config: &ProjectConfig,
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
     if TEST_INTERRUPTED.load(Ordering::SeqCst) {
@@ -1125,6 +1163,15 @@ fn run_test_cycle(
     if public_assets::source(root, config, true)?.is_some() {
         build_assets(root, config)?;
     }
+    Ok(())
+}
+
+fn run_test_targets(
+    root: &Path,
+    config: &ProjectConfig,
+    commands: &[Vec<String>],
+    environment: &BTreeMap<OsString, OsString>,
+) -> Result<()> {
     for command in commands {
         run_linked_execute_with_environment(
             root,
