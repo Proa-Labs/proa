@@ -85,8 +85,6 @@ impl<Text: ConfigText> Default for RegistriesConfig<Text> {
 pub struct ApplicationConfig<Text: ConfigText = &'static str> {
     #[serde(skip_serializing_if = "text_is_empty")]
     pub binary: Text,
-    #[serde(skip_serializing_if = "text_is_empty")]
-    pub template: Text,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]

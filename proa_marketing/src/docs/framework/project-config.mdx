@@ -198,7 +198,8 @@ Run a named script directly with `proa task generate-assets`.
 Package names come from `Cargo.toml`. Proa records starter choices and
 Markdown scaffolding in `proa.lock.json`. Use
 `proa add representation markdown` to enable Markdown for generated pages.
-Application routes and response formats live in Rust.
+The preset selected by `proa new site --template` determines which files
+are generated. Application routes and response formats live in Rust.
 
 `build.assets: None` lets Proa infer asset commands. Use `Some(vec![])` to
 skip them. Cargo discovers package `build.rs` scripts and runs them as part

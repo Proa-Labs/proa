@@ -585,7 +585,7 @@ macro_rules! config_sections {
 
 config_sections! {
     RegistriesConfig { proa, proa_pro },
-    ApplicationConfig { binary, template },
+    ApplicationConfig { binary },
     DatabaseConfig { driver, migrations, integration },
     DeployConfig { provider, cdn },
 }

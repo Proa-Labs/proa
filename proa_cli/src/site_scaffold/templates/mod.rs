@@ -277,7 +277,6 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
     crate::config::generated_rust_config(&ProjectConfig {
         application: Some(ApplicationConfig {
             binary: package.into(),
-            template: selection.template.as_str().into(),
         }),
         database,
         paths: ProjectPaths {

@@ -209,6 +209,12 @@ pub fn site_check(root: Option<PathBuf>) -> Result<SiteCheckReport> {
     site_check_with_config(root, &config)
 }
 
+fn site_routes_in_library(root: &Path) -> bool {
+    !root.join("src/routes.rs").is_file()
+        && fs::read_to_string(root.join("src/lib.rs"))
+            .is_ok_and(|source| source.contains("router_from_spec("))
+}
+
 pub(crate) fn site_check_with_config(
     root: PathBuf,
     config: &crate::config::ProjectConfig,
@@ -220,15 +226,7 @@ pub(crate) fn site_check_with_config(
     };
 
     let application_first = config.application.is_some();
-    let template = config
-        .application
-        .as_ref()
-        .map(|value| value.template.as_str())
-        .filter(|value| !value.is_empty())
-        .unwrap_or("")
-        .to_string();
-    let origin_template = template == "origin";
-    let required: &[&str] = if origin_template {
+    let required: &[&str] = if site_routes_in_library(&root) {
         &[
             "src/lib.rs",
             "src/main.rs",
@@ -326,40 +324,14 @@ pub(crate) fn site_check_with_config(
         let markdown = lock.scaffold_markdown() == Some(true)
             && lock.scaffold_capabilities().any(|id| id == "base:site");
         if markdown {
-            if origin_template {
-                let library = fs::read_to_string(root.join("src/lib.rs")).unwrap_or_default();
-                for contract in [
-                    "MarkdownAlternate::new(\"/index.md\")",
-                    "explicit_markdown(",
-                ] {
-                    if !library.contains(contract) {
-                        report.errors.push(format!(
-                            "Markdown representation contract is missing `{contract}`"
-                        ));
-                    }
-                }
-                let page = fs::read_to_string(root.join("src/components/atlas_page.rs"))
-                    .unwrap_or_default();
-                if !page.contains("MdRenderSync") {
-                    report.errors.push(
-                        "Markdown representation contract is missing `MdRenderSync`".to_string(),
-                    );
-                }
-            } else {
-                for contract in ["MdRenderSync", "explicit_markdown("] {
-                    let has_contract = has_source(contract)
-                        || match contract {
-                            "MdRenderSync" => has_source("MdRender<"),
-                            "explicit_markdown(" => {
-                                has_source("explicit_markdown_async_with_loader(")
-                            }
-                            _ => false,
-                        };
-                    if !has_contract {
-                        report.errors.push(format!(
-                            "Markdown representation contract is missing `{contract}`"
-                        ));
-                    }
+            for (sync, asynchronous) in [
+                ("MdRenderSync", "MdRender<"),
+                ("explicit_markdown(", "explicit_markdown_async_with_loader("),
+            ] {
+                if !has_source(sync) && !has_source(asynchronous) {
+                    report.errors.push(format!(
+                        "Markdown representation contract is missing `{sync}`"
+                    ));
                 }
             }
             let layout = fs::read_to_string(root.join("src/layouts/root.rs")).unwrap_or_default();
@@ -507,14 +479,17 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
     let root = resolve_root(root)?;
     let config = crate::config::load_project_config(&root)?;
     if config.application.is_some() {
-        let generated_routes = fs::read_to_string(root.join("src/routes.rs")).unwrap_or_default();
-        let markdown = generated_routes.contains(".route(\"/index.md\"")
-            || (config
-                .application
-                .as_ref()
-                .is_some_and(|app| app.template == "origin")
-                && fs::read_to_string(root.join("src/lib.rs"))
-                    .is_ok_and(|source| source.contains(".route(\"/index.md\"")));
+        let (router_file, home_file, health_file) = if site_routes_in_library(&root) {
+            ("src/lib.rs", "src/lib.rs", "src/lib.rs")
+        } else {
+            (
+                "src/routes.rs",
+                "src/pages/home.rs",
+                "src/endpoints/health.rs",
+            )
+        };
+        let generated_routes = fs::read_to_string(root.join(router_file)).unwrap_or_default();
+        let markdown = generated_routes.contains(".route(\"/index.md\"");
         let mut routes = vec![RouteInfo {
             method: "GET",
             path: "/".to_string(),
@@ -524,7 +499,7 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
             } else {
                 "html".to_string()
             },
-            file: PathBuf::from("src/pages/home.rs"),
+            file: PathBuf::from(home_file),
         }];
         if markdown {
             routes.push(RouteInfo {
@@ -532,7 +507,7 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
                 path: "/index.md".to_string(),
                 kind: "representation",
                 representations: "markdown".to_string(),
-                file: PathBuf::from("src/pages/home.rs"),
+                file: PathBuf::from(home_file),
             });
         }
         for path in ["/healthz", "/readyz"] {
@@ -541,7 +516,7 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
                 path: path.to_string(),
                 kind: "endpoint",
                 representations: "json".to_string(),
-                file: PathBuf::from("src/endpoints/health.rs"),
+                file: PathBuf::from(health_file),
             });
         }
         for line in generated_routes.lines() {

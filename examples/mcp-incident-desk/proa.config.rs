@@ -10,7 +10,6 @@ pub async fn config() -> Result<Config> {
     Ok(Config {
         application: Some(ApplicationConfig {
             binary: "mcp-incident-desk",
-            template: "app",
         }),
         database: Some(DatabaseConfig {
             driver: DatabaseDriver::Sqlite,

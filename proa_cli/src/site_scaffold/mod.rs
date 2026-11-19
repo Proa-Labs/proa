@@ -398,6 +398,8 @@ mod tests {
             value.template = template.to_string();
             new_site(value).unwrap();
             assert!(!root.join(".cargo/config.toml").exists(), "{template}");
+            let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+            assert!(!config.contains("template:"), "{template}");
             let formatting =
                 crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
             assert!(
@@ -415,8 +417,15 @@ mod tests {
                         < crate::diagnostic::Severity::Warning.rank()),
                 "{template}: {diagnostics:?}"
             );
-            let report = crate::scaffold::site_check(Some(root)).unwrap();
+            let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
             assert!(report.errors.is_empty(), "{template}: {:?}", report.errors);
+            let routes = crate::scaffold::site_routes(Some(root)).unwrap();
+            let markdown = routes.iter().find(|route| route.path == "/index.md");
+            match template {
+                "minimal" => assert!(markdown.is_none()),
+                "origin" => assert_eq!(markdown.unwrap().file, Path::new("src/lib.rs")),
+                _ => assert_eq!(markdown.unwrap().file, Path::new("src/pages/home.rs")),
+            }
         }
     }
 

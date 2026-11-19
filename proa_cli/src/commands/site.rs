@@ -85,13 +85,8 @@ fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let root = scaffold::resolve_root(root)?;
     let config = crate::config::load_project_config(&root)?;
     let lock = crate::config::load_component_lock(&root)?;
-    let application = config.application.as_ref();
     let database_config = config.database.as_ref();
     let package = crate::util::cargo_package_name(&root).unwrap_or_else(|| "Proa site".into());
-    let template = application
-        .map(|app| app.template.as_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("custom");
     let starter = lock
         .scaffold_capabilities()
         .find_map(|id| id.strip_prefix("starter:"))
@@ -118,7 +113,6 @@ fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let components = lock.components.len();
     let value = serde_json::json!({
         "package": package,
-        "template": template,
         "starter": starter,
         "database": database,
         "databaseIntegration": database_integration,
@@ -130,7 +124,7 @@ fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         println!("{package}");
-        println!("  Template      {template} · {starter}");
+        println!("  Starter       {starter}");
         println!(
             "  Page scaffolding {}",
             match scaffold_markdown {
