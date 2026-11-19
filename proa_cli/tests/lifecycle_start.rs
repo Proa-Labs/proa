@@ -63,6 +63,14 @@ pub async fn config() -> Result<Config> {
     );
     assert!(!stdout.contains("wrong-cli"), "{stdout}");
 
+    let output = cli(&["run", "dev"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains(env!("CARGO_PKG_VERSION")));
+
     let output = cli(&["run", "build"]);
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("configured-build"));

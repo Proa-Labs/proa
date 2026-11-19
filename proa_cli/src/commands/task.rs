@@ -194,7 +194,10 @@ fn execute(
         .args(&task.command[1..])
         .args(arguments)
         .current_dir(&cwd)
-        .env("PROA_SCRIPT_EXECUTABLE", &current)
+        .env(
+            "PROA_SCRIPT_EXECUTABLE",
+            crate::util::external_path(&current),
+        )
         .envs(environment)
         .envs(&task.env)
         .status()

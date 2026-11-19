@@ -28,10 +28,11 @@ pub(crate) fn command(root: &Path, name: &str, source: &str, args: &[OsString]) 
     let source = source.trim();
     ensure!(!source.is_empty(), "scripts.{name} must specify a command");
     let mut command = shell(source, args);
+    let executable = crate::util::external_path(&crate::util::current_executable()?);
     command
         .current_dir(root)
         .env("PROA_SCRIPT_NAME", name)
-        .env("PROA_SCRIPT_EXECUTABLE", crate::util::current_executable()?);
+        .env("PROA_SCRIPT_EXECUTABLE", executable);
     Ok(command)
 }
 
