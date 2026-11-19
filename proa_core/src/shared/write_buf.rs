@@ -336,9 +336,10 @@ pub trait WriteBuf {
     /// contents are unspecified and differ between writers, so the closure
     /// must not read before it writes.
     ///
-    /// Implementations with contiguous spare capacity (Vec, WriteCursor, etc.)
-    /// override this to write in-place with zero intermediate copy. The default
-    /// uses a stack buffer of up to 40 bytes.
+    /// When the writer type is generic, keep `max_len` at or below 40 bytes.
+    /// The default implementation uses a 40-byte stack buffer and panics for
+    /// larger requests. Writers with contiguous spare capacity may provide
+    /// larger windows and write directly into their own storage.
     ///
     /// # Safety
     ///
@@ -2818,6 +2819,21 @@ mod tests {
 
         assert!(buf.page_count() > 1);
         assert_eq!(buf.into_string(), "abc🦀");
+    }
+
+    #[test]
+    fn chained_into_string_rejects_invalid_utf8() {
+        for (prefix, pages) in [("", 1), ("abcd", 2)] {
+            let mut buf = ChainedBumpWriter::<4>::new();
+            buf.extend_str(prefix).unwrap();
+            buf.extend_str("e").unwrap();
+            assert_eq!(buf.page_count(), pages);
+            // Set the byte directly to exercise validation at string conversion.
+            buf.current.buf[0].write(0xff);
+
+            let result = std::panic::catch_unwind(|| buf.into_string());
+            assert!(result.is_err(), "accepted invalid UTF-8 in {pages} page(s)");
+        }
     }
 
     #[test]
