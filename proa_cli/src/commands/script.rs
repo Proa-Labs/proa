@@ -5,8 +5,19 @@ use std::{ffi::OsString, path::Path, process::Command};
 
 use anyhow::{ensure, Context, Result};
 
+use crate::config::ScriptsConfig;
+
 #[cfg(unix)]
 mod unix;
+
+pub(super) fn shell_entries(scripts: &ScriptsConfig) -> impl Iterator<Item = (&'static str, &str)> {
+    [
+        ("dev", scripts.dev.as_str()),
+        ("build", scripts.build.as_str()),
+    ]
+    .into_iter()
+    .chain((!scripts.css.trim().is_empty()).then_some(("css", scripts.css.as_str())))
+}
 
 pub(super) fn run(root: &Path, name: &str, source: &str, args: &[OsString]) -> Result<()> {
     let mut process = command(root, name, source, args)?;

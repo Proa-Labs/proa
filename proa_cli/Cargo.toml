@@ -29,6 +29,7 @@ clap_complete = { version = "4.5" }
 getrandom = { version = "0.3" }
 glob = { version = "0.3" }
 proa_dsl = { workspace = true, features = ["markdown"] }
+proa_assets = { workspace = true, features = ["build"] }
 proa_build = { workspace = true }
 proa_source_tools = { workspace = true }
 proa_fonts_build = { workspace = true }

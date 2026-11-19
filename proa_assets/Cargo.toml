@@ -16,6 +16,7 @@ homepage.workspace = true
 build = ["dep:mime_guess", "dep:tempfile"]
 
 [dependencies]
+base16ct = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

@@ -7,7 +7,7 @@ use std::{path::PathBuf, process::Command};
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
-use proa_build::assets::{MANIFEST_FILE, OUTPUT_ENV};
+use proa_assets::{MANIFEST_FILE, OUTPUT_ENV};
 
 use crate::{config, util::resolve_config_root};
 

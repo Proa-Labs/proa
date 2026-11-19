@@ -278,7 +278,7 @@ fn project_config(package: &str, selection: CapabilitySelection) -> Result<Strin
             ..Default::default()
         },
         registries: crate::config::RegistriesConfig::public_only(),
-        ..crate::config::inferred_project_config()
+        ..Default::default()
     })
 }
 

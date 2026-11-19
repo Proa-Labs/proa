@@ -251,7 +251,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
         let missing_catalog = launch
             .public_assets
             .as_ref()
-            .is_some_and(|output| !output.join(proa_build::assets::MANIFEST_FILE).is_file());
+            .is_some_and(|output| !output.join(proa_assets::MANIFEST_FILE).is_file());
         let trigger_snapshot = match debouncer.observe(clock.elapsed(), current) {
             DevWatchDecision::Ready(changed) => changed,
             // Disappearing output can trigger recovery on idle inputs, but a

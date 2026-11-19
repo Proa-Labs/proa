@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use proa_build::assets::{OutputStore, OUTPUT_ENV};
+use proa_assets::{build::OutputStore, sha256, OUTPUT_ENV};
 
 pub(super) fn configured_path(config: &ProjectConfig, enabled: bool) -> Result<Option<&Path>> {
     if !enabled {
@@ -41,7 +41,7 @@ pub(super) fn output_directory(
             .filter(|arg| matches!(arg.as_str(), "--all-features" | "--no-default-features"))
             .collect::<BTreeSet<_>>(),
     ))?;
-    let digest = format!("{:x}", base16ct::HexDisplay(&Sha256::digest(selector)));
+    let digest = sha256(&selector);
     Ok(target
         .join("proa-output")
         .join(&selected.target_name)

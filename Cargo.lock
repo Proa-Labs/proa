@@ -3364,6 +3364,7 @@ dependencies = [
  "object",
  "proa",
  "proa_actions",
+ "proa_assets",
  "proa_build",
  "proa_core",
  "proa_dsl",
@@ -3409,6 +3410,7 @@ dependencies = [
 name = "proa_assets"
 version = "0.1.0"
 dependencies = [
+ "base16ct",
  "mime_guess",
  "serde",
  "serde_json",
@@ -3442,7 +3444,6 @@ name = "proa_build"
 version = "0.1.0"
 dependencies = [
  "object",
- "proa_assets",
  "rayon",
  "rsjs_ir",
  "rsjs_transport",

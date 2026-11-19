@@ -7,7 +7,6 @@
 //! can reuse the other domains when contributors edit it.
 
 pub mod abi_adapter;
-pub mod assets;
 pub mod build;
 pub mod cache;
 pub mod final_compile;

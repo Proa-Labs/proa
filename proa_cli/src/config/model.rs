@@ -156,7 +156,7 @@ pub struct ScriptsConfig<Text: ConfigText = &'static str, Path: ConfigPath = Tex
 }
 
 /// Named tasks to run before each linked lifecycle.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ScriptHooks<Text: ConfigText = &'static str> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -173,7 +173,7 @@ impl<Text: ConfigText> ScriptHooks<Text> {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ScriptConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
     pub description: Text,
@@ -186,7 +186,7 @@ pub struct ScriptConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text
     pub env: BTreeMap<Text, Text>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ProjectPaths<Path: ConfigPath = &'static str> {
     pub components: Path,
@@ -195,7 +195,7 @@ pub struct ProjectPaths<Path: ConfigPath = &'static str> {
     pub public: Option<Path>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct BuildConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
     /// Minify the generated RSJS modules and runtimes served by Axum. Defaults to true.
@@ -214,7 +214,7 @@ impl<Text: ConfigText, Path: ConfigPath> BuildConfig<Text, Path> {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct AssetConfig<Text: ConfigText = &'static str, Path: ConfigPath = Text> {
     pub kind: Text,

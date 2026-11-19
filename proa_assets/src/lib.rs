@@ -15,7 +15,6 @@ use std::{
     fs::{self, File},
     io::{self, Read},
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use serde::{Deserialize, Serialize};
@@ -84,6 +83,13 @@ pub struct AssetEntry {
     pub cache_policy: CachePolicy,
 }
 
+impl AssetEntry {
+    fn matches_contents(&self, path: &Path) -> Result<bool> {
+        let (digest, length) = hash_file(path)?;
+        Ok(digest == self.sha256 && length == self.byte_length)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AssetManifest {
@@ -102,6 +108,14 @@ impl Default for AssetManifest {
 }
 
 impl AssetManifest {
+    fn read(path: &Path) -> Result<(Self, Vec<u8>)> {
+        plain_file(path)?;
+        let bytes = at(path, fs::read(path))?;
+        let manifest: Self = serde_json::from_slice(&bytes)?;
+        manifest.validate()?;
+        Ok((manifest, bytes))
+    }
+
     pub fn validate(&self) -> Result<()> {
         if self.version != MANIFEST_VERSION {
             return Err(AssetError::InvalidManifest(format!(
@@ -154,12 +168,9 @@ impl AssetManifest {
     }
 }
 
-/// An immutable, verified view. Clones share one native reader lock.
-#[derive(Clone, Debug)]
-pub struct AssetCatalog(Arc<CatalogInner>);
-
+/// An immutable, verified view that holds a native reader lock.
 #[derive(Debug)]
-struct CatalogInner {
+pub struct AssetCatalog {
     output: PathBuf,
     manifest: AssetManifest,
     generation: String,
@@ -168,59 +179,54 @@ struct CatalogInner {
 
 impl AssetCatalog {
     pub fn load(output: impl AsRef<Path>) -> Result<Self> {
-        let output = canonical_owned(output.as_ref())?;
+        let output = output.as_ref();
+        let output = at(output, output.canonicalize())?;
+        validate_owner(&output)?;
         let reader_path = output.join(READERS_FILE);
         plain_file(&reader_path)?;
         let reader = at(&reader_path, File::open(&reader_path))?;
         at(&reader_path, reader.lock_shared())?;
         // Lock before reading the pointer. Cleanup then cannot remove files
         // referenced by either the old or the new atomically read manifest.
-        let path = output.join(MANIFEST_FILE);
-        plain_file(&path)?;
-        let bytes = at(&path, fs::read(&path))?;
-        let manifest: AssetManifest = serde_json::from_slice(&bytes)?;
-        manifest.validate()?;
+        let (manifest, bytes) = AssetManifest::read(&output.join(MANIFEST_FILE))?;
+        let objects = output.join("objects");
         let mut checked = BTreeSet::new();
         for entry in manifest.assets.values() {
             if checked.insert(&entry.object) {
-                let path = confined_file(&output.join("objects"), &entry.object)?;
-                if hash_file(&path)? != (entry.sha256.clone(), entry.byte_length) {
+                let path = confined_file(&objects, &entry.object)?;
+                if !entry.matches_contents(&path)? {
                     return Err(AssetError::Integrity(entry.object.clone()));
                 }
             }
         }
-        Ok(Self(Arc::new(CatalogInner {
+        Ok(Self {
             output,
             manifest,
             generation: sha256(&bytes),
             _reader: reader,
-        })))
+        })
     }
 
     pub fn manifest(&self) -> &AssetManifest {
-        &self.0.manifest
+        &self.manifest
     }
     /// Include this value and delivery settings in caches containing asset URLs.
     pub fn generation(&self) -> &str {
-        &self.0.generation
-    }
-    pub fn output_directory(&self) -> &Path {
-        &self.0.output
-    }
-    pub fn get(&self, logical: &str) -> Option<&AssetEntry> {
-        self.0.manifest.assets.get(logical)
+        &self.generation
     }
     pub fn object_path(&self, logical: &str) -> Option<PathBuf> {
-        self.get(logical)
-            .map(|entry| self.0.output.join("objects").join(&entry.object))
+        self.manifest
+            .assets
+            .get(logical)
+            .map(|entry| self.output.join("objects").join(&entry.object))
     }
 }
 
 pub fn sha256(bytes: &[u8]) -> String {
-    hex(&Sha256::digest(bytes))
+    format!("{:x}", base16ct::HexDisplay(&Sha256::digest(bytes)))
 }
 
-pub fn hash_file(path: &Path) -> Result<(String, u64)> {
+fn hash_file(path: &Path) -> Result<(String, u64)> {
     let mut file = at(path, File::open(path))?;
     let mut hash = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
@@ -233,17 +239,10 @@ pub fn hash_file(path: &Path) -> Result<(String, u64)> {
         hash.update(&buffer[..n]);
         length += n as u64;
     }
-    Ok((hex(&hash.finalize()), length))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        out.push(DIGITS[(b >> 4) as usize] as char);
-        out.push(DIGITS[(b & 15) as usize] as char);
-    }
-    out
+    Ok((
+        format!("{:x}", base16ct::HexDisplay(&hash.finalize())),
+        length,
+    ))
 }
 
 fn validate_digest(value: &str) -> Result<()> {
@@ -322,11 +321,11 @@ fn confined_file(root: &Path, relative: &str) -> Result<PathBuf> {
     if !at(&path, fs::symlink_metadata(&path))?.file_type().is_dir() {
         return Err(AssetError::InvalidPath(path.display().to_string()));
     }
-    let parts: Vec<_> = relative.split('/').collect();
-    for (index, part) in parts.iter().enumerate() {
+    let mut parts = relative.split('/').peekable();
+    while let Some(part) = parts.next() {
         path.push(part);
         let kind = at(&path, fs::symlink_metadata(&path))?.file_type();
-        if if index + 1 == parts.len() {
+        if if parts.peek().is_none() {
             !kind.is_file()
         } else {
             !kind.is_dir()
@@ -337,12 +336,11 @@ fn confined_file(root: &Path, relative: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn canonical_owned(path: &Path) -> Result<PathBuf> {
-    let path = at(path, path.canonicalize())?;
+fn validate_owner(path: &Path) -> Result<()> {
     let marker = path.join(OWNER_FILE);
     plain_file(&marker)?;
     if at(&marker, fs::read(&marker))? != OWNER_BYTES {
-        return Err(AssetError::NotOwned(path));
+        return Err(AssetError::NotOwned(path.to_owned()));
     }
-    Ok(path)
+    Ok(())
 }

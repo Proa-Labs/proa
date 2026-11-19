@@ -68,11 +68,11 @@ fn copied_bytes_drive_names_even_when_size_and_mtime_are_unchanged() {
 }
 
 #[test]
-fn live_catalog_clones_protect_objects_until_the_last_reader_drops() {
+fn shared_catalog_protects_objects_until_the_last_reader_drops() {
     let f = Fixture::new();
     f.write("movie.mp4", b"old movie");
     f.publish();
-    let old = AssetCatalog::load(&f.output).unwrap();
+    let old = std::sync::Arc::new(AssetCatalog::load(&f.output).unwrap());
     let old_file = old.object_path("movie.mp4").unwrap();
     let clone = old.clone();
     f.write("movie.mp4", b"new movie");
@@ -210,7 +210,7 @@ fn warm_publish_repairs_deleted_output_and_removes_deleted_inputs() {
     assert_eq!(after.cleanup.unwrap().removed_objects, 1);
     assert!(AssetCatalog::load(f.output)
         .unwrap()
-        .get("two.png")
+        .object_path("two.png")
         .is_none());
 }
 

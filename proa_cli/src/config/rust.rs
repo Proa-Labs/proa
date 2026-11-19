@@ -352,164 +352,30 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     let mut source = String::from(
         "use proa::config::{Config, Result};\n\npub async fn config() -> Result<Config> {\n    Ok(Config {\n",
     );
+    let defaults = ProjectConfig::default();
     macro_rules! section {
         ($($field:ident),+ $(,)?) => {
-            $(if let Some(value) = &config.$field {
-                writeln!(source, "        {}: Some({}),", stringify!($field), value.rust_expr(8, TextSource::Literal)?)?;
+            $(if config.$field != defaults.$field {
+                writeln!(source, "        {}: {},", stringify!($field), config.$field.rust_expr(8, TextSource::Literal)?)?;
             })+
         };
     }
     section!(application, database, deploy);
-    writeln!(source, "        scripts: proa::config::ScriptsConfig {{")?;
-    writeln!(source, "            dev: {:?},", config.scripts.dev)?;
-    writeln!(source, "            build: {:?},", config.scripts.build)?;
-    if !config.scripts.css.is_empty() {
-        writeln!(source, "            css: {:?},", config.scripts.css)?;
-    }
-    let before = &config.scripts.before;
-    if !before.is_empty() {
-        writeln!(source, "            before: proa::config::ScriptHooks {{")?;
-        for (phase, tasks) in [
-            ("dev", &before.dev),
-            ("build", &before.build),
-            ("test", &before.test),
-        ] {
-            if !tasks.is_empty() {
-                writeln!(
-                    source,
-                    "                {phase}: {},",
-                    string_vec(tasks, TextSource::Literal)
-                )?;
-            }
-        }
-        writeln!(
-            source,
-            "                ..Default::default()\n            }},"
-        )?;
-    }
-    if !config.scripts.named.is_empty() {
-        writeln!(
-            source,
-            "            named: std::collections::BTreeMap::from(["
-        )?;
-        for (name, script) in &config.scripts.named {
-            let description = &script.description;
-            let command = string_vec(&script.command, TextSource::Literal);
-            let cwd = path_literal(&script.cwd)?;
-            let depends_on = string_vec(&script.depends_on, TextSource::Literal);
-            let inputs = string_vec(&script.inputs, TextSource::Literal);
-            writeln!(
-                source,
-                "                ({name:?}, proa::config::ScriptConfig {{
-                    description: {description:?},
-                    command: {command},
-                    cwd: {cwd},
-                    depends_on: {depends_on},
-                    inputs: {inputs},
-                    outputs: vec!["
-            )?;
-            for path in &script.outputs {
-                writeln!(source, "                        {},", path_literal(path)?)?;
-            }
-            writeln!(source, "                    ],")?;
-            writeln!(
-                source,
-                "                    env: std::collections::BTreeMap::from(["
-            )?;
-            for (key, value) in &script.env {
-                writeln!(source, "                        ({key:?}, {value:?}),")?;
-            }
-            writeln!(source, "                    ]),\n                }}),")?;
-        }
-        writeln!(source, "            ]),")?;
-    }
-    writeln!(source, "            ..Default::default()")?;
-    writeln!(source, "        }},")?;
+    writeln!(
+        source,
+        "        scripts: {},",
+        config.scripts.rust_expr(8, TextSource::Literal)?
+    )?;
+    section!(paths);
     if config.registries == super::RegistriesConfig::public_only() {
         writeln!(
             source,
             "        registries: proa::config::RegistriesConfig::public_only(),"
         )?;
-    } else if config.registries != ProjectConfig::default().registries {
-        writeln!(
-            source,
-            "        registries: {},",
-            config.registries.rust_expr(8, TextSource::Literal)?,
-        )?;
+    } else {
+        section!(registries);
     }
-    let default_paths = super::ProjectPaths::default();
-    let paths = &config.paths;
-    if paths.components != default_paths.components
-        || paths.assets != default_paths.assets
-        || paths.public != default_paths.public
-    {
-        writeln!(source, "        paths: proa::config::ProjectPaths {{")?;
-        for (field, path, default) in [
-            ("components", &paths.components, &default_paths.components),
-            ("assets", &paths.assets, &default_paths.assets),
-        ] {
-            if path != default {
-                writeln!(source, "            {field}: {},", path_literal(path)?)?;
-            }
-        }
-        if paths.public != default_paths.public {
-            match &paths.public {
-                Some(path) => {
-                    writeln!(source, "            public: Some({}),", path_literal(path)?)?
-                }
-                None => writeln!(source, "            public: None,")?,
-            }
-        }
-        writeln!(source, "            ..Default::default()\n        }},")?;
-    }
-    if !config.build.minify_rsjs || config.build.assets.is_some() {
-        writeln!(source, "        build: proa::config::BuildConfig {{")?;
-        writeln!(
-            source,
-            "            minify_rsjs: {},",
-            config.build.minify_rsjs
-        )?;
-        match &config.build.assets {
-            Some(assets) if assets.is_empty() => {
-                writeln!(source, "            assets: Some(vec![]),")?
-            }
-            Some(assets) => {
-                writeln!(source, "            assets: Some(vec![")?;
-                for asset in assets {
-                    writeln!(source, "                proa::config::AssetConfig {{")?;
-                    writeln!(source, "                    kind: {:?},", asset.kind)?;
-                    writeln!(
-                        source,
-                        "                    command: {},",
-                        string_vec(&asset.command, TextSource::Literal)
-                    )?;
-                    writeln!(
-                        source,
-                        "                    input: {},",
-                        path_literal(&asset.input)?
-                    )?;
-                    writeln!(
-                        source,
-                        "                    output: {},",
-                        path_literal(&asset.output)?
-                    )?;
-                    if let Some(path) = &asset.config {
-                        writeln!(
-                            source,
-                            "                    config: Some({}),",
-                            path_literal(path)?
-                        )?;
-                    } else {
-                        writeln!(source, "                    config: None,")?;
-                    }
-                    writeln!(source, "                }},")?;
-                }
-                writeln!(source, "            ]),")?;
-            }
-            None => writeln!(source, "            assets: None,")?,
-        }
-        source.push_str("        },\n");
-    }
+    section!(build);
     source.push_str("        ..Config::default()\n    })\n}\n");
     Ok(source)
 }
@@ -519,14 +385,6 @@ fn path_literal(path: &Path) -> Result<String> {
         "{:?}",
         path.to_str().context("config path must be UTF-8")?
     ))
-}
-
-fn string_vec(values: &[String], text: TextSource) -> String {
-    let values = values
-        .iter()
-        .map(|value| text.render(format!("{value:?}")))
-        .collect::<Vec<_>>();
-    format!("vec![{}]", values.join(", "))
 }
 
 #[derive(Clone, Copy)]
@@ -561,9 +419,50 @@ impl ConfigSource for std::path::PathBuf {
     }
 }
 
-impl ConfigSource for Vec<String> {
-    fn rust_expr(&self, _: usize, text: TextSource) -> Result<String> {
-        Ok(string_vec(self, text))
+impl ConfigSource for bool {
+    fn rust_expr(&self, _: usize, _: TextSource) -> Result<String> {
+        Ok(self.to_string())
+    }
+}
+
+impl<T: ConfigSource> ConfigSource for Vec<T> {
+    fn rust_expr(&self, indent: usize, text: TextSource) -> Result<String> {
+        let items = self
+            .iter()
+            .map(|value| value.rust_expr(indent + 4, text))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(collection_source("vec![", "]", &items, indent))
+    }
+}
+
+impl<T: ConfigSource> ConfigSource for BTreeMap<String, T> {
+    fn rust_expr(&self, indent: usize, text: TextSource) -> Result<String> {
+        let items = self
+            .iter()
+            .map(|(key, value)| {
+                Ok(format!(
+                    "({}, {})",
+                    key.rust_expr(indent + 4, text)?,
+                    value.rust_expr(indent + 4, text)?
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(collection_source(
+            "std::collections::BTreeMap::from([",
+            "])",
+            &items,
+            indent,
+        ))
+    }
+}
+
+fn collection_source(open: &str, close: &str, items: &[String], indent: usize) -> String {
+    if items.iter().any(|item| item.contains('\n')) {
+        let padding = " ".repeat(indent + 4);
+        let items = items.join(&format!(",\n{padding}"));
+        format!("{open}\n{padding}{items},\n{:indent$}{close}", "")
+    } else {
+        format!("{open}{}{close}", items.join(", "))
     }
 }
 
@@ -577,24 +476,30 @@ impl<T: ConfigSource> ConfigSource for Option<T> {
 }
 
 macro_rules! config_sections {
-    ($($name:ident { $($field:ident),+ $(,)? }),+ $(,)?) => {
+    ($($name:ident $([$($explicit:ident),+])? { $($field:ident),+ $(,)? }),+ $(,)?) => {
         $(impl ConfigSource for super::$name {
             fn rust_expr(&self, indent: usize, text: TextSource) -> Result<String> {
                 use std::fmt::Write as _;
                 let default = Self::default();
-                if *self == default {
-                    return Ok(concat!("proa::config::", stringify!($name), "::default()").into());
-                }
-                let mut result = String::from(concat!("proa::config::", stringify!($name), " {\n"));
+                let mut fields = String::new();
                 let padding = indent + 4;
+                $($(
+                    writeln!(
+                        fields, "{:padding$}{}: {},", "", stringify!($explicit),
+                        self.$explicit.rust_expr(padding, text)?,
+                    )?;
+                )+)?
                 $(if self.$field != default.$field {
                     writeln!(
-                        result, "{:padding$}{}: {},", "", stringify!($field),
+                        fields, "{:padding$}{}: {},", "", stringify!($field),
                         self.$field.rust_expr(padding, text)?,
                     )?;
                 })+
-                write!(result, "{:padding$}..Default::default()\n{:indent$}}}", "", "")?;
-                Ok(result)
+                let name = concat!("proa::config::", stringify!($name));
+                if fields.is_empty() {
+                    return Ok(format!("{name}::default()"));
+                }
+                Ok(format!("{name} {{\n{fields}{:padding$}..Default::default()\n{:indent$}}}", "", ""))
             }
         })+
     };
@@ -605,6 +510,12 @@ config_sections! {
     ApplicationConfig { binary },
     DatabaseConfig { driver, migrations, integration },
     DeployConfig { provider, cdn },
+    ScriptsConfig [dev, build] { css, before, named },
+    ScriptHooks { dev, build, test },
+    ScriptConfig { description, command, cwd, depends_on, inputs, outputs, env },
+    ProjectPaths { components, assets, public },
+    BuildConfig { minify_rsjs, assets },
+    AssetConfig { kind, command, input, output, config },
 }
 
 impl ConfigSource for super::DatabaseDriver {

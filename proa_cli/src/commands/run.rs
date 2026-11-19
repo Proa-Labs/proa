@@ -52,13 +52,9 @@ pub(crate) fn run(args: RunArgs, raw: &[OsString]) -> Result<()> {
         let arguments = arguments
             .strip_prefix(&[OsString::from("--")])
             .unwrap_or(arguments);
-        let source = match name {
-            "dev" => Some(project.scripts.dev.as_str()),
-            "build" => Some(project.scripts.build.as_str()),
-            "css" if !project.scripts.css.trim().is_empty() => Some(project.scripts.css.as_str()),
-            _ => None,
-        };
-        if let Some(source) = source {
+        if let Some((_, source)) =
+            script::shell_entries(&project.scripts).find(|(script, _)| *script == name)
+        {
             ensure!(
                 !args.force,
                 "`--force` applies to named tasks with cached outputs"

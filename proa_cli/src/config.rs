@@ -160,26 +160,13 @@ pub(crate) fn load_project_config_with_runner(
     root: &Path,
     runner: Option<&mut DevConfigRunner>,
 ) -> Result<ProjectConfig> {
-    let path = project_config_path(root);
-    evaluate_project_config(root, path.as_deref(), runner)
-}
-
-fn evaluate_project_config(
-    root: &Path,
-    path: Option<&Path>,
-    runner: Option<&mut DevConfigRunner>,
-) -> Result<ProjectConfig> {
-    let mut config = match path {
-        Some(path) => rust::load(root, path, runner)
+    let mut config = match project_config_path(root) {
+        Some(path) => rust::load(root, &path, runner)
             .with_context(|| format!("evaluate {}", path.display()))?,
-        None => inferred_project_config(),
+        None => ProjectConfig::default(),
     };
     fill_inferred_defaults(root, &mut config);
     Ok(config)
-}
-
-pub(crate) fn inferred_project_config() -> ProjectConfig {
-    ProjectConfig::default()
 }
 
 pub(crate) fn project_config_path(root: &Path) -> Option<PathBuf> {
@@ -370,30 +357,13 @@ pub fn load_component_lock(root: &Path) -> Result<ComponentLockFile> {
 }
 
 pub fn generated_project_config(tailwind: bool) -> Result<String> {
-    let build = if tailwind {
-        ""
-    } else {
-        r#"        build: proa::config::BuildConfig {
-            assets: Some(vec![]),
+    generated_rust_config(&ProjectConfig {
+        build: BuildConfig {
+            assets: (!tailwind).then(Vec::new),
             ..Default::default()
         },
-"#
-    };
-    Ok(format!(
-        r#"use proa::config::{{Config, Result, ScriptsConfig}};
-
-pub async fn config() -> Result<Config> {{
-    Ok(Config {{
-        scripts: ScriptsConfig {{
-            dev: {DEFAULT_DEV_COMMAND:?},
-            build: {DEFAULT_BUILD_COMMAND:?},
-            ..Default::default()
-        }},
-{build}        ..Config::default()
-    }})
-}}
-"#
-    ))
+        ..Default::default()
+    })
 }
 
 pub fn generated_component_lock() -> Result<String> {
@@ -555,7 +525,7 @@ pub async fn config() -> std::io::Result<Config<&'static str, String>> {
                     proa: Some("https://ui.proa.so/r/component.json".into()),
                     proa_pro: Some("http://console.proa.so/r/{name}.json".into()),
                 },
-                ..inferred_project_config()
+                ..ProjectConfig::default()
             })
             .unwrap(),
         )

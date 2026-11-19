@@ -19,15 +19,11 @@ use crate::config::{self, ScriptConfig};
 
 pub(super) fn list(project: &config::ProjectConfig) {
     let scripts = &project.scripts;
-    println!("{:<24} {}", "dev", scripts.dev);
-    println!("{:<24} {}", "build", scripts.build);
-    if !scripts.css.trim().is_empty() {
-        println!("{:<24} {}", "css", scripts.css);
+    for (name, source) in super::script::shell_entries(scripts) {
+        println!("{name:<24} {source}");
     }
     for (name, task) in &scripts.named {
-        if matches!(name.as_str(), "dev" | "build")
-            || name == "css" && !scripts.css.trim().is_empty()
-        {
+        if super::script::shell_entries(scripts).any(|(script, _)| script == name) {
             continue;
         }
         let lifecycle = lifecycle_usage(project, name);
@@ -43,7 +39,7 @@ pub(super) fn run_named(
     arguments: &[OsString],
 ) -> Result<()> {
     let scripts = &project.scripts.named;
-    let order = dependency_order(scripts, name)?;
+    let order = dependency_order(scripts, [name])?;
     for task_name in order {
         execute(
             root,
@@ -68,7 +64,7 @@ pub(crate) fn run_lifecycle_tasks(
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
     let scripts = &project.scripts.named;
-    for task_name in lifecycle_order(scripts, names)? {
+    for task_name in dependency_order(scripts, names.iter().map(String::as_str))? {
         execute(
             root,
             &task_name,
@@ -86,16 +82,16 @@ pub(crate) fn lifecycle_output_paths<'a>(
     names: &[String],
 ) -> Result<Vec<&'a Path>> {
     let scripts = &project.scripts.named;
-    let order = lifecycle_order(scripts, names)?;
+    let order = dependency_order(scripts, names.iter().map(String::as_str))?;
     Ok(order
         .iter()
         .flat_map(|name| scripts[name].outputs.iter().map(PathBuf::as_path))
         .collect())
 }
 
-fn lifecycle_order(
+fn dependency_order<'a>(
     scripts: &BTreeMap<String, ScriptConfig>,
-    names: &[String],
+    names: impl IntoIterator<Item = &'a str>,
 ) -> Result<Vec<String>> {
     let mut visiting = BTreeSet::new();
     let mut visited = BTreeSet::new();
@@ -121,18 +117,6 @@ fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
     } else {
         phases.join(",")
     }
-}
-
-fn dependency_order(tasks: &BTreeMap<String, ScriptConfig>, root: &str) -> Result<Vec<String>> {
-    let mut output = Vec::new();
-    visit_dependency(
-        root,
-        tasks,
-        &mut BTreeSet::new(),
-        &mut BTreeSet::new(),
-        &mut output,
-    )?;
-    Ok(output)
 }
 
 fn visit_dependency(
@@ -255,7 +239,7 @@ mod tests {
     #[test]
     fn detects_cycles_before_running() {
         let tasks = BTreeMap::from([("a".into(), task(&["b"])), ("b".into(), task(&["a"]))]);
-        assert!(dependency_order(&tasks, "a")
+        assert!(dependency_order(&tasks, ["a"])
             .unwrap_err()
             .to_string()
             .contains("cycle"));

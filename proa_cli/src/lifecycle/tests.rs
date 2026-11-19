@@ -1402,7 +1402,7 @@ mod dev_preparation_tests {
         }
         fs::write(root.join("generator-input"), "const GENERATED: u8 = 1;").unwrap();
         fs::write(root.join("styles/input.css"), ".old { color: red; }").unwrap();
-        let mut config = crate::config::inferred_project_config();
+        let mut config = crate::config::ProjectConfig::default();
         config.paths.public = None;
         if let Some(command) = before {
             config.scripts.before.dev = vec!["generate".into()];

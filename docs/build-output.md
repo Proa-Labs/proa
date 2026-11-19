@@ -295,7 +295,7 @@ before an atomic manifest replacement. Failed compilation or preparation keeps
 the previous manifest. Loading a catalog verifies every referenced object's
 bytes before accepting it.
 
-One writer lock protects each output scope. Catalog clones share one reader
+One writer lock protects each output scope. Each loaded catalog holds a reader
 lock for that directory. Cleanup after successful publication removes
 unreferenced objects only when no catalog is live; the dev supervisor retries
 after stopping the old child. An interrupted attempt's staging directory is

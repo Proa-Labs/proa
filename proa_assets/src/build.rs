@@ -63,7 +63,7 @@ impl OutputStore {
             path: marker.clone(),
             source,
         })? {
-            canonical_owned(&root)?;
+            validate_owner(&root)?;
         } else {
             // Never adopt an existing application/Cargo directory as an output
             // root. Only the writer lock we just created is allowed here.
@@ -86,10 +86,6 @@ impl OutputStore {
         };
         store.clean_staging()?;
         Ok(store)
-    }
-
-    pub fn directory(&self) -> &Path {
-        &self.root
     }
 
     /// Snapshot public inputs, publish objects, then replace the manifest.
@@ -115,7 +111,6 @@ impl OutputStore {
         history
             .assignments
             .retain(|path, _| cache_policy(path) == CachePolicy::Immutable);
-        let mut staged = Vec::new();
         for (index, logical) in files.iter().enumerate() {
             let input = confined_file(&source, logical)?;
             let snapshot = stage.path().join(index.to_string());
@@ -147,9 +142,9 @@ impl OutputStore {
             manifest.assets.insert(
                 logical.clone(),
                 AssetEntry {
-                    object: object.clone(),
+                    object,
                     public_path,
-                    sha256: digest.clone(),
+                    sha256: digest,
                     byte_length,
                     content_type: mime_guess::from_path(logical)
                         .first_or_octet_stream()
@@ -158,7 +153,6 @@ impl OutputStore {
                     cache_policy,
                 },
             );
-            staged.push((snapshot, object, digest, byte_length));
         }
         manifest.validate()?;
         // Checking bytes, rather than only metadata, also handles editor writes
@@ -167,28 +161,29 @@ impl OutputStore {
             return Err(AssetError::SourceChanged(source.display().to_string()));
         }
         for (logical, entry) in &manifest.assets {
-            if hash_file(&confined_file(&source, logical)?)?
-                != (entry.sha256.clone(), entry.byte_length)
-            {
+            if !entry.matches_contents(&confined_file(&source, logical)?)? {
                 return Err(AssetError::SourceChanged(logical.clone()));
             }
         }
         let objects = self.root.join("objects");
         let mut object_directories = BTreeSet::new();
-        for (snapshot, object, digest, byte_length) in staged {
+        for (index, logical) in files.iter().enumerate() {
+            let entry = &manifest.assets[logical];
+            let object = &entry.object;
             let parent = object.rsplit_once('/').map_or("", |(parent, _)| parent);
             ensure_directory(&objects, parent)?;
-            let destination = objects.join(&object);
+            let destination = objects.join(object);
             match fs::symlink_metadata(&destination) {
                 Ok(metadata) => {
                     if !metadata.file_type().is_file() {
-                        return Err(AssetError::InvalidPath(object));
+                        return Err(AssetError::InvalidPath(object.clone()));
                     }
-                    if hash_file(&destination)? != (digest, byte_length) {
-                        return Err(AssetError::Integrity(object));
+                    if !entry.matches_contents(&destination)? {
+                        return Err(AssetError::Integrity(object.clone()));
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    let snapshot = stage.path().join(index.to_string());
                     // Windows flushing requires GENERIC_WRITE. Unix permits
                     // fsync on a read handle, including read-only source copies.
                     let file = at(
@@ -266,10 +261,7 @@ impl OutputStore {
         if !at(&manifest_path, manifest_path.try_exists())? {
             return Ok(CleanupReport::default());
         }
-        plain_file(&manifest_path)?;
-        let manifest: AssetManifest =
-            serde_json::from_slice(&at(&manifest_path, fs::read(&manifest_path))?)?;
-        manifest.validate()?;
+        let (manifest, _) = AssetManifest::read(&manifest_path)?;
         let keep: BTreeSet<_> = manifest
             .assets
             .values()

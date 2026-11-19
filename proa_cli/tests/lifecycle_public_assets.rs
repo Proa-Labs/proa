@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use proa_build::assets::{AssetCatalog, AssetManifest, OUTPUT_ENV};
+use proa_assets::{AssetCatalog, AssetManifest, OUTPUT_ENV};
 use std::{
     fs,
     path::{Path, PathBuf},

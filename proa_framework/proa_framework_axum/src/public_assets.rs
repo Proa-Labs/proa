@@ -81,10 +81,7 @@ impl PublicAssets {
             .transpose()
     }
 
-    pub fn from_catalog(
-        catalog: AssetCatalog,
-        base_path: &BasePath,
-    ) -> Result<Self, PublicAssetError> {
+    fn from_catalog(catalog: AssetCatalog, base_path: &BasePath) -> Result<Self, PublicAssetError> {
         let mut urls = BTreeMap::new();
         let mut routes = BTreeMap::new();
         let mut rewrite_bytes = 0;
