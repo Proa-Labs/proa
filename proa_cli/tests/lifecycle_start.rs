@@ -119,6 +119,7 @@ pub async fn config() -> Result<Config> {
 #[test]
 fn terminating_a_supervised_script_stops_the_shells_children() {
     use std::{
+        io::Write,
         process::Stdio,
         thread,
         time::{Duration, Instant},
@@ -141,39 +142,122 @@ pub async fn config() -> Result<Config> {
     .unwrap();
     fs::write(
         root.join("watcher.sh"),
-        "trap 'touch stopped; exit' TERM\nprintf '%s' \"$$\" > ready\nwhile :; do sleep 1; done\n",
+        "trap 'touch stopped; exit' TERM\n\
+         if [ -t 0 ]; then\n\
+           IFS= read -r input && [ \"$input\" = start ] || exit 1\n\
+         fi\n\
+         printf '%s' \"$$\" > ready\n\
+         while :; do sleep 1; done\n",
     )
     .unwrap();
-    let mut cli = Command::new(env!("CARGO_BIN_EXE_proa"))
-        .current_dir(root)
-        .args(["run", "dev"])
-        .stdin(Stdio::null())
-        .spawn()
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let watcher = loop {
-        if let Ok(ready) = fs::read_to_string(root.join("ready")) {
-            if let Ok(pid) = ready.parse::<i32>() {
+    let ready = root.join("ready");
+    let stopped = root.join("stopped");
+    for interactive in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
+        command.current_dir(root).args(["run", "dev"]);
+        let mut terminal = if interactive {
+            Some(attach_test_terminal(&mut command))
+        } else {
+            command.stdin(Stdio::null());
+            None
+        };
+        let mut cli = command.spawn().unwrap();
+        drop(command);
+        if let Some(terminal) = &mut terminal {
+            terminal.write_all(b"start\n").unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let watcher = loop {
+            if let Some(pid) = fs::read_to_string(&ready)
+                .ok()
+                .and_then(|pid| pid.parse::<i32>().ok())
+            {
                 break pid;
             }
-        }
-        if cli.try_wait().unwrap().is_some() || Instant::now() >= deadline {
-            let _ = cli.kill();
-            let _ = cli.wait();
-            panic!("script failed to start");
-        }
-        thread::sleep(Duration::from_millis(25));
+            if cli.try_wait().unwrap().is_some() || Instant::now() >= deadline {
+                drop(terminal.take());
+                let _ = cli.kill();
+                let _ = cli.wait();
+                panic!("script failed to start (terminal: {interactive})");
+            }
+            thread::sleep(Duration::from_millis(25));
+        };
+
+        assert_eq!(unsafe { libc::kill(cli.id() as i32, libc::SIGTERM) }, 0);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = cli.try_wait().unwrap().filter(|_| stopped.exists()) {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                drop(terminal.take());
+                unsafe { libc::kill(watcher, libc::SIGKILL) };
+                let _ = cli.kill();
+                let _ = cli.wait();
+                panic!("script failed to stop (terminal: {interactive})");
+            }
+            thread::sleep(Duration::from_millis(25));
+        };
+        assert_eq!(status.code(), Some(128 + libc::SIGTERM));
+        fs::remove_file(&ready).unwrap();
+        fs::remove_file(&stopped).unwrap();
+    }
+}
+
+#[cfg(unix)]
+fn attach_test_terminal(command: &mut Command) -> fs::File {
+    use std::{
+        io,
+        os::{
+            fd::{AsRawFd, FromRawFd, OwnedFd},
+            unix::process::CommandExt,
+        },
     };
 
-    assert_eq!(unsafe { libc::kill(cli.id() as i32, libc::SIGTERM) }, 0);
-    assert_eq!(cli.wait().unwrap().code(), Some(128 + libc::SIGTERM));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !root.join("stopped").exists() {
-        if Instant::now() >= deadline {
-            unsafe { libc::kill(watcher, libc::SIGKILL) };
-            panic!("script watcher outlived the CLI");
+    let mut controller_fd = -1;
+    let mut terminal_fd = -1;
+    unsafe {
+        assert_eq!(
+            libc::openpty(
+                &mut controller_fd,
+                &mut terminal_fd,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            ),
+            0
+        );
+        let controller = OwnedFd::from_raw_fd(controller_fd);
+        let terminal = OwnedFd::from_raw_fd(terminal_fd);
+        // The test never reads tty output. Disable input echo so the OS
+        // does not wait for the controller to drain echoed bytes on exit.
+        let mut attributes = std::mem::zeroed();
+        assert_eq!(libc::tcgetattr(terminal.as_raw_fd(), &mut attributes), 0);
+        attributes.c_lflag &= !libc::ECHO;
+        assert_eq!(
+            libc::tcsetattr(terminal.as_raw_fd(), libc::TCSANOW, &attributes),
+            0
+        );
+        for fd in [&controller, &terminal] {
+            assert_eq!(
+                libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC),
+                0
+            );
         }
-        thread::sleep(Duration::from_millis(25));
+        command.stdin(terminal);
+        command.pre_exec(|| {
+            let request = libc::TIOCSCTTY;
+            #[cfg(target_vendor = "apple")]
+            let request = libc::c_ulong::from(request);
+            if libc::setsid() == -1
+                || libc::ioctl(libc::STDIN_FILENO, request, 0) == -1
+                || libc::tcsetpgrp(libc::STDIN_FILENO, libc::getpgrp()) == -1
+            {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+        fs::File::from(controller)
     }
 }
 

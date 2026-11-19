@@ -5,46 +5,21 @@ use std::{ffi::OsString, path::Path, process::Command};
 
 use anyhow::{ensure, Context, Result};
 
+#[cfg(unix)]
+mod unix;
+
 pub(super) fn run(root: &Path, name: &str, source: &str, args: &[OsString]) -> Result<()> {
     let mut process = command(root, name, source, args)?;
     #[cfg(unix)]
-    {
-        use std::{
-            io::IsTerminal,
-            os::unix::process::{CommandExt, ExitStatusExt},
-        };
-
-        // A foreground shell keeps the terminal's process group and job
-        // control. A supervisor can signal only the CLI PID, so give a
-        // noninteractive script its own group and relay signals to the group.
-        if std::io::stdin().is_terminal() {
-            return Err(process.exec()).with_context(|| format!("run script `{name}`"));
-        }
-        crate::lifecycle::install_child_group_signal_handler();
-        let mut child = process
-            .process_group(0)
-            .spawn()
-            .with_context(|| format!("run script `{name}`"))?;
-        crate::lifecycle::set_active_child_group(&child);
-        let status = child.wait();
-        crate::lifecycle::clear_active_child_group();
-        let status = status.with_context(|| format!("wait for script `{name}`"))?;
-        if let Some(signal) = status.signal() {
-            std::process::exit(128 + signal);
-        }
-        exit_with_status(status)
-    }
+    let code = unix::run(&mut process).with_context(|| format!("run script `{name}`"))?;
     #[cfg(not(unix))]
-    exit_with_status(
-        process
-            .status()
-            .with_context(|| format!("run script `{name}`"))?,
-    )
-}
-
-fn exit_with_status(status: std::process::ExitStatus) -> Result<()> {
-    if !status.success() {
-        std::process::exit(status.code().unwrap_or(1));
+    let code = process
+        .status()
+        .with_context(|| format!("run script `{name}`"))?
+        .code()
+        .unwrap_or(1);
+    if code != 0 {
+        std::process::exit(code);
     }
     Ok(())
 }
