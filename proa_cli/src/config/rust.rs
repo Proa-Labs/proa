@@ -363,6 +363,9 @@ pub(super) fn source(config: &ProjectConfig) -> Result<String> {
     writeln!(source, "        scripts: proa::config::ScriptsConfig {{")?;
     writeln!(source, "            dev: {:?},", config.scripts.dev)?;
     writeln!(source, "            build: {:?},", config.scripts.build)?;
+    if !config.scripts.css.is_empty() {
+        writeln!(source, "            css: {:?},", config.scripts.css)?;
+    }
     let before = &config.scripts.before;
     if !before.is_empty() {
         writeln!(source, "            before: proa::config::ScriptHooks {{")?;

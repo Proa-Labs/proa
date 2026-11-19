@@ -1083,17 +1083,13 @@ fn watched_test_loop(
     if !hooks.is_empty() {
         successful_hook_outputs.extend(config.paths.public.as_deref());
     }
+    let css_asset = crate::config::css_script_asset(config)?;
     let asset_outputs: Vec<_> = config
         .paths
         .public
         .iter()
-        .flat_map(|_| {
-            config
-                .build
-                .assets()
-                .iter()
-                .map(|asset| asset.output.as_path())
-        })
+        .flat_map(|_| css_asset.iter().chain(config.build.assets()))
+        .map(|asset| asset.output.as_path())
         .collect();
     let mut baseline = watch_snapshot(root, &paths)?;
     let mut last_failed;
@@ -3060,7 +3056,8 @@ pub fn build_assets_for_project(root: &Path) -> Result<()> {
 }
 
 fn build_assets(root: &Path, config: &ProjectConfig) -> Result<()> {
-    for asset in config.build.assets() {
+    let css_asset = crate::config::css_script_asset(config)?;
+    for asset in css_asset.iter().chain(config.build.assets()) {
         build_asset(root, asset)?;
     }
     Ok(())

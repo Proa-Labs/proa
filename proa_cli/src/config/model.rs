@@ -143,6 +143,9 @@ pub struct ScriptsConfig<Text: ConfigText = &'static str, Path: ConfigPath = Tex
     pub dev: Text,
     /// Project script or linked Cargo shorthand for `proa build`.
     pub build: Text,
+    /// Command that builds `styles.css` in the public directory.
+    #[serde(skip_serializing_if = "text_is_empty")]
+    pub css: Text,
     #[serde(skip_serializing_if = "ScriptHooks::is_empty")]
     pub before: ScriptHooks<Text>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -238,6 +241,7 @@ impl<Text: ConfigText, Path: ConfigPath> Default for ScriptsConfig<Text, Path> {
         Self {
             dev: "".into(),
             build: "".into(),
+            css: "".into(),
             before: ScriptHooks::default(),
             named: BTreeMap::new(),
         }

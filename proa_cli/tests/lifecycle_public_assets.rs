@@ -195,7 +195,14 @@ fn test_watch_tracks_authored_inputs_without_looping_on_preparation_outputs() {
     let root = temp.path();
     fs::create_dir(root.join("tests")).unwrap();
     fs::create_dir(root.join("content")).unwrap();
+    fs::create_dir(root.join("styles")).unwrap();
     fs::write(root.join("content/example.txt"), "first input").unwrap();
+    fs::write(root.join("styles/input.css"), ".test {}\n").unwrap();
+    fs::write(
+        root.join("styles/build css.sh"),
+        "{ cat styles/input.css; printf '/* %s */\\n' \"$(cat content/example.txt)\"; } > public/styles.css\n",
+    )
+    .unwrap();
     fs::write(
         root.join("tests/page.rs"),
         r#"
@@ -215,6 +222,7 @@ fn page_inputs() {
             .replace(
                 "scripts: ScriptsConfig {",
                 r#"scripts: ScriptsConfig {
+            css: "sh 'styles/build css.sh'",
             before: proa::config::ScriptHooks {
                 test: vec!["prepare-fixture"],
                 ..Default::default()
@@ -233,14 +241,7 @@ fn page_inputs() {
             ]),
 "#,
             )
-            .replace(
-                "Some(vec![])",
-                r#"Some(vec![proa::config::AssetConfig {
-            command: vec!["sh", "-c", "echo '.test {}' > public/generated.css"],
-            output: "public/generated.css".to_owned(),
-            ..Default::default()
-        }])"#,
-            ),
+            .replace("assets: Some(vec![])", "assets: None"),
     )
     .unwrap();
     // Warm the config runner before starting the watcher deadline.
@@ -272,9 +273,25 @@ fn page_inputs() {
     let waiting = "Watching for test input changes";
     let first = watch.wait_for(&log, waiting, 1);
     assert!(first.contains("INPUTS|first input|first"), "{first}");
+    let output = published(&first);
+    let first_catalog = AssetCatalog::load(&output).unwrap();
+    assert_eq!(
+        fs::read(first_catalog.object_path("styles.css").unwrap()).unwrap(),
+        b".test {}\n/* first input */\n"
+    );
     fs::write(root.join("content/example.txt"), "updated input").unwrap();
     let second = watch.wait_for(&log, waiting, 2);
     assert!(second.contains("INPUTS|updated input|first"), "{second}");
+    let second_catalog = AssetCatalog::load(&output).unwrap();
+    assert_eq!(
+        fs::read(second_catalog.object_path("styles.css").unwrap()).unwrap(),
+        b".test {}\n/* updated input */\n"
+    );
+    let first_css = &first_catalog.manifest().assets["styles.css"];
+    let second_css = &second_catalog.manifest().assets["styles.css"];
+    assert_eq!(first_css.public_path, "styles.css");
+    assert_eq!(second_css.public_path, first_css.public_path);
+    assert_ne!(first_css.object, second_css.object);
     fs::write(root.join("public/logo.svg"), "updated logo").unwrap();
     let third = watch.wait_for(&log, waiting, 3);
     assert!(
@@ -298,7 +315,7 @@ fn page_inputs() {
     let text = fs::read_to_string(&log).unwrap();
     assert_eq!(text.matches("Task prepare-public").count(), 5, "{text}");
     assert_eq!(
-        text.matches("building asset: public/generated.css").count(),
+        text.matches("building asset: public/styles.css").count(),
         4,
         "{text}"
     );

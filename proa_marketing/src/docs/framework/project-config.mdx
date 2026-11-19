@@ -87,30 +87,25 @@ template. Use `proa_pro` to configure the Pro registry.
 ## CSS
 
 When `styles/input.css` exists, Proa runs the standalone Tailwind CLI and
-writes `public/styles.css` by default. Reference the result with
-`cx.url("public/styles.css")` to get the fingerprinted URL when `public` is
-configured in `paths.public`.
+writes `public/styles.css` by default. With `paths.public` set to `public`,
+`cx.url("public/styles.css")` resolves to the stable stylesheet URL. Proa
+fingerprints the stored file and serves the URL with `Cache-Control: no-cache`
+and an `ETag` so browsers revalidate it after changes.
 
-Set `build.assets` to use PostCSS, Lightning CSS, or another processor. For
-example, `scripts/css.sh` can run your CSS tool and write `public/styles.css`.
-Import `AssetConfig` and `BuildConfig` from `proa::config` and add this field
-to the `Config` literal.
+Set `scripts.css` to use PostCSS, Lightning CSS, or another processor. For
+example, add this line to your existing `ScriptsConfig` and have the script
+write `public/styles.css`.
 
 ```rust
-build: BuildConfig {
-    assets: Some(vec![AssetConfig {
-        command: vec!["bash", "scripts/css.sh"],
-        output: "public/styles.css",
-        ..Default::default()
-    }]),
-    ..Default::default()
-},
+css: "bash scripts/css.sh",
 ```
 
-The command runs from the project directory. Keep settings such as PostCSS
-plugins in the tool's own config file, and add extra inputs to the linked
-watcher with `--watch` in your dev script. Use `assets: Some(vec![])` to turn
-off inferred Tailwind processing.
+The command runs from the project directory in place of inferred Tailwind.
+When `paths.public` points to a different directory, write `styles.css`
+there. Keep settings such as PostCSS plugins in the tool's own config file.
+Add extra inputs such as `scripts/css.sh` and `postcss.config.mjs` to the
+linked watcher with `--watch` in your dev script. For nonstandard output
+names or additional commands, configure `build.assets`.
 
 ## How Proa builds the config
 

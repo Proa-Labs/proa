@@ -247,6 +247,9 @@ pub fn validate_project_config(root: &Path) -> Result<ConfigValidation> {
             validation.errors.push(error.to_string());
         }
     }
+    if let Err(error) = css_script_asset(&config) {
+        validation.errors.push(error.to_string());
+    }
     for (name, path) in [
         ("paths.components", &config.paths.components),
         ("paths.assets", &config.paths.assets),
@@ -453,9 +456,29 @@ fn fill_inferred_defaults(root: &Path, config: &mut ProjectConfig) {
     if config.registries.proa.is_none() && config.registries.proa_pro.is_none() {
         config.registries = RegistriesConfig::default();
     }
-    if config.build.assets.is_none() && root.join("styles/input.css").exists() {
+    if config.scripts.css.trim().is_empty()
+        && config.build.assets.is_none()
+        && root.join("styles/input.css").exists()
+    {
         config.build.assets = Some(vec![tailwind_asset()]);
     }
+}
+
+pub(crate) fn css_script_asset(config: &ProjectConfig) -> Result<Option<AssetConfig>> {
+    let script = config.scripts.css.trim();
+    if script.is_empty() {
+        return Ok(None);
+    }
+    let public = config
+        .paths
+        .public
+        .as_deref()
+        .unwrap_or(Path::new("public"));
+    Ok(Some(AssetConfig {
+        command: parse_script_command("scripts.css", script)?,
+        output: public.join("styles.css"),
+        ..Default::default()
+    }))
 }
 
 pub(crate) fn parse_script_command(field: &str, source: &str) -> Result<Vec<String>> {
