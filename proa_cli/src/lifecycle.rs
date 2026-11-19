@@ -1078,9 +1078,10 @@ fn watched_test_loop(
     paths.dedup();
     let hooks = &config.scripts.before.test;
     // Hook execution reports invalid task names or dependency cycles.
-    let mut hook_outputs = task::lifecycle_output_paths(config, hooks).unwrap_or_default();
+    let declared_hook_outputs = task::lifecycle_output_paths(config, hooks).unwrap_or_default();
+    let mut successful_hook_outputs = declared_hook_outputs.clone();
     if !hooks.is_empty() {
-        hook_outputs.extend(config.paths.public.as_deref());
+        successful_hook_outputs.extend(config.paths.public.as_deref());
     }
     let asset_outputs: Vec<_> = config
         .paths
@@ -1100,10 +1101,15 @@ fn watched_test_loop(
     loop {
         let environment = test_environment(root, database)?;
         let mut prepared = run_test_hooks(root, config, &environment);
-        // After the hooks, the asset builder and test targets see the new
-        // public inputs. Authored inputs outside these scopes still trigger
-        // another run if they changed while a hook was running.
-        refresh_test_watch_outputs(root, &paths, &hook_outputs, &mut baseline)?;
+        let hook_outputs = if prepared.is_ok() {
+            // Asset publication and tests will see the prepared public inputs.
+            &successful_hook_outputs
+        } else {
+            // No tests run after a failed hook. Keep a concurrent fix to an
+            // authored fixture pending so the watcher retries preparation.
+            &declared_hook_outputs
+        };
+        refresh_test_watch_outputs(root, &paths, hook_outputs, &mut baseline)?;
         if prepared.is_ok() {
             prepared = prepare_test_assets(root, config);
             refresh_test_watch_outputs(root, &paths, &asset_outputs, &mut baseline)?;

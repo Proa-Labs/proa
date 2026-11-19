@@ -221,7 +221,7 @@ fn page_inputs() {
             },
             named: std::collections::BTreeMap::from([
                 ("prepare-public", proa::config::ScriptConfig {
-                    command: vec!["sh", "-c", "echo fixture > public/prepared.svg"],
+                    command: vec!["sh", "-c", "if [ \"$(cat public/logo.svg)\" = bad ]; then echo HOOK-READ-BAD-FIXTURE; while [ ! -e release-hook ]; do sleep 0.05; done; exit 1; fi; echo fixture > public/prepared.svg"],
                     ..Default::default()
                 }),
                 ("prepare-fixture", proa::config::ScriptConfig {
@@ -281,12 +281,25 @@ fn page_inputs() {
         third.contains("INPUTS|updated input|updated logo"),
         "{third}"
     );
+    fs::write(root.join("public/logo.svg"), "bad").unwrap();
+    watch.wait_for(&log, "HOOK-READ-BAD-FIXTURE", 1);
+    fs::write(root.join("public/logo.svg"), "fixed logo").unwrap();
+    fs::write(root.join("release-hook"), "").unwrap();
+    let recovered = watch.wait_for(&log, waiting, 5);
+    assert!(
+        recovered.contains("test run failed; watching for changes"),
+        "{recovered}"
+    );
+    assert!(
+        recovered.contains("INPUTS|updated input|fixed logo"),
+        "{recovered}"
+    );
     std::thread::sleep(Duration::from_millis(650));
     let text = fs::read_to_string(&log).unwrap();
-    assert_eq!(text.matches("Task prepare-public").count(), 3, "{text}");
+    assert_eq!(text.matches("Task prepare-public").count(), 5, "{text}");
     assert_eq!(
         text.matches("building asset: public/generated.css").count(),
-        3,
+        4,
         "{text}"
     );
 }
