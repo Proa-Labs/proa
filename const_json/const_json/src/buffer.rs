@@ -113,8 +113,15 @@ impl<const N: usize> JsonBuffer<N> {
     }
 
     /// Interpret the contents as a UTF-8 string.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer contains invalid UTF-8.
     pub const fn as_str(&self) -> &str {
-        unsafe { core::str::from_utf8_unchecked(self.as_bytes()) }
+        match core::str::from_utf8(self.as_bytes()) {
+            Ok(text) => text,
+            Err(_) => panic!("JsonBuffer::as_str called on non-UTF-8 buffer contents"),
+        }
     }
 
     /// Move the buffer out, returning the backing array and length.
@@ -141,5 +148,18 @@ const fn hex_digit(nibble: u8) -> u8 {
         0..=9 => b'0' + nibble,
         10..=15 => b'a' + (nibble - 10),
         _ => b'0',
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JsonBuffer;
+
+    #[test]
+    #[should_panic(expected = "called on non-UTF-8 buffer contents")]
+    fn as_str_rejects_invalid_utf8() {
+        let mut buffer = JsonBuffer::<1>::new();
+        buffer.push_byte(0xff);
+        let _ = buffer.as_str();
     }
 }

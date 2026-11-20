@@ -172,6 +172,17 @@ impl From<LoadError> for WriteError {
     }
 }
 
+/// Check the byte count a [`WriteBuf::extend_with`] callback reported.
+///
+/// A count past the window would publish bytes the callback never wrote. That
+/// is a bug in the caller's `unsafe` code, so it panics rather than returning
+/// an error that reads like a capacity problem.
+#[inline(always)]
+fn window_len(written: usize, max_len: usize) -> usize {
+    assert!(written <= max_len, "in-place writer overran its window");
+    written
+}
+
 /// Trait for types that can be used as write buffers for HTML rendering.
 ///
 /// This trait abstracts over different buffer types (`Vec<u8>`, fixed slices, etc.)
@@ -332,14 +343,15 @@ pub trait WriteBuf {
 
     /// Write generated text directly into spare capacity via a closure. The
     /// closure receives a `&mut [u8]` of `max_len` bytes and returns the number
-    /// of bytes it wrote. The window's prior contents are unspecified and
-    /// differ between writers, so the closure must not read before it writes.
+    /// of bytes it wrote, up to the length of the window. Reporting more
+    /// panics. The window's prior contents are unspecified and differ between
+    /// writers, so the closure must not read before it writes.
     ///
-    /// Implementations with contiguous spare capacity (Vec, WriteCursor, etc.)
-    /// override this to write in-place with zero intermediate copy. The default
-    /// uses a stack buffer of up to 40 bytes.
-    ///
-    /// `max_len` must be ≤ 40.
+    /// When the writer type is generic, keep `max_len` at or below 40 bytes.
+    /// The default implementation uses a 40-byte stack buffer and panics for
+    /// larger requests. Writers with contiguous spare capacity may provide
+    /// larger windows and write directly into their own storage;
+    /// [`ChainedBumpWriter`] accepts any window that fits in one page.
     ///
     /// # Safety
     ///
@@ -352,7 +364,7 @@ pub trait WriteBuf {
     {
         debug_assert!(max_len <= 40);
         let mut tmp = [0u8; 40];
-        let len = f(&mut tmp[..max_len]);
+        let len = window_len(f(&mut tmp[..max_len]), max_len);
         // SAFETY: the caller guarantees the written bytes are valid UTF-8.
         self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
     }
@@ -789,7 +801,7 @@ impl WriteBuf for Vec<u8> {
         // Grow the Vec to make spare capacity addressable, write into it,
         // then shrink to the actual length.
         self.resize(start + max_len, 0);
-        let len = f(&mut self[start..start + max_len]);
+        let len = window_len(f(&mut self[start..start + max_len]), max_len);
         self.truncate(start + len);
         Ok(())
     }
@@ -934,10 +946,10 @@ impl<'a> WriteBuf for WriteCursor<'a> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        if self.len + max_len > self.buf.len() {
+        if max_len > self.buf.len() - self.len {
             return Err(WriteError::OutOfCapacity);
         }
-        let len = f(&mut self.buf[self.len..self.len + max_len]);
+        let len = window_len(f(&mut self.buf[self.len..self.len + max_len]), max_len);
         self.len += len;
         Ok(())
     }
@@ -1139,12 +1151,11 @@ impl<const N: usize> WriteBuf for BumpWriter<N> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        if self.len + max_len > N {
+        if max_len > N - self.len {
             return Err(WriteError::OutOfCapacity);
         }
         // SAFETY: the bounds check above keeps the window inside the page.
-        let written = f(unsafe { self.spare_window(max_len) });
-        assert!(written <= max_len, "in-place writer overran its window");
+        let written = window_len(f(unsafe { self.spare_window(max_len) }), max_len);
         self.len += written;
         Ok(())
     }
@@ -1377,8 +1388,9 @@ impl<const N: usize> ChainedBumpWriter<N> {
     ///
     /// When data spans multiple pages, the pages are copied once into a
     /// contiguous `String`. Nothing is scanned: text writes are UTF-8 by type,
-    /// raw byte writes were validated when they were written, and rewinds only
-    /// land on character boundaries.
+    /// raw byte writes were validated when they were written, the unchecked
+    /// writers are `unsafe fn`s whose callers guarantee UTF-8, and rewinds only
+    /// land on character boundaries. Debug builds check the result.
     #[allow(unsafe_code)]
     pub fn into_string(self) -> String {
         let bytes = self.into_vec();
@@ -1508,19 +1520,24 @@ impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        let new_end = self.current.len + max_len;
-        if new_end <= N {
-            // SAFETY: the bounds check above keeps the window inside the page.
-            let written = f(unsafe { self.current.spare_window(max_len) });
-            assert!(written <= max_len, "in-place writer overran its window");
-            self.current.len += written;
-            return Ok(());
+        if max_len > N - self.current.len {
+            if max_len > N {
+                // The window is larger than a page: format on the stack and
+                // let `extend_str` split the bytes across pages.
+                let mut tmp = [0u8; 40];
+                let spare = tmp.get_mut(..max_len).ok_or(WriteError::OutOfCapacity)?;
+                let len = window_len(f(spare), max_len);
+                // SAFETY: the caller guarantees the written bytes are valid UTF-8.
+                return self.extend_str(unsafe { core::str::from_utf8_unchecked(&spare[..len]) });
+            }
+            // A fresh page holds any window up to `N` bytes.
+            self.rotate();
         }
-        // Slow path: fall back to stack buffer + extend
-        let mut tmp = [0u8; 40];
-        let len = f(&mut tmp[..max_len]);
-        // SAFETY: the caller guarantees the written bytes are valid UTF-8.
-        self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
+        // SAFETY: the check above, or the rotation to an empty page, keeps the
+        // window inside the current page.
+        let written = window_len(f(unsafe { self.current.spare_window(max_len) }), max_len);
+        self.current.len += written;
+        Ok(())
     }
 
     #[inline(always)]
@@ -1831,14 +1848,14 @@ impl<const N: usize> WriteBuf for SmallBuf<N> {
             // SAFETY: forwarded contract.
             return unsafe { v.extend_with(max_len, f) };
         }
-        if self.len + max_len <= N {
-            let len = f(&mut self.inline[self.len..self.len + max_len]);
+        if max_len <= N - self.len {
+            let len = window_len(f(&mut self.inline[self.len..self.len + max_len]), max_len);
             self.len += len;
             Ok(())
         } else {
             // Fall back to stack buffer + extend (will spill if needed)
             let mut tmp = [0u8; 40];
-            let len = f(&mut tmp[..max_len]);
+            let len = window_len(f(&mut tmp[..max_len]), max_len);
             // SAFETY: the caller guarantees the written bytes are valid UTF-8.
             self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
         }
@@ -2051,13 +2068,13 @@ impl<const N: usize> WriteBuf for StagedBuf<N> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        if self.pos + max_len <= N {
-            let len = f(&mut self.inline[self.pos..self.pos + max_len]);
+        if max_len <= N - self.pos {
+            let len = window_len(f(&mut self.inline[self.pos..self.pos + max_len]), max_len);
             self.pos += len;
             Ok(())
         } else {
             let mut tmp = [0u8; 40];
-            let len = f(&mut tmp[..max_len]);
+            let len = window_len(f(&mut tmp[..max_len]), max_len);
             // SAFETY: the caller guarantees the written bytes are valid UTF-8.
             self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
         }
@@ -2578,7 +2595,7 @@ impl WriteBuf for StreamingZeroCopyBuf {
         self.ensure_current_capacity(max_len);
         let start = self.current.len();
         self.current.resize(start + max_len, 0);
-        let written = f(&mut self.current[start..start + max_len]);
+        let written = window_len(f(&mut self.current[start..start + max_len]), max_len);
         self.current.truncate(start + written);
         self.total_len += written;
         Ok(())
@@ -2756,6 +2773,45 @@ mod tests {
         assert!(cur.reserve(5).is_err());
     }
 
+    fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+        match payload.downcast::<String>() {
+            Ok(message) => *message,
+            Err(payload) => payload
+                .downcast_ref::<&str>()
+                .map_or_else(String::new, |message| (*message).to_owned()),
+        }
+    }
+
+    /// Run `write`, which must panic, and return its panic message.
+    fn expect_panic(write: impl FnOnce()) -> String {
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(write))
+            .expect_err("expected a panic");
+        panic_message(payload)
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn bump_writer_rejects_oversized_window() {
+        let mut buf = BumpWriter::<8>::new();
+        buf.extend_str("start").unwrap();
+
+        // SAFETY: the callback is never called.
+        let result = unsafe { buf.extend_with(usize::MAX, |_| panic!("reservation should fail")) };
+
+        assert_eq!(result, Err(WriteError::OutOfCapacity));
+        buf.extend_str("end").unwrap();
+        assert_eq!(buf.as_written(), b"startend");
+    }
+
+    #[test]
+    #[should_panic(expected = "in-place writer overran its window")]
+    #[allow(unsafe_code)]
+    fn bump_writer_panics_when_callback_overreports() {
+        let mut buf = BumpWriter::<8>::new();
+        // SAFETY: the panic fires before the reported bytes are published.
+        let _ = unsafe { buf.extend_with(1, |spare| spare.len() + 1) };
+    }
+
     // ChainedBumpWriter tests
 
     #[test]
@@ -2786,6 +2842,153 @@ mod tests {
         buf.extend_str("123456789").unwrap();
 
         assert_eq!(buf.into_vec(), b"123456789");
+    }
+
+    #[test]
+    fn chained_into_string_transfers_single_page_allocation() {
+        let mut buf = RenderBuffer::new();
+        buf.extend_str("Grüße").unwrap();
+        let page_ptr = buf.as_slice().as_ptr();
+
+        let text = buf.into_string();
+
+        assert_eq!(text, "Grüße");
+        assert_eq!(text.as_ptr(), page_ptr);
+    }
+
+    #[test]
+    fn chained_into_string_accepts_code_point_across_pages() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("abc🦀").unwrap();
+
+        assert!(buf.page_count() > 1);
+        assert_eq!(buf.into_string(), "abc🦀");
+    }
+
+    // Release builds trust the write paths, so invalid bytes here would be
+    // undefined behavior rather than a panic.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn chained_into_string_rejects_invalid_utf8_in_debug_builds() {
+        for (prefix, pages) in [("", 1), ("abcd", 2)] {
+            let mut buf = ChainedBumpWriter::<4>::new();
+            buf.extend_str(prefix).unwrap();
+            buf.extend_str("e").unwrap();
+            assert_eq!(buf.page_count(), pages);
+            // Set the byte directly to exercise the check at string conversion.
+            buf.current.buf[0].write(0xff);
+
+            let message = expect_panic(|| drop(buf.into_string()));
+            assert!(
+                message.contains("broke the UTF-8 contract"),
+                "{pages} page(s): {message}"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_rejects_window_larger_than_scratch() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("abc").unwrap();
+
+        // SAFETY: the callback is never called.
+        let result = unsafe { buf.extend_with(usize::MAX, |_| panic!("reservation should fail")) };
+
+        assert_eq!(result, Err(WriteError::OutOfCapacity));
+        buf.extend_str("de").unwrap();
+        assert_eq!(buf.into_string(), "abcde");
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_accepts_page_sized_window_near_page_end() {
+        let mut buf = ChainedBumpWriter::<64>::new();
+        buf.extend_str(&"a".repeat(60)).unwrap();
+
+        // SAFETY: the callback writes ASCII digits.
+        unsafe {
+            buf.extend_with(48, |spare| {
+                spare[..5].copy_from_slice(b"12345");
+                5
+            })
+            .unwrap();
+        }
+
+        assert_eq!(buf.page_count(), 2);
+        assert_eq!(buf.into_string(), format!("{}12345", "a".repeat(60)));
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_splits_window_larger_than_page() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("ab").unwrap();
+
+        // SAFETY: the callback writes ASCII digits.
+        unsafe {
+            buf.extend_with(20, |spare| {
+                spare[..7].copy_from_slice(b"1234567");
+                7
+            })
+            .unwrap();
+        }
+
+        assert_eq!(buf.into_string(), "ab1234567");
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_panics_when_callback_overreports() {
+        // In place, after rotating to a fresh page, and through the stack
+        // window used for requests larger than a page.
+        for (prefix, max_len) in [("abc", 1), ("abc", 2), ("", 8)] {
+            let mut buf = ChainedBumpWriter::<4>::new();
+            buf.extend_str(prefix).unwrap();
+
+            // SAFETY: the panic fires before the reported bytes are published.
+            let message = expect_panic(|| {
+                let _ = unsafe { buf.extend_with(max_len, |spare| spare.len() + 1) };
+            });
+
+            assert!(
+                message.contains("in-place writer overran its window"),
+                "max_len {max_len}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn unchecked_writers_panic_when_callback_overreports() {
+        use crate::shared::output_meter::{MeteredWriteBuf, OutputMeter};
+
+        fn overreport<B: WriteBuf>(mut buf: B) -> String {
+            // SAFETY: the panic fires before the reported bytes are published.
+            expect_panic(move || {
+                let _ = unsafe { buf.extend_with(4, |spare| spare.len() + 1) };
+            })
+        }
+
+        let mut backing = [0u8; 16];
+        let meter = OutputMeter::new(1024);
+        let messages = [
+            overreport(Vec::<u8>::new()),
+            overreport(WriteCursor::new(&mut backing)),
+            overreport(SmallBuf::<16>::new()),
+            overreport(SmallBuf::<2>::new()),
+            overreport(StagedBuf::<16>::new()),
+            overreport(StagedBuf::<2>::new()),
+            overreport(StreamingZeroCopyBuf::new()),
+            overreport(MeteredWriteBuf::new(RenderBuffer::new(), meter.borrow())),
+        ];
+
+        for message in messages {
+            assert!(
+                message.contains("in-place writer overran its window"),
+                "{message}"
+            );
+        }
     }
 
     #[test]
