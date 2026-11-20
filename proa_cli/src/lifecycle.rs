@@ -470,9 +470,10 @@ fn prepare_dev_inputs(
     } else {
         None
     };
-    let public_bytes_before = if hot_update.is_some() {
+    let generated_public_before = if hot_update.is_some() {
         public
-            .map(|dir| snapshot_public_digests(root, dir))
+            .filter(|public| !changed.iter().any(|path| path.starts_with(public)))
+            .map(|public| snapshot_generated_public_outputs(root, &config, public, &snapshot))
             .transpose()?
     } else {
         None
@@ -486,33 +487,33 @@ fn prepare_dev_inputs(
         } else {
             None
         };
-        let public_changed = match &public_bytes_before {
-            Some(before) => {
-                let after = snapshot_public_digests(root, public)?;
-                if &after != before {
-                    true
-                } else {
-                    // Asset commands (such as Tailwind) may rewrite a file with
-                    // identical bytes and a newer mtime. Refresh public stamps
-                    // in the committed snapshot so the watcher stays idle.
-                    if let Some(post_assets) = &post_assets {
-                        snapshot.retain(|file, _| !file.starts_with(public));
-                        snapshot.extend(
-                            post_assets
-                                .iter()
-                                .filter(|(file, _)| file.starts_with(public))
-                                .map(|(file, stamp)| (file.clone(), *stamp)),
-                        );
+        let post_changed = post_assets
+            .as_ref()
+            .map(|post_assets| changed_paths(committed, post_assets));
+        let changed_public: Vec<&PathBuf> = post_changed
+            .as_deref()
+            .unwrap_or(&changed)
+            .iter()
+            .filter(|path| path.starts_with(public))
+            .collect();
+        let public_changed = if changed_public.is_empty() {
+            false
+        } else if let (Some(before), Some(post_assets)) = (&generated_public_before, &post_assets) {
+            if all_unchanged_generated_outputs(root, &changed_public, before, post_assets)? {
+                // Declared asset outputs (such as Tailwind's stylesheet) may be
+                // rewritten with identical bytes and a newer mtime. Advance only
+                // those verified stamps so authored saves are never swallowed.
+                for path in &changed_public {
+                    if let Some(stamp) = post_assets.get(*path) {
+                        snapshot.insert((*path).clone(), *stamp);
                     }
-                    false
                 }
+                false
+            } else {
+                true
             }
-            None => match &post_assets {
-                Some(post_assets) => changed_paths(committed, post_assets)
-                    .iter()
-                    .any(|path| path.starts_with(public)),
-                None => changed.iter().any(|path| path.starts_with(public)),
-            },
+        } else {
+            true
         };
         if public_changed {
             // The running server holds a fixed public catalog. Restart it when
@@ -1346,16 +1347,8 @@ fn run_linked_execute_with_environment(
     print_linked_cargo_output(action, &prepared.request, &output);
     if defer_execution {
         let executable = select_final_root_executable(&prepared.request, &output, action)?;
-        let public_root = if crate::config::project_config_path(root).is_none() {
-            &prepared.package_source_root
-        } else {
-            root
-        };
-        let public_output = public_assets::publish(
-            public_root,
-            public_source,
-            &prepared.public_output_directory,
-        )?;
+        let public_output =
+            public_assets::publish(root, public_source, &prepared.public_output_directory)?;
         let mut command = Command::new(executable);
         let execution_root = if action == LinkedCargoAction::Test {
             &prepared.package_source_root
@@ -1757,25 +1750,81 @@ fn configured_binary(config: &ProjectConfig) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn snapshot_public_digests(root: &Path, public: &Path) -> Result<BTreeMap<PathBuf, [u8; 32]>> {
-    let mut stamps = WatchSnapshot::new();
-    let dir = root.join(public);
-    if dir.exists() {
-        collect_file_stamps(root, &dir, &mut stamps)?;
-    }
+fn snapshot_generated_public_outputs(
+    root: &Path,
+    config: &ProjectConfig,
+    public: &Path,
+    snapshot: &WatchSnapshot,
+) -> Result<BTreeMap<PathBuf, [u8; 32]>> {
     let mut digests = BTreeMap::new();
-    for rel in stamps.keys() {
-        let full = root.join(rel);
-        if fs::symlink_metadata(&full)
-            .map(|meta| meta.file_type().is_file())
-            .unwrap_or(false)
-        {
-            let bytes = fs::read(&full).with_context(|| format!("read {}", full.display()))?;
-            let digest: [u8; 32] = Sha256::digest(&bytes).into();
-            digests.insert(rel.clone(), digest);
+    let css_output = crate::config::css_script_output(config);
+    for output in config
+        .build
+        .assets()
+        .iter()
+        .map(|asset| asset.output.as_path())
+        .chain(css_output.as_deref())
+    {
+        if output.as_os_str().is_empty() || !output.starts_with(public) {
+            continue;
         }
+        let Some(&expected_stamp) = snapshot.get(output) else {
+            continue;
+        };
+        let full = root.join(output);
+        let Ok(metadata) = fs::symlink_metadata(&full) else {
+            continue;
+        };
+        if !metadata.file_type().is_file() || FileStamp::from_metadata(&metadata) != expected_stamp
+        {
+            // File changed after `snapshot` was taken; do not consume it.
+            continue;
+        }
+        let bytes = fs::read(&full).with_context(|| format!("read {}", full.display()))?;
+        let post_read =
+            fs::symlink_metadata(&full).with_context(|| format!("stat {}", full.display()))?;
+        if !post_read.file_type().is_file()
+            || FileStamp::from_metadata(&post_read) != expected_stamp
+        {
+            continue;
+        }
+        digests.insert(output.to_path_buf(), Sha256::digest(&bytes).into());
     }
     Ok(digests)
+}
+
+fn all_unchanged_generated_outputs(
+    root: &Path,
+    changed_public: &[&PathBuf],
+    before: &BTreeMap<PathBuf, [u8; 32]>,
+    post_assets: &WatchSnapshot,
+) -> Result<bool> {
+    for path in changed_public {
+        let Some(expected_digest) = before.get(*path) else {
+            return Ok(false);
+        };
+        let Some(&expected_stamp) = post_assets.get(*path) else {
+            return Ok(false);
+        };
+        let full = root.join(path);
+        let Ok(metadata) = fs::symlink_metadata(&full) else {
+            return Ok(false);
+        };
+        if !metadata.file_type().is_file() || FileStamp::from_metadata(&metadata) != expected_stamp
+        {
+            return Ok(false);
+        }
+        let bytes = fs::read(&full).with_context(|| format!("read {}", full.display()))?;
+        let post_read =
+            fs::symlink_metadata(&full).with_context(|| format!("stat {}", full.display()))?;
+        if !post_read.file_type().is_file()
+            || FileStamp::from_metadata(&post_read) != expected_stamp
+            || Sha256::digest(&bytes).as_slice() != expected_digest
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn dev_command(options: &DevOptions, config: &ProjectConfig) -> Vec<String> {

@@ -593,6 +593,56 @@ fn dev_command_honors_configured_application_binary() {
 }
 
 #[test]
+fn generated_public_output_check_never_swallows_post_snapshot_edits() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let public = Path::new("public");
+    fs::create_dir_all(root.join(public)).unwrap();
+    let css = PathBuf::from("public/styles.css");
+    let logo = PathBuf::from("public/logo.svg");
+    fs::write(root.join(&css), "body{color:black}").unwrap();
+    fs::write(root.join(&logo), "<svg/>").unwrap();
+
+    let config = ProjectConfig {
+        build: crate::config::BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "tailwind".into(),
+                input: PathBuf::from("styles/input.css"),
+                output: css.clone(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let watch_paths = vec![public.to_path_buf()];
+    let snapshot = watch_snapshot(root, &watch_paths).unwrap();
+
+    // Case 1: Declared generated output rewritten with identical bytes (newer stamp).
+    let before = snapshot_generated_public_outputs(root, &config, public, &snapshot).unwrap();
+    assert!(before.contains_key(&css));
+    assert!(!before.contains_key(&logo));
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(root.join(&css), "body{color:black}").unwrap();
+    let post = watch_snapshot(root, &watch_paths).unwrap();
+    assert!(all_unchanged_generated_outputs(root, &[&css], &before, &post).unwrap());
+
+    // Case 2: Authored file saved after `snapshot` is never considered unchanged.
+    fs::write(root.join(&logo), "<svg><circle/></svg>").unwrap();
+    let post_with_logo = watch_snapshot(root, &watch_paths).unwrap();
+    assert!(
+        !all_unchanged_generated_outputs(root, &[&css, &logo], &before, &post_with_logo).unwrap()
+    );
+
+    // Case 3: Declared output edited between `snapshot` and `before` is skipped.
+    fs::write(root.join(&css), "body{color:white}").unwrap();
+    let before_after_edit =
+        snapshot_generated_public_outputs(root, &config, public, &snapshot).unwrap();
+    assert!(!before_after_edit.contains_key(&css));
+}
+
+#[test]
 fn check_command_uses_check_with_exact_cargo_selection() {
     let command = check_command(&CheckOptions {
         root: None,
