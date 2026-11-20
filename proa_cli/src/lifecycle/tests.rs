@@ -642,6 +642,22 @@ fn generated_public_output_check_never_swallows_post_snapshot_edits() {
     assert!(!before_after_edit.contains_key(&css));
 }
 
+#[cfg(unix)]
+#[test]
+fn watch_snapshot_records_dangling_symlinks_without_aborting() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let public = root.join("public");
+    fs::create_dir_all(&public).unwrap();
+    let broken = public.join("missing.svg");
+    symlink(public.join("does-not-exist.svg"), &broken).unwrap();
+
+    let snapshot = watch_snapshot(root, &[PathBuf::from("public")]).unwrap();
+    assert!(snapshot.contains_key(Path::new("public/missing.svg")));
+}
+
 #[test]
 fn check_command_uses_check_with_exact_cargo_selection() {
     let command = check_command(&CheckOptions {

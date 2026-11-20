@@ -32,6 +32,14 @@ pub struct OutputStore {
     _writer: File,
 }
 
+impl Drop for OutputStore {
+    fn drop(&mut self) {
+        // Explicitly unlock the open file description before closing the fd so
+        // an in-flight fork() in another thread cannot hold flock() past drop.
+        let _ = self._writer.unlock();
+    }
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct History {

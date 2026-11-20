@@ -3548,11 +3548,20 @@ fn collect_file_stamps(
     path: &Path,
     snapshot: &mut BTreeMap<PathBuf, FileStamp>,
 ) -> Result<()> {
-    let mut metadata =
-        fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+    let mut metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("stat {}", path.display())),
+    };
     if metadata.file_type().is_symlink() {
-        let target =
-            fs::canonicalize(path).with_context(|| format!("resolve {}", path.display()))?;
+        let Ok(target) = fs::canonicalize(path) else {
+            // Observe a broken symlink's own stamp instead of aborting the
+            // watcher. Publication can then reject invalid public inputs while
+            // keeping the last valid server running.
+            let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
+            snapshot.insert(rel, FileStamp::from_metadata(&metadata));
+            return Ok(());
+        };
         if path
             .ancestors()
             .skip(1)
@@ -3566,13 +3575,25 @@ fn collect_file_stamps(
         }
         // Preserve ordinary source-link watching. Only link traversal needs
         // canonicalization; regular source trees retain one metadata read.
-        metadata = fs::metadata(path).with_context(|| format!("stat {}", path.display()))?;
+        metadata = match fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                let rel = path.strip_prefix(root).unwrap_or(path).to_path_buf();
+                snapshot.insert(rel, FileStamp::from_metadata(&metadata));
+                return Ok(());
+            }
+        };
     }
     if metadata.is_dir() {
         if should_ignore_dir(path) {
             return Ok(());
         }
-        for entry in fs::read_dir(path).with_context(|| format!("read {}", path.display()))? {
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+        };
+        for entry in entries {
             collect_file_stamps(root, &entry?.path(), snapshot)?;
         }
     } else if metadata.is_file() {

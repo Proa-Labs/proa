@@ -177,6 +177,14 @@ pub struct AssetCatalog {
     _reader: File,
 }
 
+impl Drop for AssetCatalog {
+    fn drop(&mut self) {
+        // Release the shared flock explicitly so a concurrent fork() in the
+        // same process cannot retain the reader lock after this catalog drops.
+        let _ = self._reader.unlock();
+    }
+}
+
 impl AssetCatalog {
     pub fn load(output: impl AsRef<Path>) -> Result<Self> {
         let output = output.as_ref();
