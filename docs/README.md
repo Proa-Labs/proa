@@ -16,6 +16,8 @@ build does not publish this directory.
   including Neovim setup.
 - [`compile-times.md`](compile-times.md): Cargo timings and a reproducible
   experiment for CLI crate boundaries.
+- [`build-output.md`](build-output.md): Rust project configuration and managed
+  public asset catalogs.
 - [`../proa_stream/`](../proa_stream/README.md): streaming rendering and
   framework integration.
 - [`migrations/0.3-standalone.md`](migrations/0.3-standalone.md): API changes

@@ -14,6 +14,7 @@ Keep the contract small and explicit:
 | `HOST` | No | Bind host. Use `0.0.0.0` in containers and `127.0.0.1` behind a same-host reverse proxy. Sites from `proa new site` read `PROA_HOST` instead, which is what `proa start --host` sets. |
 | `PORT` | No | Bind port. Container platforms often inject this. |
 | `STATIC_DIR` | No | Directory the static asset service serves. |
+| `PROA_PUBLIC_ASSETS` | If using managed public assets | Published public asset catalog directory loaded by `FrameworkBuilder::try_build()` and mounted at `/_proa/assets`. Set automatically by `proa dev`, `proa run`, `proa test`, and `proa start --public-assets`. |
 | `RUST_LOG` | No | `tracing_subscriber` filter, usually `info` in production. |
 | `PUBLIC_BASE_URL` | Usually | Absolute origin for metadata, canonical URLs, emails, and webhooks. |
 | `TRUSTED_ORIGIN` | If needed | Browser origin allowed to send unsafe cross-origin requests. |

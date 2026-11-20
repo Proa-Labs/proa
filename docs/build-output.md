@@ -190,9 +190,8 @@ With the configuration above, place the source image at
 
 ```rust
 use axum::{routing::get, Router};
-use proa_core::{WebContext, WebRenderSync, WriteError};
-use proa_framework_axum::{FrameworkBuildError, FrameworkBuilder, RouteResponse};
-use proa_macros::html_sync;
+use proa::{html_sync, WebContext, WebRenderSync, WriteError};
+use proa::axum::{FrameworkBuildError, FrameworkBuilder, RouteResponse};
 
 struct Logo;
 

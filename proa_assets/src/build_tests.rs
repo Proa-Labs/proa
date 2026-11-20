@@ -349,3 +349,17 @@ fn symlinks_in_input_or_output_are_rejected_without_following_them() {
         Err(AssetError::InvalidPath(_))
     ));
 }
+
+#[test]
+fn extensionless_files_named_after_extensions_stay_immutable() {
+    let f = Fixture::new();
+    f.write("css", b"binary-blob");
+    f.write("dir/js", b"another-blob");
+    f.write(".css", b"dotfile-blob");
+    let manifest = f.publish().manifest;
+    for logical in ["css", "dir/js", ".css"] {
+        let entry = &manifest.assets[logical];
+        assert_eq!(entry.cache_policy, CachePolicy::Immutable, "{logical}");
+        assert_ne!(entry.public_path, logical, "{logical}");
+    }
+}

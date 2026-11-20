@@ -441,3 +441,30 @@ async fn request_urls_and_shared_page_cache_follow_the_active_catalog() {
         StatusCode::NOT_FOUND
     );
 }
+
+#[tokio::test]
+async fn extensionless_files_named_css_or_js_are_not_rewritten_with_base_path() {
+    let f = Fixture::new();
+    f.write("css", &[0xff, 0xfe, 0x00, 0x01]);
+    f.write("nested/js", &[0x80, 0x81, 0x82]);
+    let assets = f.load("/shop");
+    for (logical, expected) in [
+        ("css", &[0xff_u8, 0xfe, 0x00, 0x01][..]),
+        ("nested/js", &[0x80_u8, 0x81, 0x82][..]),
+    ] {
+        let url = assets.url(logical).expect(logical);
+        let path = url.strip_prefix("/shop").unwrap();
+        let response = get_asset(&assets, path).await;
+        assert_eq!(response.status(), StatusCode::OK, "{logical}");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "public, max-age=31536000, immutable",
+            "{logical}"
+        );
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            expected,
+            "{logical}"
+        );
+    }
+}

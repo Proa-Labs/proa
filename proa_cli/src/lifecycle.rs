@@ -180,7 +180,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
     // Reject an impossible watch window before anything is built, bound, or
     // spawned. A flag error should cost nothing to recover from.
     let debounce = dev_watch_debounce(&options)?;
-    let command = dev_command(&options);
+    let command = dev_command(&options, &config);
     install_dev_signal_handler();
 
     println!("Proa dev root: {}", root.display());
@@ -347,6 +347,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
         }
         println!("change stabilized; rebuilding linked RSJS dev server");
         let rebuild = (|| -> Result<LinkedDevRebuild> {
+            let command = dev_command(&options, &next_config);
             // Capture the exact source/config state handed to this cycle after
             // asset generation. A change during Cargo will differ on the next
             // poll and schedule another cycle rather than being swallowed.
@@ -444,7 +445,7 @@ fn prepare_dev_inputs(
     // Include generated writes from pre-dev tasks, even if a task fails. Capture
     // before scanning/publishing templates or running asset commands so edits
     // during those operations still schedule another cycle.
-    let snapshot = watch_snapshot(root, watch_paths)?;
+    let mut snapshot = watch_snapshot(root, watch_paths)?;
     *failure_snapshot = snapshot.clone();
     tasks?;
     let changed = changed_paths(committed, &snapshot);
@@ -469,16 +470,51 @@ fn prepare_dev_inputs(
     } else {
         None
     };
+    let public_bytes_before = if hot_update.is_some() {
+        public
+            .map(|dir| snapshot_public_digests(root, dir))
+            .transpose()?
+    } else {
+        None
+    };
     if !options.no_assets {
         build_assets(root, &config)?;
     }
     if let Some(public) = public {
-        let changed = if managed_public || root.join(public).exists() {
-            changed_paths(committed, &watch_snapshot(root, watch_paths)?)
+        let post_assets = if managed_public || root.join(public).exists() {
+            Some(watch_snapshot(root, watch_paths)?)
         } else {
-            changed
+            None
         };
-        if changed.iter().any(|path| path.starts_with(public)) {
+        let public_changed = match &public_bytes_before {
+            Some(before) => {
+                let after = snapshot_public_digests(root, public)?;
+                if &after != before {
+                    true
+                } else {
+                    // Asset commands (such as Tailwind) may rewrite a file with
+                    // identical bytes and a newer mtime. Refresh public stamps
+                    // in the committed snapshot so the watcher stays idle.
+                    if let Some(post_assets) = &post_assets {
+                        snapshot.retain(|file, _| !file.starts_with(public));
+                        snapshot.extend(
+                            post_assets
+                                .iter()
+                                .filter(|(file, _)| file.starts_with(public))
+                                .map(|(file, stamp)| (file.clone(), *stamp)),
+                        );
+                    }
+                    false
+                }
+            }
+            None => match &post_assets {
+                Some(post_assets) => changed_paths(committed, post_assets)
+                    .iter()
+                    .any(|path| path.starts_with(public)),
+                None => changed.iter().any(|path| path.starts_with(public)),
+            },
+        };
+        if public_changed {
             // The running server holds a fixed public catalog. Restart it when
             // inputs (including generated files) change. Keep the pre-command
             // snapshot so concurrent authored edits still schedule another cycle.
@@ -733,10 +769,17 @@ fn install_dev_signal_handler() {
     }
 }
 
-pub fn build(options: BuildOptions) -> Result<()> {
+pub fn build(mut options: BuildOptions) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let config = load_project_config(&root)?;
     script::hint("build", &config.scripts.build, DEFAULT_BUILD_COMMAND);
+    if options.command.is_empty()
+        && options.package.is_none()
+        && options.bin.is_none()
+        && options.example.is_none()
+    {
+        options.bin = configured_binary(&config);
+    }
     let command = build_command(&options);
     // Validate and resolve the exact Cargo root before running configured asset
     // commands. An unsupported deployment command must fail without partially
@@ -824,10 +867,13 @@ pub fn check(mut options: CheckOptions) -> Result<()> {
     Ok(())
 }
 
-pub fn run(options: RunOptions) -> Result<()> {
+pub fn run(mut options: RunOptions) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
-    let command = run_command(&options);
     let config = load_project_config(&root)?;
+    if options.package.is_none() && options.bin.is_none() {
+        options.bin = configured_binary(&config);
+    }
+    let command = run_command(&options);
     run_linked_execute_with_environment(
         &root,
         &command,
@@ -1300,8 +1346,16 @@ fn run_linked_execute_with_environment(
     print_linked_cargo_output(action, &prepared.request, &output);
     if defer_execution {
         let executable = select_final_root_executable(&prepared.request, &output, action)?;
-        let public_output =
-            public_assets::publish(root, public_source, &prepared.public_output_directory)?;
+        let public_root = if crate::config::project_config_path(root).is_none() {
+            &prepared.package_source_root
+        } else {
+            root
+        };
+        let public_output = public_assets::publish(
+            public_root,
+            public_source,
+            &prepared.public_output_directory,
+        )?;
         let mut command = Command::new(executable);
         let execution_root = if action == LinkedCargoAction::Test {
             &prepared.package_source_root
@@ -1694,9 +1748,44 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
-fn dev_command(options: &DevOptions) -> Vec<String> {
+fn configured_binary(config: &ProjectConfig) -> Option<String> {
+    config
+        .application
+        .as_ref()
+        .map(|application| application.binary.as_str())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn snapshot_public_digests(root: &Path, public: &Path) -> Result<BTreeMap<PathBuf, [u8; 32]>> {
+    let mut stamps = WatchSnapshot::new();
+    let dir = root.join(public);
+    if dir.exists() {
+        collect_file_stamps(root, &dir, &mut stamps)?;
+    }
+    let mut digests = BTreeMap::new();
+    for rel in stamps.keys() {
+        let full = root.join(rel);
+        if fs::symlink_metadata(&full)
+            .map(|meta| meta.file_type().is_file())
+            .unwrap_or(false)
+        {
+            let bytes = fs::read(&full).with_context(|| format!("read {}", full.display()))?;
+            let digest: [u8; 32] = Sha256::digest(&bytes).into();
+            digests.insert(rel.clone(), digest);
+        }
+    }
+    Ok(digests)
+}
+
+fn dev_command(options: &DevOptions, config: &ProjectConfig) -> Vec<String> {
     let mut command = if options.command.is_empty() {
-        vec!["cargo".into(), "run".into()]
+        let mut command = vec!["cargo".into(), "run".into()];
+        if let Some(bin) = configured_binary(config) {
+            command.push("--bin".into());
+            command.push(bin);
+        }
+        command
     } else {
         options.command.clone()
     };

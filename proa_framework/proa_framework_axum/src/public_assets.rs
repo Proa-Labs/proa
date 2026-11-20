@@ -96,10 +96,12 @@ impl PublicAssets {
                 .map_err(|e: mime::FromStrError| fail(e.to_string()))?;
             let path = catalog.object_path(logical).expect("manifest entry");
             let extension = logical
-                .rsplit('.')
+                .rsplit('/')
                 .next()
-                .unwrap_or("")
-                .to_ascii_lowercase();
+                .and_then(|name| name.rsplit_once('.'))
+                .filter(|(stem, _)| !stem.is_empty())
+                .map(|(_, ext)| ext.to_ascii_lowercase())
+                .unwrap_or_default();
             let rewrite = !base_path.as_str().is_empty()
                 && entry.cache_policy == CachePolicy::Revalidate
                 && matches!(extension.as_str(), "js" | "mjs" | "css");

@@ -134,26 +134,29 @@ impl AssetUrls<'_> {
                     }
                 }
             }
-            Expr::MethodCall(call) if call.method == "url" && call.args.len() == 1 => {
-                if let Expr::Lit(syn::ExprLit {
-                    lit: Lit::Str(value),
-                    ..
-                }) = &call.args[0]
-                {
-                    let text = value.value();
-                    if text.starts_with("/public/") || text.starts_with("./public/") {
-                        self.warn(
-                            value.span(),
-                            "asset/logical-path",
-                            "managed asset paths start with `public/`",
-                            "remove the leading slash or dot-slash to resolve the path in the asset catalog",
-                        );
-                    } else if asset_url(&text) == Some(AssetUrl::Generated) {
-                        self.literal(value, false);
-                    }
+            _ => {}
+        }
+    }
+
+    fn check_url_call(&mut self, call: &syn::ExprMethodCall) {
+        if call.method == "url" && call.args.len() == 1 {
+            if let Expr::Lit(syn::ExprLit {
+                lit: Lit::Str(value),
+                ..
+            }) = &call.args[0]
+            {
+                let text = value.value();
+                if text.starts_with("/public/") || text.starts_with("./public/") {
+                    self.warn(
+                        value.span(),
+                        "asset/logical-path",
+                        "managed asset paths start with `public/`",
+                        "remove the leading slash or dot-slash to resolve the path in the asset catalog",
+                    );
+                } else if asset_url(&text) == Some(AssetUrl::Generated) {
+                    self.literal(value, false);
                 }
             }
-            _ => {}
         }
     }
 
@@ -172,6 +175,11 @@ impl AssetUrls<'_> {
 }
 
 impl<'ast> Visit<'ast> for AssetUrls<'_> {
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        self.check_url_call(call);
+        visit::visit_expr_method_call(self, call);
+    }
+
     fn visit_field_value(&mut self, field: &'ast syn::FieldValue) {
         if let syn::Member::Named(name) = &field.member {
             let name = name.to_string();

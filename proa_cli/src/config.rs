@@ -163,6 +163,11 @@ pub(crate) fn load_project_config_with_runner(
     let mut config = match project_config_path(root) {
         Some(path) => rust::load(root, &path, runner)
             .with_context(|| format!("evaluate {}", path.display()))?,
+        None if root.join("proa.config.json").exists() => {
+            anyhow::bail!(
+                "`proa.config.json` is no longer supported; migrate settings to `{CONFIG_FILE}` (run `proa init` for a starter file)"
+            );
+        }
         None => ProjectConfig::default(),
     };
     fill_inferred_defaults(root, &mut config);
@@ -223,6 +228,25 @@ pub(crate) fn validate_build_config(root: &Path, config: &ProjectConfig) -> Conf
     if !config.scripts.css.trim().is_empty() {
         if let Err(error) = crate::commands::script::validate("css", &config.scripts.css) {
             validation.errors.push(error.to_string());
+        }
+    }
+    for (phase, hooks) in [
+        ("dev", &config.scripts.before.dev),
+        ("build", &config.scripts.before.build),
+        ("test", &config.scripts.before.test),
+    ] {
+        if let Err(error) = crate::commands::task::validate_lifecycle_tasks(config, hooks) {
+            validation
+                .errors
+                .push(format!("scripts.before.{phase}: {error}"));
+        }
+    }
+    for name in config.scripts.named.keys() {
+        if crate::commands::script::shell_entries(&config.scripts).any(|(script, _)| script == name)
+        {
+            validation.warnings.push(format!(
+                "scripts.named.{name} is shadowed by scripts.{name}"
+            ));
         }
     }
     for (name, path) in [
@@ -601,5 +625,53 @@ pub async fn config() -> std::io::Result<Config<&'static str, String>> {
         let second = init_project_files(temp.path(), false).unwrap();
         assert!(!second.wrote_config);
         assert!(!second.wrote_lock);
+    }
+
+    #[test]
+    fn load_rejects_stale_json_config_without_rust_config() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("proa.config.json"), "{}").unwrap();
+
+        let error = load_project_config(temp.path()).unwrap_err().to_string();
+        assert!(error.contains("proa.config.json"), "{error}");
+        assert!(error.contains(CONFIG_FILE), "{error}");
+    }
+
+    #[test]
+    fn validate_flags_missing_before_hooks_and_shadowed_named_scripts() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = ProjectConfig {
+            scripts: ScriptsConfig {
+                before: ScriptHooks {
+                    dev: vec!["missing-task".into()],
+                    ..Default::default()
+                },
+                named: BTreeMap::from([(
+                    "dev".into(),
+                    ScriptConfig {
+                        command: vec!["echo".into(), "shadowed".into()],
+                        ..Default::default()
+                    },
+                )]),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let validation = validate_build_config(temp.path(), &config);
+        assert!(
+            validation
+                .errors
+                .iter()
+                .any(|error| error.contains("scripts.before.dev")
+                    && error.contains("missing-task")),
+            "{validation:?}"
+        );
+        assert!(
+            validation
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("scripts.named.dev")),
+            "{validation:?}"
+        );
     }
 }

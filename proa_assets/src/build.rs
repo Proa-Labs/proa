@@ -357,7 +357,13 @@ fn collision(path: &str, previous: &str, current: &str) -> AssetError {
 }
 
 fn cache_policy(path: &str) -> CachePolicy {
-    let extension = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    let extension = path
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+        .filter(|(stem, _)| !stem.is_empty())
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default();
     // These formats can contain dependency URLs. Keep their existing relative
     // addressing until a supported rewrite/bundling pass owns those edges.
     if matches!(

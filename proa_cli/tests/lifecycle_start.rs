@@ -72,6 +72,20 @@ pub async fn config() -> Result<Config> {
     }
     assert!(!stdout.contains("wrong-cli"), "{stdout}");
 
+    let forwarded = cli(&["run", "dev", "--", "cargo", "run", "--bin", "app"]);
+    assert!(
+        forwarded.status.success(),
+        "{}",
+        String::from_utf8_lossy(&forwarded.stderr)
+    );
+    let forwarded_stdout = String::from_utf8_lossy(&forwarded.stdout);
+    assert!(
+        forwarded_stdout.contains("--")
+            && forwarded_stdout.contains("cargo")
+            && forwarded_stdout.contains("--bin"),
+        "{forwarded_stdout}"
+    );
+
     let output = cli(&["run", "dev"]);
     assert!(
         output.status.success(),

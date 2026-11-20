@@ -198,7 +198,7 @@ Success means the provider accepted the request or its configured command succee
 
 A bare build, restart, or deployment outside this workflow does not invoke Proa's invalidation integration. Without an integration, pages can remain cached until expiry or eviction.
 
-Page invalidation is separate from JavaScript bundle versioning.
+Page invalidation is separate from JavaScript bundle versioning. When managed public assets are attached to the router, `PageCacheLayer` automatically includes `PublicAssets::cache_key()` in its cache key so a catalog replacement does not serve stale HTML asset URLs.
 
 ## Caching RSJS bundles
 

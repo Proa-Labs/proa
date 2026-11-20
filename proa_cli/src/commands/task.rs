@@ -77,6 +77,14 @@ pub(crate) fn run_lifecycle_tasks(
     Ok(())
 }
 
+pub(crate) fn validate_lifecycle_tasks(
+    project: &config::ProjectConfig,
+    names: &[String],
+) -> Result<()> {
+    let _ = dependency_order(&project.scripts.named, names.iter().map(String::as_str))?;
+    Ok(())
+}
+
 pub(crate) fn lifecycle_output_paths<'a>(
     project: &'a config::ProjectConfig,
     names: &[String],

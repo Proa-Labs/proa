@@ -5415,3 +5415,37 @@ fn markdown_named_arguments_participate_in_layout_lint() {
         "{diagnostics:?}"
     );
 }
+
+#[test]
+fn lint_flags_misleading_public_url_calls_in_local_bindings() {
+    let source = r#"
+impl<L: DataLoader> WebRenderSync<L> for Hero {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let logo = cx.url("/public/logo.svg");
+        let banner = cx.url("./public/banner.png");
+        let generated = cx.url("/_proa/assets/logo.1234abcd.svg");
+        let valid = cx.url("public/ok.svg");
+        html_sync! {
+            <header>
+                <img src={logo} />
+                <img src={banner} />
+                <img src={generated} />
+                <img src={valid} />
+            </header>
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("hero.rs"), source);
+    let logical_count = diagnostics
+        .iter()
+        .filter(|d| d.code == "asset/logical-path")
+        .count();
+    let generated_count = diagnostics
+        .iter()
+        .filter(|d| d.code == "asset/generated-url")
+        .count();
+    assert_eq!(logical_count, 2, "{diagnostics:#?}");
+    assert_eq!(generated_count, 1, "{diagnostics:#?}");
+}

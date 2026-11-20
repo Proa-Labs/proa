@@ -10,7 +10,7 @@ use crate::config::ScriptsConfig;
 #[cfg(unix)]
 mod unix;
 
-pub(super) fn shell_entries(scripts: &ScriptsConfig) -> impl Iterator<Item = (&'static str, &str)> {
+pub(crate) fn shell_entries(scripts: &ScriptsConfig) -> impl Iterator<Item = (&'static str, &str)> {
     [
         ("dev", scripts.dev.as_str()),
         ("build", scripts.build.as_str()),
@@ -141,12 +141,7 @@ fn argument_position(source: &str) -> usize {
 fn shell(source: &str, args: &[OsString]) -> Result<Command> {
     use std::os::windows::process::CommandExt;
 
-    let mut script = match source.strip_prefix("proa") {
-        Some(rest) if rest.is_empty() || rest.starts_with(char::is_whitespace) => {
-            format!("\"%PROA_SCRIPT_EXECUTABLE%\"{rest}")
-        }
-        _ => source.to_owned(),
-    };
+    let mut script = rewrite_windows_proa_invocations(source);
     let mut command = Command::new("cmd.exe");
     if !args.is_empty() {
         command.env("PROA_SCRIPT_ARGS", windows_arguments(args)?);
@@ -156,6 +151,46 @@ fn shell(source: &str, args: &[OsString]) -> Result<Command> {
         .args(["/d", "/s", "/v:off", "/c"])
         .raw_arg(format!("\"{script}\""));
     Ok(command)
+}
+
+#[cfg(any(windows, test))]
+fn rewrite_windows_proa_invocations(source: &str) -> String {
+    let mut output = String::with_capacity(source.len() + 32);
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    let mut in_quotes = false;
+    let mut command_start = true;
+    while index < bytes.len() {
+        let rest = &source[index..];
+        if !in_quotes && command_start {
+            if let Some(after) = rest.strip_prefix("proa") {
+                if after.is_empty()
+                    || after.starts_with(|c: char| {
+                        c.is_whitespace() || matches!(c, '&' | '|' | ')' | '<' | '>')
+                    })
+                {
+                    output.push_str("\"%PROA_SCRIPT_EXECUTABLE%\"");
+                    index += "proa".len();
+                    command_start = false;
+                    continue;
+                }
+            }
+        }
+        let ch = rest.chars().next().expect("non-empty rest");
+        output.push(ch);
+        index += ch.len_utf8();
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+                command_start = false;
+            }
+            c if !in_quotes && c.is_whitespace() => {}
+            '&' | '|' | '(' if !in_quotes => command_start = true,
+            _ if !in_quotes => command_start = false,
+            _ => {}
+        }
+    }
+    output
 }
 
 #[cfg(windows)]
@@ -198,4 +233,29 @@ fn windows_arguments(args: &[OsString]) -> Result<OsString> {
         quoted.push(QUOTE);
     }
     Ok(OsString::from_wide(&quoted))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_windows_proa_invocations;
+
+    #[test]
+    fn windows_rewrites_proa_across_chained_commands() {
+        assert_eq!(
+            rewrite_windows_proa_invocations("proa dev"),
+            "\"%PROA_SCRIPT_EXECUTABLE%\" dev"
+        );
+        assert_eq!(
+            rewrite_windows_proa_invocations("python3 scripts/gen.py && proa dev --watch content"),
+            "python3 scripts/gen.py && \"%PROA_SCRIPT_EXECUTABLE%\" dev --watch content"
+        );
+        assert_eq!(
+            rewrite_windows_proa_invocations("echo \"proa dev\" || (proa build)"),
+            "echo \"proa dev\" || (\"%PROA_SCRIPT_EXECUTABLE%\" build)"
+        );
+        assert_eq!(
+            rewrite_windows_proa_invocations("proa_helper && echo proa"),
+            "proa_helper && echo proa"
+        );
+    }
 }

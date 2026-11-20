@@ -49,9 +49,6 @@ pub(crate) fn run(args: RunArgs, raw: &[OsString]) -> Result<()> {
         }
         let (name, arguments) = script.expect("checked script name");
         let name = name.to_str().context("script name must be UTF-8")?;
-        let arguments = arguments
-            .strip_prefix(&[OsString::from("--")])
-            .unwrap_or(arguments);
         if let Some((_, source)) =
             script::shell_entries(&project.scripts).find(|(script, _)| *script == name)
         {
@@ -61,6 +58,9 @@ pub(crate) fn run(args: RunArgs, raw: &[OsString]) -> Result<()> {
             );
             return script::run(&root, name, source, arguments);
         }
+        let arguments = arguments
+            .strip_prefix(&[OsString::from("--")])
+            .unwrap_or(arguments);
         return task::run_named(&root, &project, name, args.force, arguments);
     }
     ensure!(!args.force, "`--force` requires a named task");

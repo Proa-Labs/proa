@@ -563,6 +563,36 @@ fn build_command_uses_profile_override() {
 }
 
 #[test]
+fn dev_command_honors_configured_application_binary() {
+    let options = DevOptions {
+        root: None,
+        host: None,
+        port: None,
+        watch: Vec::new(),
+        open: false,
+        offline: true,
+        no_assets: false,
+        hot_static: false,
+        no_restart: false,
+        no_reload: false,
+        no_css_hot_swap: false,
+        reload_port: None,
+        debounce_ms: None,
+        command: Vec::new(),
+    };
+    let config = ProjectConfig {
+        application: Some(crate::config::ApplicationConfig {
+            binary: "incident-desk".into(),
+        }),
+        ..Default::default()
+    };
+    assert_eq!(
+        dev_command(&options, &config),
+        ["cargo", "run", "--bin", "incident-desk", "--offline"]
+    );
+}
+
+#[test]
 fn check_command_uses_check_with_exact_cargo_selection() {
     let command = check_command(&CheckOptions {
         root: None,
