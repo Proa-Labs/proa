@@ -18,6 +18,11 @@ impl<L: DataLoader + 'static> proa::WebRender<L> for SiteHeader {
         cx: &mut WebContext<L>,
     ) -> proa::RenderOutcome<impl std::future::Future<Output = Result<(), WriteError>>> {
         proa::RenderOutcome::pending(async move {
+            let logo = cx.url(if cx.request().has_public_assets() {
+                "public/proa-logo.svg"
+            } else {
+                "/static/proa-logo.svg"
+            });
             proa::html! {
                 <header data-site-header class={base::HEADER}>
                     <a
@@ -28,7 +33,7 @@ impl<L: DataLoader + 'static> proa::WebRender<L> for SiteHeader {
                     </a>
                     <div class="flex items-center gap-[8px] pl-[20px] border-l border-line">
                         <img
-                            src={cx.url("/static/proa-logo.svg")}
+                            src={logo}
                             width="20"
                             height="20"
                             alt=""

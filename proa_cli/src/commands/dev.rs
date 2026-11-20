@@ -16,19 +16,22 @@ pub(crate) struct DevArgs {
     /// Proa project root. Defaults to the nearest root.
     #[arg(long)]
     root: Option<PathBuf>,
-    /// Host value passed to the dev command as HOST.
+    /// Host passed to the server as PROA_HOST and used for fallback readiness.
     #[arg(long)]
     host: Option<String>,
     /// Port value passed to the dev command as PORT.
     #[arg(long)]
     port: Option<u16>,
+    /// Also watch this file or directory. Repeat to add multiple paths.
+    #[arg(long, value_name = "PATH")]
+    watch: Vec<PathBuf>,
     /// Open the resolved local URL in the default browser once the server is ready.
     #[arg(long)]
     open: bool,
     /// Disable Cargo and managed-tool network access.
     #[arg(long)]
     offline: bool,
-    /// Skip configured asset builds before starting or restarting.
+    /// Skip asset commands and public catalog publication.
     #[arg(long)]
     no_assets: bool,
     /// Enable experimental html_hot_sync! static text/attribute updates.
@@ -59,10 +62,11 @@ pub(crate) struct DevArgs {
 }
 
 pub(crate) fn run(args: DevArgs) -> Result<()> {
-    lifecycle::dev(lifecycle::DevOptions {
+    let options = lifecycle::DevOptions {
         root: args.root,
         host: args.host,
         port: args.port,
+        watch: args.watch,
         open: args.open,
         offline: args.offline,
         no_assets: args.no_assets,
@@ -73,5 +77,6 @@ pub(crate) fn run(args: DevArgs) -> Result<()> {
         reload_port: args.reload_port,
         debounce_ms: args.debounce_ms,
         command: args.command,
-    })
+    };
+    lifecycle::dev(options)
 }

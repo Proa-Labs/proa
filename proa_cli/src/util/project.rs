@@ -3,11 +3,17 @@
 
 //! Project-root discovery shared by commands that operate on a Proa project.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 
 use crate::config;
+
+pub(crate) fn cargo_package_name(root: &Path) -> Option<String> {
+    let source = std::fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    let manifest = source.parse::<toml::Value>().ok()?;
+    Some(manifest.get("package")?.get("name")?.as_str()?.to_owned())
+}
 
 pub(crate) fn resolve_config_root(root: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(root) = root {
@@ -23,11 +29,11 @@ fn resolve_config_root_from(mut current: PathBuf) -> Result<PathBuf> {
         // but it still owns the shared target directory where RSJS strategy
         // sidecars are emitted. Treat every Cargo manifest as a valid nearest
         // project boundary; package manifests continue to work as before.
-        if current.join(config::CONFIG_FILE).exists() || current.join("Cargo.toml").is_file() {
+        if config::project_config_path(&current).is_some() || current.join("Cargo.toml").is_file() {
             return Ok(current);
         }
         if !current.pop() {
-            bail!("could not find a Proa project root or proa.config.json (pass --root)");
+            bail!("could not find a Proa project root or proa.config.rs (pass --root)");
         }
     }
 }

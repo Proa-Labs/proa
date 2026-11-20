@@ -55,6 +55,7 @@ pub struct RequestContext {
     client_ip: Option<String>,
     original_pathname: Option<String>,
     base_path: super::BasePath,
+    public_assets: Option<super::PublicAssetUrls>,
 }
 
 fn empty_headers() -> &'static HeaderMap {
@@ -79,6 +80,24 @@ impl RequestContext {
     pub fn with_base_path(mut self, base_path: super::BasePath) -> Self {
         self.set_base_path(base_path);
         self
+    }
+
+    /// Attach the public URL map prepared by the host.
+    pub fn set_public_asset_urls(&mut self, urls: Option<super::PublicAssetUrls>) {
+        self.public_assets = urls;
+    }
+
+    /// Whether the host installed a managed public asset catalog for this request.
+    pub fn has_public_assets(&self) -> bool {
+        self.public_assets.is_some()
+    }
+
+    /// Compose an application URL or resolve a logical `public/...` path.
+    pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
+        match path.strip_prefix("public/") {
+            Some(logical) => super::PublicAssetUrls::resolve(self.public_assets.as_ref(), logical),
+            None => self.base_path.url(path),
+        }
     }
 
     pub fn method(&self) -> Option<&Method> {
@@ -2141,9 +2160,9 @@ impl WebContextParts {
         &self.request
     }
 
-    /// Compose an application URL using the configured base path.
+    /// Compose an application URL or resolve a logical `public/...` path.
     pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
-        self.request.base_path().url(path)
+        self.request.url(path)
     }
 
     pub fn request_mut(&mut self) -> &mut RequestContext {
@@ -2991,15 +3010,19 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         &self.ensure_context_parts().request
     }
 
-    /// Compose an application URL using the configured base path.
+    /// Compose an application URL or resolve a logical `public/...` path.
     ///
     /// Pass an unprefixed root-relative path, such as `/products`. External,
-    /// protocol-relative, document-relative, query-only and fragment references
-    /// pass through. Plain URL strings in templates are not prefixed implicitly.
+    /// protocol-relative, query-only and fragment references pass through.
+    /// Document-relative paths beginning with `public/` resolve against the
+    /// configured public asset catalog. A missing asset produces a render
+    /// error when used in a template. Other document-relative paths pass through.
+    /// Plain URL strings in templates are emitted without this lookup.
     ///
     /// The returned value borrows only `path`, shares the base path, and writes
     /// both directly into HTML attributes or Markdown without allocating an
-    /// intermediate string. Use `.to_string()` only when an owned URL is needed.
+    /// intermediate string. It shares a prepared public URL when applicable.
+    /// Use `.try_to_string()` when an owned URL is needed.
     ///
     /// ```
     /// use proa_core::{BasePath, WebContext, WebRenderSync, WriteBuf};

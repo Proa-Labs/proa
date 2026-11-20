@@ -83,7 +83,7 @@ struct NewSiteArgs {
     /// Compile and run the full local validation after committing the project.
     #[arg(long)]
     verify: bool,
-    /// Enter `proa dev` after committing the project.
+    /// Enter `proa run dev` after committing the project.
     #[arg(long)]
     start: bool,
     /// Start the project and open its local URL.

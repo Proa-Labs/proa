@@ -414,7 +414,7 @@ pub fn populate(
     plan.write("README.md", format!("{}\n## Dependency access\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n", readme(package, title)))?;
     plan.write(".github/workflows/ci.yml", super::github_ci(package))?;
     plan.write(
-        "proa.config.json",
+        crate::config::CONFIG_FILE,
         super::project_config(package, selection)?,
     )?;
 
@@ -471,10 +471,10 @@ through DNS, addressing, and BGP on real RIPEstat data.
 
 ```console
 cp .env.example .env
-proa dev --open
+proa run dev --open
 ```
 
-`proa build` produces the release binary; `proa test` runs the suite through
+`proa run build` produces the release binary; `proa test` runs the suite through
 the linked island pipeline (plain `cargo test` rejects island binaries at
 link time by design).
 
@@ -504,7 +504,7 @@ remain unprefixed.
    next to it in `md.rs` (`md_sync!`). If you change one surface, change the
    other, and review `/site/<host>.md` alongside the browser page.
 2. **Classes belong in `recipe.rs`.** Components use Tailwind utilities via
-   recipe constants; run `proa dev` and the pipeline recompiles
+   recipe constants; run `proa run dev` and the pipeline recompiles
    `public/styles.css` from `styles/input.css`. New colors go in the
    `@theme` block as tokens, not as hex literals in markup.
 3. **Interactivity is an rsjs island only when it needs a typed browser
@@ -514,7 +514,7 @@ remain unprefixed.
    `ripestat:dossier:<query>` key; the resolver collapses a whole render
    into one upstream fan-out and the TTL cache serves reloads. Never fetch
    from a component.
-5. **Before you finish:** `proa fmt`, `proa lint`, `proa build`. Intentional
+5. **Before you finish:** `proa fmt`, `proa lint`, `proa run build`. Intentional
    allocations need a `// proa-perf-ok: reason` marker; the lint fails the
    build on unannotated warnings.
 

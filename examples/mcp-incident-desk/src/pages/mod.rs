@@ -27,11 +27,30 @@ use proa::html_sync;
 use proa::{WebContext, WebRenderSync};
 
 pub fn page<C: WebRenderSync>(
+    state: &AppState,
     title: &'static str,
     principal: Option<&Principal>,
     content: C,
 ) -> Result<Response> {
     let mut cx = WebContext::new();
+    let (favicon, styles, incident) = if let Some(assets) = &state.public_assets {
+        cx.request_mut()
+            .set_public_asset_urls(Some(assets.render_urls()));
+        (
+            "public/favicon.svg",
+            "public/styles.css",
+            "public/incident.css",
+        )
+    } else {
+        (
+            "/static/favicon.svg",
+            "/static/styles.css",
+            "/static/incident.css",
+        )
+    };
+    let favicon = cx.url(favicon);
+    let styles = cx.url(styles);
+    let incident = cx.url(incident);
     html_sync!{
         <!DOCTYPE html>
         <html lang="en">
@@ -40,9 +59,9 @@ pub fn page<C: WebRenderSync>(
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <title>{proa::raw_text_ok(title)}" · Incident Desk"</title>
                 <meta name="color-scheme" content="light" />
-                <link rel="icon" href="/static/favicon.svg" />
-                <link rel="stylesheet" href="/static/styles.css" />
-                <link rel="stylesheet" href="/static/incident.css" />
+                <link rel="icon" href={favicon} />
+                <link rel="stylesheet" href={styles} />
+                <link rel="stylesheet" href={incident} />
             </head>
             <body>
                 <a class="skip-link" href="#main-content">"Skip to content"</a>
@@ -155,6 +174,7 @@ pub async fn issues(
         )
     });
     page(
+        &s,
         "Issues",
         Some(&p),
         html_sync! {
@@ -270,6 +290,7 @@ pub async fn issue(
     let runbook = format!("/runbooks/{id}");
     let key = random();
     let mut r = page(
+        &s,
         "Issue detail",
         Some(&p),
         html_sync! {
@@ -366,6 +387,7 @@ pub async fn runbook(
     let scope = RequestScope::new(&s.db, p.clone()).await?;
     let d = scope.report(&id, &s.config.app_origin).await?;
     page(
+        &s,
         "Runbook",
         Some(&p),
         html_sync! {
@@ -380,6 +402,7 @@ pub async fn connections(State(s): State<AppState>, h: HeaderMap) -> Result<Resp
     };
     let grants:Vec<(String,String,String,i64,i64)>=sqlx::query_as("SELECT g.id,c.name,g.scopes,g.expires,g.revoked FROM grants g JOIN clients c ON c.id=g.client_id WHERE g.user_id=? AND g.workspace_id=? AND g.resource=? ORDER BY g.expires DESC LIMIT 50").bind(&p.user_id).bind(&p.workspace_id).bind(s.config.resource()).fetch_all(&s.db).await?;
     page(
+        &s,
         "Connections",
         Some(&p),
         html_sync! {
@@ -448,6 +471,7 @@ pub async fn connect(State(s): State<AppState>, h: HeaderMap) -> Result<Response
     };
     let resource = s.config.resource();
     page(
+        &s,
         "Connect an agent",
         Some(&p),
         html_sync! {
@@ -538,6 +562,7 @@ pub async fn lab(State(s): State<AppState>, h: HeaderMap) -> Result<Response> {
     let json_tokens = tokenizer.encode_ordinary(&compact).len();
     let reads = scope.inner.reads.load(std::sync::atomic::Ordering::Relaxed);
     page(
+        &s,
         "Developer lab",
         Some(&p),
         html_sync! {
@@ -604,13 +629,14 @@ pub async fn lab(State(s): State<AppState>, h: HeaderMap) -> Result<Response> {
     )
 }
 pub fn provider(
-    _s: &AppState,
+    s: &AppState,
     a: &auth::provider::Authorization,
     flow: &str,
     user: Option<&(String, Vec<(String, String, String)>)>,
     error: Option<&str>,
 ) -> Result<Response> {
     let mut response = page(
+        s,
         "Authorize",
         None,
         html_sync! {

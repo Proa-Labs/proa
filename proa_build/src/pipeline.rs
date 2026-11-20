@@ -83,6 +83,7 @@ pub struct LinkedCargoRequest {
     pub final_target_root: PathBuf,
     /// Cargo arguments for final compilation, without runner-owned
     /// `--message-format` or `--target-dir`.
+    /// A final `test --no-run` returns the attested harness without launching it.
     pub final_cargo_args: Vec<OsString>,
     /// Exact additional environment for final Cargo.
     pub final_environment: BTreeMap<OsString, OsString>,
@@ -547,7 +548,11 @@ fn requested_final_execution(arguments: &[OsString]) -> FinalExecution<'_> {
             FinalExecution::Run(runtime_arguments)
         }
         Some(subcommand) if subcommand == OsStr::new("test") => {
-            FinalExecution::Test(runtime_arguments)
+            if compile_arguments.iter().any(|arg| arg == "--no-run") {
+                FinalExecution::None
+            } else {
+                FinalExecution::Test(runtime_arguments)
+            }
         }
         _ => FinalExecution::None,
     }
@@ -648,20 +653,20 @@ fn validate_phase_cargo_arguments(
     normalized_descriptor[0] = OsString::from("<linked-phase>");
     normalized_final[0] = OsString::from("<linked-phase>");
 
-    let descriptor_no_run = normalized_descriptor
-        .iter()
-        .enumerate()
-        .filter_map(|(index, argument)| (argument == OsStr::new("--no-run")).then_some(index))
-        .collect::<Vec<_>>();
-    let final_has_no_run = normalized_final
-        .iter()
-        .any(|argument| argument == OsStr::new("--no-run"));
+    let descriptor_len = normalized_descriptor.len();
+    normalized_descriptor.retain(|argument| argument != "--no-run");
+    let descriptor_no_run = descriptor_len - normalized_descriptor.len();
+    let final_len = normalized_final.len();
+    normalized_final.retain(|argument| argument != "--no-run");
+    let final_no_run = final_len - normalized_final.len();
     if descriptor_subcommand == OsStr::new("test") {
-        if descriptor_no_run.len() != 1 || final_has_no_run {
+        if descriptor_no_run != 1
+            || final_no_run > 1
+            || (final_no_run == 1 && final_runtime.is_some())
+        {
             return Err(LinkedCargoError::InvalidTestPhaseNoRun);
         }
-        normalized_descriptor.remove(descriptor_no_run[0]);
-    } else if !descriptor_no_run.is_empty() || final_has_no_run {
+    } else if descriptor_no_run != 0 || final_no_run != 0 {
         return Err(LinkedCargoError::InvalidTestPhaseNoRun);
     }
 
@@ -829,10 +834,10 @@ pub enum LinkedCargoError {
     /// Runtime arguments are meaningful only for final run/test invocations.
     #[error("final Cargo subcommand {0:?} may not contain runtime arguments after `--`")]
     UnsupportedFinalRuntimeArguments(OsString),
-    /// Tests compile without execution in the descriptor phase and execute
-    /// only in the final phase.
+    /// Tests compile without execution in the descriptor phase. The final
+    /// phase may return a harness for a caller to launch with runtime setup.
     #[error(
-        "linked Cargo test requires exactly one descriptor-only `--no-run` and none in the final compile arguments"
+        "`--no-run` is required exactly once for the descriptor test pass and is allowed once for a final test pass without harness arguments"
     )]
     InvalidTestPhaseNoRun,
     /// After the controlled phase rewrite, every Cargo selection/config input

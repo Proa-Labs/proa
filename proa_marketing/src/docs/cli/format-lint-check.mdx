@@ -44,6 +44,28 @@ proa lint --github --changed --base origin/main
 
 The linter checks template formatting, accessibility-sensitive markup, render-path performance, component composition, content coverage across render targets, and `rsjs` slot restrictions.
 
+### Managed public assets
+
+Use logical public paths in URL-bearing attributes and component URL fields.
+
+```rust
+<a href={cx.url("public/catalog.pdf")}>"Catalog"</a>
+<img src={cx.url("public/images/cover.png")} alt="Book cover" />
+{Image { src: cx.url("public/images/cover.png") }}
+```
+
+- `asset/public-url` flags literal public paths in these positions, including
+  managed candidates in a literal `srcset`.
+- `asset/logical-path` flags leading `/` or `./` before `public/` in a URL
+  resolver call.
+- `asset/generated-url` flags hard-coded paths under the generated asset
+  mount. Resolve the source path to follow future fingerprints.
+
+The rules check literal paths in templates and in URL-shaped struct fields in
+render bodies. Route URLs such as `/products`, remote URLs, and dynamically
+computed values are outside these checks.
+
+
 | Flag | Behavior |
 |------|----------|
 | `--deny-warnings` | Exit non-zero when warnings are found. |
@@ -53,7 +75,7 @@ The linter checks template formatting, accessibility-sensitive markup, render-pa
 | `--min-severity error\|warning\|info` | Control printed diagnostics. Text defaults to warnings and errors. JSON and GitHub output default to all diagnostics. |
 | `--include-tests` | Include Rust test files and `#[cfg(test)]` modules. |
 | `--content-summary` | Report paired, unpaired, and whole-view-exempt content status as informational diagnostics. Use `--min-severity info` to show them in text output. |
-| `--root <PATH>` | Select the project root for content counterpart discovery and RSJS strategy sidecars. Defaults to the nearest Cargo workspace/package or `proa.config.json`. |
+| `--root <PATH>` | Select the project root for content counterpart discovery and RSJS strategy sidecars. Defaults to the nearest Cargo workspace/package or `proa.config.rs`. |
 
 ### Content coverage
 

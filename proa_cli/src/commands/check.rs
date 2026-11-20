@@ -200,6 +200,7 @@ pub(crate) fn run(args: CheckArgs) -> Result<()> {
                 locked: args.locked,
                 offline: args.offline,
                 watch: false,
+                watch_paths: Vec::new(),
                 keep_database: false,
                 arguments: Vec::new(),
             })?;

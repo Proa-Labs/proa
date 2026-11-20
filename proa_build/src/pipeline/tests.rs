@@ -145,6 +145,12 @@ fn linked_pipeline_accepts_only_the_lifecycle_phase_rewrites() {
         &["test", "-p", "app", "--bin", "server", "--", "--nocapture"].map(OsString::from),
     )
     .unwrap();
+    let compile_only = ["test", "-p", "app", "--bin", "server", "--no-run"].map(OsString::from);
+    validate_phase_cargo_arguments(&compile_only, &compile_only).unwrap();
+    assert_eq!(
+        requested_final_execution(&compile_only),
+        FinalExecution::None
+    );
     validate_phase_cargo_arguments(
         &["check", "-p", "app", "--bin", "server"].map(OsString::from),
         &["check", "-p", "app", "--bin", "server"].map(OsString::from),

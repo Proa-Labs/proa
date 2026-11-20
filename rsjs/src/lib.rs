@@ -2648,9 +2648,10 @@ impl<T> OptionalHandlerExt<T> for Option<Handler<T>> {
 ///
 /// The proc macro renders the wrapped value through the generated server
 /// `html_sync!` body and deliberately emits no client-side binding for it.
-/// Use this for static-per-render values such as recipe-computed class lists or
-/// ids. Do not wrap signal reads here: server-only attributes are not updated
-/// during hydration.
+/// Use ordinary server-rendered attributes such as
+/// `src={cx.url("public/images/logo.svg")}` directly. Reserve this helper for
+/// an intentional snapshot of an inbound value or server syntax the analyzer
+/// cannot classify. Signal reads belong in reactive attributes.
 pub fn server_attr<T>(value: T) -> T {
     value
 }

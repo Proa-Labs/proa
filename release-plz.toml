@@ -168,6 +168,10 @@ name = "proa_html_policy"
 release = true
 
 [[package]]
+name = "proa_assets"
+release = true
+
+[[package]]
 name = "proa_build"
 release = true
 

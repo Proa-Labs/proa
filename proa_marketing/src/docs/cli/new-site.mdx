@@ -9,12 +9,13 @@ name, and `--title` controls the human-facing title independently:
 
 ```bash
 proa new site my-app --yes
-cd my-app && proa dev --open
+cd my-app && proa run dev --open
 ```
 
 The first `proa dev` build downloads dependencies and compiles the Rust crates,
 which can take several minutes. Build stages appear in the terminal, and
-`--open` opens your browser once the server accepts connections.
+`--open` opens the browser URL reported by the server when it is ready.
+Custom servers that only bind a socket use the configured HTTP address.
 
 To study a complete production-shaped application, scaffold ORIGIN:
 
@@ -67,7 +68,7 @@ the canonical source. CI generates an app from it and runs its linked tests.
 | `--agents-md` / `--no-agents-md` | Generate or omit `AGENTS.md` local agent instructions (on by default). |
 | `--no-git` | Skip Git initialization. |
 | `--verify` | Run the full `proa check --all` validation after committing the project. |
-| `--start` / `--open` | Enter `proa dev` after scaffolding, optionally opening the local URL. |
+| `--start` / `--open` | Enter `proa run dev` after scaffolding, optionally opening the local URL. |
 | `--offline` | Forbid registry, tool, and Cargo network access. |
 | `--dry-run` / `--json` | Resolve and print the complete plan without writing anything. |
 | `--yes` | Accept recommended defaults; never implies verify, start, open, or deploy. |
@@ -121,7 +122,7 @@ The default `app` preset generates:
     ci.yml
 .env.example
 Cargo.toml
-proa.config.json
+proa.config.rs
 proa.lock.json
 build.rs
 rust-toolchain.toml
@@ -166,7 +167,7 @@ What each directory holds:
 | `tests/` | Integration tests, including the representation and data-loading contracts. |
 | `build.rs` | Build-time wiring. The `origin` template also runs the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
 
-`proa.config.json` controls the `proa dev` and `proa build` lifecycle commands
+`proa.config.rs` controls the `proa run dev` and `proa run build` scripts
 and records component registry aliases. `proa.lock.json` records the scaffold
 capabilities and every component installed by `proa ui add`. The generated
 Cargo dependencies on Proa crates resolve from crates.io. A generated standalone
@@ -182,9 +183,12 @@ A Rust change recompiles the site and replaces the server process, so the tab
 does a full reload, in the same way Vite falls back to `full-reload` for
 anything it cannot patch in place. The reload is only sent once the replacement
 server is accepting connections again, which is what keeps a tab from landing
-on a connection-refused page. A stylesheet-only change never restarts the
-server: the assets are rebuilt and every stylesheet is re-fetched in place, so
-scroll position, form values, and open dialogs survive. A failed build leaves
+on a connection-refused page. When `paths.public` is set to `None` (unmanaged
+serving), a stylesheet-only change rebuilds the stylesheet and re-fetches it in
+place without restarting the server, so scroll position, form values, and open
+dialogs survive. With managed `public/` assets enabled (the default), public
+file and stylesheet edits republish the catalog and restart the server before
+reloading the tab. A failed build leaves
 the last working server running and raises a dismissible overlay in the tab
 with the failure summary. Cargo streams the compiler diagnostics themselves to
 the `proa dev` terminal, and the overlay says so.
@@ -219,7 +223,7 @@ The controls are `proa dev` flags:
 | `--no-reload` | reload on | Turns live reload off. |
 | `--reload-port <PORT>` | operating-system assigned | Port for the event stream. Set it only if you want a predictable one. `proa dev` passes it to the server as `PROA_DEV_RELOAD_PORT`. |
 | `--no-css-hot-swap` | hot swap on | Restarts the server for stylesheet changes instead of swapping them in place. Use it when stylesheets are compiled into the binary rather than served from disk. |
-| `--debounce-ms <MILLISECONDS>` | `300` | Quiet window a change must survive before a rebuild starts. Raise it if a formatter or code generator triggers extra cycles. |
+| `--debounce-ms <MILLISECONDS>` | `200` | Quiet window a change must survive before a rebuild starts. Raise it if a formatter or code generator triggers extra cycles. |
 
 The debounce window cannot go below the 100ms file-watch poll interval. `proa dev` reads no `PROA_DEV_*` variables from your shell.
 
@@ -236,9 +240,8 @@ stylesheet-only change still rebuilds assets without restarting the server, it
 just does not tell the browser. Use `--no-css-hot-swap` for that, and note that
 `--no-assets` disables it too, since there is nothing left to rebuild.
 
-The fast path only sees stylesheets under a watched path. `dev.watch` defaults
-to `src`, `styles`, `Cargo.toml`, `build.rs`, and `proa.config.json`, so a site
-whose only stylesheet is `public/styles.css` (what `--no-tailwind` generates)
-needs `public` added to `dev.watch` before edits to it are noticed at all.
+The fast path sees stylesheets under watched paths. Proa automatically watches
+the configured public directory along with application sources. Pass
+`--watch PATH` to the linked dev command in your dev script to watch more inputs.
 
 When `--deploy coolify` is enabled, the generated project also includes `Dockerfile`, `.dockerignore`, `coolify.env.example`, and `COOLIFY.md`. See [Coolify](/docs/framework/coolify) for the deployment flow and pull request preview URL setup.

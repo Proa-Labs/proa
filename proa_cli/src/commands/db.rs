@@ -146,12 +146,8 @@ pub(crate) fn run(args: DbArgs) -> Result<()> {
 fn resolve(args: ConnectionArgs) -> Result<DatabaseContext> {
     let root = resolve_config_root(args.root)?;
     let project = config::load_project_config(&root)?;
-    if project
-        .database
-        .as_ref()
-        .and_then(|database| database.get("driver"))
-        .and_then(serde_json::Value::as_str)
-        != Some("sqlite")
+    if project.database.as_ref().map(|database| database.driver)
+        != Some(crate::config::DatabaseDriver::Sqlite)
     {
         bail!("No database capability is configured.\nAdd one with: proa add database sqlite");
     }
@@ -162,11 +158,8 @@ fn resolve(args: ConnectionArgs) -> Result<DatabaseContext> {
         .unwrap_or_else(|| {
             format!(
                 "sqlite://data/{}.db",
-                project
-                    .application
-                    .as_ref()
-                    .and_then(|application| application.get("package"))
-                    .and_then(serde_json::Value::as_str)
+                crate::util::cargo_package_name(&root)
+                    .as_deref()
                     .unwrap_or("app")
             )
         });
@@ -186,8 +179,7 @@ fn resolve(args: ConnectionArgs) -> Result<DatabaseContext> {
     let migrations = project
         .database
         .as_ref()
-        .and_then(|database| database.get("migrations"))
-        .and_then(serde_json::Value::as_str)
+        .and_then(|database| database.migrations.as_deref())
         .map(|value| root.join(value))
         .unwrap_or_else(|| root.join("migrations"));
     Ok(DatabaseContext {
@@ -416,20 +408,15 @@ fn remove_database_files(path: &Path) -> Result<()> {
 /// path under `target/proa-tests/`, and that path is the only database touched.
 pub(crate) fn prepare_test_database(root: &Path, path: &Path) -> Result<()> {
     let project = config::load_project_config(root)?;
-    if project
-        .database
-        .as_ref()
-        .and_then(|database| database.get("driver"))
-        .and_then(serde_json::Value::as_str)
-        != Some("sqlite")
+    if project.database.as_ref().map(|database| database.driver)
+        != Some(crate::config::DatabaseDriver::Sqlite)
     {
         bail!("test database setup requires the SQLite capability");
     }
     let migrations = project
         .database
         .as_ref()
-        .and_then(|database| database.get("migrations"))
-        .and_then(serde_json::Value::as_str)
+        .and_then(|database| database.migrations.as_deref())
         .map(|value| root.join(value))
         .unwrap_or_else(|| root.join("migrations"));
     let context = DatabaseContext {

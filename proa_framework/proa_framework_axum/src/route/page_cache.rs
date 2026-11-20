@@ -219,6 +219,9 @@ impl PageCacheLayer {
             // Separate an absent header from a present empty value.
             hash.update(u64::MAX.to_le_bytes());
         }
+        if let Some(assets) = request.extensions().get::<crate::PublicAssets>() {
+            hash_field(&mut hash, assets.cache_key().as_bytes());
+        }
         hash.finalize().into()
     }
 

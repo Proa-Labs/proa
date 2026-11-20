@@ -39,7 +39,7 @@ proa new site hello-proa --yes
 
 ```proa-filetree
 Cargo.toml
-proa.config.json
+proa.config.rs
 proa.lock.json
 build.rs
 src/
@@ -83,7 +83,7 @@ fonts. The generated `README.md` doubles as
 an editing guide.
 
 Checkpoint: `src/lib.rs`, `src/loader.rs`, and `src/components/` should
-exist, and `proa dev --open` shows the atlas.
+exist, and `proa run dev --open` shows the atlas.
 
 </Tab>
 
@@ -135,7 +135,7 @@ Tailwind will regenerate `public/styles.css` with the starter design included.
 ## 3. Run The Server
 
 ```bash
-cd hello-proa && proa dev --open
+cd hello-proa && proa run dev --open
 ```
 
 `proa dev` builds configured assets, runs the linked RSJS pipeline, starts the

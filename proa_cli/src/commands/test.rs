@@ -6,6 +6,7 @@
 
 use anyhow::Result;
 use clap::Args;
+use std::path::PathBuf;
 
 use super::linked::LinkedExecuteArgs;
 use crate::lifecycle;
@@ -20,6 +21,9 @@ pub(crate) struct TestArgs {
     /// Re-run tests when project or migration inputs change.
     #[arg(long)]
     watch: bool,
+    /// Add a file or directory to the test watcher. Can be repeated.
+    #[arg(long, value_name = "PATH", requires = "watch")]
+    watch_path: Vec<PathBuf>,
     /// Preserve the isolated SQLite database when a test run fails.
     #[arg(long)]
     keep_database: bool,
@@ -42,6 +46,7 @@ pub(crate) fn run(args: TestArgs) -> Result<()> {
         locked: args.cargo.locked,
         offline: args.cargo.offline,
         watch: args.watch,
+        watch_paths: args.watch_path,
         keep_database: args.keep_database,
         arguments: args.arguments,
     })
@@ -50,6 +55,7 @@ pub(crate) fn run(args: TestArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use std::path::PathBuf;
 
     use crate::cli::Cli;
     use crate::commands::Command;
@@ -90,6 +96,10 @@ mod tests {
             "--bin",
             "demo",
             "--watch",
+            "--watch-path",
+            "content",
+            "--watch-path",
+            "fixtures/expected.json",
             "--keep-database",
         ])
         .unwrap();
@@ -98,6 +108,13 @@ mod tests {
             panic!("expected test command");
         };
         assert!(args.watch);
+        assert_eq!(
+            args.watch_path,
+            [
+                PathBuf::from("content"),
+                PathBuf::from("fixtures/expected.json")
+            ]
+        );
         assert!(args.keep_database);
     }
 }

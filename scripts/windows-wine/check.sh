@@ -33,8 +33,7 @@ int main(void) {
 C
 x86_64-w64-mingw32-gcc /work/probe.c -o '/work/with spaces/target/release/probe.exe'
 cd '/work/with spaces'
-printf '%s\n' '{"application":{"binary":"probe"}}' > proa.config.json
-output="$(wine "Z:\\t\\$target\\debug\\proa.exe" start --host 127.0.0.2 --port 8123)"
+output="$(wine "Z:\\t\\$target\\debug\\proa.exe" start --bin target/release/probe.exe --host 127.0.0.2 --port 8123)"
 if [[ "${output//$'\r'/}" != '127.0.0.2|8123' ]]; then
     printf 'Unexpected Windows server output: %s\n' "$output" >&2
     exit 1

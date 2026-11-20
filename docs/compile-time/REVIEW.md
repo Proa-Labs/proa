@@ -194,7 +194,7 @@ manifest matches the reference hasher. The proposed source memoization was
 discarded after a randomized A/B trial failed to establish an end-to-end gain.
 
 Reviewed the other agent's fixes together with the existing slot safeguards:
-hot-static edits run `dev.before` and asset builds before reload; syntax scan
+hot-static edits run `scripts.before.dev` and asset builds before reload; syntax scan
 errors reach Cargo/rustc; native carriers replace stale files before exclusive
 creation. The exact combined production build passes 683 CLI library tests,
 24 wrapper/cache/projection integration tests, strict CLI-library Clippy,

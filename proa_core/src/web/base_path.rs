@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt, sync::Arc};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use crate::shared::attr_value::AttrValue;
 use crate::{DataLoader, WebContext, WriteBuf, WriteError};
@@ -70,10 +70,7 @@ impl BasePath {
     /// references pass through. This is URL composition, not URL sanitization.
     /// The returned attribute value shares the prefix and allocates no string.
     pub fn url<'a>(&self, path: &'a str) -> AppUrl<'a> {
-        AppUrl {
-            base_path: self.clone(),
-            path,
-        }
+        AppUrl(UrlKind::Path(self.clone(), path))
     }
 }
 
@@ -81,30 +78,99 @@ fn hex(byte: u8) -> Option<u8> {
     (byte as char).to_digit(16).map(|value| value as u8)
 }
 
+/// Browser URLs prepared by a framework adapter for one public asset catalog.
+///
+/// Keys are paths relative to the public directory. Values are complete,
+/// ready-to-render URLs, including any deployment prefix.
+#[derive(Clone, Debug)]
+pub struct PublicAssetUrls(Arc<BTreeMap<String, Arc<str>>>);
+
+impl PublicAssetUrls {
+    pub fn new(urls: BTreeMap<String, Arc<str>>) -> Self {
+        Self(Arc::new(urls))
+    }
+
+    pub fn get(&self, logical: &str) -> Option<&str> {
+        self.0.get(logical).map(AsRef::as_ref)
+    }
+
+    pub(super) fn resolve<'a>(urls: Option<&Self>, logical: &'a str) -> AppUrl<'a> {
+        if let Some(urls) = urls {
+            // Literal filenames can contain URL delimiters. A catalog entry
+            // for the exact spelling takes precedence and is already encoded.
+            if let Some(url) = urls.0.get(logical) {
+                return AppUrl(UrlKind::Public {
+                    url: url.clone(),
+                    suffix: "",
+                });
+            }
+            if let Some(split) = logical.find(['?', '#']) {
+                let (path, suffix) = logical.split_at(split);
+                if let Some(url) = urls.0.get(path) {
+                    return AppUrl(UrlKind::Public {
+                        url: url.clone(),
+                        suffix,
+                    });
+                }
+            }
+        }
+        AppUrl(UrlKind::MissingPublic(logical))
+    }
+}
+
 /// A URL composed without allocating an intermediate string.
 ///
-/// Use directly in `href={...}`, `src={...}` or `action={...}`. Use
-/// `.to_string()` at the HTTP boundary when a redirect needs an owned URL.
+/// Use directly in `href={...}`, `src={...}` or `action={...}`.
+/// Use [`try_to_string`](Self::try_to_string) at the HTTP boundary if the
+/// path may reference a managed public asset. Display shows a diagnostic
+/// for an unresolved asset.
 #[derive(Clone, Debug)]
-pub struct AppUrl<'a> {
-    base_path: BasePath,
-    path: &'a str,
+pub struct AppUrl<'a>(UrlKind<'a>);
+
+#[derive(Clone, Debug)]
+enum UrlKind<'a> {
+    Path(BasePath, &'a str),
+    Public { url: Arc<str>, suffix: &'a str },
+    MissingPublic(&'a str),
 }
 
 impl AppUrl<'_> {
-    fn prefix(&self) -> &str {
-        if self.path.starts_with('/') && !self.path.starts_with("//") {
-            self.base_path.as_str()
-        } else {
-            ""
+    fn segments(&self) -> Result<(&str, &str), &str> {
+        match &self.0 {
+            UrlKind::Path(base_path, path) => {
+                let prefix = if path.starts_with('/') && !path.starts_with("//") {
+                    base_path.as_str()
+                } else {
+                    ""
+                };
+                Ok((prefix, path))
+            }
+            UrlKind::Public { url, suffix } => Ok((url, suffix)),
+            UrlKind::MissingPublic(path) => Err(path),
         }
+    }
+
+    fn render_segments(&self) -> Result<(&str, &str), WriteError> {
+        self.segments()
+            .map_err(|path| WriteError::render(format!("public asset `public/{path}` is missing")))
+    }
+
+    /// Compose an owned URL, returning a render error for a missing asset.
+    pub fn try_to_string(&self) -> Result<String, WriteError> {
+        let (prefix, path) = self.render_segments()?;
+        Ok([prefix, path].concat())
     }
 }
 
 impl fmt::Display for AppUrl<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.prefix())?;
-        f.write_str(self.path)
+        match self.segments() {
+            Ok((prefix, path)) => {
+                f.write_str(prefix)?;
+                f.write_str(path)
+            }
+            Err(path) => write!(f, "missing public asset `public/{path}`"),
+        }
     }
 }
 
@@ -114,25 +180,29 @@ impl AttrValue for AppUrl<'_> {
     }
 
     fn url_str(&self) -> Option<&str> {
-        // A prefixed root-relative URL has no scheme. Pass-through URLs retain
-        // the regular dynamic-attribute scheme validation.
-        Some(self.path)
+        match &self.0 {
+            UrlKind::Path(_, path) => Some(path),
+            UrlKind::Public { url, .. } => Some(url),
+            UrlKind::MissingPublic(_) => None,
+        }
     }
 
     fn render_attr_value<B: WriteBuf, L: DataLoader>(
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        self.prefix().render_attr_value(cx)?;
-        self.path.render_attr_value(cx)
+        let (prefix, path) = self.render_segments()?;
+        prefix.render_attr_value(cx)?;
+        path.render_attr_value(cx)
     }
 }
 
 // Markdown composition uses the active URL/text escaping mode of the context.
 impl<L: DataLoader, B: WriteBuf> crate::MdRenderSync<L, B> for AppUrl<'_> {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        crate::MdRenderSync::render_md(self.prefix(), cx)?;
-        crate::MdRenderSync::render_md(self.path, cx)
+        let (prefix, path) = self.render_segments()?;
+        crate::MdRenderSync::render_md(prefix, cx)?;
+        crate::MdRenderSync::render_md(path, cx)
     }
 }
 
@@ -227,5 +297,16 @@ mod tests {
             cx.into_output().into_string(),
             "/apps/a&amp;b/find?q=&quot;&lt;&amp;"
         );
+    }
+
+    #[test]
+    fn missing_public_assets_report_the_logical_path() {
+        let mut cx = WebContext::new();
+        let url = cx.url("public/img/missing.png");
+        let error = url.try_to_string().unwrap_err();
+        assert!(error.to_string().contains("public/img/missing.png"));
+        assert_eq!(url.render_attr_value(&mut cx), Err(error.clone()));
+        assert_eq!(crate::MdRenderSync::render_md(url, &mut cx), Err(error));
+        assert!(cx.into_output().is_empty());
     }
 }

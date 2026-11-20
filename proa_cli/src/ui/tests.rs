@@ -7,21 +7,16 @@ fn write_project(root: &Path, public: &Path, pro: &Path) {
     fs::create_dir_all(root.join("src/components")).unwrap();
     fs::write(
         root.join("Cargo.toml"),
-        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[lib]\npath = \"fixture-lib.rs\"\n",
     )
     .unwrap();
-    let mut config = ProjectConfig::default();
-    config.registries.insert(
-        PUBLIC_REGISTRY.to_string(),
-        public.join("{name}.json").display().to_string(),
-    );
-    config.registries.insert(
-        PRO_REGISTRY.to_string(),
-        pro.join("{name}.json").display().to_string(),
-    );
+    fs::write(root.join("fixture-lib.rs"), "").unwrap();
+    let mut config = config::ProjectConfig::default();
+    config.registries.proa = Some(public.join("{name}.json").display().to_string());
+    config.registries.proa_pro = Some(pro.join("{name}.json").display().to_string());
     fs::write(
         root.join(config::CONFIG_FILE),
-        serde_json::to_string_pretty(&config).unwrap(),
+        config::generated_rust_config(&config).unwrap(),
     )
     .unwrap();
 }
@@ -138,6 +133,11 @@ fn installs_free_component_and_writes_lock() {
     let project = temp.path().join("project");
     fs::create_dir(&project).unwrap();
     write_project(&project, &public, &pro);
+    fs::write(
+        project.join(LOCK_FILE),
+        r#"{"schemaVersion":1,"scaffold":{"capabilities":[{"id":"representation:markdown","planVersion":1}]},"components":{}}"#,
+    )
+    .unwrap();
     write_manifest(
         &public,
         "button",
@@ -157,6 +157,8 @@ fn installs_free_component_and_writes_lock() {
         b"pub struct Button;\n"
     );
     let lock = config::load_component_lock(&project).unwrap();
+    assert_eq!(lock.scaffold_markdown(), Some(true));
+    assert_eq!(lock.metadata["schemaVersion"], 1);
     let installed = &lock.components["@proa/button"];
     assert_eq!(installed.version, "1.0.0");
     assert_eq!(

@@ -185,8 +185,13 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let RootDocument { title, content } = self;
-            let favicon = cx.url("/static/favicon.svg");
-            let stylesheet = cx.url("/static/styles.css");
+            let (favicon, stylesheet) = if cx.request().has_public_assets() {
+                ("public/favicon.svg", "public/styles.css")
+            } else {
+                ("/static/favicon.svg", "/static/styles.css")
+            };
+            let favicon = cx.url(favicon);
+            let stylesheet = cx.url(stylesheet);
             html! {
                 <!DOCTYPE html>
                 <html lang="en">
@@ -660,28 +665,31 @@ pub fn routes_rs(markdown: bool) -> String {
         ""
     };
     r#"use axum::{routing::get, Router};
-use proa::axum::{router_from_spec, Route, RouteContextLayer};
+use proa::axum::{router_from_spec, FrameworkBuildError, FrameworkBuilder, Route};
 use tower_http::trace::TraceLayer;
 
 use crate::{app::AppState, endpoints, pages, static_assets};
 
-pub fn router(state: AppState, base_path: proa::BasePath) -> Router {
+pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, FrameworkBuildError> {
     let (router, metadata) = router_from_spec(vec![
         // proa:route-specs:start
         Route::endpoint("/", get(pages::home::handler)),
         // proa:route-specs:end
     ]);
-    router
+    let router = router
         .route("/healthz", get(endpoints::health::live))
         .route("/readyz", get(endpoints::health::ready))
         // proa:explicit-routes:start
         __MARKDOWN_ROUTE__
         // proa:explicit-routes:end
         .nest_service("/static", static_assets::service(base_path.clone()))
-        .with_state(state)
-        .merge(proa::axum::rsjs_assets_router(&base_path))
-        .layer(RouteContextLayer::new(metadata).with_base_path(base_path))
-        .layer(TraceLayer::new_for_http())
+        .with_state(state);
+    let app = FrameworkBuilder::new()
+        .with_base_path(base_path)
+        .with_rsjs_assets()
+        .with_dynamic_routes_and_metadata(router, metadata)
+        .try_build()?;
+    Ok(app.layer(TraceLayer::new_for_http()))
 }
 "#
     .replace("__MARKDOWN_ROUTE__", md_route)
@@ -761,7 +769,7 @@ mod static_assets;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
     let config = config::Config::from_env()?;
-__STATE__    let app = routes::router(state, config.base_path);
+__STATE__    let app = routes::router(state, config.base_path)?;
     let listener = TcpListener::bind(config.address).await?;
     tracing::info!(address = %listener.local_addr()?, "Proa site listening");
     let _ = proa::axum::serve(listener, app, Duration::from_secs(30)).await?;
