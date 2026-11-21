@@ -5949,3 +5949,60 @@ impl MdRenderSync for Notes {
         ]
     );
 }
+
+#[test]
+fn files_declared_by_cfg_test_modules_are_test_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write(
+        "lib.rs",
+        "mod assets;\nmod prod;\n#[cfg(test)] pub(crate) mod fixtures;\n\n#[cfg(test)]\nmod tests;\n",
+    );
+    let prod = write("prod.rs", "pub fn shipped() {}\n");
+    let tests = write("tests.rs", "#[test]\nfn works() {}\n");
+    let fixtures = write("fixtures.rs", "mod data;\n");
+    let nested = write("fixtures/data.rs", "pub const DATA: &str = \"\";\n");
+    write(
+        "assets.rs",
+        "#[cfg(test)]\n#[allow(dead_code)]\nmod tests;\n// `mod tests_support;` stays production code.\nmod tests_support;\n",
+    );
+    let assets_tests = write("assets/tests.rs", "");
+    let assets_support = write("assets/tests_support.rs", "");
+    let module_dir = write("views/mod.rs", "#[cfg(test)]\nmod snapshots;\n");
+    let module_dir_tests = write("views/snapshots.rs", "");
+    write("lib_root_sibling.rs", "");
+
+    for path in [&tests, &fixtures, &nested, &assets_tests, &module_dir_tests] {
+        assert!(is_test_path(path), "{} should be test code", path.display());
+    }
+    for path in [&prod, &assets_support, &module_dir, &src.join("lib.rs")] {
+        assert!(
+            !is_test_path(path),
+            "{} should be production code",
+            path.display()
+        );
+    }
+
+    // End to end: a raw `public/` path in a test fixture module is not linted.
+    let fixture = "impl WebRenderSync for Fixture {\n    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {\n        html_sync! { <img src=\"public/image.png\" alt=\"\" /> }.render(cx)\n    }\n}\n";
+    std::fs::write(&assets_tests, fixture).unwrap();
+    assert!(
+        lint_file(&assets_tests, fixture)
+            .iter()
+            .all(|d| !d.code.starts_with("asset/")),
+        "test module fixtures are test code"
+    );
+    std::fs::write(&assets_support, fixture).unwrap();
+    assert!(
+        lint_file(&assets_support, fixture)
+            .iter()
+            .any(|d| d.code == "asset/public-url"),
+        "production modules are still linted"
+    );
+}
