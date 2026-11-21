@@ -754,8 +754,7 @@ fn infer_roles_in_item(
                     templates,
                     schema,
                 );
-                infer.reassigned = reassigned_locals(&method.block);
-                infer.bind_signature(&method.sig);
+                infer.bind_signature(&method.sig, &method.block);
                 infer.visit_block(&method.block);
             }
         }
@@ -773,8 +772,7 @@ fn infer_roles_in_item(
                 templates,
                 schema,
             );
-            infer.reassigned = reassigned_locals(&item_fn.block);
-            infer.bind_signature(&item_fn.sig);
+            infer.bind_signature(&item_fn.sig, &item_fn.block);
             infer.visit_block(&item_fn.block);
         }
         Item::Mod(item_mod) => {
@@ -800,8 +798,9 @@ struct RoleInferer<'a> {
     var_types: BTreeMap<String, String>,
     /// Local variable -> exact upstream ValueSlot (from destructuring, params, or `let x = self.f`).
     var_slots: BTreeMap<String, ValueSlot>,
-    /// Locals reassigned somewhere in the body; never bound to a slot.
-    reassigned: BTreeSet<String>,
+    /// Set by `visit_block` for the `let` about to be visited: whether that
+    /// binding is reassigned later in its scope.
+    next_local_reassigned: bool,
 }
 
 impl<'a> RoleInferer<'a> {
@@ -828,11 +827,11 @@ impl<'a> RoleInferer<'a> {
             schema,
             var_types,
             var_slots: BTreeMap::new(),
-            reassigned: BTreeSet::new(),
+            next_local_reassigned: false,
         }
     }
 
-    fn bind_signature(&mut self, sig: &syn::Signature) {
+    fn bind_signature(&mut self, sig: &syn::Signature, body: &Block) {
         let mut param_index = 0usize;
         for input in &sig.inputs {
             match input {
@@ -842,8 +841,9 @@ impl<'a> RoleInferer<'a> {
                         if let Some(ty_name) = extract_inner_type_ident(&pat_type.ty) {
                             self.var_types.insert(ident.clone(), ty_name);
                         }
-                        if let Some(func) =
-                            self.func_name.filter(|_| !self.reassigned.contains(&ident))
+                        if let Some(func) = self
+                            .func_name
+                            .filter(|_| !binding_reassigned(&ident, &body.stmts))
                         {
                             self.var_slots.insert(
                                 ident,
@@ -1074,16 +1074,20 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
     fn visit_block(&mut self, block: &'ast Block) {
         let prev_types = self.var_types.clone();
         let prev_slots = self.var_slots.clone();
-        visit::visit_block(self, block);
+        for (index, statement) in block.stmts.iter().enumerate() {
+            self.next_local_reassigned = local_reassigned(statement, &block.stmts[index + 1..]);
+            self.visit_stmt(statement);
+        }
         self.var_types = prev_types;
         self.var_slots = prev_slots;
     }
 
     fn visit_local(&mut self, local: &'ast Local) {
+        let reassigned = std::mem::take(&mut self.next_local_reassigned);
         if let Some(init) = &local.init {
             if let Some(ident) = simple_pat_ident(&local.pat) {
                 match self.resolve_expr_slot(&init.expr) {
-                    Some(slot) if !self.reassigned.contains(&ident) => {
+                    Some(slot) if !reassigned => {
                         self.var_slots.insert(ident.clone(), slot);
                     }
                     _ => {
@@ -1353,7 +1357,7 @@ fn lint_single_file(
             catalog,
             file_str_bindings: &file_str_bindings,
             local_str_bindings: BTreeMap::new(),
-            reassigned: BTreeSet::new(),
+            next_local_reassigned: false,
             self_type: None,
             in_render_context: false,
             diagnostics,
@@ -1487,8 +1491,9 @@ struct FileAssetChecker<'a> {
     catalog: Option<&'a PublicCatalog>,
     file_str_bindings: &'a BTreeMap<String, String>,
     local_str_bindings: BTreeMap<String, String>,
-    /// Locals reassigned in the current function; never bound to a string.
-    reassigned: BTreeSet<String>,
+    /// Set by `visit_block` for the `let` about to be visited: whether that
+    /// binding is reassigned later in its scope.
+    next_local_reassigned: bool,
     self_type: Option<String>,
     in_render_context: bool,
     diagnostics: &'a mut Vec<Diagnostic>,
@@ -1518,7 +1523,10 @@ impl<'a> FileAssetChecker<'a> {
 impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     fn visit_block(&mut self, block: &'ast Block) {
         let prev_locals = self.local_str_bindings.clone();
-        visit::visit_block(self, block);
+        for (index, statement) in block.stmts.iter().enumerate() {
+            self.next_local_reassigned = local_reassigned(statement, &block.stmts[index + 1..]);
+            self.visit_stmt(statement);
+        }
         self.local_str_bindings = prev_locals;
     }
 
@@ -1541,8 +1549,6 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     }
                     let prev_render = self.in_render_context;
                     let prev_locals = std::mem::take(&mut self.local_str_bindings);
-                    let prev_reassigned =
-                        std::mem::replace(&mut self.reassigned, reassigned_locals(&method.block));
                     let method_name = method.sig.ident.to_string();
                     self.in_render_context = is_render_impl
                         && matches!(
@@ -1552,7 +1558,6 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     self.visit_block(&method.block);
                     self.in_render_context = prev_render;
                     self.local_str_bindings = prev_locals;
-                    self.reassigned = prev_reassigned;
                 }
                 other => visit::visit_impl_item(self, other),
             }
@@ -1565,14 +1570,11 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
             return;
         }
         let prev_locals = std::mem::take(&mut self.local_str_bindings);
-        let prev_reassigned =
-            std::mem::replace(&mut self.reassigned, reassigned_locals(&item_fn.block));
         let prev_render = self.in_render_context;
         self.in_render_context = false;
         visit::visit_item_fn(self, item_fn);
         self.in_render_context = prev_render;
         self.local_str_bindings = prev_locals;
-        self.reassigned = prev_reassigned;
     }
 
     fn visit_item_mod(&mut self, item_mod: &'ast syn::ItemMod) {
@@ -1583,10 +1585,11 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     }
 
     fn visit_local(&mut self, local: &'ast Local) {
+        let reassigned = std::mem::take(&mut self.next_local_reassigned);
         if let Some(init) = &local.init {
             if let Some(ident) = simple_pat_ident(&local.pat) {
                 match extract_str_literal(&init.expr) {
-                    Some(value) if !self.reassigned.contains(&ident) => {
+                    Some(value) if !reassigned => {
                         self.local_str_bindings.insert(ident, value);
                     }
                     _ => {
@@ -2220,23 +2223,75 @@ fn path_last_ident(path: &SynPath) -> Option<String> {
     path.segments.last().map(|seg| seg.ident.to_string())
 }
 
-/// Locals assigned after their binding anywhere in `block` (`x = ..` or a
-/// compound assignment such as `x += ..`). The initializer is not their value
-/// at every use, so string and field bindings ignore them rather than report
-/// a stale value or miss the current one.
-fn reassigned_locals(block: &Block) -> BTreeSet<String> {
-    #[derive(Default)]
-    struct Assignments(BTreeSet<String>);
-    impl Assignments {
+/// Whether the binding of `name` that is live at the start of `rest` (the
+/// statements after its `let`, or a function body for a parameter) is
+/// assigned (`name = ..` or a compound assignment such as `name += ..`)
+/// before anything re-binds `name`. Such a binding's initializer is not its
+/// value at every use, so string and field bindings treat it as unknown.
+/// Assignments to an inner binding that shadows `name` do not count.
+/// For a `let` statement binding a single name, whether that binding is
+/// reassigned in `rest`, the statements after it in the same block.
+fn local_reassigned(statement: &syn::Stmt, rest: &[syn::Stmt]) -> bool {
+    match statement {
+        syn::Stmt::Local(local) => {
+            simple_pat_ident(&local.pat).is_some_and(|name| binding_reassigned(&name, rest))
+        }
+        _ => false,
+    }
+}
+
+fn binding_reassigned(name: &str, rest: &[syn::Stmt]) -> bool {
+    struct Finder<'n> {
+        name: &'n str,
+        found: bool,
+    }
+    impl Finder<'_> {
+        fn binds(&self, pat: &Pat) -> bool {
+            struct Binds<'n>(&'n str, bool);
+            impl<'ast> Visit<'ast> for Binds<'_> {
+                fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
+                    self.1 |= pat.ident == self.0;
+                    visit::visit_pat_ident(self, pat);
+                }
+            }
+            let mut binds = Binds(self.name, false);
+            binds.visit_pat(pat);
+            binds.1
+        }
         fn target(&mut self, expr: &Expr) {
             if let Expr::Path(path) = expr {
-                if let Some(ident) = path.path.get_ident() {
-                    self.0.insert(ident.to_string());
+                self.found |= path.path.is_ident(self.name);
+            }
+        }
+        /// Statements of one scope; a `let` of `name` ends it for the rest.
+        fn statements(&mut self, statements: &[syn::Stmt]) {
+            for statement in statements {
+                if self.found {
+                    return;
+                }
+                match statement {
+                    syn::Stmt::Local(local) => {
+                        if let Some(init) = &local.init {
+                            self.visit_expr(&init.expr);
+                            if let Some((_, diverge)) = &init.diverge {
+                                self.visit_expr(diverge);
+                            }
+                        }
+                        if self.binds(&local.pat) {
+                            return;
+                        }
+                    }
+                    // Nested items cannot see the binding.
+                    syn::Stmt::Item(_) => {}
+                    other => self.visit_stmt(other),
                 }
             }
         }
     }
-    impl<'ast> Visit<'ast> for Assignments {
+    impl<'ast> Visit<'ast> for Finder<'_> {
+        fn visit_block(&mut self, block: &'ast Block) {
+            self.statements(&block.stmts);
+        }
         fn visit_expr_assign(&mut self, expr: &'ast syn::ExprAssign) {
             self.target(&expr.left);
             visit::visit_expr_assign(self, expr);
@@ -2260,10 +2315,47 @@ fn reassigned_locals(block: &Block) -> BTreeSet<String> {
             }
             visit::visit_expr_binary(self, expr);
         }
+        fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+            if !closure.inputs.iter().any(|input| self.binds(input)) {
+                self.visit_expr(&closure.body);
+            }
+        }
+        fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+            self.visit_expr(&expr.expr);
+            if !self.binds(&expr.pat) {
+                self.visit_block(&expr.body);
+            }
+        }
+        fn visit_expr_if(&mut self, expr: &'ast syn::ExprIf) {
+            match expr.cond.as_ref() {
+                Expr::Let(cond) if self.binds(&cond.pat) => self.visit_expr(&cond.expr),
+                cond => {
+                    self.visit_expr(cond);
+                    self.visit_block(&expr.then_branch);
+                }
+            }
+            if let Some((_, else_branch)) = &expr.else_branch {
+                self.visit_expr(else_branch);
+            }
+        }
+        fn visit_expr_while(&mut self, expr: &'ast syn::ExprWhile) {
+            match expr.cond.as_ref() {
+                Expr::Let(cond) if self.binds(&cond.pat) => self.visit_expr(&cond.expr),
+                cond => {
+                    self.visit_expr(cond);
+                    self.visit_block(&expr.body);
+                }
+            }
+        }
+        fn visit_arm(&mut self, arm: &'ast syn::Arm) {
+            if !self.binds(&arm.pat) {
+                visit::visit_arm(self, arm);
+            }
+        }
     }
-    let mut assignments = Assignments::default();
-    assignments.visit_block(block);
-    assignments.0
+    let mut finder = Finder { name, found: false };
+    finder.statements(rest);
+    finder.found
 }
 
 fn simple_pat_ident(pat: &Pat) -> Option<String> {
@@ -2371,7 +2463,9 @@ fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
 /// `public/{name}.svg` or `/_proa/assets/{file}`. Matching a catalog file
 /// needs the whole path, so only logical and generated prefixes count.
 fn asset_url_prefix(prefix: &str) -> Option<AssetUrl> {
-    let prefix = prefix.trim_start();
+    // Like `asset_url`, only the path counts: `/search?next=/_proa/assets/{x}`
+    // links to `/search`.
+    let prefix = prefix.trim_start().split(['?', '#']).next().unwrap_or("");
     if ["public/", "./public/", "/public/"]
         .iter()
         .any(|logical| prefix.starts_with(logical))

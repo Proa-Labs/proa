@@ -6135,3 +6135,60 @@ fn standalone_sibling_files_keep_separate_asset_facts() {
         .collect();
     assert_eq!(hits, ["first.rs", "second.rs"]);
 }
+
+#[test]
+fn asset_url_lint_tracks_reassignment_per_binding() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "public/logo.svg";
+        {
+            let mut image = "/a";
+            image = "/b";
+        }
+        let mut changed = "public/changed.svg";
+        if true {
+            changed = "/route";
+        }
+        html_sync! {
+            <img src={image} alt="" />
+            <img src={changed} alt="" />
+        }
+        .render(cx)
+    }
+}
+"#;
+    // The inner `image` is a different binding; the outer one is unchanged.
+    assert_eq!(
+        asset_hits("src/logo.rs", source),
+        vec![(15, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_ignores_asset_text_in_markdown_query_strings() {
+    let source = r####"
+pub struct Links;
+impl MdRenderSync for Links {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        md_sync! { "[Open](/search?next=/_proa/assets/{name}) ![Raw](/_proa/assets/{file})", name = "logo.svg", file = "x.svg" }
+            .render_md(cx)
+    }
+}
+"####;
+    let line = source.lines().nth(4).unwrap();
+    let hits: Vec<_> = lint_file(Path::new("src/links.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.column, d.code))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![(
+            5,
+            line.rfind("/_proa/assets/").unwrap() + 1,
+            "asset/generated-url"
+        )]
+    );
+}
