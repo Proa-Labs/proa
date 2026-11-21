@@ -427,8 +427,12 @@ where
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
         if let Some(assets) = &self.public_assets {
+            // One generation per request: the URLs rendered into the page and
+            // the cache key a later layer reads from the extension must agree,
+            // even when `proa dev` republishes between the two.
+            let assets = assets.current();
             context.public_asset_urls = Some(assets.render_urls());
-            req.extensions_mut().insert(assets.clone());
+            req.extensions_mut().insert(assets);
         }
 
         if prepare_ascii_params(&req, &mut context) {

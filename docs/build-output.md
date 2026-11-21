@@ -91,10 +91,19 @@ The descriptor and final Cargo passes remain unchanged. For a configured
 public directory, `run` executes build preparation and asset commands, builds
 the exact final executable, publishes the catalog, then starts the server.
 `dev` publishes before each successful launch and adds the public directory
-to its watch set. Changed public files require a server restart and browser
-reload so the server can load the new catalog. Static-template hot updates
-remain available when public inputs have not changed. Managed CSS currently
-uses this restart path too. This is live reload, not state-preserving HMR.
+to its watch set. A change confined to public files, or to the stylesheets
+that generate them, is republished without Cargo. A server that obtained its
+catalog from `FrameworkBuilder` or `PublicAssets::from_env` under `proa dev`
+follows that publication in place: it registers as a live reader of the output
+directory and reloads the catalog on its next request, so `proa dev` leaves it
+running and only reloads the browser, or re-fetches stylesheets for a
+stylesheet-only change. Every other server is restarted so it can load the new
+catalog. That covers a catalog loaded with `PublicAssets::load`, an application
+built against a framework release without in-place reloading, `--no-reload`,
+and a server that is still starting. Managed Tailwind is not rerun when every
+changed public file is a binary format it never reads, such as an image, font,
+or video. Static-template hot updates remain available when public inputs have
+not changed. This is live reload, not state-preserving HMR.
 The watcher detects directory symlink cycles; managed publication rejects
 symlinks within the public tree.
 
@@ -237,7 +246,11 @@ For a custom Axum router, merge `assets.router()` and apply
 buffered render, pass the loaded catalog to
 `RouteResponse::render_to_bytes_with_public_assets(&assets)`.
 For custom HTML caches, include `PublicAssets::cache_key()` or discard cached
-HTML on catalog replacement.
+HTML on catalog replacement. A `PublicAssets` value describes one catalog
+generation. Read the key and URLs from the request's
+`Extension<PublicAssets>`, which `RouteContextLayer` pins to the generation
+that request renders with, or call `assets.current()` once per request when
+rendering by hand. In production both are the catalog loaded at startup.
 
 The default browser URL is `/_proa/assets/images/logo.1234abcd.svg`.
 Use `with_base_path` only when the app is deployed under a URL subpath.
@@ -297,7 +310,9 @@ bytes before accepting it.
 One writer lock protects each output scope. Each loaded catalog holds a reader
 lock for that directory. Cleanup after successful publication removes
 unreferenced objects only when no catalog is live; the dev supervisor retries
-after stopping the old child. An interrupted attempt's staging directory is
+after stopping the old child. A dev server that follows publication in place
+keeps its reader lock, so superseded objects stay on disk until that server is
+next restarted. An interrupted attempt's staging directory is
 removed by the next writer. Collision reservations survive object cleanup.
 Post-publication cleanup or durability errors are reported as warnings because
 the new pointer is already active. Cleanup never adopts unrelated directories.

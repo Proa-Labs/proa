@@ -72,13 +72,23 @@ impl HeadUrlPolicy {
         {
             return Err(invalid());
         }
+        if value.starts_with("public/") {
+            // Resolved as a relative URL this would name a file that the
+            // server does not serve under that path, and the page would ship
+            // a broken link with no error anywhere.
+            return Err(WriteError::render(format!(
+                "`{value}` is a managed public asset path, not a URL: pass `cx.url(\"{value}\")` to resolve it (or write `/{value}` if you mean an application route)"
+            )));
+        }
         let absolute = Url::parse(value).is_ok();
         let url = if absolute {
             Url::parse(value).map_err(|_| invalid())?
         } else {
-            self.base
-                .join(value.trim_start_matches('/'))
-                .map_err(|_| invalid())?
+            let relative = value.trim_start_matches('/');
+            match self.mounted_public_asset(value, relative) {
+                Some(url) => url,
+                None => self.base.join(relative).map_err(|_| invalid())?,
+            }
         };
         validate_url(&url)?;
         if !absolute
@@ -92,6 +102,31 @@ impl HeadUrlPolicy {
         let value: String = url.into();
         text(&value)?;
         Ok(value)
+    }
+}
+impl HeadUrlPolicy {
+    /// A managed public asset URL that already carries this mount.
+    ///
+    /// Every other application path is written without the mount and gains it
+    /// here. Public asset URLs are the exception: the server prepares them
+    /// complete, with the deployment prefix, because templates emit them as
+    /// they are. Joining one to the mount again would repeat the prefix, which
+    /// only shows up once a site is deployed under a subpath. Both sides are
+    /// compared after URL normalization so an escaped mount still matches.
+    fn mounted_public_asset(&self, value: &str, relative: &str) -> Option<Url> {
+        // Mirrors `proa_assets::PUBLIC_ROUTE`, which this crate cannot name.
+        const PUBLIC_ASSETS: &str = "_proa/assets/";
+        let mount = self.base.path();
+        if mount == "/" || !value.starts_with('/') || !value.contains(PUBLIC_ASSETS) {
+            return None;
+        }
+        let mut origin = self.base.clone();
+        origin.set_path("/");
+        let url = origin.join(relative).ok()?;
+        url.path()
+            .strip_prefix(mount)
+            .is_some_and(|rest| rest.starts_with(PUBLIC_ASSETS))
+            .then_some(url)
     }
 }
 fn validate_url(url: &Url) -> Result<(), WriteError> {
@@ -405,6 +440,12 @@ impl HeadMedia {
             height: None,
         }
     }
+    /// Construct media metadata from a URL or a `cx.url(...)` value, including
+    /// a managed `public/...` asset. Prefer [`new`](Self::new) for a string
+    /// literal, which is stored without copying.
+    pub fn from_url(url: impl crate::TryIntoHeadUrl) -> Result<Self, WriteError> {
+        Ok(Self::new(url.try_into_head_url()?.into()))
+    }
     pub fn secure_url(mut self, value: impl Into<Cow<'static, str>>) -> Self {
         self.secure_url = Some(value.into().into());
         self
@@ -438,6 +479,25 @@ impl HeadMedia {
             return Err(invalid());
         }
         Ok(())
+    }
+}
+
+/// What [`HeadWriter::og_image`](crate::HeadWriter::og_image) accepts: a
+/// described [`HeadMedia`], or any URL that implements
+/// [`TryIntoHeadUrl`](crate::TryIntoHeadUrl), such as a `cx.url(...)` value.
+pub trait TryIntoOgImage {
+    fn try_into_og_image(self) -> Result<HeadMedia, WriteError>;
+}
+
+impl TryIntoOgImage for HeadMedia {
+    fn try_into_og_image(self) -> Result<HeadMedia, WriteError> {
+        Ok(self)
+    }
+}
+
+impl<T: crate::TryIntoHeadUrl> TryIntoOgImage for T {
+    fn try_into_og_image(self) -> Result<HeadMedia, WriteError> {
+        HeadMedia::from_url(self)
     }
 }
 
@@ -780,4 +840,68 @@ fn property_parts<B: WriteBuf>(
     out.extend_static_str("\" content=\"")?;
     escape_attr_value(out, value)?;
     out.extend_static_str("\">")
+}
+
+#[cfg(test)]
+mod url_policy_tests {
+    use super::HeadUrlPolicy;
+
+    #[test]
+    fn only_a_mounted_public_asset_url_skips_the_mount() {
+        let policy = HeadUrlPolicy::new("https://shop.example", "/apps/demo").unwrap();
+        let resolve = |value: &str| policy.resolve(value, false);
+
+        assert_eq!(
+            resolve("/apps/demo/_proa/assets/og.1234abcd.png?v=2#x").unwrap(),
+            "https://shop.example/apps/demo/_proa/assets/og.1234abcd.png?v=2#x"
+        );
+        // Every other application path is unprefixed by contract, including
+        // one that merely resembles the mount or mentions the asset route.
+        for (path, expected) in [
+            ("/products", "/apps/demo/products"),
+            ("/apps/demo/products", "/apps/demo/apps/demo/products"),
+            ("/_proa/assets/og.png", "/apps/demo/_proa/assets/og.png"),
+            (
+                "/docs/_proa/assets/og.png",
+                "/apps/demo/docs/_proa/assets/og.png",
+            ),
+            ("_proa/assets/og.png", "/apps/demo/_proa/assets/og.png"),
+        ] {
+            assert_eq!(
+                resolve(path).unwrap(),
+                format!("https://shop.example{expected}"),
+                "{path}"
+            );
+        }
+        // Dot segments are judged after normalization, so a path dressed up
+        // as a mounted asset cannot use the exception to leave the mount: it
+        // is treated like any other application path, or refused.
+        assert_eq!(
+            resolve("/apps/demo/_proa/assets/../../../admin").unwrap(),
+            "https://shop.example/apps/demo/apps/admin"
+        );
+        assert!(resolve("/apps/demo/_proa/assets/../../../../../../../etc").is_err());
+    }
+
+    #[test]
+    fn a_mount_the_url_parser_escapes_still_matches_its_asset_urls() {
+        // The policy stores `/apps/%7Bteam%7D/`; the server prepares asset
+        // URLs from the mount as configured.
+        let policy = HeadUrlPolicy::new("https://shop.example", "/apps/{team}").unwrap();
+        assert_eq!(
+            policy
+                .resolve("/apps/{team}/_proa/assets/og.png", false)
+                .unwrap(),
+            "https://shop.example/apps/%7Bteam%7D/_proa/assets/og.png"
+        );
+    }
+
+    #[test]
+    fn the_origin_root_needs_no_special_case() {
+        let policy = HeadUrlPolicy::new("https://shop.example", "/").unwrap();
+        assert_eq!(
+            policy.resolve("/_proa/assets/og.png", false).unwrap(),
+            "https://shop.example/_proa/assets/og.png"
+        );
+    }
 }

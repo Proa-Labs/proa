@@ -468,3 +468,416 @@ async fn extensionless_files_named_css_or_js_are_not_rewritten_with_base_path() 
         );
     }
 }
+
+/// A `proa dev` style output: publish, then follow republication in place.
+struct LiveFixture {
+    f: Fixture,
+}
+
+impl LiveFixture {
+    fn new() -> Self {
+        Self { f: Fixture::new() }
+    }
+
+    fn output(&self) -> std::path::PathBuf {
+        self.f.temp.path().join("output")
+    }
+
+    fn publish(&self) {
+        OutputStore::open(self.output())
+            .unwrap()
+            .publish(self.f.temp.path().join("public"))
+            .unwrap();
+    }
+
+    fn remove(&self, name: &str) {
+        std::fs::remove_file(self.f.temp.path().join("public").join(name)).unwrap();
+    }
+
+    fn load_live(&self, base: &str) -> PublicAssets {
+        PublicAssets::load_live(self.output(), &BasePath::new(base).unwrap()).unwrap()
+    }
+
+    /// Age the manifest past the racy window so its stamp alone is trusted.
+    fn settle_manifest(&self) {
+        let manifest = std::fs::File::options()
+            .write(true)
+            .open(self.output().join(MANIFEST_FILE))
+            .unwrap();
+        manifest
+            .set_modified(SystemTime::now() - RACY_MANIFEST_WINDOW * 5)
+            .unwrap();
+    }
+}
+
+async fn body(assets: &PublicAssets, url: &str) -> (StatusCode, Bytes) {
+    let response = get_asset(assets, url).await;
+    let status = response.status();
+    (status, to_bytes(response.into_body(), 4096).await.unwrap())
+}
+
+#[tokio::test]
+async fn live_catalog_follows_republication_and_pins_each_request_to_one_generation() {
+    let live = LiveFixture::new();
+    live.f.write("favicon.svg", b"<svg>A</svg>");
+    live.f.write("styles.css", b"a{color:red}");
+    live.f.write("old-name.png", b"png");
+    live.publish();
+
+    let assets = live.load_live("");
+    assert!(OutputStore::open(live.output())
+        .unwrap()
+        .has_live_reader()
+        .unwrap());
+    let before = assets.current();
+    let first_url = before.url("favicon.svg").unwrap().to_owned();
+    assert_eq!(
+        body(&assets, &first_url).await,
+        (StatusCode::OK, Bytes::from_static(b"<svg>A</svg>"))
+    );
+    let css = body(&assets, "/_proa/assets/styles.css").await;
+    assert_eq!(css.1, "a{color:red}");
+
+    // A same-length edit keeps the manifest size and can keep its timestamp.
+    // A stable-URL file changes bytes only. A rename drops one logical path.
+    live.f.write("favicon.svg", b"<svg>B</svg>");
+    live.f.write("styles.css", b"a{color:tan}");
+    live.remove("old-name.png");
+    live.f.write("new-name.png", b"png");
+    live.publish();
+
+    let after = assets.current();
+    let second_url = after.url("favicon.svg").unwrap().to_owned();
+    assert_ne!(second_url, first_url);
+    assert_ne!(after.cache_key(), before.cache_key());
+    // The long-lived handle follows; a handle taken earlier does not move.
+    assert_eq!(
+        assets.render_urls().get("favicon.svg"),
+        Some(second_url.as_str())
+    );
+    assert_eq!(before.url("favicon.svg"), Some(first_url.as_str()));
+    assert_eq!(
+        before.render_urls().get("favicon.svg"),
+        Some(first_url.as_str())
+    );
+    assert_eq!(before.current().cache_key(), before.cache_key());
+
+    assert_eq!(
+        body(&assets, &second_url).await,
+        (StatusCode::OK, Bytes::from_static(b"<svg>B</svg>"))
+    );
+    // The active router exposes only the active manifest.
+    assert_eq!(body(&assets, &first_url).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        body(&assets, "/_proa/assets/styles.css").await.1,
+        "a{color:tan}"
+    );
+    assert_eq!(after.url("old-name.png"), None);
+    assert!(after.url("new-name.png").is_some());
+    // The earlier generation still serves its own files to a request that
+    // started before the publication.
+    assert_eq!(
+        body(&before, &first_url).await,
+        (StatusCode::OK, Bytes::from_static(b"<svg>A</svg>"))
+    );
+}
+
+#[tokio::test]
+async fn live_catalog_trusts_a_settled_stamp_and_still_sees_the_next_publication() {
+    let live = LiveFixture::new();
+    live.f.write("logo.svg", b"one");
+    live.publish();
+    let assets = live.load_live("");
+    let watcher = assets.live.as_ref().unwrap();
+
+    // Fresh manifest: the stamp is not trusted, bytes are compared instead,
+    // and an identical republication is not mistaken for a new catalog.
+    let first = watcher.current();
+    assert!(watcher.state.read().unwrap().settled.is_none());
+    live.publish();
+    assert!(Arc::ptr_eq(&first, &watcher.current()));
+
+    live.settle_manifest();
+    assert!(Arc::ptr_eq(&first, &watcher.current()));
+    assert!(watcher.state.read().unwrap().settled.is_some());
+    // Settled: answered from metadata, without rereading the manifest.
+    assert!(Arc::ptr_eq(&first, &watcher.current()));
+
+    live.f.write("logo.svg", b"two");
+    live.publish();
+    let second = assets.current();
+    assert_ne!(second.url("logo.svg"), first.urls.get("logo.svg"));
+    assert_eq!(
+        body(&assets, second.url("logo.svg").unwrap()).await.1,
+        "two"
+    );
+}
+
+#[tokio::test]
+async fn live_catalog_keeps_serving_through_a_broken_manifest_and_recovers() {
+    let live = LiveFixture::new();
+    live.f.write("logo.svg", b"one");
+    live.publish();
+    let assets = live.load_live("");
+    let url = assets.current().url("logo.svg").unwrap().to_owned();
+    let manifest = live.output().join(MANIFEST_FILE);
+    let valid = std::fs::read(&manifest).unwrap();
+
+    std::fs::write(&manifest, b"{ not json").unwrap();
+    assert_eq!(body(&assets, &url).await.1, "one");
+    // The broken generation is attempted once, not once per request.
+    let rejected = assets
+        .live
+        .as_ref()
+        .unwrap()
+        .state
+        .read()
+        .unwrap()
+        .rejected
+        .clone();
+    assert_eq!(rejected, Some(proa_assets::sha256(b"{ not json")));
+    assert_eq!(body(&assets, &url).await.1, "one");
+
+    std::fs::remove_file(&manifest).unwrap();
+    assert_eq!(body(&assets, &url).await.1, "one");
+
+    std::fs::write(&manifest, valid).unwrap();
+    live.f.write("logo.svg", b"two");
+    live.publish();
+    let next = assets.current();
+    assert_ne!(next.url("logo.svg"), Some(url.as_str()));
+    assert_eq!(body(&assets, next.url("logo.svg").unwrap()).await.1, "two");
+}
+
+#[tokio::test]
+async fn concurrent_requests_during_publication_all_land_on_a_complete_catalog() {
+    let live = LiveFixture::new();
+    live.f.write("logo.svg", b"0");
+    live.publish();
+    let assets = live.load_live("");
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let readers: Vec<_> = (0..8)
+        .map(|_| {
+            let assets = assets.clone();
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut seen = 0_usize;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let current = assets.current();
+                    // Every handle is internally consistent: its URL exists in
+                    // its own route table.
+                    let url = current.url("logo.svg").expect("active logical path");
+                    let route = url.strip_prefix("/_proa/assets/").unwrap();
+                    assert!(current.catalog.routes.contains_key(route));
+                    seen += 1;
+                }
+                seen
+            })
+        })
+        .collect();
+    for generation in 1..=5 {
+        live.f.write("logo.svg", generation.to_string().as_bytes());
+        live.publish();
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    for reader in readers {
+        assert!(reader.join().unwrap() > 0);
+    }
+    let last = assets.current();
+    assert_eq!(body(&assets, last.url("logo.svg").unwrap()).await.1, "5");
+}
+
+#[tokio::test]
+async fn live_page_cache_and_request_extension_follow_one_generation() {
+    use crate::{route::PageCacheLayer, FrameworkBuilder, Route, RouteResponse};
+    use axum::Extension;
+    use proa_core::{WebContext, WebRenderSync, WriteError};
+    use proa_macros::html_sync;
+
+    struct Image;
+
+    impl WebRenderSync for Image {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            html_sync! {
+                <img src={cx.url("public/image.png")} alt="Image" />
+            }
+            .render(cx)
+        }
+    }
+
+    async fn page(app: &Router) -> (String, String, String) {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let (parts, body) = response.into_parts();
+        let body = to_bytes(body, 4096).await.unwrap();
+        (
+            parts.headers["x-proa-page-cache"]
+                .to_str()
+                .unwrap()
+                .to_owned(),
+            parts.headers["x-test-asset-key"]
+                .to_str()
+                .unwrap()
+                .to_owned(),
+            String::from_utf8(body.to_vec()).unwrap(),
+        )
+    }
+
+    let live = LiveFixture::new();
+    live.f.write("image.png", b"old");
+    live.publish();
+    let assets = live.load_live("");
+    let routes = Route::page(
+        "/",
+        "Image",
+        get(|Extension(assets): Extension<PublicAssets>| async move {
+            // What a handler reads from the extension describes the same
+            // catalog its page renders with.
+            let key = assets.cache_key().to_owned();
+            let url = assets.url("image.png").unwrap().to_owned();
+            let mut response =
+                axum::response::IntoResponse::into_response(RouteResponse::ssr(Image));
+            response
+                .headers_mut()
+                .insert("x-test-asset-key", key.parse().unwrap());
+            response
+                .headers_mut()
+                .insert("x-test-asset-url", url.parse().unwrap());
+            response
+        }),
+    )
+    .with_page_cache(PageCacheLayer::new("live"))
+    .into_router();
+    let app = FrameworkBuilder::new()
+        .with_public_assets(assets.clone())
+        .with_dynamic_routes(routes)
+        .build();
+
+    let old = assets.current();
+    let (status, key, html) = page(&app).await;
+    assert_eq!(status, "MISS");
+    assert_eq!(key, old.cache_key());
+    assert!(html.contains(old.url("image.png").unwrap()), "{html}");
+    assert_eq!(page(&app).await.0, "HIT");
+
+    live.f.write("image.png", b"new");
+    live.publish();
+    let new = assets.current();
+    let (status, key, html) = page(&app).await;
+    assert_eq!(
+        status, "MISS",
+        "a republished catalog must not reuse cached HTML"
+    );
+    assert_eq!(key, new.cache_key());
+    assert!(html.contains(new.url("image.png").unwrap()), "{html}");
+    assert!(!html.contains(old.url("image.png").unwrap()), "{html}");
+    assert_eq!(page(&app).await.0, "HIT");
+}
+
+#[tokio::test]
+async fn live_loading_degrades_to_a_fixed_catalog_without_writer_support() {
+    let live = LiveFixture::new();
+    live.f.write("logo.svg", b"one");
+    live.publish();
+    // An output prepared by a CLI that always restarts the server.
+    std::fs::remove_file(live.output().join(".live-readers.lock")).unwrap();
+    let assets = live.load_live("/shop");
+    assert!(assets.live.is_none());
+    assert_eq!(assets.current().cache_key(), assets.cache_key());
+    let url = assets.url("logo.svg").unwrap();
+    assert_eq!(
+        body(&assets, url.strip_prefix("/shop").unwrap()).await.1,
+        "one"
+    );
+
+    // A fixed catalog never claims it can follow publication.
+    let fixed = live.f.load("");
+    let writer = OutputStore::open(live.output()).unwrap();
+    assert!(!writer.has_live_reader().unwrap());
+    drop(fixed);
+}
+
+#[tokio::test]
+async fn managed_head_resolves_catalog_urls_once_under_a_deployment_mount() {
+    use crate::{FrameworkBuilder, RouteResponse};
+    use proa_core::{
+        ComponentRole, HeadConfig, HeadUrlPolicy, SyncHeadOperation, WebContext, WebRenderSync,
+        WriteError,
+    };
+    use proa_macros::html_sync;
+
+    struct Page;
+
+    impl WebRenderSync for Page {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render_head(&self, cx: &mut WebContext) -> impl SyncHeadOperation {
+            let card = cx.url("public/og/card.png?v=2");
+            let icon = cx.url("public/favicon.svg");
+            let canonical = cx.url("/jacket");
+            let mut head = cx.head_mut();
+            head.title("Jacket")?;
+            head.og_image(card)?;
+            head.icon(icon)?;
+            head.canonical(canonical)
+        }
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            html_sync! {
+                <html>
+                    <head>{cx.head()}</head>
+                    <body>
+                        <img src={cx.url("public/og/card.png")} alt="Card" />
+                    </body>
+                </html>
+            }
+            .render(cx)
+        }
+    }
+
+    for mount in ["", "/shop"] {
+        let f = Fixture::new();
+        f.write("og/card.png", b"card");
+        f.write("favicon.svg", b"icon");
+        let assets = f.load(mount);
+        let mount_arg = if mount.is_empty() { "/" } else { mount };
+        let app = FrameworkBuilder::new()
+            .with_base_path(BasePath::new(mount).unwrap())
+            .with_public_assets(assets.clone())
+            .with_head(
+                HeadConfig::default()
+                    .with_urls(HeadUrlPolicy::new("https://shop.example", mount_arg).unwrap()),
+            )
+            .with_dynamic_routes(
+                Router::new().route("/", get(|| async { RouteResponse::ssr(Page) })),
+            )
+            .build();
+        let response = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let html = to_bytes(response.into_body(), 8192).await.unwrap();
+        let html = std::str::from_utf8(&html).unwrap();
+
+        // The head's absolute URL is the page's own URL on the public origin:
+        // the same path the body links to, with the mount exactly once.
+        let card = assets.url("og/card.png").unwrap();
+        let icon = assets.url("favicon.svg").unwrap();
+        assert!(
+            card.starts_with(&format!("{mount}/_proa/assets/")),
+            "{card}"
+        );
+        assert!(html.contains(&format!(r#"src="{card}""#)), "{html}");
+        for expected in [
+            format!(r#"property="og:image" content="https://shop.example{card}?v=2""#),
+            format!(r#"rel="icon" href="https://shop.example{icon}""#),
+            format!(r#"rel="canonical" href="https://shop.example{mount}/jacket""#),
+        ] {
+            assert!(
+                html.contains(&expected),
+                "{mount:?}: missing {expected} in {html}"
+            );
+        }
+    }
+}

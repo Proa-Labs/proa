@@ -1596,6 +1596,7 @@ mod dev_preparation_tests {
             Some(&active),
             &mut failure,
             &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert_ne!(
@@ -1634,6 +1635,7 @@ mod dev_preparation_tests {
                 Some(&active),
                 &mut failure,
                 &mut default_watch_paths(),
+                AssetState::Current,
             )
             .is_err());
             assert_eq!(fs::read(manifest(&active)).unwrap(), published);
@@ -1671,6 +1673,7 @@ mod dev_preparation_tests {
             Some(&active),
             &mut failure,
             &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert_eq!(fs::read(manifest(&active)).unwrap(), published);
@@ -1708,6 +1711,7 @@ mod dev_preparation_tests {
             Some(&active),
             &mut failure,
             &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert!(!inputs.css_only);
@@ -1736,7 +1740,8 @@ mod dev_preparation_tests {
             &committed,
             None,
             &mut failure,
-            &mut watch_paths
+            &mut watch_paths,
+            AssetState::Current,
         )
         .is_err());
         assert_eq!(
@@ -1766,6 +1771,7 @@ mod dev_preparation_tests {
             None,
             &mut failure,
             &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert!(inputs.css_only);
@@ -1804,6 +1810,7 @@ mod dev_preparation_tests {
             None,
             &mut failure,
             &mut watch_paths,
+            AssetState::Current,
         )
         .unwrap();
         assert!(!inputs.css_only);
@@ -1927,6 +1934,7 @@ mod dev_preparation_tests {
             None,
             &mut failure,
             &mut watch_paths,
+            AssetState::Current,
         )
         .unwrap();
         assert!(asset_only.public_assets_only);
@@ -1944,6 +1952,7 @@ mod dev_preparation_tests {
             None,
             &mut failure,
             &mut watch_paths,
+            AssetState::Current,
         )
         .unwrap();
         assert!(css_edit.public_assets_only);
@@ -1971,6 +1980,7 @@ mod dev_preparation_tests {
             None,
             &mut failure,
             &mut watch_paths,
+            AssetState::Current,
         )
         .unwrap();
         assert!(deleted_css.public_assets_only);
@@ -1998,6 +2008,7 @@ mod dev_preparation_tests {
             None,
             &mut failure,
             &mut watch_paths,
+            AssetState::Current,
         )
         .unwrap();
         assert!(!rust_edit.public_assets_only);
@@ -2066,6 +2077,7 @@ mod dev_preparation_tests {
             None,
             &mut failure,
             &mut watch_paths,
+            AssetState::Current,
         )
         .unwrap();
         assert!(edit.public_assets_only);
@@ -2073,5 +2085,216 @@ mod dev_preparation_tests {
             fs::read(root.join("public/styles.css")).unwrap(),
             b".new {}"
         );
+    }
+
+    #[test]
+    fn managed_tailwind_is_skipped_only_for_files_it_can_never_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("public/images")).unwrap();
+        fs::write(root.join("public/styles.css"), ".ready {}").unwrap();
+        let asset = AssetConfig {
+            kind: "tailwind".into(),
+            command: Vec::new(),
+            input: PathBuf::from("styles/input.css"),
+            output: PathBuf::from("public/styles.css"),
+            config: Some(PathBuf::from("public/tailwind.config.js")),
+        };
+        let public = Path::new("public");
+        let skips = |asset: &AssetConfig, changed: &[&str]| {
+            let changed: Vec<PathBuf> = changed.iter().map(PathBuf::from).collect();
+            should_skip_managed_tailwind_asset(root, public, asset, &changed)
+        };
+
+        // Binary formats, including a deleted or uppercase-named one.
+        assert!(skips(
+            &asset,
+            &[
+                "public/images/og.png",
+                "public/fonts/inter.woff2",
+                "public/intro.MP4",
+            ]
+        ));
+        // Tailwind scans every text file for class names, whatever its
+        // extension, and resolves imports. One such file in a batch of
+        // images is enough to need it.
+        for scanned in [
+            "public/theme.css",
+            "public/widget.html",
+            "public/app.js",
+            "public/icons.svg",
+            "public/content.json",
+            "public/LICENSE",
+            "public/styles.css",
+            "public/tailwind.config.js",
+        ] {
+            assert!(!skips(&asset, &[scanned]), "{scanned}");
+            assert!(
+                !skips(&asset, &["public/images/og.png", scanned]),
+                "{scanned}"
+            );
+        }
+        // Outside `public/` nothing is assumed, and no change means no skip.
+        assert!(!skips(&asset, &["assets/og.png"]));
+        assert!(!skips(&asset, &[]));
+
+        // A missing stylesheet has to be generated whatever changed.
+        fs::remove_file(root.join("public/styles.css")).unwrap();
+        assert!(!skips(&asset, &["public/images/og.png"]));
+
+        // Custom commands may read anything and are never skipped.
+        fs::write(root.join("public/styles.css"), ".ready {}").unwrap();
+        let custom = AssetConfig {
+            command: vec!["sh".into(), "-c".into(), "true".into()],
+            ..asset
+        };
+        assert!(!skips(&custom, &["public/images/og.png"]));
+    }
+
+    #[test]
+    fn dev_address_prefers_flags_then_the_servers_own_variables() {
+        let resolve = |host: Option<&str>, port: Option<u16>, vars: &[(&str, &str)]| {
+            let vars: BTreeMap<String, String> = vars
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect();
+            resolve_dev_address(host, port, |name| vars.get(name).cloned())
+                .map(|address| (address.host, address.port))
+                .map_err(|error| format!("{error:#}"))
+        };
+        let ok = |host: &str, port: u16| Ok((host.to_owned(), port));
+
+        assert_eq!(resolve(None, None, &[]), ok("127.0.0.1", 3000));
+        assert_eq!(
+            resolve(None, None, &[("PROA_HOST", "0.0.0.0"), ("PORT", " 4137 ")]),
+            ok("0.0.0.0", 4137)
+        );
+        // Flags beat every variable, including an invalid one.
+        assert_eq!(
+            resolve(
+                Some("127.0.0.2"),
+                Some(8080),
+                &[("PROA_HOST", "0.0.0.0"), ("HOST", "::1"), ("PORT", "junk")]
+            ),
+            ok("127.0.0.2", 8080)
+        );
+        // The Proa-specific variable beats the generic one and is taken as
+        // written; blank values are unset.
+        assert_eq!(
+            resolve(
+                None,
+                None,
+                &[("PROA_HOST", "dev.internal"), ("HOST", "0.0.0.0")]
+            ),
+            ok("dev.internal", 3000)
+        );
+        assert_eq!(
+            resolve(None, None, &[("PROA_HOST", "  "), ("HOST", "0.0.0.0")]),
+            ok("0.0.0.0", 3000)
+        );
+        for (input, expected) in [
+            ("0.0.0.0", "0.0.0.0"),
+            ("localhost", "127.0.0.1"),
+            ("LOCALHOST", "127.0.0.1"),
+            ("::1", "::1"),
+            ("[::1]", "::1"),
+            ("192.168.1.20", "192.168.1.20"),
+        ] {
+            let resolved = resolve(None, None, &[("HOST", input)]);
+            assert_eq!(resolved, ok(expected, 3000), "{input}");
+            // Every accepted `HOST` value must parse as `IpAddr` for generated servers.
+            assert!(
+                resolved.unwrap().0.parse::<std::net::IpAddr>().is_ok(),
+                "{input}"
+            );
+        }
+        // `HOST` is exported for unrelated reasons: a machine name by some
+        // shells, a compiler target triple by toolchain activation scripts.
+        for unrelated in [
+            "build-box.local",
+            "arm64-apple-darwin20.0.0",
+            "my laptop",
+            "[127.0.0.1]",
+            "[::1",
+        ] {
+            assert_eq!(
+                resolve(None, None, &[("HOST", unrelated)]),
+                ok("127.0.0.1", 3000),
+                "{unrelated}"
+            );
+        }
+
+        for invalid in ["0", "not-a-port", "70000", "-1", "3000/tcp"] {
+            let error = resolve(None, None, &[("PORT", invalid)]).unwrap_err();
+            assert!(
+                error.contains(invalid) && error.contains("--port"),
+                "{error}"
+            );
+        }
+        assert_eq!(
+            resolve(None, None, &[("PORT", "  ")]),
+            ok("127.0.0.1", 3000)
+        );
+    }
+
+    #[test]
+    fn dev_address_reports_what_the_environment_decided() {
+        let notes = |vars: &[(&str, &str)]| {
+            let vars: BTreeMap<String, String> = vars
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect();
+            resolve_dev_address(None, None, |name| vars.get(name).cloned())
+                .unwrap()
+                .notes
+        };
+        assert!(notes(&[]).is_empty());
+        // A listen address that came from the environment is otherwise
+        // invisible: the banner prints 127.0.0.1 for a wildcard bind.
+        let exported = notes(&[("HOST", "0.0.0.0"), ("PORT", "4137")]);
+        assert_eq!(exported.len(), 2);
+        assert!(exported[0].contains("0.0.0.0") && exported[0].contains("HOST"));
+        assert!(exported[1].contains("4137") && exported[1].contains("PORT"));
+        let ignored = notes(&[("HOST", "arm64-apple-darwin20.0.0")]);
+        assert_eq!(ignored.len(), 1);
+        assert!(
+            ignored[0].contains("arm64-apple-darwin20.0.0") && ignored[0].contains("PROA_HOST")
+        );
+    }
+
+    #[test]
+    fn a_server_is_left_running_only_when_it_registered_to_follow_the_catalog() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("public")).unwrap();
+        fs::write(root.join("public/logo.svg"), "logo").unwrap();
+        let output = root.join("target/proa-output/app");
+
+        // Nothing published yet, and nothing this CLI owns: restart.
+        assert!(!public_assets::has_live_reader(&root.join("missing")));
+        assert!(!public_assets::has_live_reader(&root.join("public")));
+
+        public_assets::publish(root, Some(Path::new("public")), &output)
+            .unwrap()
+            .unwrap();
+        assert!(!public_assets::has_live_reader(&output));
+
+        // A server holding a fixed catalog still needs the restart.
+        let fixed = proa_assets::AssetCatalog::load(&output).unwrap();
+        assert!(!public_assets::has_live_reader(&output));
+
+        let following = proa_assets::LiveReader::register(&output).unwrap();
+        assert!(public_assets::has_live_reader(&output));
+        // Publishing again must not disturb the registration it relies on.
+        fs::write(root.join("public/logo.svg"), "new logo").unwrap();
+        public_assets::publish(root, Some(Path::new("public")), &output)
+            .unwrap()
+            .unwrap();
+        assert!(public_assets::has_live_reader(&output));
+
+        // The server exits, or is replaced by one that has not loaded yet.
+        drop(following);
+        assert!(!public_assets::has_live_reader(&output));
+        drop(fixed);
     }
 }

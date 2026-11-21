@@ -907,4 +907,229 @@ mod metadata_patch_tests {
         scope.finish(Ok(())).unwrap();
         assert!(cx.head_mut().metadata(HeadMetadata::default()).is_err());
     }
+
+    /// Render the head a hook writes, for an application served at `mount`
+    /// with a managed public asset catalog.
+    fn head_html(
+        mount: &str,
+        hook: impl FnOnce(&mut WebContext) -> Result<(), crate::WriteError>,
+    ) -> Result<String, crate::WriteError> {
+        use std::collections::BTreeMap;
+
+        let base_path = crate::BasePath::new(mount).unwrap();
+        let prefix = base_path.as_str();
+        // The shape a server adapter prepares: complete, with the mount.
+        let public_assets = crate::PublicAssetUrls::new(BTreeMap::from([
+            (
+                "images/og.png".to_string(),
+                Arc::from(format!("{prefix}/_proa/assets/images/og.0c380908.png")),
+            ),
+            (
+                "favicon.svg".to_string(),
+                Arc::from(format!("{prefix}/_proa/assets/favicon.eb90bbcb.svg")),
+            ),
+            (
+                "app.css".to_string(),
+                Arc::from(format!("{prefix}/_proa/assets/app.css")),
+            ),
+        ]));
+        let mut cx = WebContext::new();
+        cx.request_mut().set_base_path(base_path);
+        cx.request_mut().set_public_asset_urls(Some(public_assets));
+        let published = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let out = published.clone();
+        cx.configure_head(
+            HeadConfig::default()
+                .with_urls(HeadUrlPolicy::new("https://shop.example", mount).unwrap()),
+            Arc::new(move |_, chunks| {
+                let mut guard = out.lock().unwrap();
+                for chunk in chunks {
+                    guard.extend_from_slice(&chunk);
+                }
+                Ok(())
+            }),
+        )
+        .unwrap();
+        let document = cx.require_managed_head().unwrap();
+        let active = document.begin_hook().unwrap();
+        hook(&mut cx)?;
+        let scope = active.finish(Ok(())).unwrap();
+        let outlet = cx.head();
+        document.reserve(outlet, 0).unwrap();
+        document.seal().unwrap();
+        document
+            .publish(Vec::new(), crate::ResponseContext::default(), None)
+            .unwrap();
+        scope.finish(Ok(())).unwrap();
+        let html = String::from_utf8(published.lock().unwrap().clone()).unwrap();
+        Ok(html)
+    }
+
+    const MOUNTS: [(&str, &str); 2] = [
+        ("/", "https://shop.example"),
+        ("/apps/demo", "https://shop.example/apps/demo"),
+    ];
+
+    #[test]
+    fn cx_url_values_resolve_once_against_the_mount_in_every_head_url() {
+        for (mount, site) in MOUNTS {
+            let html = head_html(mount, |cx| {
+                let og = cx.url("public/images/og.png");
+                let icon = cx.url("public/favicon.svg");
+                let styles = cx.url("public/app.css");
+                let manifest = cx.url("/site.webmanifest");
+                let canonical = cx.url("/products/jacket");
+                let module = cx.url("/static/app.js");
+                let mut head = cx.head_mut();
+                head.og_image(og)?;
+                head.icon(icon)?;
+                head.stylesheet("app", styles)?;
+                head.manifest(manifest)?;
+                head.canonical(canonical)?;
+                head.module("app", module)
+            })
+            .unwrap();
+            for expected in [
+                format!(
+                    r#"property="og:image" content="{site}/_proa/assets/images/og.0c380908.png""#
+                ),
+                format!(r#"rel="icon" href="{site}/_proa/assets/favicon.eb90bbcb.svg""#),
+                format!(r#"rel="stylesheet" href="{site}/_proa/assets/app.css""#),
+                format!(r#"rel="manifest" href="{site}/site.webmanifest""#),
+                format!(r#"rel="canonical" href="{site}/products/jacket""#),
+                format!(r#"src="{site}/static/app.js""#),
+            ] {
+                assert!(
+                    html.contains(&expected),
+                    "{mount}: missing {expected} in {html}"
+                );
+            }
+            assert!(!html.contains("/apps/demo/apps/demo"), "{mount}: {html}");
+        }
+    }
+
+    #[test]
+    fn public_asset_urls_keep_query_and_fragment_and_survive_being_stringified() {
+        for (mount, site) in MOUNTS {
+            let html = head_html(mount, |cx| {
+                let versioned = cx.url("public/images/og.png?v=1#top");
+                // `try_to_string` is the documented way to own a URL. The
+                // mount it already carries must not be applied a second time.
+                let owned = cx.url("public/favicon.svg").try_to_string()?;
+                let by_reference = cx.url("public/images/og.png");
+                let mut head = cx.head_mut();
+                head.og_image(HeadMedia::from_url(versioned)?.alt("Jacket"))?;
+                head.icon(owned)?;
+                head.canonical(&by_reference)
+            })
+            .unwrap();
+            for expected in [
+                format!(
+                    r#"property="og:image" content="{site}/_proa/assets/images/og.0c380908.png?v=1#top""#
+                ),
+                format!(r#"rel="icon" href="{site}/_proa/assets/favicon.eb90bbcb.svg""#),
+                format!(r#"rel="canonical" href="{site}/_proa/assets/images/og.0c380908.png""#),
+            ] {
+                assert!(
+                    html.contains(&expected),
+                    "{mount}: missing {expected} in {html}"
+                );
+            }
+            assert!(
+                html.contains(r#"property="og:image:alt" content="Jacket""#),
+                "{html}"
+            );
+        }
+    }
+
+    #[test]
+    fn og_image_replaces_earlier_images_and_keeps_other_open_graph_fields() {
+        let html = head_html("/apps/demo", |cx| {
+            let first = cx.url("public/favicon.svg");
+            let second = cx.url("public/images/og.png");
+            let mut head = cx.head_mut();
+            head.open_graph(
+                OpenGraph::new()
+                    .site_name("Shop")
+                    .images([HeadMedia::new("/a.png"), HeadMedia::new("/b.png")]),
+            )?;
+            head.og_image(first)?;
+            head.og_image(second)?;
+            // A later patch that does not mention images leaves the image.
+            head.open_graph(OpenGraph::new().kind("product"))
+        })
+        .unwrap();
+        assert_eq!(html.matches(r#"property="og:image""#).count(), 1, "{html}");
+        assert!(
+            html.contains("/apps/demo/_proa/assets/images/og.0c380908.png"),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"property="og:site_name" content="Shop""#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"property="og:type" content="product""#),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn unresolved_and_missing_public_assets_fail_instead_of_emitting_dead_links() {
+        type Write = fn(&mut WebContext) -> Result<(), crate::WriteError>;
+        // `HeadMedia::new("public/...")` takes the same path at run time and
+        // is additionally reported by `proa lint` (`asset/public-url`).
+        let unresolved: [Write; 5] = [
+            |cx| cx.head_mut().og_image("public/images/og.png"),
+            |cx| cx.head_mut().icon("public/favicon.svg"),
+            |cx| cx.head_mut().canonical("public/images/og.png"),
+            |cx| cx.head_mut().manifest("public/site.webmanifest"),
+            |cx| cx.head_mut().stylesheet("app", "public/app.css"),
+        ];
+        for (mount, _) in MOUNTS {
+            for write in unresolved {
+                let error = head_html(mount, write).unwrap_err().to_string();
+                // The message carries the offending path and the call that
+                // fixes it, so it can be acted on without reading docs.
+                assert!(error.contains("cx.url(\"public/"), "{error}");
+            }
+            let missing = head_html(mount, |cx| {
+                let url = cx.url("public/images/absent.png");
+                cx.head_mut().og_image(url)
+            })
+            .unwrap_err()
+            .to_string();
+            assert!(missing.contains("public/images/absent.png"), "{missing}");
+        }
+        // An application route that happens to be named `public` is still a
+        // route when written as one.
+        let route = head_html("/apps/demo", |cx| cx.head_mut().canonical("/public/terms")).unwrap();
+        assert!(
+            route.contains(r#"href="https://shop.example/apps/demo/public/terms""#),
+            "{route}"
+        );
+    }
+
+    #[test]
+    fn head_urls_accept_the_string_types_an_application_holds() {
+        let html = head_html("/apps/demo", |cx| {
+            let owned = String::from("/owned");
+            let shared: Arc<str> = Arc::from("/shared.js");
+            let boxed: Box<str> = Box::from("/boxed.css");
+            let cow = std::borrow::Cow::Borrowed("/cow.webmanifest");
+            let mut head = cx.head_mut();
+            head.canonical(&owned)?;
+            head.module("m", &shared)?;
+            head.stylesheet("s", &boxed)?;
+            head.manifest(&cow)?;
+            head.icon(owned)
+        })
+        .unwrap();
+        for path in ["/owned", "/shared.js", "/boxed.css", "/cow.webmanifest"] {
+            assert!(
+                html.contains(&format!("https://shop.example/apps/demo{path}")),
+                "missing {path} in {html}"
+            );
+        }
+    }
 }

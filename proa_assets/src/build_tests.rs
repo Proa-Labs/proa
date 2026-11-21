@@ -91,6 +91,36 @@ fn shared_catalog_protects_objects_until_the_last_reader_drops() {
 }
 
 #[test]
+fn only_a_registered_live_reader_lets_the_writer_skip_a_restart() {
+    let f = Fixture::new();
+    f.write("logo.svg", b"logo");
+    f.publish();
+    let writer = OutputStore::open(&f.output).unwrap();
+    assert!(!writer.has_live_reader().unwrap());
+
+    // A fixed catalog holds the object reader lock, yet cannot follow a new
+    // manifest. It must never be mistaken for a live reader.
+    let fixed = AssetCatalog::load(&f.output).unwrap();
+    assert!(!writer.has_live_reader().unwrap());
+
+    let first = LiveReader::register(&f.output).unwrap();
+    let second = LiveReader::register(&f.output).unwrap();
+    assert!(writer.has_live_reader().unwrap());
+    // Probing is repeatable and does not evict the registered readers.
+    assert!(writer.has_live_reader().unwrap());
+    drop(first);
+    assert!(writer.has_live_reader().unwrap());
+    drop(second);
+    assert!(!writer.has_live_reader().unwrap());
+    drop(fixed);
+
+    // An output prepared by a writer without the registration file cannot
+    // promise in-place reloads, so registration fails rather than creating it.
+    fs::remove_file(f.output.join(LIVE_READERS_FILE)).unwrap();
+    assert!(LiveReader::register(&f.output).is_err());
+}
+
+#[test]
 fn cleanup_keeps_stale_objects_while_an_active_object_is_incomplete() {
     let f = Fixture::new();
     f.write("movie.mp4", b"old movie");

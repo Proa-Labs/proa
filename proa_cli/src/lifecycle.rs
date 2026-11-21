@@ -180,10 +180,10 @@ pub fn dev(options: DevOptions) -> Result<()> {
     let mut runner = crate::config::DevConfigRunner::default();
     let mut config = crate::config::load_project_config_with_runner(&root, Some(&mut runner))?;
     script::hint("dev", &config.scripts.dev, DEFAULT_DEV_COMMAND);
-    let address = (
-        options.host.as_deref().unwrap_or("127.0.0.1"),
-        options.port.unwrap_or(3000),
-    );
+    let listen = resolve_dev_address(options.host.as_deref(), options.port, |name| {
+        std::env::var(name).ok()
+    })?;
+    let address = (listen.host.as_str(), listen.port);
     // Reject an impossible watch window before anything is built, bound, or
     // spawned. A flag error should cost nothing to recover from.
     let debounce = dev_watch_debounce(&options)?;
@@ -192,6 +192,9 @@ pub fn dev(options: DevOptions) -> Result<()> {
 
     dev_ui::header(&dev_url(address.0, address.1));
     dev_ui::detail!("Proa dev root: {}", root.display());
+    for note in &listen.notes {
+        dev_ui::detail!("{note}");
+    }
     dev_ui::detail!("Building your site. The first build downloads dependencies and compiles crates; this can take several minutes.");
     if options.open {
         dev_ui::detail!("The browser will open when the server is ready.");
@@ -313,6 +316,11 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 hot_state.as_ref(),
                 &mut failure_snapshot,
                 &mut watch_paths,
+                if last_build_failed {
+                    AssetState::Unknown
+                } else {
+                    AssetState::Current
+                },
             )
         });
         let inputs = match inputs {
@@ -361,14 +369,41 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 let source = public_assets::configured_path(&next_config, !options.no_assets)?;
                 match public_assets::publish(&root, source, output) {
                     Ok(Some(_)) => {
-                        dev_ui::detail!("public assets changed; republished catalog without Cargo");
-                        dev_ui::outcome(if is_stylesheet_only_change(&changed_asset_paths) {
+                        let stylesheet_only = is_stylesheet_only_change(&changed_asset_paths);
+                        dev_ui::outcome(if stylesheet_only {
                             "Styles updated"
                         } else {
                             "Assets updated"
                         });
-                        child.restart(&root, &launch, address, None, reload.as_ref())?;
-                        debouncer.commit(snapshot);
+                        // Only a server that registered as a live reader
+                        // follows this publication. One that loaded a fixed
+                        // catalog, was built against a framework release
+                        // without in-place reloading, has exited, or is still
+                        // starting would keep serving the previous files, so
+                        // it is restarted exactly as before.
+                        let can_hot_swap = !(stylesheet_only && options.no_css_hot_swap)
+                            && public_assets::has_live_reader(output);
+                        if can_hot_swap {
+                            dev_ui::detail!(
+                                "public assets changed; republished catalog in place without restarting"
+                            );
+                            dev_ui::finish();
+                            debouncer.commit(snapshot);
+                            notify(
+                                reload.as_ref(),
+                                if stylesheet_only {
+                                    &ReloadEvent::Css
+                                } else {
+                                    &ReloadEvent::Reload
+                                },
+                            );
+                        } else {
+                            dev_ui::detail!(
+                                "public assets changed; republished catalog without Cargo"
+                            );
+                            child.restart(&root, &launch, address, None, reload.as_ref())?;
+                            debouncer.commit(snapshot);
+                        }
                         continue;
                     }
                     Ok(None) => {}
@@ -502,6 +537,16 @@ struct PreparedDevInputs {
     hot_update: Option<crate::hot_static::HotState>,
 }
 
+/// What is known about generated assets when a change cycle starts.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AssetState {
+    /// The previous cycle ran to completion, asset commands included.
+    Current,
+    /// The previous cycle failed somewhere. An asset command may never have
+    /// produced output for the sources as they are now, so nothing is skipped.
+    Unknown,
+}
+
 fn prepare_dev_inputs(
     root: &Path,
     config: ProjectConfig,
@@ -510,6 +555,7 @@ fn prepare_dev_inputs(
     hot_state: Option<&crate::hot_static::HotState>,
     failure_snapshot: &mut WatchSnapshot,
     watch_paths: &mut Vec<PathBuf>,
+    assets: AssetState,
 ) -> Result<PreparedDevInputs> {
     // Failure snapshots must use the same watch set as the next poll, even
     // when a config edit changes watched paths and preparation then fails.
@@ -553,7 +599,8 @@ fn prepare_dev_inputs(
         None
     };
     if !options.no_assets {
-        build_assets(root, &config)?;
+        let skippable = public.filter(|_| assets == AssetState::Current);
+        build_assets_for_change(root, &config, skippable, &changed)?;
     }
     let mut public_assets_only = false;
     let mut changed_asset_paths = Vec::new();
@@ -675,6 +722,101 @@ fn start_reload_server(address: (&str, u16), options: &DevOptions) -> Option<Rel
             None
         }
     }
+}
+
+/// Where `proa dev` asks the server to listen, and why.
+#[derive(Debug, PartialEq, Eq)]
+struct DevAddress {
+    host: String,
+    port: u16,
+    /// What an environment variable decided, or why one was passed over.
+    notes: Vec<String>,
+}
+
+/// Flags win, then the environment, then `127.0.0.1:3000`.
+///
+/// `PROA_HOST` and `PORT` are the variables the server itself reads, so a
+/// shell, container, or process manager that exports them gets the same
+/// address from `proa dev` as from `proa start`. `HOST` is honored too, but
+/// only when it can be a listen address: shells and toolchains export it for
+/// their own purposes (a machine name, a compiler target triple), and binding
+/// the dev server to whatever that happens to resolve to would be a surprise.
+fn resolve_dev_address(
+    host_flag: Option<&str>,
+    port_flag: Option<u16>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<DevAddress> {
+    let set = |name: &str| {
+        env(name)
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    let mut notes = Vec::new();
+    let host = if let Some(host) = host_flag {
+        host.to_owned()
+    } else if let Some(host) = set("PROA_HOST") {
+        notes.push(format!("Proa dev host: {host} (from PROA_HOST)"));
+        host
+    } else {
+        match set("HOST") {
+            Some(raw) => match normalize_listen_address(&raw) {
+                Some(normalized) => {
+                    if normalized == raw {
+                        notes.push(format!("Proa dev host: {normalized} (from HOST)"));
+                    } else {
+                        notes.push(format!("Proa dev host: {normalized} (from HOST={raw})"));
+                    }
+                    normalized
+                }
+                None => {
+                    notes.push(format!(
+                        "Proa dev host: ignoring HOST=`{raw}` because it is not an IP address or `localhost`; set PROA_HOST or pass --host to listen on a DNS name"
+                    ));
+                    "127.0.0.1".to_owned()
+                }
+            },
+            None => "127.0.0.1".to_owned(),
+        }
+    };
+    let port = match (port_flag, set("PORT")) {
+        (Some(port), _) => port,
+        (None, Some(value)) => {
+            let port = value
+                .parse::<u16>()
+                .ok()
+                .filter(|port| *port != 0)
+                .with_context(|| {
+                    format!(
+                        "invalid PORT environment variable `{value}`: expected a TCP port number (1-65535); pass --port to override it"
+                    )
+                })?;
+            notes.push(format!("Proa dev port: {port} (from PORT)"));
+            port
+        }
+        (None, None) => 3000,
+    };
+    Ok(DevAddress { host, port, notes })
+}
+
+/// Accept `HOST` values that name a listen address and normalize them to a
+/// bare `IpAddr` string so generated servers (`PROA_HOST.parse::<IpAddr>()`)
+/// can bind without failing on `localhost` or bracketed IPv6 literals.
+fn normalize_listen_address(host: &str) -> Option<String> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return Some("127.0.0.1".to_owned());
+    }
+    if let Some(inner) = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        return inner
+            .parse::<std::net::Ipv6Addr>()
+            .ok()
+            .map(|ip| ip.to_string());
+    }
+    host.parse::<std::net::IpAddr>()
+        .ok()
+        .map(|ip| ip.to_string())
 }
 
 fn dev_watch_debounce(options: &DevOptions) -> Result<Duration> {
@@ -3436,6 +3578,15 @@ pub fn build_assets_for_project(root: &Path) -> Result<()> {
 }
 
 fn build_assets(root: &Path, config: &ProjectConfig) -> Result<()> {
+    build_assets_for_change(root, config, None, &[])
+}
+
+fn build_assets_for_change(
+    root: &Path,
+    config: &ProjectConfig,
+    public: Option<&Path>,
+    changed: &[PathBuf],
+) -> Result<()> {
     if let Some(output) = crate::config::css_script_output(config) {
         prepare_asset_output(root, &output)?;
         let status = script::command(root, "css", &config.scripts.css, &[])?
@@ -3444,9 +3595,80 @@ fn build_assets(root: &Path, config: &ProjectConfig) -> Result<()> {
         exit_status_to_result(status, "scripts.css")?;
     }
     for asset in config.build.assets() {
+        if let Some(public) = public {
+            if should_skip_managed_tailwind_asset(root, public, asset, changed) {
+                continue;
+            }
+        }
         build_asset(root, asset)?;
     }
     Ok(())
+}
+
+fn should_skip_managed_tailwind_asset(
+    root: &Path,
+    public: &Path,
+    asset: &AssetConfig,
+    changed: &[PathBuf],
+) -> bool {
+    // Only skip the built-in managed Tailwind invocation; custom asset commands
+    // may read undeclared files anywhere in `public/`.
+    if asset.kind != "tailwind" || !asset.command.is_empty() || changed.is_empty() {
+        return false;
+    }
+    if !root.join(&asset.output).is_file() {
+        return false;
+    }
+    changed
+        .iter()
+        .all(|path| path.starts_with(public) && is_opaque_to_tailwind(path))
+}
+
+/// Whether Tailwind can be trusted never to read this file.
+///
+/// Tailwind scans every file it does not recognize as binary, whatever the
+/// extension: JSON, SVG, plain text, and templates in any language can all
+/// contribute class names, and stylesheets can be imported. Skipping it is
+/// therefore safe only for formats on its own binary list. Anything else,
+/// including a file with no extension, runs Tailwind as before.
+fn is_opaque_to_tailwind(path: &Path) -> bool {
+    path.extension().and_then(OsStr::to_str).is_some_and(|ext| {
+        matches!(
+            ext.to_ascii_lowercase().as_str(),
+            "png"
+                | "jpg"
+                | "jpeg"
+                | "gif"
+                | "webp"
+                | "avif"
+                | "ico"
+                | "bmp"
+                | "tif"
+                | "tiff"
+                | "heic"
+                | "woff"
+                | "woff2"
+                | "ttf"
+                | "otf"
+                | "eot"
+                | "mp3"
+                | "wav"
+                | "ogg"
+                | "flac"
+                | "aac"
+                | "m4a"
+                | "mp4"
+                | "m4v"
+                | "mov"
+                | "webm"
+                | "avi"
+                | "mkv"
+                | "pdf"
+                | "zip"
+                | "gz"
+                | "wasm"
+        )
+    })
 }
 
 fn build_asset(root: &Path, asset: &AssetConfig) -> Result<()> {

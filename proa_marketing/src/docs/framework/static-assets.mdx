@@ -1,6 +1,7 @@
 ---
 title: Static assets
 description: Serve static files and embedded assets safely.
+keywords: [cx.url, "cx.url()", public assets, fingerprint, AppUrl, MdRender, static]
 ---
 
 Proa supports both managed public assets published by the CLI under `/_proa/assets` and custom static routers nested at `/static` through `FrameworkBuilder`. This page covers [managed public assets](#managed-public-assets), [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [linked island assets](#serving-linked-island-assets), [linking stylesheets](#linking-the-application-stylesheet), and [external apps](#mounting-external-apps).
@@ -19,6 +20,16 @@ html_sync! {
     <link rel="icon" href={favicon} />
     <link rel="stylesheet" href={stylesheet} />
 }
+```
+
+The same `cx.url(...)` call works directly inside Markdown (`MdRenderSync` / `MdRender` with `md_sync!` / `md!`) and preserves query strings, fragments, and deployment base paths:
+
+```rust filename="src/pages/home.rs"
+md_sync! { r###"
+    ![Brand]({cx.url("public/images/brand.svg")})
+    "###
+}
+.render_md(cx)
 ```
 
 - **Images, fonts, media, and other opaque files** receive a fingerprinted URL such as `/_proa/assets/favicon.d6018082.svg` with `Cache-Control: public, max-age=31536000, immutable`.

@@ -151,8 +151,7 @@ impl AppUrl<'_> {
     }
 
     fn render_segments(&self) -> Result<(&str, &str), WriteError> {
-        self.segments()
-            .map_err(|path| WriteError::render(format!("public asset `public/{path}` is missing")))
+        self.segments().map_err(missing_public)
     }
 
     /// Compose an owned URL, returning a render error for a missing asset.
@@ -160,6 +159,98 @@ impl AppUrl<'_> {
         let (prefix, path) = self.render_segments()?;
         Ok([prefix, path].concat())
     }
+}
+
+/// A URL that head metadata accepts: a string, or the value `cx.url(...)`
+/// returns.
+///
+/// Passing the `cx.url(...)` value itself, rather than a string made from it,
+/// is what keeps a managed `public/...` asset and a deployment mount correct:
+/// the head resolves application paths against its own trusted origin and
+/// mount, so it needs the path before the request's prefix is applied.
+///
+/// ```
+/// # use proa_core::{HeadMedia, WebContext};
+/// let cx = WebContext::new();
+/// let image = HeadMedia::from_url(cx.url("/og/home.png"))?;
+/// let owned = HeadMedia::from_url(String::from("https://cdn.example/og.png"))?;
+/// # let _ = (image, owned);
+/// # Ok::<(), proa_core::WriteError>(())
+/// ```
+pub trait TryIntoHeadUrl {
+    /// Borrowed when the input can lend its text, owned otherwise, so a
+    /// caller that only reads the URL does not pay for a copy.
+    type Url: AsRef<str> + Into<String>;
+
+    /// Fails for a `public/...` path that the asset catalog does not contain.
+    fn try_into_head_url(self) -> Result<Self::Url, WriteError>;
+}
+
+impl<'a> TryIntoHeadUrl for &'a str {
+    type Url = &'a str;
+    fn try_into_head_url(self) -> Result<Self::Url, WriteError> {
+        Ok(self)
+    }
+}
+
+impl TryIntoHeadUrl for String {
+    type Url = String;
+    fn try_into_head_url(self) -> Result<Self::Url, WriteError> {
+        Ok(self)
+    }
+}
+
+impl<'a> TryIntoHeadUrl for std::borrow::Cow<'a, str> {
+    type Url = std::borrow::Cow<'a, str>;
+    fn try_into_head_url(self) -> Result<Self::Url, WriteError> {
+        Ok(self)
+    }
+}
+
+// The owned string types an application is likely to keep a URL in. A plain
+// `&str` parameter accepted all of these through deref coercion; a generic
+// one has to name them.
+macro_rules! impl_head_url_for_borrowed_strings {
+    ($($ty:ty),* $(,)?) => {$(
+        impl<'a> TryIntoHeadUrl for &'a $ty {
+            type Url = &'a str;
+            fn try_into_head_url(self) -> Result<Self::Url, WriteError> {
+                Ok(self)
+            }
+        }
+    )*};
+}
+impl_head_url_for_borrowed_strings!(String, Box<str>, Arc<str>, std::borrow::Cow<'_, str>);
+
+impl<'a> TryIntoHeadUrl for AppUrl<'a> {
+    type Url = std::borrow::Cow<'a, str>;
+    fn try_into_head_url(self) -> Result<Self::Url, WriteError> {
+        match self.0 {
+            // The head applies its own mount to application paths, so it
+            // receives the path without this request's prefix.
+            UrlKind::Path(_, path) => Ok(std::borrow::Cow::Borrowed(path)),
+            // proa-perf-ok: one URL per head field, prepared once per page
+            UrlKind::Public { url, suffix } => Ok([url.as_ref(), suffix].concat().into()),
+            UrlKind::MissingPublic(path) => Err(missing_public(path)),
+        }
+    }
+}
+
+impl<'a> TryIntoHeadUrl for &'a AppUrl<'_> {
+    type Url = std::borrow::Cow<'a, str>;
+    fn try_into_head_url(self) -> Result<Self::Url, WriteError> {
+        match &self.0 {
+            UrlKind::Path(_, path) => Ok(std::borrow::Cow::Borrowed(path)),
+            UrlKind::Public { url, suffix: "" } => Ok(std::borrow::Cow::Borrowed(url)),
+            // proa-perf-ok: one URL per head field, prepared once per page
+            UrlKind::Public { url, suffix } => Ok([url.as_ref(), suffix].concat().into()),
+            UrlKind::MissingPublic(path) => Err(missing_public(path)),
+        }
+    }
+}
+
+fn missing_public(path: &str) -> WriteError {
+    WriteError::render(format!("public asset `public/{path}` is missing"))
 }
 
 impl fmt::Display for AppUrl<'_> {

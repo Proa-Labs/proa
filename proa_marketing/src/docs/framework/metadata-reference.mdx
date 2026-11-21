@@ -247,6 +247,22 @@ cx.head_mut().icons([
 
 `IconKind::Mask` emits `rel="mask-icon"`. `.media(...)` and `.color(...)` add optional attributes. Use an empty list or `clear_icons()` to remove inherited icons. URLs are validated and resolved with the trusted public origin and mount.
 
+For one icon, `icon(...)` takes the URL directly and replaces the list with it. Both it and `HeadIcon::from_url(...)` accept a `cx.url(...)` value, so a [managed public asset](/docs/framework/static-assets#managed-public-assets) gets its fingerprinted URL:
+
+```rust filename="render_head"
+let favicon = cx.url("public/favicon.svg");
+let touch = cx.url("public/apple-touch-icon.png");
+cx.head_mut().icon(favicon)?;
+// Or, with attributes:
+let favicon = cx.url("public/favicon.svg");
+cx.head_mut().icons([
+    HeadIcon::from_url(favicon)?.sizes("any"),
+    HeadIcon::from_url(touch)?.kind(IconKind::AppleTouch),
+])?;
+```
+
+`canonical`, `manifest`, `stylesheet`, and `module` accept `cx.url(...)` values the same way. Take the URL before calling `cx.head_mut()`, since both borrow the context.
+
 ### Alternate languages and feeds
 
 ```rust filename="render_head"

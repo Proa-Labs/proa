@@ -195,7 +195,7 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not renderable in an async-capable Proa template",
     label = "missing `WebRender<{L}, {B}>` for this child",
-    note = "wrap a sync-only child with `proa_core::to_async(...)`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
+    note = "wrap a sync-only child with `proa::to_async(...)`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// Head providers declare `LAYOUT` or `PAGE`. `COMPONENT` skips the head

@@ -17,9 +17,12 @@ pub(crate) struct DevArgs {
     #[arg(long)]
     root: Option<PathBuf>,
     /// Host passed to the server as PROA_HOST and used for fallback readiness.
+    /// Defaults to the PROA_HOST environment variable, then HOST when it is an
+    /// IP address or localhost, then 127.0.0.1.
     #[arg(long)]
     host: Option<String>,
-    /// Port value passed to the dev command as PORT.
+    /// Port value passed to the dev command as PORT. Defaults to the PORT
+    /// environment variable, then 3000.
     #[arg(long)]
     port: Option<u16>,
     /// Also watch this file or directory. Repeat to add multiple paths.

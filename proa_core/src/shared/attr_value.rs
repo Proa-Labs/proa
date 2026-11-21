@@ -168,6 +168,29 @@ impl AttrValue for String {
     }
 }
 
+// Implementation for char - always renders, escapes the value. The UTF-8
+// encoding lives in a 4-byte stack buffer, so no allocation is needed.
+impl AttrValue for char {
+    #[inline(always)]
+    fn should_render(&self) -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn render_attr_value<B: WriteBuf, L: DataLoader>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        let mut buf = [0u8; 4];
+        let dialect = cx.__proa_current_escape_dialect();
+        crate::shared::escape::escape_attr_value_for_dialect(
+            &mut cx.out,
+            self.encode_utf8(&mut buf),
+            dialect,
+        )
+    }
+}
+
 // Implementation for Option<&str> - renders only if Some
 impl AttrValue for Option<&str> {
     #[inline(always)]

@@ -3,7 +3,12 @@
 
 //! Startup resolution and serving for the build tool's public-file catalog.
 
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock},
+    time::{Duration, SystemTime},
+};
 
 use axum::{
     body::Body,
@@ -14,7 +19,9 @@ use axum::{
 };
 use bytes::Bytes;
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
-use proa_assets::{AssetCatalog, AssetError, CachePolicy, OUTPUT_ENV, PUBLIC_ROUTE};
+use proa_assets::{
+    AssetCatalog, AssetError, CachePolicy, LiveReader, MANIFEST_FILE, OUTPUT_ENV, PUBLIC_ROUTE,
+};
 use proa_core::{BasePath, PublicAssetUrls};
 use thiserror::Error;
 use tower::ServiceExt;
@@ -27,6 +34,11 @@ const PATH_ENCODING: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'.')
     .remove(b'~');
 const MAX_REWRITE_BYTES: u64 = 32 * 1024 * 1024;
+/// A manifest whose modification time is this close to the moment it was
+/// read can be replaced again without its size or timestamp changing, because
+/// file systems record times as coarsely as two seconds. Inside the window the
+/// manifest bytes decide; outside it the metadata alone is exact.
+const RACY_MANIFEST_WINDOW: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Error)]
 pub enum PublicAssetError {
@@ -42,11 +54,119 @@ pub enum PublicAssetError {
 /// The router serves only active manifest entries under `/_proa/assets`.
 /// A base path changes outgoing URLs for a prefix-stripping proxy; incoming
 /// routes stay rooted at `/`, matching `FrameworkBuilder::with_base_path`.
+///
+/// A value is a handle to one catalog generation. In production there is only
+/// ever one. Under `proa dev` the handle from [`from_env`](Self::from_env) or
+/// [`load_live`](Self::load_live) also follows in-place republication: its
+/// router, [`render_urls`](Self::render_urls), and [`current`](Self::current)
+/// always answer from the newest catalog. [`url`](Self::url) and
+/// [`cache_key`](Self::cache_key) borrow from the generation the handle holds,
+/// so read them from a per-request handle: the `Extension<PublicAssets>` that
+/// `RouteContextLayer` installs, or the result of [`current`](Self::current).
 #[derive(Clone)]
-pub struct PublicAssets(Arc<PreparedCatalog>);
+pub struct PublicAssets {
+    catalog: Arc<PreparedCatalog>,
+    live: Option<Arc<LiveCatalog>>,
+}
+
+/// What was true of `manifest.json` when a catalog was loaded from it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ManifestStamp {
+    modified: SystemTime,
+    len: u64,
+}
+
+impl ManifestStamp {
+    fn read(manifest: &Path) -> Option<Self> {
+        let meta = std::fs::metadata(manifest).ok()?;
+        Some(Self {
+            modified: meta.modified().ok()?,
+            len: meta.len(),
+        })
+    }
+
+    /// Whether a later replacement is guaranteed to change this stamp.
+    fn settled(self) -> bool {
+        self.modified
+            .elapsed()
+            .is_ok_and(|age| age > RACY_MANIFEST_WINDOW)
+    }
+}
+
+struct LiveState {
+    catalog: Arc<PreparedCatalog>,
+    /// Stamp of a manifest that has been evaluated and was old enough when
+    /// read for the stamp alone to prove later requests see the same file.
+    settled: Option<ManifestStamp>,
+    /// Manifest generation that failed to load. It is not retried until the
+    /// manifest changes again, so a broken output costs one attempt.
+    rejected: Option<String>,
+}
+
+/// Follows atomic manifest replacement for the life of a dev server.
+struct LiveCatalog {
+    output: PathBuf,
+    manifest: PathBuf,
+    base_path: BasePath,
+    state: RwLock<LiveState>,
+    /// Tells `proa dev` that publishing in place is enough for this server.
+    _registration: LiveReader,
+}
+
+impl LiveCatalog {
+    fn current(&self) -> Arc<PreparedCatalog> {
+        let stamp = ManifestStamp::read(&self.manifest);
+        {
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            if stamp.is_some() && stamp == state.settled {
+                return state.catalog.clone();
+            }
+        }
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        // Stamp before bytes: a replacement that lands in between leaves a
+        // stamp the next request no longer matches, so it is never missed.
+        let stamp = ManifestStamp::read(&self.manifest).filter(|stamp| stamp.settled());
+        if stamp.is_some() && stamp == state.settled {
+            return state.catalog.clone();
+        }
+        // The stamp is new, missing, or too fresh to trust. Content decides.
+        let Ok(bytes) = std::fs::read(&self.manifest) else {
+            // `proa dev` restarts the server when the output disappears.
+            return state.catalog.clone();
+        };
+        let generation = proa_assets::sha256(&bytes);
+        if generation != state.catalog.catalog.generation()
+            && state.rejected.as_deref() != Some(generation.as_str())
+        {
+            match AssetCatalog::load(&self.output)
+                .map_err(PublicAssetError::from)
+                .and_then(|catalog| PreparedCatalog::from_catalog(catalog, &self.base_path))
+            {
+                Ok(catalog) => {
+                    tracing::debug!("public asset catalog reloaded in place");
+                    state.catalog = Arc::new(catalog);
+                    state.rejected = None;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "could not reload the public asset catalog; serving the previous one"
+                    );
+                    state.rejected = Some(generation);
+                }
+            }
+        }
+        // These bytes are now loaded, known unchanged, or known broken. A
+        // settled stamp identifies them until the manifest is replaced; a
+        // fresh one proves nothing, so the next request compares bytes again.
+        state.settled = stamp;
+        state.catalog.clone()
+    }
+}
 
 struct PreparedCatalog {
-    _catalog: AssetCatalog,
+    /// Also holds the reader lock that keeps these objects on disk.
+    catalog: AssetCatalog,
     base_path: BasePath,
     urls: PublicAssetUrls,
     routes: BTreeMap<String, PreparedFile>,
@@ -70,17 +190,116 @@ enum Source {
 impl PublicAssets {
     /// An explicitly configured missing/corrupt output fails startup.
     pub fn load(output: impl AsRef<Path>, base_path: &BasePath) -> Result<Self, PublicAssetError> {
-        Self::from_catalog(AssetCatalog::load(output)?, base_path)
+        let prepared = PreparedCatalog::from_catalog(AssetCatalog::load(output)?, base_path)?;
+        Ok(Self {
+            catalog: Arc::new(prepared),
+            live: None,
+        })
+    }
+
+    /// Load a catalog that follows `proa dev` republishing it in place, so an
+    /// edited public file is served without restarting the server.
+    ///
+    /// The returned handle registers itself with the output directory. That
+    /// registration is what lets `proa dev` skip the restart, so an output
+    /// prepared by a CLI without in-place publication yields a fixed catalog,
+    /// exactly like [`load`](Self::load).
+    pub fn load_live(
+        output: impl AsRef<Path>,
+        base_path: &BasePath,
+    ) -> Result<Self, PublicAssetError> {
+        let output = output.as_ref();
+        let fixed = Self::load(output, base_path)?;
+        // Register only after a catalog exists: from here on a publication
+        // may arrive at any moment and `current` has to be able to answer.
+        let Ok(registration) = LiveReader::register(output) else {
+            return Ok(fixed);
+        };
+        Ok(Self {
+            live: Some(Arc::new(LiveCatalog {
+                manifest: output.join(MANIFEST_FILE),
+                output: output.to_path_buf(),
+                base_path: base_path.clone(),
+                state: RwLock::new(LiveState {
+                    catalog: fixed.catalog.clone(),
+                    settled: None,
+                    rejected: None,
+                }),
+                _registration: registration,
+            })),
+            catalog: fixed.catalog,
+        })
     }
 
     /// The CLI sets this runtime-only path after a successful build/publication.
     /// `None` means the application has not opted into a configured public dir.
+    ///
+    /// A process started by `proa dev` with live reload gets a catalog that
+    /// follows in-place republication. That takes the same two variables as
+    /// the reload client, so a stray `PROA_DEV_RELOAD_PORT` in a deployment
+    /// environment cannot switch it on.
     pub fn from_env(base_path: &BasePath) -> Result<Option<Self>, PublicAssetError> {
-        std::env::var_os(OUTPUT_ENV)
-            .map(|path| Self::load(path, base_path))
-            .transpose()
+        let Some(path) = std::env::var_os(OUTPUT_ENV) else {
+            return Ok(None);
+        };
+        if crate::dev_reload::session_from_env() {
+            Self::load_live(path, base_path).map(Some)
+        } else {
+            Self::load(path, base_path).map(Some)
+        }
     }
 
+    /// A handle fixed to the newest catalog.
+    ///
+    /// Call this once per request when rendering outside `RouteContextLayer`
+    /// and read URLs and the cache key from the result, so one response never
+    /// mixes two generations. Outside `proa dev` it returns the same catalog.
+    pub fn current(&self) -> Self {
+        match &self.live {
+            Some(live) => Self {
+                catalog: live.current(),
+                live: None,
+            },
+            None => self.clone(),
+        }
+    }
+
+    /// Look up one logical path in the catalog this handle holds.
+    pub fn url(&self, logical: &str) -> Option<&str> {
+        self.catalog.urls.get(logical)
+    }
+
+    /// Share the prepared URL table with a manually constructed render context.
+    /// A handle that follows `proa dev` answers from the newest catalog.
+    pub fn render_urls(&self) -> PublicAssetUrls {
+        match &self.live {
+            Some(live) => live.current().urls.clone(),
+            None => self.catalog.urls.clone(),
+        }
+    }
+
+    pub(crate) fn base_path(&self) -> &BasePath {
+        &self.catalog.base_path
+    }
+
+    /// Include this in application caches that hold HTML containing asset URLs.
+    /// It incorporates both catalog bytes and the startup delivery base path.
+    ///
+    /// The key belongs to the catalog this handle holds. Under `proa dev`,
+    /// read it from the request's `Extension<PublicAssets>` or from
+    /// [`current`](Self::current) so it changes when files are republished.
+    pub fn cache_key(&self) -> &str {
+        &self.catalog.cache_key
+    }
+
+    pub fn router(&self) -> Router {
+        Router::new()
+            .route(&format!("{PUBLIC_ROUTE}/*path"), get(serve))
+            .with_state(self.clone())
+    }
+}
+
+impl PreparedCatalog {
     fn from_catalog(catalog: AssetCatalog, base_path: &BasePath) -> Result<Self, PublicAssetError> {
         let mut urls = BTreeMap::new();
         let mut routes = BTreeMap::new();
@@ -160,38 +379,13 @@ impl PublicAssets {
         let cache_key = proa_assets::sha256(
             format!("{}\n{}", catalog.generation(), base_path.as_str()).as_bytes(),
         );
-        Ok(Self(Arc::new(PreparedCatalog {
-            _catalog: catalog,
+        Ok(Self {
+            catalog,
             base_path: base_path.clone(),
             urls: PublicAssetUrls::new(urls),
             routes,
             cache_key,
-        })))
-    }
-
-    pub fn url(&self, logical: &str) -> Option<&str> {
-        self.0.urls.get(logical)
-    }
-
-    /// Share the prepared URL table with a manually constructed render context.
-    pub fn render_urls(&self) -> PublicAssetUrls {
-        self.0.urls.clone()
-    }
-
-    pub(crate) fn base_path(&self) -> &BasePath {
-        &self.0.base_path
-    }
-
-    /// Include this in application caches that hold HTML containing asset URLs.
-    /// It incorporates both catalog bytes and the startup delivery base path.
-    pub fn cache_key(&self) -> &str {
-        &self.0.cache_key
-    }
-
-    pub fn router(&self) -> Router {
-        Router::new()
-            .route(&format!("{PUBLIC_ROUTE}/*path"), get(serve))
-            .with_state(self.clone())
+        })
     }
 }
 
@@ -200,7 +394,8 @@ async fn serve(
     RequestPath(path): RequestPath<String>,
     mut request: Request<Body>,
 ) -> Response<Body> {
-    let Some(file) = assets.0.routes.get(&path) else {
+    let assets = assets.current();
+    let Some(file) = assets.catalog.routes.get(&path) else {
         return empty(StatusCode::NOT_FOUND);
     };
     let matches = request

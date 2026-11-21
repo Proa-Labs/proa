@@ -32,6 +32,7 @@ pub const PUBLIC_ROUTE: &str = "/_proa/assets";
 const OWNER_FILE: &str = ".proa-assets";
 const OWNER_BYTES: &[u8] = b"proa-public-assets-v1\n";
 const READERS_FILE: &str = ".readers.lock";
+const LIVE_READERS_FILE: &str = ".live-readers.lock";
 
 pub type Result<T> = std::result::Result<T, AssetError>;
 
@@ -227,6 +228,43 @@ impl AssetCatalog {
             .assets
             .get(logical)
             .map(|entry| self.output.join("objects").join(&entry.object))
+    }
+}
+
+/// Proof that a running server follows manifest replacement in place.
+///
+/// A development server holds this for as long as it reloads the catalog when
+/// the manifest changes. The writer asks
+/// [`OutputStore::has_live_reader`](build::OutputStore::has_live_reader)
+/// before it decides to leave that server running after a publication. A
+/// server that loaded a fixed catalog, or one built against a release without
+/// in-place reloading, never registers and is restarted instead.
+#[derive(Debug)]
+pub struct LiveReader {
+    lock: File,
+}
+
+impl Drop for LiveReader {
+    fn drop(&mut self) {
+        // Same reasoning as `AssetCatalog`: do not let a concurrent fork()
+        // keep the registration alive after this value is gone.
+        let _ = self.lock.unlock();
+    }
+}
+
+impl LiveReader {
+    /// Register against an output the writer already prepared. The lock file
+    /// is created by the writer; a missing file means the writer predates
+    /// in-place reloading and restarts the server itself.
+    pub fn register(output: impl AsRef<Path>) -> Result<Self> {
+        let output = output.as_ref();
+        let output = at(output, output.canonicalize())?;
+        validate_owner(&output)?;
+        let path = output.join(LIVE_READERS_FILE);
+        plain_file(&path)?;
+        let lock = at(&path, File::open(&path))?;
+        at(&path, lock.lock_shared())?;
+        Ok(Self { lock })
     }
 }
 

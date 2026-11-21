@@ -78,7 +78,10 @@ impl<L: DataLoader> WebRenderSync<L> for Counter {
 ```
 
 The trait impl, method signature, context parameter, result type, and final
-`.render(cx)` call are ordinary authored Rust. `component` asks RSJS to analyze
+`.render(cx)` call are ordinary authored Rust. When a module imports both
+render traits, write the tail qualified instead:
+`WebRenderSync::render(html_sync! { ... }, cx)`, or
+`WebRender::render(html! { ... }, cx).resolve().await` in an async component. `component` asks RSJS to analyze
 that implementation. `client` grants permission to originate browser behavior;
 it does not force unused code to ship. Bare `#[rsjs]`, inherent impl shorthand,
 and `async fn render` sugar are rejected.

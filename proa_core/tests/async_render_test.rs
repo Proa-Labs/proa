@@ -284,3 +284,112 @@ async fn a11y_opt_out_is_stripped_on_both_dynamic_paths() {
     );
     assert!(async_html.contains("role=\"progressbar\""));
 }
+
+#[tokio::test]
+async fn all_primitives_render_in_html_md_and_xml_sync_and_async() {
+    use proa_core::{render_md_to_string_async, render_to_string, MdRenderSync, WebContext};
+    use proa_macros::{html, html_sync, md, md_sync, xml, xml_sync};
+
+    let (u8_v, u16_v, u32_v, u64_v, u128_v, usize_v): (u8, u16, u32, u64, u128, usize) =
+        (7, 512, 2026, 99_999, 123_456_789, 42);
+    let (i8_v, i16_v, i32_v, i64_v, i128_v, isize_v): (i8, i16, i32, i64, i128, isize) =
+        (-3, -400, -2026, -88_888, -987_654_321, -9);
+    let (f32_v, f64_v, bool_v, char_v): (f32, f64, bool, char) = (1.5, -2.25, true, '<');
+
+    let expected_html = "<p>7|512|2026|99999|123456789|42|-3|-400|-2026|-88888|-987654321|-9|1.5|-2.25|true|&lt;</p>";
+    let sync_html = render_to_string(html_sync! {
+        <p>
+            {u8_v}
+            "|"
+            {u16_v}
+            "|"
+            {u32_v}
+            "|"
+            {u64_v}
+            "|"
+            {u128_v}
+            "|"
+            {usize_v}
+            "|"
+            {i8_v}
+            "|"
+            {i16_v}
+            "|"
+            {i32_v}
+            "|"
+            {i64_v}
+            "|"
+            {i128_v}
+            "|"
+            {isize_v}
+            "|"
+            {f32_v}
+            "|"
+            {f64_v}
+            "|"
+            {bool_v}
+            "|"
+            {char_v}
+        </p>
+    });
+    assert_eq!(sync_html, expected_html);
+
+    let async_html = render_to_string_async(html! {
+        <p>
+            {u8_v}
+            "|"
+            {u16_v}
+            "|"
+            {u32_v}
+            "|"
+            {u64_v}
+            "|"
+            {u128_v}
+            "|"
+            {usize_v}
+            "|"
+            {i8_v}
+            "|"
+            {i16_v}
+            "|"
+            {i32_v}
+            "|"
+            {i64_v}
+            "|"
+            {i128_v}
+            "|"
+            {isize_v}
+            "|"
+            {f32_v}
+            "|"
+            {f64_v}
+            "|"
+            {bool_v}
+            "|"
+            {char_v}
+        </p>
+    })
+    .await;
+    assert_eq!(async_html, expected_html);
+
+    let sync_xml = render_to_string(xml_sync! {
+        <item>{u32_v}"|"{f64_v}"|"{bool_v}"|"{char_v}</item>
+    });
+    let async_xml = render_to_string_async(xml! {
+        <item>{u32_v}"|"{f64_v}"|"{bool_v}"|"{char_v}</item>
+    })
+    .await;
+    assert_eq!(sync_xml, "<item>2026|-2.25|true|&lt;</item>");
+    assert_eq!(async_xml, sync_xml);
+
+    let md_star = '*';
+    let mut md_cx = WebContext::with_buffer(Vec::new());
+    md_sync! { "{u32_v} {i64_v} {f64_v} {bool_v} {md_star}" }
+        .render_md(&mut md_cx)
+        .unwrap();
+    let sync_md = String::from_utf8(md_cx.into_output()).unwrap();
+    let async_md =
+        render_md_to_string_async(md! { "{u32_v} {i64_v} {f64_v} {bool_v} {md_star}" }).await;
+    assert_eq!(sync_md, "2026 -88888 -2.25 true \\*");
+    assert_eq!(async_md, sync_md);
+}

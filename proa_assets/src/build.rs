@@ -86,6 +86,7 @@ impl OutputStore {
             at(&marker, file.sync_all())?;
         }
         open_lock(&root.join(READERS_FILE))?;
+        open_lock(&root.join(LIVE_READERS_FILE))?;
         ensure_directory(&root, "objects")?;
         ensure_directory(&root, "staging")?;
         let store = Self {
@@ -243,6 +244,28 @@ impl OutputStore {
             cleanup,
             durability_error,
         })
+    }
+
+    /// Whether a running server registered a [`LiveReader`] for this output.
+    ///
+    /// `true` means the server picks up the manifest just published without a
+    /// restart. `false` covers every other reader: none at all, one that
+    /// loaded a fixed catalog, and one that has not finished starting. Each of
+    /// those needs a restart to see new files.
+    pub fn has_live_reader(&self) -> Result<bool> {
+        let lock_path = self.root.join(LIVE_READERS_FILE);
+        let lock = open_lock(&lock_path)?;
+        match lock.try_lock() {
+            Ok(()) => {
+                let _ = lock.unlock();
+                Ok(false)
+            }
+            Err(TryLockError::WouldBlock) => Ok(true),
+            Err(TryLockError::Error(source)) => Err(AssetError::Io {
+                path: lock_path,
+                source,
+            }),
+        }
     }
 
     /// Remove stale local objects only when no server/catalog is reading them.
