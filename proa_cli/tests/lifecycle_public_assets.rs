@@ -446,14 +446,22 @@ fn main() {
     assert_eq!(cargo_calls(), builds);
 
     fs::write(root.join("public/logo.svg"), "two").unwrap();
-    assert!(wait(ready, 4).contains("CONFIG one two"));
+    let republish = "republished catalog without Cargo";
+    let logo = wait(ready, 4);
+    assert!(logo.contains("CONFIG one two"));
+    assert_eq!(logo.matches(republish).count(), 1, "{logo}");
+    assert_eq!(logo.matches(build_started).count(), 1, "{logo}");
+    assert_ne!(fs::read(output.join("manifest.json")).unwrap(), original);
     assert_eq!(
         cargo_calls(),
         builds,
         "runtime read should reuse the config executable"
     );
     fs::write(root.join("public/icon.svg"), "new-icon").unwrap();
-    assert!(wait(ready, 5).contains("CONFIG new-icon two"));
+    let icon = wait(ready, 5);
+    assert!(icon.contains("CONFIG new-icon two"));
+    assert_eq!(icon.matches(republish).count(), 2, "{icon}");
+    assert_eq!(icon.matches(build_started).count(), 1, "{icon}");
     assert_eq!(
         cargo_calls(),
         builds + 1,
@@ -472,7 +480,7 @@ fn main() {
     let rebuilt = wait(ready, 7);
     assert!(output.join("manifest.json").is_file());
     assert_eq!(rebuilt.matches("use `proa run dev`").count(), 1);
-    assert_eq!(rebuilt.matches(build_started).count(), 5, "{rebuilt}");
+    assert_eq!(rebuilt.matches(build_started).count(), 3, "{rebuilt}");
 
     let source = root.join("src/main.rs");
     let valid_source = fs::read(&source).unwrap();
@@ -498,18 +506,53 @@ fn main() {
     // Watch past the missing-catalog retry interval while the files are idle.
     std::thread::sleep(Duration::from_secs(3));
     let idle = fs::read_to_string(&log).unwrap();
-    assert_eq!(idle.matches(build_started).count(), 6, "{idle}");
+    assert_eq!(idle.matches(build_started).count(), 4, "{idle}");
     assert_eq!(idle.matches(failed).count(), 1, "{idle}");
     assert!(!output.join("manifest.json").exists(), "{idle}");
 
-    fs::write(&source, valid_source).unwrap();
+    fs::write(&source, &valid_source).unwrap();
     let recovered = wait(ready, 8);
-    assert_eq!(recovered.matches(build_started).count(), 7, "{recovered}");
+    assert_eq!(recovered.matches(build_started).count(), 5, "{recovered}");
     assert!(output.join("manifest.json").is_file(), "{recovered}");
 
     fs::write(root.join("extra-input.txt"), "two").unwrap();
     let watched = wait(ready, 9);
-    assert_eq!(watched.matches(build_started).count(), 8, "{watched}");
+    assert_eq!(watched.matches(build_started).count(), 6, "{watched}");
+
+    // A public file the application compiles in is a Cargo input: editing it
+    // must take the linked rebuild, not the catalog-only restart.
+    let mut compiled = b"const _: &str = include_str!(\"../public/logo.svg\");\n".to_vec();
+    compiled.extend(fs::read(&source).unwrap());
+    fs::write(&source, compiled).unwrap();
+    wait(ready, 10);
+    fs::write(root.join("public/logo.svg"), "three").unwrap();
+    let included = wait(ready, 11);
+    assert_eq!(included.matches(build_started).count(), 8, "{included}");
+    assert_eq!(included.matches(republish).count(), 2, "{included}");
+
+    // A build script that declares its inputs keeps the catalog-only restart.
+    // One that declares none reruns on any package change, so it cannot.
+    fs::write(&source, &valid_source).unwrap();
+    fs::write(
+        root.join("build.rs"),
+        "fn main() { println!(\"cargo:rerun-if-changed=build.rs\"); }\n",
+    )
+    .unwrap();
+    wait(ready, 12);
+    fs::write(root.join("public/logo.svg"), "four").unwrap();
+    let declared = wait(ready, 13);
+    assert_eq!(declared.matches(build_started).count(), 9, "{declared}");
+    assert_eq!(declared.matches(republish).count(), 3, "{declared}");
+    fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
+    wait(ready, 14);
+    fs::write(root.join("public/logo.svg"), "five").unwrap();
+    let undeclared = wait(ready, 15);
+    assert_eq!(
+        undeclared.matches(build_started).count(),
+        11,
+        "{undeclared}"
+    );
+    assert_eq!(undeclared.matches(republish).count(), 3, "{undeclared}");
 }
 
 #[cfg(unix)]
@@ -833,4 +876,200 @@ fn dev_finalizes_before_launch_and_no_assets_skips_publication() {
     let catalog = AssetCatalog::load(published(&dev)).unwrap();
     assert_eq!(&manifest, catalog.manifest());
     assert!(dev.contains("final cache: 1/1 reused"), "{dev}");
+}
+
+#[cfg(unix)]
+#[test]
+fn config_runner_persists_stamp_cache_across_cli_invocations() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = fixture();
+    let root = temp.path();
+    fs::write(
+        root.join("proa.config.rs"),
+        r#"
+use proa::config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config<&'static str, String>> {
+    let public = proa::config::tokio::fs::read_to_string("asset-root.txt")
+        .await
+        .map_err(|error| format!("read asset-root.txt: {error}"))?;
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: option_env!("PROA_TEST_DEV_CMD").unwrap_or("cargo run"),
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        paths: ProjectPaths {
+            public: Some(public),
+            ..Default::default()
+        },
+        build: BuildConfig {
+            assets: Some(vec![]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let artifacts = tempfile::tempdir().unwrap();
+    let target = artifacts.path().join("cargo-target");
+    let cargo_trace = artifacts.path().join("config-cargo.log");
+    let cargo = artifacts.path().join("cargo-trace");
+    fs::write(
+        &cargo,
+        r#"#!/bin/sh
+case "$1:$*" in build:*proa-config/*) echo build >> "$CONFIG_CARGO_LOG";; esac
+exec "$REAL_CARGO" "$@"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let profile = std::cell::Cell::new(None::<&str>);
+    let quiet = std::cell::Cell::new(false);
+    let run_validate = |compile_env: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
+        if let Some(value) = profile.get() {
+            command.env("CARGO_PROFILE_DEV_DEBUG_ASSERTIONS", value);
+        }
+        if quiet.get() {
+            command.env("CARGO_TERM_QUIET", "true");
+        } else {
+            command.env_remove("CARGO_TERM_QUIET");
+        }
+        command
+            .current_dir(root)
+            .env("CARGO_TARGET_DIR", &target)
+            .env("CARGO", &cargo)
+            .env("REAL_CARGO", env!("CARGO"))
+            .env("CARGO_NET_OFFLINE", "true")
+            .env("CONFIG_CARGO_LOG", &cargo_trace)
+            .args(["config", "validate"]);
+        match compile_env {
+            Some(value) => {
+                command.env("PROA_TEST_DEV_CMD", value);
+            }
+            None => {
+                command.env_remove("PROA_TEST_DEV_CMD");
+            }
+        }
+        command.output().unwrap()
+    };
+
+    let first = run_validate(Some("cargo run --bin secret-alpha"));
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&first.stderr).contains("compiling proa.config.rs..."),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(fs::read_to_string(&cargo_trace).unwrap().lines().count(), 1);
+
+    // Persisted stamp-cache.json must never store compile-time env values in plaintext.
+    let cache_files: Vec<_> = fs::read_dir(target.join("proa-config"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path().join("stamp-cache.json"))
+        .filter(|path| path.is_file())
+        .collect();
+    assert_eq!(cache_files.len(), 1);
+    let persisted = fs::read_to_string(&cache_files[0]).unwrap();
+    assert!(persisted.contains("PROA_TEST_DEV_CMD"), "{persisted}");
+    assert!(!persisted.contains("secret-alpha"), "{persisted}");
+
+    // Second completely fresh CLI process with identical env reuses persisted stamp-cache.json.
+    let second = run_validate(Some("cargo run --bin secret-alpha"));
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        1,
+        "second CLI process should skip cargo build when inputs and compile-time env are unchanged"
+    );
+
+    // Changing a compile-time `option_env!()` value must invalidate the persisted stamp cache.
+    let env_changed = run_validate(Some("cargo run --bin secret-beta"));
+    assert!(
+        env_changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&env_changed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        2,
+        "changing compile-time option_env!() must invalidate persisted stamp cache"
+    );
+
+    // Unsetting the compile-time `option_env!()` variable must also invalidate the cache.
+    let env_unset = run_validate(None);
+    assert!(
+        env_unset.status.success(),
+        "{}",
+        String::from_utf8_lossy(&env_unset.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        3,
+        "unsetting compile-time option_env!() must invalidate persisted stamp cache"
+    );
+
+    // Editing `proa.config.rs` invalidates the persisted stamp cache and recompiles once.
+    let updated = format!(
+        "{}\n// touched\n",
+        fs::read_to_string(root.join("proa.config.rs")).unwrap()
+    );
+    fs::write(root.join("proa.config.rs"), updated).unwrap();
+    let file_changed = run_validate(None);
+    assert!(
+        file_changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&file_changed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        4,
+        "editing proa.config.rs must invalidate persisted stamp cache"
+    );
+
+    // A Cargo profile setting can change what `cfg!(debug_assertions)` compiles to.
+    profile.set(Some("false"));
+    let profile_changed = run_validate(None);
+    assert!(
+        profile_changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&profile_changed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        5,
+        "a new CARGO_PROFILE_* setting must invalidate persisted stamp cache"
+    );
+    run_validate(None);
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        5,
+        "an unchanged profile setting reuses the persisted stamp cache"
+    );
+
+    // Interactive `proa dev` sets CARGO_TERM_QUIET while its `proa run dev`
+    // parent does not. Output-only settings must not split their caches.
+    quiet.set(true);
+    run_validate(None);
+    quiet.set(false);
+    run_validate(None);
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        5,
+        "CARGO_TERM_* settings must not invalidate the persisted stamp cache"
+    );
 }

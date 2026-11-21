@@ -7,13 +7,19 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    time::SystemTime,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::ProjectConfig;
+
+const STAMP_CACHE_SCHEMA_VERSION: u16 = 1;
+const STAMP_CACHE_FILE: &str = "stamp-cache.json";
+static STAMP_CACHE_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 const MODEL: &str = include_str!("model.rs");
 const MANIFEST: &str = include_str!("runner/Cargo.toml.in");
@@ -50,11 +56,80 @@ pub(crate) struct DevConfigRunner {
 }
 
 type InputStamps = BTreeMap<PathBuf, Option<(SystemTime, u64)>>;
+type EnvStamps = BTreeMap<String, Option<String>>;
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedStampCache {
+    schema_version: u16,
+    executable: PathBuf,
+    inputs: Vec<PersistedInputStamp>,
+    env_deps: Vec<PersistedEnvStamp>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedEnvStamp {
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    value_sha256: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedInputStamp {
+    path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    modified_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    modified_nanos: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    len: Option<u64>,
+}
 
 struct CachedRunner {
     executable: PathBuf,
     lock: PathBuf,
     inputs: InputStamps,
+    env_deps: EnvStamps,
+}
+
+/// Every variable Cargo, rustc, or rustup may read as configuration, with its
+/// value digested. Cargo maps any config key to a `CARGO_*` variable (profile
+/// settings, rustflags, target options), so the set is open-ended: stamp the
+/// whole namespace instead of a list that can fall behind. `None` when a
+/// value is not Unicode.
+///
+/// Cargo's `[term]` settings (`CARGO_TERM_*`) only change how Cargo prints and
+/// are not part of its own fingerprint, so they are left out. The interactive
+/// `proa dev` view sets `CARGO_TERM_QUIET`, and stamping it would make that
+/// process and its `proa run dev` parent reject each other's cache. A config
+/// that reads one through `env!` is still stamped from rustc's dep-info.
+fn build_environment() -> Option<EnvStamps> {
+    let mut stamps = EnvStamps::new();
+    for (name, value) in env::vars_os() {
+        let Some(name) = name.to_str() else { continue };
+        if (name.starts_with("CARGO") || name.starts_with("RUST"))
+            && !name.starts_with("CARGO_TERM_")
+        {
+            stamps.insert(name.to_owned(), Some(hash_env_value(value.to_str()?)));
+        }
+    }
+    Some(stamps)
+}
+
+fn hash_env_value(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    format!("{:x}", base16ct::HexDisplay(&digest))
+}
+
+fn system_time_to_unix(time: SystemTime) -> Option<(u64, u32)> {
+    let duration = time.duration_since(UNIX_EPOCH).ok()?;
+    Some((duration.as_secs(), duration.subsec_nanos()))
+}
+
+fn unix_to_system_time(secs: u64, nanos: u32) -> SystemTime {
+    UNIX_EPOCH + Duration::new(secs, nanos)
 }
 
 fn stamp(path: &Path) -> io::Result<Option<(SystemTime, u64)>> {
@@ -73,25 +148,36 @@ impl CachedRunner {
         build_started: SystemTime,
     ) -> Option<Self> {
         // Use rustc's dependency list: even an SVG can be an include_bytes!
-        // input. If Cargo retained several variants, let Cargo disambiguate.
+        // input. Cargo retains one variant per profile or flag set, and the
+        // executable is a hard link to the current one, so they share a stamp.
         let deps = executable.parent()?.join("deps");
+        let current = stamp(executable).ok()??;
         let mut listings = fs::read_dir(deps).ok()?.filter_map(|entry| {
             let path = entry.ok()?.path();
             let name = path.file_name()?.to_str()?;
-            (name.starts_with("proa_config_runner-") && name.ends_with(".d")).then_some(path)
+            let variant = name.strip_suffix(".d")?;
+            let binary = path.with_file_name(format!("{variant}{}", env::consts::EXE_SUFFIX));
+            (name.starts_with("proa_config_runner-") && stamp(&binary).ok()? == Some(current))
+                .then_some(path)
         });
         let listing = listings.next()?;
         if listings.next().is_some() {
             return None;
         }
-        let paths = proa_build::build::rustc_source_dependencies(&fs::read(&listing).ok()?).ok()?;
-        for input in paths {
+        let deps = proa_build::build::rustc_dependencies(&fs::read(&listing).ok()?).ok()?;
+        for input in deps.source_paths {
             let path = runner.join(input);
             let state = stamp(&path).ok()??;
             if state.0 > build_started {
                 return None;
             }
             inputs.insert(path, Some(state));
+        }
+        let mut env_deps = build_environment()?;
+        for (name, value) in deps.environment {
+            // Store only a SHA-256 digest of compile-time env values so secrets
+            // never land in plaintext in `stamp-cache.json`.
+            env_deps.insert(name, value.as_deref().map(hash_env_value));
         }
         for file in [
             listing,
@@ -106,6 +192,7 @@ impl CachedRunner {
             executable: executable.to_owned(),
             lock: runner.join(".lock"),
             inputs,
+            env_deps,
         })
     }
 
@@ -165,23 +252,149 @@ impl CachedRunner {
         Some(inputs)
     }
 
+    fn is_fresh(&self) -> bool {
+        for (path, expected) in &self.inputs {
+            match stamp(path) {
+                Ok(actual) if actual == *expected => {}
+                _ => return false,
+            }
+        }
+        let Some(build_environment) = build_environment() else {
+            return false;
+        };
+        for (name, expected_hash) in &self.env_deps {
+            let actual_hash = match env::var(name) {
+                Ok(value) => Some(hash_env_value(&value)),
+                Err(env::VarError::NotPresent) => None,
+                Err(env::VarError::NotUnicode(_)) => return false,
+            };
+            if actual_hash != *expected_hash {
+                return false;
+            }
+        }
+        // A build setting that appeared since the stamps were taken.
+        if !build_environment
+            .keys()
+            .all(|name| self.env_deps.contains_key(name))
+        {
+            return false;
+        }
+        true
+    }
+
     fn evaluate_if_fresh(&self, root: &Path, path: &Path) -> Option<Result<ProjectConfig>> {
         // Serialize with other CLI processes replacing the runner in this target.
         let lock = fs::File::open(&self.lock).ok()?;
         lock.lock_shared().ok()?;
-        for (path, expected) in &self.inputs {
-            if stamp(path).ok()? != *expected {
+        if !self.is_fresh() {
+            return None;
+        }
+        Some(evaluate(root, path, &self.executable))
+    }
+
+    fn save(&self, runner: &Path) {
+        let Some(inputs) = self
+            .inputs
+            .iter()
+            .map(|(path, state)| match state {
+                None => Some(PersistedInputStamp {
+                    path: path.clone(),
+                    modified_secs: None,
+                    modified_nanos: None,
+                    len: None,
+                }),
+                Some((modified, len)) => {
+                    let (secs, nanos) = system_time_to_unix(*modified)?;
+                    Some(PersistedInputStamp {
+                        path: path.clone(),
+                        modified_secs: Some(secs),
+                        modified_nanos: Some(nanos),
+                        len: Some(*len),
+                    })
+                }
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        let env_deps = self
+            .env_deps
+            .iter()
+            .map(|(name, value_sha256)| PersistedEnvStamp {
+                name: name.clone(),
+                value_sha256: value_sha256.clone(),
+            })
+            .collect();
+        let payload = PersistedStampCache {
+            schema_version: STAMP_CACHE_SCHEMA_VERSION,
+            executable: self.executable.clone(),
+            inputs,
+            env_deps,
+        };
+        let Ok(bytes) = serde_json::to_vec(&payload) else {
+            return;
+        };
+        let seq = STAMP_CACHE_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let tmp = runner.join(format!(
+            ".{STAMP_CACHE_FILE}.proa-{}-{seq}.tmp",
+            std::process::id()
+        ));
+        let dest = runner.join(STAMP_CACHE_FILE);
+        if fs::write(&tmp, bytes).is_ok() {
+            #[cfg(windows)]
+            let _ = fs::remove_file(&dest);
+            if fs::rename(&tmp, &dest).is_err() {
+                let _ = fs::remove_file(&tmp);
+            }
+        }
+    }
+
+    fn load_persisted(root: &Path, runner: &Path, expected_executable: &Path) -> Option<Self> {
+        // Re-check Cargo config safety rules (e.g., `patch`/`paths`/`source`/`include`)
+        // before trusting any persisted stamp set.
+        let current_settings = Self::settings(root)?;
+        let bytes = fs::read(runner.join(STAMP_CACHE_FILE)).ok()?;
+        let persisted: PersistedStampCache = serde_json::from_slice(&bytes).ok()?;
+        if persisted.schema_version != STAMP_CACHE_SCHEMA_VERSION
+            || persisted.executable != expected_executable
+        {
+            return None;
+        }
+        let mut inputs = InputStamps::new();
+        for item in persisted.inputs {
+            let state = match (item.modified_secs, item.modified_nanos, item.len) {
+                (Some(secs), Some(nanos), Some(len)) => {
+                    Some((unix_to_system_time(secs, nanos), len))
+                }
+                (None, None, None) => None,
+                _ => return None,
+            };
+            inputs.insert(item.path, state);
+        }
+        // Every current Cargo/toolchain settings path must be accounted for and unchanged.
+        for (path, expected) in &current_settings {
+            if inputs.get(path) != Some(expected) {
                 return None;
             }
         }
-        Some(evaluate(root, path, &self.executable))
+        let mut env_deps = EnvStamps::new();
+        for item in persisted.env_deps {
+            env_deps.insert(item.name, item.value_sha256);
+        }
+        let cached = Self {
+            executable: persisted.executable,
+            lock: runner.join(".lock"),
+            inputs,
+            env_deps,
+        };
+        cached.is_fresh().then_some(cached)
     }
 }
 
 pub(super) fn load(
     root: &Path,
     path: &Path,
-    cache: Option<&mut DevConfigRunner>,
+    mut cache: Option<&mut DevConfigRunner>,
 ) -> Result<ProjectConfig> {
     if let Some(result) = cache
         .as_ref()
@@ -191,13 +404,12 @@ pub(super) fn load(
         return result;
     }
     let root = root.canonicalize()?;
-    let settings = cache.as_ref().and_then(|_| CachedRunner::settings(&root));
     let path = root.join(path.file_name().context("missing config filename")?);
     let config_path = path.to_str().context("Rust config path must be UTF-8")?;
     let entry = ENTRY.replace("__CONFIG_PATH__", &format!("{config_path:?}"));
-    let host = host_target(&root)?;
+    let (host, rustc_version) = host_target_and_version(&root)?;
     let mut key = Sha256::new();
-    for input in [MODEL, MANIFEST, LOCKFILE, &entry, &host] {
+    for input in [MODEL, MANIFEST, LOCKFILE, &entry, &host, &rustc_version] {
         key.update((input.len() as u64).to_le_bytes());
         key.update(input.as_bytes());
     }
@@ -205,12 +417,36 @@ pub(super) fn load(
     // Put persistent helper artifacts in Cargo's resolved target directory.
     // Config inspection also works in a standalone directory before Cargo init.
     let scratch;
-    let runner = if root.join("Cargo.toml").is_file() {
+    let persistent = root.join("Cargo.toml").is_file();
+    let runner = if persistent {
         cargo_target_directory(&root)?.join("proa-config").join(key)
     } else {
         scratch = tempfile::tempdir()?;
         scratch.path().to_owned()
     };
+    let executable = runner
+        .join("target")
+        .join(&host)
+        .join("debug")
+        .join(format!("proa-config-runner{}", env::consts::EXE_SUFFIX));
+
+    // Fast path across fresh CLI processes: validate persisted rustc dep-info +
+    // Cargo settings under a shared lock and skip invoking `cargo build`.
+    if persistent {
+        if let Ok(shared_lock) = fs::File::open(runner.join(".lock")) {
+            if shared_lock.lock_shared().is_ok() {
+                if let Some(persisted) = CachedRunner::load_persisted(&root, &runner, &executable) {
+                    let result = evaluate(&root, &path, &persisted.executable);
+                    if let Some(cache) = cache.as_deref_mut() {
+                        cache.cached = Some(persisted);
+                    }
+                    return result;
+                }
+            }
+        }
+    }
+
+    let settings = CachedRunner::settings(&root);
     fs::create_dir_all(runner.join("src"))?;
     let lock = fs::OpenOptions::new()
         .create(true)
@@ -219,11 +455,30 @@ pub(super) fn load(
         .truncate(false)
         .open(runner.join(".lock"))?;
     lock.lock()?;
+    if persistent {
+        if let Some(persisted) = CachedRunner::load_persisted(&root, &runner, &executable) {
+            let result = evaluate(&root, &path, &persisted.executable);
+            if let Some(cache) = cache.as_deref_mut() {
+                cache.cached = Some(persisted);
+            }
+            return result;
+        }
+    }
+
     write_changed(&runner.join("Cargo.toml"), MANIFEST)?;
     write_changed(&runner.join("Cargo.lock"), LOCKFILE)?;
     write_changed(&runner.join("src/model.rs"), MODEL)?;
     write_changed(&runner.join("src/main.rs"), &entry)?;
 
+    if !executable.is_file() {
+        eprintln!(
+            "compiling {}...",
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("proa.config.rs")
+        );
+    }
+    let _ = fs::remove_file(runner.join(STAMP_CACHE_FILE));
     let mut build = cargo(&root);
     build
         .args(["build", "--quiet", "--locked", "--target", &host])
@@ -244,14 +499,15 @@ pub(super) fn load(
     {
         bail!("could not compile {}", path.display());
     }
-    let executable = runner
-        .join("target")
-        .join(host)
-        .join("debug")
-        .join(format!("proa-config-runner{}", env::consts::EXE_SUFFIX));
-    if let Some(cache) = cache {
-        cache.cached = settings
-            .and_then(|inputs| CachedRunner::capture(inputs, &runner, &executable, build_started));
+    if let Some(captured) = settings
+        .and_then(|inputs| CachedRunner::capture(inputs, &runner, &executable, build_started))
+    {
+        if persistent {
+            captured.save(&runner);
+        }
+        if let Some(cache) = cache {
+            cache.cached = Some(captured);
+        }
     }
     evaluate(&root, &path, &executable)
 }
@@ -314,7 +570,7 @@ fn cargo_target_directory(root: &Path) -> Result<PathBuf> {
     Ok(serde_json::from_slice::<Metadata>(&output.stdout)?.target_directory)
 }
 
-fn host_target(root: &Path) -> Result<String> {
+fn host_target_and_version(root: &Path) -> Result<(String, String)> {
     let output = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
         .current_dir(root)
         .arg("-vV")
@@ -326,11 +582,13 @@ fn host_target(root: &Path) -> Result<String> {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    String::from_utf8(output.stdout)?
+    let version = String::from_utf8(output.stdout)?;
+    let host = version
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .map(str::to_owned)
-        .context("rustc did not report its host target")
+        .context("rustc did not report its host target")?;
+    Ok((host, version))
 }
 
 fn write_changed(path: &Path, source: &str) -> Result<()> {
@@ -396,6 +654,7 @@ enum TextSource {
 impl TextSource {
     fn render(self, mut literal: String) -> String {
         if matches!(self, Self::Convert) {
+            // proa-perf-ok: CLI config source codegen, not an SSR render path
             literal.push_str(".into()");
         }
         literal

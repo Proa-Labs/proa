@@ -578,6 +578,7 @@ fn dev_command_honors_configured_application_binary() {
         no_css_hot_swap: false,
         reload_port: None,
         debounce_ms: None,
+        verbose: false,
         command: Vec::new(),
     };
     let config = ProjectConfig {
@@ -833,6 +834,7 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         no_css_hot_swap: false,
         reload_port: None,
         debounce_ms,
+        verbose: false,
         command: Vec::new(),
     }
 }
@@ -1890,6 +1892,186 @@ mod dev_preparation_tests {
                 .find(|entry| entry.target_triple.as_deref() == Some("x86_64-unknown-linux-gnu"))
                 .and_then(|entry| entry.public_assets.as_deref()),
             Some(assets_cross.as_path())
+        );
+    }
+
+    #[test]
+    fn managed_public_stylesheet_and_asset_edits_qualify_for_public_assets_only_reload() {
+        let (temp, mut config) = fixture(
+            None,
+            Some("cp styles/input.css public/styles.css && echo ran >> asset-runs.log"),
+        );
+        let root = temp.path();
+        config.paths.public = Some("public".into());
+        fs::create_dir_all(root.join("public/images")).unwrap();
+        fs::write(root.join("public/styles.css"), ".old { color: red; }").unwrap();
+        fs::write(root.join("public/images/brand.svg"), "<svg/>").unwrap();
+        fs::write(
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
+
+        // 1. Editing an unrelated `public/` asset qualifies for fast republish. The asset
+        //    command still runs: its declared input is not proof of everything it reads.
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        fs::write(root.join("public/images/brand.svg"), "<svg id='v2'/>").unwrap();
+        let mut failure = committed.clone();
+        let asset_only = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(asset_only.public_assets_only);
+        assert!(root.join("asset-runs.log").is_file());
+
+        // 2. Editing `styles/input.css` rebuilds CSS and still qualifies for fast catalog republish.
+        let committed = asset_only.snapshot;
+        fs::write(root.join("styles/input.css"), ".new { color: green; }").unwrap();
+        let mut failure = committed.clone();
+        let css_edit = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(css_edit.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new { color: green; }"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("asset-runs.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
+
+        // 3. Deleting a declared asset output (`public/styles.css`) must NOT skip `build_assets`.
+        let committed = css_edit.snapshot;
+        fs::remove_file(root.join("public/styles.css")).unwrap();
+        let mut failure = committed.clone();
+        let deleted_css = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(deleted_css.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new { color: green; }"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("asset-runs.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            3
+        );
+
+        // 4. Editing a Rust source file disables the fast path.
+        let committed = deleted_css.snapshot;
+        fs::write(root.join("src/main.rs"), "fn main() { /* edited */ }\n").unwrap();
+        let mut failure = committed.clone();
+        let rust_edit = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(!rust_edit.public_assets_only);
+    }
+
+    #[test]
+    fn compiled_inputs_match_through_a_linked_public_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("site");
+        let assets = temp.path().join("shared-assets");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir(&assets).unwrap();
+        fs::write(assets.join("logo.svg"), "one").unwrap();
+        fs::write(assets.join("icon.svg"), "one").unwrap();
+        std::os::unix::fs::symlink(&assets, root.join("public")).unwrap();
+        // rustc records `include_str!("../public/logo.svg")` under the link target.
+        let inputs = BTreeSet::from([assets.join("logo.svg").canonicalize().unwrap()]);
+
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/logo.svg")
+        ));
+        assert!(!is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/icon.svg")
+        ));
+        fs::remove_file(assets.join("logo.svg")).unwrap();
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/logo.svg")
+        ));
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("gone/logo.svg")
+        ));
+    }
+
+    #[test]
+    fn css_script_reruns_for_public_edits_because_its_inputs_are_undeclared() {
+        let (temp, mut config) = fixture(None, None);
+        let root = temp.path();
+        config.paths.public = Some("public".into());
+        config.scripts.css = "cat public/theme.css > public/styles.css".into();
+        fs::create_dir(root.join("public")).unwrap();
+        fs::write(root.join("public/theme.css"), ".old {}").unwrap();
+        fs::write(root.join("public/styles.css"), ".old {}").unwrap();
+        fs::write(
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        fs::write(root.join("public/theme.css"), ".new {}").unwrap();
+        let mut failure = committed.clone();
+        let edit = prepare_dev_inputs(
+            root,
+            loaded,
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(edit.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new {}"
         );
     }
 }

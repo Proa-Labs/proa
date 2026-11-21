@@ -24,6 +24,7 @@ use rsjs_transport::TRANSPORT_FORMAT_VERSION;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+mod dev_ui;
 mod public_assets;
 mod readiness;
 mod reload;
@@ -85,6 +86,7 @@ pub struct DevOptions {
     pub no_css_hot_swap: bool,
     pub reload_port: Option<u16>,
     pub debounce_ms: Option<u64>,
+    pub verbose: bool,
     pub command: Vec<String>,
 }
 
@@ -161,6 +163,7 @@ struct LinkedDevLaunch {
     reused_descriptor_artifacts: usize,
     reused_final_artifacts: usize,
     public_assets: Option<PathBuf>,
+    compiled_inputs: Option<BTreeSet<PathBuf>>,
 }
 
 struct LinkedDevRebuild {
@@ -171,6 +174,8 @@ struct LinkedDevRebuild {
 }
 
 pub fn dev(options: DevOptions) -> Result<()> {
+    // A one-shot run has no change cycles to summarize.
+    dev_ui::enable(options.verbose || options.no_restart);
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let mut runner = crate::config::DevConfigRunner::default();
     let mut config = crate::config::load_project_config_with_runner(&root, Some(&mut runner))?;
@@ -185,10 +190,11 @@ pub fn dev(options: DevOptions) -> Result<()> {
     let command = dev_command(&options, &config);
     install_dev_signal_handler();
 
-    println!("Proa dev root: {}", root.display());
-    println!("Building your site. The first build downloads dependencies and compiles crates; this can take several minutes.");
+    dev_ui::header(&dev_url(address.0, address.1));
+    dev_ui::detail!("Proa dev root: {}", root.display());
+    dev_ui::detail!("Building your site. The first build downloads dependencies and compiles crates; this can take several minutes.");
     if options.open {
-        println!("The browser will open when the server is ready.");
+        dev_ui::detail!("The browser will open when the server is ready.");
     }
     task::run_lifecycle_tasks(&root, &config, &config.scripts.before.dev, &BTreeMap::new())?;
 
@@ -271,7 +277,8 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     let source = public_assets::configured_path(&config, true)?;
                     match public_assets::publish(&root, source, output) {
                         Ok(Some(_)) => {
-                            println!("restored the public asset catalog without Cargo");
+                            dev_ui::detail!("restored the public asset catalog without Cargo");
+                            dev_ui::outcome("Public assets restored");
                             // A recreated catalog has a new reader lock. Reopen it.
                             child.restart(&root, &launch, address, None, reload.as_ref())?;
                             retry_catalog_at = Instant::now();
@@ -292,6 +299,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
         };
 
         notify(reload.as_ref(), &ReloadEvent::Building);
+        dev_ui::changed(&changed_paths(&debouncer.committed, &trigger_snapshot));
         let mut failure_snapshot = trigger_snapshot;
         // The cached runner rechecks rustc's recorded inputs and Cargo settings
         // itself, so any edit that leaves them untouched skips the runner build.
@@ -311,9 +319,13 @@ pub fn dev(options: DevOptions) -> Result<()> {
             Ok(inputs) => inputs,
             Err(error) => {
                 last_build_failed = true;
-                eprintln!(
-                    "dev preparation failed; keeping the last valid server running:\n{error:#}"
-                );
+                if dev_ui::pretty() {
+                    dev_ui::fail("Could not prepare the build", Some(&format!("{error:#}")));
+                } else {
+                    eprintln!(
+                        "dev preparation failed; keeping the last valid server running:\n{error:#}"
+                    );
+                }
                 notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
                 debouncer.commit(failure_snapshot);
                 continue;
@@ -323,20 +335,70 @@ pub fn dev(options: DevOptions) -> Result<()> {
             config: next_config,
             snapshot,
             css_only,
+            public_assets_only,
+            changed_asset_paths,
             hot_update,
         } = inputs;
         if css_only && !missing_catalog {
-            println!("stylesheet change stabilized; rebuilt assets without restarting");
+            dev_ui::detail!("stylesheet change stabilized; rebuilt assets without restarting");
+            dev_ui::outcome("Styles updated");
+            dev_ui::finish();
             debouncer.commit(snapshot);
             notify(reload.as_ref(), &ReloadEvent::Css);
             continue;
         }
+        if public_assets_only
+            && !last_build_failed
+            && serde_json::to_vec(&next_config).ok() == serde_json::to_vec(&config).ok()
+            && launch.executable.is_file()
+            && launch.compiled_inputs.as_ref().is_some_and(|inputs| {
+                changed_asset_paths
+                    .iter()
+                    .all(|path| !is_compiled_input(&root, inputs, path))
+            })
+        {
+            if let Some(output) = launch.public_assets.as_ref() {
+                let source = public_assets::configured_path(&next_config, !options.no_assets)?;
+                match public_assets::publish(&root, source, output) {
+                    Ok(Some(_)) => {
+                        dev_ui::detail!("public assets changed; republished catalog without Cargo");
+                        dev_ui::outcome(if is_stylesheet_only_change(&changed_asset_paths) {
+                            "Styles updated"
+                        } else {
+                            "Assets updated"
+                        });
+                        child.restart(&root, &launch, address, None, reload.as_ref())?;
+                        debouncer.commit(snapshot);
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        last_build_failed = true;
+                        if dev_ui::pretty() {
+                            dev_ui::fail(
+                                "Could not publish public assets",
+                                Some(&format!("{error:#}")),
+                            );
+                        } else {
+                            eprintln!(
+                                "could not republish the public asset catalog; keeping the last valid server running:\n{error:#}"
+                            );
+                        }
+                        notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
+                        debouncer.commit(failure_snapshot);
+                        continue;
+                    }
+                }
+            }
+        }
         if let Some(mut update) = hot_update.filter(|_| !missing_catalog) {
             match update.activate() {
                 Ok(()) => {
-                    println!(
+                    dev_ui::detail!(
                         "static template change stabilized; published without Cargo or restart"
                     );
+                    dev_ui::outcome("Updated");
+                    dev_ui::finish();
                     hot_state = Some(update);
                     debouncer.commit(snapshot);
                     notify(reload.as_ref(), &ReloadEvent::Reload);
@@ -347,7 +409,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 }
             }
         }
-        println!("change stabilized; rebuilding linked RSJS dev server");
+        dev_ui::detail!("change stabilized; rebuilding linked RSJS dev server");
         let rebuild = (|| -> Result<LinkedDevRebuild> {
             let command = dev_command(&options, &next_config);
             // Capture the exact source/config state handed to this cycle after
@@ -391,7 +453,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 launch: next_launch,
                 hot_state: mut next_hot_state,
             }) => {
-                println!(
+                dev_ui::detail!(
                     "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan {}",
                     next_launch.plan_id
                 );
@@ -411,9 +473,17 @@ pub fn dev(options: DevOptions) -> Result<()> {
             }
             Err(error) => {
                 last_build_failed = true;
-                eprintln!(
-                    "linked dev rebuild failed; keeping the last valid server running:\n{error:#}"
-                );
+                if dev_ui::pretty() {
+                    // The compiler already printed its own diagnostics.
+                    let detail = format!("{error:#}");
+                    let compiler = detail.contains("Cargo compilation failed")
+                        || detail.contains("compiler diagnostic above");
+                    dev_ui::fail("Build failed", (!compiler).then_some(detail.as_str()));
+                } else {
+                    eprintln!(
+                        "linked dev rebuild failed; keeping the last valid server running:\n{error:#}"
+                    );
+                }
                 notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
                 // Do not spin on unchanged broken input. The next source,
                 // feature, cfg, or configuration change schedules a new cycle.
@@ -427,6 +497,8 @@ struct PreparedDevInputs {
     config: ProjectConfig,
     snapshot: WatchSnapshot,
     css_only: bool,
+    public_assets_only: bool,
+    changed_asset_paths: Vec<PathBuf>,
     hot_update: Option<crate::hot_static::HotState>,
 }
 
@@ -483,6 +555,8 @@ fn prepare_dev_inputs(
     if !options.no_assets {
         build_assets(root, &config)?;
     }
+    let mut public_assets_only = false;
+    let mut changed_asset_paths = Vec::new();
     if let Some(public) = public {
         let post_assets = if managed_public || root.join(public).exists() {
             Some(watch_snapshot(root, watch_paths)?)
@@ -520,22 +594,56 @@ fn prepare_dev_inputs(
         if public_changed {
             // The running server holds a fixed public catalog. Restart it when
             // inputs (including generated files) change. Keep the pre-command
-            // snapshot so concurrent authored edits still schedule another cycle.
+            // snapshot for authored files outside `public/` so concurrent edits
+            // still schedule another cycle.
             hot_update = None;
             css_only = false;
+            if managed_public
+                && !changed.is_empty()
+                && changed
+                    .iter()
+                    .all(|path| is_css_or_public_or_asset_input(path, public, &config))
+                && post_changed
+                    .as_deref()
+                    .unwrap_or(&changed)
+                    .iter()
+                    .all(|path| is_css_or_public_or_asset_input(path, public, &config))
+            {
+                public_assets_only = true;
+                changed_asset_paths = changed.clone();
+                if let Some(post_changed) = &post_changed {
+                    for path in post_changed {
+                        if !changed_asset_paths.contains(path) {
+                            changed_asset_paths.push(path.clone());
+                        }
+                    }
+                }
+                if let Some(post_assets) = &post_assets {
+                    for path in &changed_public {
+                        if let Some(stamp) = post_assets.get(*path) {
+                            snapshot.insert((*path).clone(), *stamp);
+                        } else {
+                            snapshot.remove(*path);
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(PreparedDevInputs {
         config,
         snapshot,
         css_only,
+        public_assets_only,
+        changed_asset_paths,
         hot_update,
     })
 }
 
 fn start_reload_server(address: (&str, u16), options: &DevOptions) -> Option<ReloadServer> {
     if options.no_reload {
-        println!("Proa dev live reload: off");
+        dev_ui::detail!("Proa dev live reload: off");
+        dev_ui::reload("off");
         return None;
     }
 
@@ -550,17 +658,20 @@ fn start_reload_server(address: (&str, u16), options: &DevOptions) -> Option<Rel
         eprintln!(
             "Proa dev live reload: off (--reload-port {requested} is the port the site itself uses)"
         );
+        dev_ui::reload("off");
         return None;
     }
     match ReloadServer::bind(address.0, requested) {
         Ok(server) => {
-            println!("Proa dev live reload: on (port {})", server.port());
+            dev_ui::detail!("Proa dev live reload: on (port {})", server.port());
+            dev_ui::reload("on");
             Some(server)
         }
         Err(error) => {
             // A dev loop that still rebuilds is far more useful than one that
             // refuses to start because a port was unavailable.
             eprintln!("Proa dev live reload: off ({error:#})");
+            dev_ui::reload("off");
             None
         }
     }
@@ -613,9 +724,10 @@ fn dev_url(host: &str, port: u16) -> String {
 }
 
 fn announce_dev_start(open: bool, host: &str, port: u16, child: &mut DevChild) {
-    println!("Waiting for the dev server to be ready...");
+    dev_ui::detail!("Waiting for the dev server to be ready...");
     if let Some(url) = child.ready_url(host, port) {
-        println!("Proa dev ready: {url}");
+        dev_ui::detail!("Proa dev ready: {url}");
+        dev_ui::ready(&url);
         if open {
             open_url(&url);
         }
@@ -650,7 +762,8 @@ fn open_url(url: &str) {
 /// makes naive live reload feel broken, so readiness is confirmed first.
 fn announce_reload(reload: Option<&ReloadServer>, host: &str, port: u16, child: &mut DevChild) {
     if let Some(url) = child.ready_url(host, port) {
-        println!("Proa dev ready: {url}");
+        dev_ui::detail!("Proa dev ready: {url}");
+        dev_ui::ready(&url);
         notify(reload, &ReloadEvent::Reload);
         return;
     }
@@ -695,6 +808,52 @@ fn is_stylesheet_only_change(changed: &[PathBuf]) -> bool {
                 .and_then(OsStr::to_str)
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
         })
+}
+
+fn is_css_or_public_or_asset_input(path: &Path, public: &Path, config: &ProjectConfig) -> bool {
+    path.starts_with(public)
+        || path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
+        || config.build.assets().iter().any(|asset| {
+            path == asset.input || asset.config.as_deref().is_some_and(|cfg| path == cfg)
+        })
+}
+
+/// Collect the files and directories Cargo recorded as inputs of the final
+/// dev executable, with links resolved.
+///
+/// Returns `None` when Cargo's dep-info is unavailable or a local build script
+/// declares no inputs, so asset-only edits fall back to a full linked rebuild.
+fn collect_compiled_source_inputs(output: &LinkedCargoOutput) -> Option<BTreeSet<PathBuf>> {
+    Some(
+        output
+            .final_root_inputs
+            .as_ref()?
+            .iter()
+            .map(|input| input.canonicalize().unwrap_or_else(|_| input.clone()))
+            .collect(),
+    )
+}
+
+/// Whether a watched, root-relative path is (or is inside) a compiled input.
+///
+/// The watcher reports authored paths, and `public` may be a link to another
+/// directory, so both sides are compared with links resolved. A path that no
+/// longer resolves counts as an input.
+fn is_compiled_input(root: &Path, inputs: &BTreeSet<PathBuf>, path: &Path) -> bool {
+    let path = root.join(path);
+    // A deleted file still resolves through its directory.
+    let resolved = path.canonicalize().or_else(|_| {
+        let parent = path.parent().unwrap_or(root).canonicalize()?;
+        Ok::<_, io::Error>(parent.join(path.file_name().unwrap_or_default()))
+    });
+    match resolved {
+        // A declared build-script input can be a directory.
+        Ok(resolved) => inputs.iter().any(|input| resolved.starts_with(input)),
+        Err(_) => true,
+    }
 }
 
 fn default_watch_paths() -> Vec<PathBuf> {
@@ -1466,8 +1625,8 @@ fn run_linked_dev_cycle(
     public_source: Option<&Path>,
 ) -> Result<LinkedDevLaunch> {
     let _progress = DevBuildProgress::start();
-    println!("running linked RSJS Cargo dev build: {}", shellish(command));
-    println!("Preparing the Cargo project and build cache...");
+    dev_ui::detail!("running linked RSJS Cargo dev build: {}", shellish(command));
+    dev_ui::detail!("Preparing the Cargo project and build cache...");
     let mut environment = hot.map(|state| state.environment()).unwrap_or_default();
     environment.extend(rsjs_minify_environment(config.build.minify_rsjs));
     let prepared =
@@ -1477,11 +1636,16 @@ fn run_linked_dev_cycle(
         &prepared.descriptor_cache_directory,
         |stage| match stage {
             LinkedCargoStage::Descriptor => {
-                println!("Building site (1/2): resolving dependencies and compiling Rust...")
+                dev_ui::stage("Compiling");
+                dev_ui::detail!("Building site (1/2): resolving dependencies and compiling Rust...")
             }
-            LinkedCargoStage::Link => println!("Linking browser components..."),
+            LinkedCargoStage::Link => {
+                dev_ui::stage("Linking");
+                dev_ui::detail!("Linking browser components...")
+            }
             LinkedCargoStage::Final => {
-                println!("Building site (2/2): compiling the final server...")
+                dev_ui::stage("Finishing");
+                dev_ui::detail!("Building site (2/2): compiling the final server...")
             }
         },
     )
@@ -1503,12 +1667,13 @@ fn run_linked_dev_cycle(
         .iter()
         .filter(|artifact| artifact.fresh)
         .count();
-    println!(
+    dev_ui::detail!(
         "linked RSJS dev plan {} (descriptor cache: {reused_descriptor_artifacts}/{descriptor_artifacts} Cargo artifacts reused; final cache: {reused_final_artifacts}/{} reused)",
         output.semantic.plan_id,
         output.final_cargo.cargo_artifacts.len(),
     );
 
+    let compiled_inputs = collect_compiled_source_inputs(&output);
     Ok(LinkedDevLaunch {
         executable,
         arguments: prepared.runtime_args,
@@ -1517,6 +1682,7 @@ fn run_linked_dev_cycle(
         reused_descriptor_artifacts,
         reused_final_artifacts,
         public_assets,
+        compiled_inputs,
     })
 }
 
@@ -1532,16 +1698,29 @@ impl DevBuildProgress {
         use std::sync::mpsc::{self, RecvTimeoutError};
 
         let (done, receiver) = mpsc::channel();
+        let pretty = dev_ui::pretty();
+        let interval = if pretty {
+            dev_ui::SPIN_INTERVAL
+        } else {
+            Duration::from_secs(10)
+        };
         let thread = thread::spawn(move || {
             let started = Instant::now();
             while matches!(
-                receiver.recv_timeout(Duration::from_secs(10)),
+                receiver.recv_timeout(interval),
                 Err(RecvTimeoutError::Timeout)
             ) {
-                eprintln!(
-                    "Still building your site ({}s elapsed)...",
-                    started.elapsed().as_secs()
-                );
+                if pretty {
+                    dev_ui::spin(started);
+                } else {
+                    eprintln!(
+                        "Still building your site ({}s elapsed)...",
+                        started.elapsed().as_secs()
+                    );
+                }
+            }
+            if pretty {
+                dev_ui::clear_spinner();
             }
         });
         Self {
@@ -3307,7 +3486,7 @@ fn prepare_asset_output(root: &Path, output: &Path) -> Result<()> {
             .with_context(|| format!("create {}", output_parent.display()))?;
     }
 
-    println!("building asset: {}", output.display());
+    dev_ui::detail!("building asset: {}", output.display());
     Ok(())
 }
 
@@ -3474,7 +3653,7 @@ fn linked_dev_command(
 }
 
 fn print_linked_dev_launch(launch: &LinkedDevLaunch) {
-    println!(
+    dev_ui::detail!(
         "starting final linked server `{}` with plan {} (descriptor cache {}/{}, final cache {} reused)",
         launch.executable.display(),
         launch.plan_id,
@@ -3485,8 +3664,24 @@ fn print_linked_dev_launch(launch: &LinkedDevLaunch) {
 }
 
 fn run_command_status(root: &Path, command: &[String], label: &str) -> Result<()> {
-    println!("running {}", shellish(command));
-    let status = match command_base(root, command)?.status() {
+    dev_ui::detail!("running {}", shellish(command));
+    let mut base = command_base(root, command)?;
+    // The interactive dev view shows a tool's own output only when it fails.
+    let run = if dev_ui::pretty() {
+        // `output()` would close stdin. A command may still prompt on it.
+        base.stdin(std::process::Stdio::inherit())
+            .output()
+            .map(|output| {
+                if !output.status.success() {
+                    let _ = io::Write::write_all(&mut io::stderr(), &output.stdout);
+                    let _ = io::Write::write_all(&mut io::stderr(), &output.stderr);
+                }
+                output.status
+            })
+    } else {
+        base.status()
+    };
+    let status = match run {
         Ok(status) => status,
         // A missing program surfaces as a bare "No such file or directory",
         // which reads as a missing input file rather than a tool that was

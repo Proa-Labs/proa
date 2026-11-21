@@ -3027,7 +3027,27 @@ fn validate_portable_relative_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Files rustc actually read, including modules and compile-time includes.
+/// Parsed source and environment dependencies recorded by `rustc --emit=dep-info`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustcDependencies {
+    pub source_paths: Vec<PathBuf>,
+    pub environment: Vec<(String, Option<String>)>,
+}
+
+/// Parse source file and compile-time environment dependencies recorded by `rustc --emit=dep-info`.
+pub fn rustc_dependencies(dep_info: &[u8]) -> Result<RustcDependencies, String> {
+    let parsed = parse_rustc_dep_info(dep_info)?;
+    Ok(RustcDependencies {
+        source_paths: parsed.source_paths,
+        environment: parsed
+            .environment
+            .into_iter()
+            .map(|entry| (entry.name, entry.value))
+            .collect(),
+    })
+}
+
+/// Parse source file dependencies recorded by `rustc --emit=dep-info`.
 pub fn rustc_source_dependencies(dep_info: &[u8]) -> Result<Vec<PathBuf>, String> {
     Ok(parse_rustc_dep_info(dep_info)?.source_paths)
 }

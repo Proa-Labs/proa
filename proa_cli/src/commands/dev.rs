@@ -55,6 +55,10 @@ pub(crate) struct DevArgs {
     /// Quiet window a change must survive before a rebuild starts. Defaults to 200.
     #[arg(long, value_name = "MILLISECONDS")]
     debounce_ms: Option<u64>,
+    /// Print the detailed build log instead of the interactive summary.
+    /// Piped output is always detailed.
+    #[arg(long)]
+    verbose: bool,
     /// Override the exact Cargo run root. Server arguments may follow Cargo's `--`.
     /// Example: -- cargo run --bin app -- --seed demo.
     #[arg(last = true)]
@@ -76,6 +80,7 @@ pub(crate) fn run(args: DevArgs) -> Result<()> {
         no_css_hot_swap: args.no_css_hot_swap,
         reload_port: args.reload_port,
         debounce_ms: args.debounce_ms,
+        verbose: args.verbose,
         command: args.command,
     };
     lifecycle::dev(options)
