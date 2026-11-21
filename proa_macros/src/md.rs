@@ -79,10 +79,12 @@
 //! projection presents templates to rust-analyzer in that shape; see
 //! [`expand`].
 
-use proa_dsl::md::{bare_ident, text_value, MdNodeKind, MdTemplateArg, TplNode};
+use proa_dsl::md::{bare_ident, text_value, MdNodeKind, MdSlotContext, MdTemplateArg, TplNode};
 pub use proa_dsl::md::{MdRoot, MdTemplateInput};
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
+use std::collections::HashSet;
+use syn::visit::Visit;
 use syn::{Expr, LitStr};
 
 #[derive(Clone, Copy)]
@@ -221,24 +223,15 @@ pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenS
     let lit = &tpl.lit;
     let nodes = tpl.parse_nodes()?;
     let block = proa_dsl::md::is_multiline_raw_literal(lit);
-    // An inline template is itself one inline scope, so every slot in it is
-    // already restricted: a block child anywhere is rejected, and a per-slot
-    // scope could only save and restore state that cannot change. Only block
-    // templates classify their slots.
-    let inline_slots = if block {
-        proa_dsl::md::inline_slot_contexts(&nodes)
-    } else {
-        let slot_count = nodes
-            .iter()
-            .filter(|node| matches!(node, TplNode::Expr(_)))
-            .count();
-        vec![false; slot_count]
-    };
-    let mut slots = inline_slots.iter().copied();
+    // Classify every slot so both block and inline templates detect Markdown
+    // link/image destinations (`[label]({url})`, `![alt]({url})`) and block
+    // templates enforce inline-only restrictions on inline constructs.
+    let slot_ctxs = proa_dsl::md::slot_contexts(&nodes);
+    let mut slots = slot_ctxs.iter().copied();
     for node in &nodes {
         if let TplNode::Expr(expr) = node {
-            let restricted = slots.next().expect("one context per expression");
-            if !block || restricted {
+            let slot_ctx = slots.next().expect("one context per expression");
+            if !block || slot_ctx.inline {
                 reject_direct_block_child(expr)?;
             }
         }
@@ -246,7 +239,8 @@ pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenS
     let shadow = format_args_shadow(lit, &nodes, &tpl.args);
     let body = codegen_tpl(
         &nodes,
-        &inline_slots,
+        &slot_ctxs,
+        &tpl.args,
         shadow,
         tpl.argument_binding(),
         mode,
@@ -397,9 +391,53 @@ fn is_bare_ident(s: &str) -> bool {
 
 // -- template codegen --
 
+/// Returns true when a top-level slot expression is a simple `<ident>.url(<arg>)`
+/// call that can be safely evaluated right before the render closure without
+/// referencing any template named arguments or `.await`.
+///
+/// `WebContext::url` borrows `&self` only for the call and returns an `AppUrl`
+/// independent of `&cx`. Hoisting it before the closure prevents `E0502` when
+/// calling `md_sync! { "![Alt]({cx.url(\"public/logo.svg\")})" }.render_md(cx)`
+/// while keeping the macro closure parameter hygienic.
+fn is_hoistable_url_call(expr: &Expr, named_args: &HashSet<String>) -> bool {
+    let Expr::MethodCall(call) = expr else {
+        return false;
+    };
+    if call.method != "url" || call.args.len() != 1 || call.turbofish.is_some() {
+        return false;
+    }
+    let Some(receiver) = bare_ident(&call.receiver) else {
+        return false;
+    };
+    if named_args.contains(&receiver.to_string()) {
+        return false;
+    }
+    struct Guard<'a> {
+        named_args: &'a HashSet<String>,
+        blocked: bool,
+    }
+    impl<'ast> Visit<'ast> for Guard<'_> {
+        fn visit_expr_await(&mut self, _: &'ast syn::ExprAwait) {
+            self.blocked = true;
+        }
+        fn visit_ident(&mut self, ident: &'ast syn::Ident) {
+            if self.named_args.contains(&ident.to_string()) {
+                self.blocked = true;
+            }
+        }
+    }
+    let mut guard = Guard {
+        named_args,
+        blocked: false,
+    };
+    guard.visit_expr(&call.args[0]);
+    !guard.blocked
+}
+
 fn codegen_tpl(
     nodes: &[TplNode],
-    inline_slots: &[bool],
+    slot_ctxs: &[MdSlotContext],
+    args: &[MdTemplateArg],
     shadow: Option<TokenStream>,
     binding: Option<syn::Local>,
     mode: EmitMode,
@@ -416,26 +454,53 @@ fn codegen_tpl(
         return static_fragment(proc_macro2::Literal::string(&s));
     }
 
+    let named_args: HashSet<String> = args.iter().map(|arg| arg.name.to_string()).collect();
+    let mut hoisted: Vec<(syn::Ident, &Expr)> = Vec::new();
     let mut stmts = Vec::new();
     // First so its borrows begin and end before any rendering statement.
     stmts.extend(shadow);
     stmts.extend(binding.map(|binding| quote! { #binding }));
     let mut run = String::new();
-    emit_tpl_nodes(nodes, inline_slots, &mut stmts, &mut run, mode, block);
+    emit_tpl_nodes(
+        nodes,
+        slot_ctxs,
+        &named_args,
+        &mut hoisted,
+        &mut stmts,
+        &mut run,
+        mode,
+        block,
+    );
     flush(&mut stmts, &mut run);
-    wrap_render(&stmts, mode)
+    let rendered = wrap_render(&stmts, mode);
+    if hoisted.is_empty() {
+        rendered
+    } else {
+        let lets = hoisted.iter().map(|(ident, expr)| {
+            quote! { let #ident = #expr; }
+        });
+        quote! {
+            {
+                #(#lets)*
+                #rendered
+            }
+        }
+    }
 }
 
-fn emit_tpl_nodes(
-    nodes: &[TplNode],
-    inline_slots: &[bool],
+#[allow(clippy::too_many_arguments)]
+fn emit_tpl_nodes<'a>(
+    nodes: &'a [TplNode],
+    slot_ctxs: &[MdSlotContext],
+    named_args: &HashSet<String>,
+    hoisted: &mut Vec<(syn::Ident, &'a Expr)>,
     stmts: &mut Vec<TokenStream>,
     run: &mut String,
     mode: EmitMode,
     block: bool,
 ) {
     let proa_core = proa_dsl::paths::runtime("proa_core");
-    let mut slots = inline_slots.iter().copied();
+    let mut slots = slot_ctxs.iter().copied();
     // In a block template, the line breaks that follow a block-position slot
     // are layout rather than prose: a block child has already completed a
     // blank line through its own epilogue, and a row template already ends
@@ -468,14 +533,38 @@ fn emit_tpl_nodes(
             // way.
             TplNode::Expr(expr) => {
                 flush(stmts, run);
-                let restricted = slots.next().expect("one context per expression");
-                after_block_slot = block && !restricted;
-                if restricted {
+                let slot_ctx = slots.next().expect("one context per expression");
+                after_block_slot = block && !slot_ctx.inline;
+                let hoisted_expr: Option<Expr> = if is_hoistable_url_call(&expr.expr, named_args) {
+                    let ident = syn::Ident::new(
+                        &format!("__proa_md_url_{}", hoisted.len()),
+                        proc_macro2::Span::mixed_site(),
+                    );
+                    hoisted.push((ident.clone(), &expr.expr));
+                    Some(syn::parse_quote!(#ident))
+                } else {
+                    None
+                };
+                let slot_expr = hoisted_expr.as_ref().unwrap_or(&expr.expr);
+                if slot_ctx.url_destination {
+                    let cx = render_context();
+                    let scope =
+                        syn::Ident::new("__proa_md_url_scope", proc_macro2::Span::mixed_site());
+                    let mut child = Vec::new();
+                    gen_block_expr(slot_expr, &mut child, mode);
+                    stmts.push(quote! {
+                        {
+                            let mut #scope = #proa_core::md::__MdTemplateScope::<_, _, { #proa_core::md::MD_TEMPLATE_URL_DESTINATION }>::enter(#cx)?;
+                            let #cx = #scope.context();
+                            #(#child)*
+                        }
+                    });
+                } else if block && slot_ctx.inline {
                     let cx = render_context();
                     let scope =
                         syn::Ident::new("__proa_md_inline_scope", proc_macro2::Span::mixed_site());
                     let mut child = Vec::new();
-                    gen_block_expr(&expr.expr, &mut child, mode);
+                    gen_block_expr(slot_expr, &mut child, mode);
                     stmts.push(quote! {
                         {
                             let mut #scope = #proa_core::md::__MdTemplateScope::<_, _, { #proa_core::md::MD_TEMPLATE_INLINE }>::enter(#cx)?;
@@ -484,7 +573,7 @@ fn emit_tpl_nodes(
                         }
                     });
                 } else {
-                    gen_block_expr(&expr.expr, stmts, mode);
+                    gen_block_expr(slot_expr, stmts, mode);
                 }
             }
         }

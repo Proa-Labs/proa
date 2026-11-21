@@ -28,6 +28,8 @@ mod public_assets;
 mod readiness;
 mod reload;
 
+pub(crate) use public_assets::load_start_manifest;
+
 use reload::{ReloadEvent, ReloadServer};
 
 #[cfg(not(windows))]
@@ -822,8 +824,31 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         .context("linked RSJS build failed")?;
     print_linked_cache_reuse(LinkedCargoAction::Build, &output);
     print_linked_cargo_output(LinkedCargoAction::Build, &prepared.request, &output);
-    public_assets::publish(&root, public_source, &prepared.public_output_directory)?;
-    if let Some(destination) = artifact_destination.as_deref() {
+    let published_public_assets =
+        public_assets::publish(&root, public_source, &prepared.public_output_directory)?;
+    let target_dir = &prepared.request.descriptor.source_exclusion_directory;
+    let default_release_destination = (artifact_destination.is_none()
+        && prepared.profile == "release"
+        && prepared.request.root.role == ArtifactRole::RootExecutable)
+        .then(|| {
+            let mut filename = OsString::from(&prepared.request.root.target_name);
+            let suffix = std::env::consts::EXE_SUFFIX;
+            if !suffix.is_empty()
+                && !prepared
+                    .request
+                    .root
+                    .target_name
+                    .to_ascii_lowercase()
+                    .ends_with(suffix)
+            {
+                filename.push(suffix);
+            }
+            target_dir.join("release").join(filename)
+        });
+    let export_destination = artifact_destination
+        .as_deref()
+        .or(default_release_destination.as_deref());
+    let recorded_executable = if let Some(destination) = export_destination {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
         copy_executable_atomically(&source, destination).with_context(|| {
@@ -837,6 +862,22 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             "exported linked RSJS executable to {}",
             destination.display()
         );
+        Some(destination.to_path_buf())
+    } else if prepared.request.root.role == ArtifactRole::RootExecutable {
+        select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build).ok()
+    } else {
+        None
+    };
+    if (prepared.profile == "release" || artifact_destination.is_some())
+        && recorded_executable.is_some()
+    {
+        public_assets::record_start_manifest(
+            target_dir,
+            &prepared.request.root.target_name,
+            &prepared.profile,
+            recorded_executable.as_deref().expect("checked above"),
+            published_public_assets.as_deref(),
+        )?;
     }
     Ok(())
 }
@@ -2103,6 +2144,7 @@ impl LinkedCargoAction {
 #[derive(Debug)]
 struct PreparedLinkedCargo {
     request: LinkedCargoRequest,
+    profile: String,
     runtime_args: Vec<OsString>,
     descriptor_cache_directory: PathBuf,
     package_source_root: PathBuf,
@@ -2248,6 +2290,14 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     selection_args.push(format!(
         "proa:wrapper-executable-fingerprint={wrapper_fingerprint}"
     ));
+    let cargo_version = cargo_version?;
+    let rustc_version = rustc_version?;
+    let shared_target_scope = shared_cargo_target_scope(
+        &wrapper_fingerprint,
+        &cargo_version,
+        &rustc_version,
+        cli_producer,
+    );
     let invocation_spec = InvocationSpec {
         roots: BTreeSet::from([RequestedRootTarget {
             package: selected_root.package_id.clone(),
@@ -2267,8 +2317,8 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         // invalidate units that actually consume one of these values.
         environment: declared_build_environment(),
         toolchain: BuildToolchain {
-            cargo: cargo_version?,
-            rustc: rustc_version?,
+            cargo: cargo_version,
+            rustc: rustc_version,
             proa: cli_producer,
             compiler_abi: RSJS_COMPILER_ABI,
             transport_version: TRANSPORT_FORMAT_VERSION,
@@ -2281,8 +2331,18 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     // Windows linkers and native build tools can still impose MAX_PATH even
     // when Rust accepts long paths. Keep full cache identities, but spend fewer
     // characters on descriptive directory labels before Cargo adds its tree.
+    //
+    // Cargo already isolates profiles, features, target triples, and bin/test
+    // roots inside one `--target-dir`, and the descriptor cache keys every unit
+    // and snapshot by its exact Cargo coordinate. Share one Cargo target and
+    // content-addressed descriptor cache per wrapper+toolchain scope so `dev`,
+    // `test` (across multiple integration tests), `check`, and `build` reuse
+    // compiled dependencies instead of multiplying `target/` by every target.
     let namespace = metadata.target_directory.join(TOOL_NAMESPACE_DIR);
     let build_root = namespace.join(invocation.to_string());
+    let shared_root = namespace
+        .join(if cfg!(windows) { "s" } else { "shared" })
+        .join(&shared_target_scope);
     let source_exclusion_directory = metadata.target_directory.clone();
     let nonce = fresh_build_nonce();
     let descriptor_staging = build_root
@@ -2292,18 +2352,20 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
             "descriptor-staging"
         })
         .join(&nonce);
-    let descriptor_target = build_root.join(if cfg!(windows) {
+    let descriptor_target = shared_root.join(if cfg!(windows) {
         format!("d{DESCRIPTOR_TARGET_POLICY_VERSION}-{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}")
     } else {
         format!("descriptor-target-policy-v{DESCRIPTOR_TARGET_POLICY_VERSION}-sidecar-v{DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION}-persistent-v{PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION}")
     });
-    let descriptor_cache_directory = build_root.join(if cfg!(windows) {
+    let descriptor_cache_directory = shared_root.join(if cfg!(windows) {
         format!("c{DESCRIPTOR_CACHE_SCHEMA_VERSION}")
     } else {
         format!("descriptor-cache-v{DESCRIPTOR_CACHE_SCHEMA_VERSION}")
     });
     let plan_directory = namespace.join(if cfg!(windows) { "p" } else { "plans" });
-    let final_target_root = namespace.join(if cfg!(windows) { "f" } else { "final-target" });
+    let final_target_root = namespace
+        .join(if cfg!(windows) { "f" } else { "final-target" })
+        .join(&shared_target_scope);
     let mut descriptor_cargo_args = parsed.cargo_args.clone();
     // The wrapper adds one explicit object output even when Cargo selected
     // `check`, so linked checks can keep descriptor and final rustc unit
@@ -2348,12 +2410,42 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
             final_cargo_args,
             final_environment: environment.clone(),
         },
+        profile: parsed.profile,
         runtime_args: parsed.runtime_args,
         descriptor_cache_directory,
         package_source_root,
         public_output_directory,
         _wrapper_lock: wrapper_lock,
     })
+}
+
+fn shared_cargo_target_scope(
+    wrapper_fingerprint: &str,
+    cargo_version: &str,
+    rustc_version: &str,
+    cli_producer: ProducerVersion,
+) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"proa.rsjs.shared-cargo-target-scope.v1\0");
+    let producer = format!(
+        "{}.{}.{}",
+        cli_producer.major, cli_producer.minor, cli_producer.patch
+    );
+    let abi = format!("{}.{}", RSJS_COMPILER_ABI.major, RSJS_COMPILER_ABI.minor);
+    let transport = TRANSPORT_FORMAT_VERSION.to_string();
+    for field in [
+        wrapper_fingerprint,
+        cargo_version,
+        rustc_version,
+        &producer,
+        &abi,
+        &transport,
+    ] {
+        hash.update((field.len() as u64).to_le_bytes());
+        hash.update(field.as_bytes());
+    }
+    let digest = hash.finalize();
+    format!("{:x}", base16ct::HexDisplay(&digest[..8]))
 }
 
 #[cfg(not(windows))]

@@ -1030,13 +1030,17 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
         first.public_output_directory,
         featured.public_output_directory
     );
-    assert_ne!(
+    assert_eq!(
         first.descriptor_cache_directory,
         featured.descriptor_cache_directory
     );
-    assert_ne!(
+    assert_eq!(
         descriptor_target_dir(&first.request),
         descriptor_target_dir(&featured.request)
+    );
+    assert_eq!(
+        first.request.final_target_root,
+        featured.request.final_target_root
     );
 
     let linked_run = prepare_linked_cargo_with_wrapper(
@@ -1093,9 +1097,17 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
     .unwrap();
     crate::rsjs::pipeline::validate_linked_cargo_request(&linked_test.request).unwrap();
     assert_ne!(first.request.invocation, linked_test.request.invocation);
-    assert_ne!(
+    assert_eq!(
         first.descriptor_cache_directory,
         linked_test.descriptor_cache_directory
+    );
+    assert_eq!(
+        descriptor_target_dir(&first.request),
+        descriptor_target_dir(&linked_test.request)
+    );
+    assert_eq!(
+        first.request.final_target_root,
+        linked_test.request.final_target_root
     );
     assert_eq!(linked_test.request.root.role, ArtifactRole::RootTest);
     assert_eq!(

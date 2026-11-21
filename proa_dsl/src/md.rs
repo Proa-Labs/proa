@@ -130,13 +130,26 @@ pub enum TplNode {
     Expr(TemplateExpr),
 }
 
-/// Identify slots whose surrounding Markdown requires inline content.
+/// Contextual rules derived from the Markdown surrounding one template slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MdSlotContext {
+    /// True when the slot sits inside an inline Markdown construct (link/image,
+    /// heading, emphasis, strikethrough, table cell) that rejects block children.
+    pub inline: bool,
+    /// True when the slot sits inside a Markdown link or image destination
+    /// (`[label]({url})`, `![alt]({url})`, `[label](<{url}>)`), where runtime
+    /// strings need URL-destination escaping rather than prose escaping.
+    pub url_destination: bool,
+}
+
+/// Identify slots whose surrounding Markdown requires inline content or
+/// URL-destination escaping.
 /// Rust slots are opaque single values when resolving links, headings, inline
 /// formatting (including GFM strikethrough), and table cells; their Rust layout
 /// is not Markdown layout.
-/// The returned flags follow expression order, without changing authored bytes.
-pub fn inline_slot_contexts(nodes: &[TplNode]) -> Vec<bool> {
-    use pulldown_cmark::{Event, Options, Parser, Tag};
+/// The returned entries follow expression order, without changing authored bytes.
+pub fn slot_contexts(nodes: &[TplNode]) -> Vec<MdSlotContext> {
+    use pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
 
     let mut source = String::new();
     let mut slots = Vec::new();
@@ -149,30 +162,143 @@ pub fn inline_slot_contexts(nodes: &[TplNode]) -> Vec<bool> {
             }
         }
     }
-    let mut inline = vec![false; slots.len()];
+    let mut contexts = vec![MdSlotContext::default(); slots.len()];
     if slots.is_empty() {
-        return inline;
+        return contexts;
     }
+
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let mut active_links: Vec<(std::ops::Range<usize>, usize, bool)> = Vec::new();
     for (event, range) in Parser::new_ext(&source, options).into_offset_iter() {
-        if matches!(
-            event,
-            Event::Start(
-                Tag::Link { .. }
-                    | Tag::Image { .. }
-                    | Tag::Heading { .. }
-                    | Tag::Emphasis
-                    | Tag::Strong
-                    | Tag::Strikethrough
-                    | Tag::TableCell
-            )
-        ) {
-            for (slot, restricted) in slots.iter().zip(&mut inline) {
-                *restricted |= range.contains(slot);
+        // Track the furthest byte consumed by child events inside each active
+        // inline link/image so we know where its `[label]` ends before `](dest)`.
+        if let Some((_, label_end, _)) = active_links.last_mut() {
+            if !matches!(event, Event::End(TagEnd::Link | TagEnd::Image)) {
+                *label_end = (*label_end).max(range.end);
             }
         }
+        match event {
+            Event::Start(Tag::Link { link_type, .. } | Tag::Image { link_type, .. }) => {
+                for (slot, ctx) in slots.iter().zip(&mut contexts) {
+                    ctx.inline |= range.contains(slot);
+                }
+                let is_inline = matches!(link_type, LinkType::Inline);
+                let label_start = if source[range.start..].starts_with("![") {
+                    range.start + 2
+                } else {
+                    range.start + 1
+                };
+                active_links.push((range, label_start.min(source.len()), is_inline));
+            }
+            Event::End(TagEnd::Link | TagEnd::Image) => {
+                if let Some((link_range, label_end, is_inline)) = active_links.pop() {
+                    if is_inline {
+                        if let Some(dest_range) =
+                            inline_link_destination_range(&source, &link_range, label_end)
+                        {
+                            for (slot, ctx) in slots.iter().zip(&mut contexts) {
+                                if dest_range.contains(slot) {
+                                    ctx.inline = true;
+                                    ctx.url_destination = true;
+                                }
+                            }
+                        }
+                    }
+                    if let Some((_, parent_label_end, _)) = active_links.last_mut() {
+                        *parent_label_end = (*parent_label_end).max(link_range.end);
+                    }
+                }
+            }
+            Event::Start(
+                Tag::Heading { .. }
+                | Tag::Emphasis
+                | Tag::Strong
+                | Tag::Strikethrough
+                | Tag::TableCell,
+            ) => {
+                for (slot, ctx) in slots.iter().zip(&mut contexts) {
+                    ctx.inline |= range.contains(slot);
+                }
+            }
+            _ => {}
+        }
     }
-    inline
+    contexts
+}
+
+/// Locate the byte range of the URL destination inside an inline CommonMark
+/// link or image `[label](dest)` / `[label](<dest>)` / `[label](dest "title")`.
+fn inline_link_destination_range(
+    source: &str,
+    link_range: &std::ops::Range<usize>,
+    label_end: usize,
+) -> Option<std::ops::Range<usize>> {
+    let bytes = source.as_bytes();
+    let end = link_range.end.min(bytes.len());
+    let mut i = label_end.clamp(link_range.start, end);
+    // Advance to the closing `]` of the label, then require `(`.
+    while i < end && bytes[i] != b']' {
+        if bytes[i] == b'\\' && i + 1 < end {
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    if i + 1 >= end || bytes[i] != b']' || bytes[i + 1] != b'(' {
+        return None;
+    }
+    i += 2;
+    // Skip leading ASCII whitespace inside `(...)`.
+    while i < end && matches!(bytes[i], b' ' | b'\t' | b'\r' | b'\n') {
+        i += 1;
+    }
+    if i >= end {
+        return None;
+    }
+    if bytes[i] == b'<' {
+        let dest_start = i + 1;
+        let mut j = dest_start;
+        while j < end {
+            if bytes[j] == b'\\' && j + 1 < end {
+                j += 2;
+            } else if bytes[j] == b'>' {
+                return Some(dest_start..j);
+            } else {
+                j += 1;
+            }
+        }
+        return None;
+    }
+    let dest_start = i;
+    let mut j = dest_start;
+    let mut paren_depth = 0usize;
+    while j < end {
+        match bytes[j] {
+            b'\\' if j + 1 < end => j += 2,
+            b' ' | b'\t' | b'\r' | b'\n' => break,
+            b'(' => {
+                paren_depth += 1;
+                j += 1;
+            }
+            b')' => {
+                if paren_depth == 0 {
+                    break;
+                }
+                paren_depth -= 1;
+                j += 1;
+            }
+            _ => j += 1,
+        }
+    }
+    (j > dest_start).then_some(dest_start..j)
+}
+
+/// Identify slots whose surrounding Markdown requires inline content.
+pub fn inline_slot_contexts(nodes: &[TplNode]) -> Vec<bool> {
+    slot_contexts(nodes)
+        .into_iter()
+        .map(|ctx| ctx.inline)
+        .collect()
 }
 
 // -- public entry --
@@ -565,6 +691,69 @@ mod tests {
         assert_eq!(inline_slot_contexts(&nodes), [false, true]);
         let nodes = parse_tpl(r"\~\~{child}\~\~").unwrap();
         assert_eq!(inline_slot_contexts(&nodes), [false]);
+    }
+
+    #[test]
+    fn slot_contexts_identify_inline_link_and_image_destinations() {
+        let nodes = parse_tpl(
+            "[{label}]({href}) ![{alt}]({img}) ![]({bare}) [angle](<{angle}>) [titled]({url} \"{title}\")",
+        )
+        .unwrap();
+        let ctxs = slot_contexts(&nodes);
+        let expected = [
+            MdSlotContext {
+                inline: true,
+                url_destination: false,
+            }, // label
+            MdSlotContext {
+                inline: true,
+                url_destination: true,
+            }, // href
+            MdSlotContext {
+                inline: true,
+                url_destination: false,
+            }, // alt
+            MdSlotContext {
+                inline: true,
+                url_destination: true,
+            }, // img
+            MdSlotContext {
+                inline: true,
+                url_destination: true,
+            }, // bare
+            MdSlotContext {
+                inline: true,
+                url_destination: true,
+            }, // angle
+            MdSlotContext {
+                inline: true,
+                url_destination: true,
+            }, // url
+            MdSlotContext {
+                inline: true,
+                url_destination: false,
+            }, // title
+        ];
+        assert_eq!(ctxs, expected);
+
+        let nested = parse_tpl("[![{alt}]({img})]({href})").unwrap();
+        assert_eq!(
+            slot_contexts(&nested),
+            [
+                MdSlotContext {
+                    inline: true,
+                    url_destination: false,
+                },
+                MdSlotContext {
+                    inline: true,
+                    url_destination: true,
+                },
+                MdSlotContext {
+                    inline: true,
+                    url_destination: true,
+                },
+            ]
+        );
     }
 
     fn kinds(input: &str) -> Vec<String> {

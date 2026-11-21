@@ -1032,3 +1032,85 @@ fn template_spaced_placeholder_renders_like_bare() {
     });
     assert_eq!(out, "# Spaced\n\n");
 }
+
+#[test]
+fn markdown_link_and_image_destinations_preserve_urls_and_allow_cx_url() {
+    use proa_core::render::MdRenderSync;
+    use proa_core::{BasePath, PublicAssetUrls, WebContext};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let mut cx = WebContext::new();
+    cx.request_mut()
+        .set_base_path(BasePath::new("/apps/demo").unwrap());
+    cx.request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/apps/demo/_proa/assets/images/brand.0dd0d0d7.svg"),
+        )]))));
+
+    let label = "Brand_Logo.svg";
+    let evil = "javascript:alert(1)";
+    let with_parens = "/docs/rust_(lang)/v1.0";
+    md_sync! { r###"
+        ![{label}]({cx.url("public/images/brand.svg")})
+
+        [Docs]({cx.url(with_parens)})
+
+        [Blocked]({evil})
+        "###
+    }
+    .render_md(&mut cx)
+    .unwrap();
+
+    let out = cx.into_output().into_string();
+    assert_eq!(
+        out,
+        "![Brand\\_Logo\\.svg](/apps/demo/_proa/assets/images/brand.0dd0d0d7.svg)\n\n\
+         [Docs](/apps/demo/docs/rust_\\(lang\\)/v1.0)\n\n\
+         [Blocked]()\n\n"
+    );
+
+    // Inline templates also apply URL-destination escaping and support cx.url(...).
+    let mut inline_cx = WebContext::new();
+    inline_cx
+        .request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/_proa/assets/images/brand.0dd0d0d7.svg"),
+        )]))));
+    md_sync! { "![Brand]({inline_cx.url(\"public/images/brand.svg\")})" }
+        .render_md(&mut inline_cx)
+        .unwrap();
+    assert_eq!(
+        inline_cx.into_output().into_string(),
+        "![Brand](/_proa/assets/images/brand.0dd0d0d7.svg)"
+    );
+}
+
+#[tokio::test]
+async fn async_markdown_allows_cx_url_in_destinations() {
+    use proa_core::render::MdRender;
+    use proa_core::{PublicAssetUrls, WebContext};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let mut cx = WebContext::new();
+    cx.request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/_proa/assets/images/brand.0dd0d0d7.svg"),
+        )]))));
+    md! { r###"
+        ![Brand]({cx.url("public/images/brand.svg")})
+        "###
+    }
+    .render_md(&mut cx)
+    .resolve()
+    .await
+    .unwrap();
+    assert_eq!(
+        cx.into_output().into_string(),
+        "![Brand](/_proa/assets/images/brand.0dd0d0d7.svg)\n\n"
+    );
+}

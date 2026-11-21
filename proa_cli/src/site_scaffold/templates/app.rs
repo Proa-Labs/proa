@@ -345,9 +345,9 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
         };
         let button = if has_ui {
             if has_database {
-                r#"{proa::to_async(Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None })}"#
+                r#"{proa::to_async(Button::link("READ THE MARKDOWN", "/index.md"))}"#
             } else {
-                r#"{Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }}"#
+                r#"{Button::link("READ THE MARKDOWN", "/index.md")}"#
             }
         } else {
             r#"<a href={cx.url("/index.md")}>"READ THE MARKDOWN"</a>"#
@@ -520,9 +520,7 @@ fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool, copy: &str)
         if has_ui {
             children.push_str(&lift("Badge::new(\"SERVER RENDERED IN RUST\")"));
             children.push_str("\n\n");
-            children.push_str(&lift(
-                r#"Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }"#,
-            ));
+            children.push_str(&lift(r#"Button::link("READ THE MARKDOWN", "/index.md")"#));
             children.push_str("\n\n");
         }
         if has_database {

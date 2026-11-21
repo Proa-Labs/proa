@@ -393,3 +393,75 @@ pub async fn config() -> Result<Config> {{
         );
     }
 }
+
+#[test]
+fn start_auto_discovers_public_assets_from_proa_build_start_manifest() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+    let release = temp.path().join("target/release");
+    fs::create_dir_all(&release).unwrap();
+    let catalog = temp.path().join("target/proa-output/demo/abc123");
+    fs::create_dir_all(&catalog).unwrap();
+    fs::write(catalog.join("manifest.json"), "{}").unwrap();
+    let executable = release.join(format!("demo{}", env::consts::EXE_SUFFIX));
+    let source = temp.path().join("server.rs");
+    fs::write(
+        &source,
+        r#"fn main() {
+            println!("{}", std::env::var("PROA_PUBLIC_ASSETS").unwrap_or_default());
+        }"#,
+    )
+    .unwrap();
+    let compiled = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+        .arg(&source)
+        .arg("-o")
+        .arg(&executable)
+        .output()
+        .unwrap();
+    assert!(compiled.status.success());
+
+    fs::write(
+        temp.path().join("proa.config.rs"),
+        r#"use proa::config::{ApplicationConfig, Config, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        application: Some(ApplicationConfig { binary: "demo" }),
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let manifest_dir = temp.path().join("target/proa-rsjs");
+    fs::create_dir_all(&manifest_dir).unwrap();
+    fs::write(
+        manifest_dir.join("start-manifest.json"),
+        serde_json::json!({
+            "schemaVersion": 1,
+            "binary": "demo",
+            "profile": "release",
+            "executable": executable,
+            "publicAssets": catalog,
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_proa"))
+        .current_dir(temp.path())
+        .env_remove("PROA_PUBLIC_ASSETS")
+        .args(["start"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::path::PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
+            .canonicalize()
+            .unwrap(),
+        catalog.canonicalize().unwrap()
+    );
+}

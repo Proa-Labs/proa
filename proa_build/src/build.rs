@@ -42,7 +42,7 @@ pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 8;
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 7;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 8;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -1680,7 +1680,9 @@ fn descriptor_rustc_args_with_carrier(
     descriptor_object: &Path,
     carrier: &DescriptorCarrierMode,
 ) -> Result<Vec<OsString>, WrapperError> {
-    let mut result = Vec::with_capacity(rustc_args.len() + 6);
+    let mut result = Vec::with_capacity(rustc_args.len() + 7);
+    let mut effective_opt_level: Option<&str> = None;
+    let mut explicit_debug_assertions = false;
     let mut index = 0;
     while index < rustc_args.len() {
         let argument = rustc_args[index]
@@ -1692,14 +1694,28 @@ fn descriptor_rustc_args_with_carrier(
                 .get(index + 1)
                 .and_then(|value| value.to_str())
                 .ok_or(WrapperError::MissingRustcOptionValue("-C"))?;
-            if descriptor_override_option(split_key_value(value).0, carrier) {
+            let (key, option_value) = split_key_value(value);
+            if matches!(key, "opt-level" | "opt_level") {
+                effective_opt_level = Some(option_value);
+            } else if matches!(key, "debug-assertions" | "debug_assertions") {
+                explicit_debug_assertions = true;
+            }
+            if descriptor_override_option(key, carrier) {
                 index += 2;
                 continue;
             }
         } else if let Some(value) = argument.strip_prefix("-C") {
-            if !value.is_empty() && descriptor_override_option(split_key_value(value).0, carrier) {
-                index += 1;
-                continue;
+            if !value.is_empty() {
+                let (key, option_value) = split_key_value(value);
+                if matches!(key, "opt-level" | "opt_level") {
+                    effective_opt_level = Some(option_value);
+                } else if matches!(key, "debug-assertions" | "debug_assertions") {
+                    explicit_debug_assertions = true;
+                }
+                if descriptor_override_option(key, carrier) {
+                    index += 1;
+                    continue;
+                }
             }
         }
 
@@ -1730,11 +1746,20 @@ fn descriptor_rustc_args_with_carrier(
         OsString::from("-Clink-dead-code=yes"),
         OsString::from("-Clto=off"),
         OsString::from("-Cstrip=none"),
-        // Descriptor extraction needs symbols and relocations, not DWARF.
-        // Keep the original Cargo debug setting in normalized final-profile
-        // identity; only this intermediate rustc invocation overrides it.
+        // Descriptor extraction needs symbols and relocations, not DWARF or
+        // release LLVM optimization passes. Keep the original Cargo profile
+        // settings in normalized final-profile identity; only this intermediate
+        // rustc invocation overrides them.
         OsString::from("-Cdebuginfo=0"),
+        OsString::from("-Copt-level=0"),
     ]);
+    // rustc implies `cfg(debug_assertions)` when opt-level is 0 and disables it
+    // when opt-level is non-zero. Preserve the original implicit setting so
+    // `#[cfg(debug_assertions)]` items and observed source files match the
+    // final compilation identically.
+    if !explicit_debug_assertions && matches!(effective_opt_level, Some(level) if level != "0") {
+        result.push(OsString::from("-Cdebug-assertions=off"));
+    }
     match carrier {
         DescriptorCarrierMode::Single => result.extend([
             OsString::from("-Ccodegen-units=1"),
@@ -1760,7 +1785,13 @@ fn descriptor_rustc_args_with_carrier(
 fn descriptor_override_option(key: &str, carrier: &DescriptorCarrierMode) -> bool {
     matches!(
         key,
-        "link-dead-code" | "linker-plugin-lto" | "lto" | "strip" | "debuginfo"
+        "link-dead-code"
+            | "linker-plugin-lto"
+            | "lto"
+            | "strip"
+            | "debuginfo"
+            | "opt-level"
+            | "opt_level"
     ) || (key == "codegen-units" && matches!(carrier, DescriptorCarrierMode::Single))
 }
 

@@ -524,9 +524,13 @@ fn interrupted_unit_matches_current_inputs(
     }
     match join_descriptor_units_to_cargo_artifacts(std::slice::from_ref(unit), cargo_artifacts) {
         Ok(_) => Ok(true),
-        Err(UnitArtifactJoinError::MissingArtifact(_)) => Err(
-            DescriptorCacheError::InterruptedUnitMissingArtifact(unit.unit),
-        ),
+        // An interrupted build (for example, a normal compile error or another
+        // target sharing the descriptor target) can leave validated sidecars
+        // for units that are not part of the recovery build's Cargo artifact
+        // set. Discard those unreferenced candidates as stale; every artifact
+        // actually present in `cargo_artifacts` is still strictly verified
+        // below, so any missing current unit still fails closed.
+        Err(UnitArtifactJoinError::MissingArtifact(_)) => Ok(false),
         Err(error) => Err(DescriptorCacheError::ArtifactJoin(error)),
     }
 }

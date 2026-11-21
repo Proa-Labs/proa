@@ -2469,6 +2469,10 @@ fn descriptor_debug_override_preserves_the_original_final_profile() {
             rustc_codegen_value(&forwarded, "debuginfo").unwrap(),
             Some("0".into())
         );
+        assert_eq!(
+            rustc_codegen_value(&forwarded, "opt-level").unwrap(),
+            Some("0".into())
+        );
         assert!(!forwarded.contains(&OsString::from("debuginfo=1")));
         assert!(!forwarded.contains(&OsString::from("-Cdebuginfo=2")));
         assert!(forwarded.contains(&OsString::from("-Cdebug-assertions=yes")));
@@ -2476,6 +2480,65 @@ fn descriptor_debug_override_preserves_the_original_final_profile() {
         assert!(forwarded.contains(&OsString::from("-Cstrip=none")));
     }
     assert!(original.contains(&OsString::from("-Cdebuginfo=2")));
+}
+
+#[test]
+fn descriptor_opt_level_override_preserves_implicit_debug_assertions() {
+    let release_args: Vec<OsString> = vec![
+        "--emit=dep-info,metadata,link".into(),
+        "-C".into(),
+        "opt-level=3".into(),
+    ];
+    let forwarded_release = descriptor_rustc_args_with_carrier(
+        &release_args,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        rustc_codegen_value(&forwarded_release, "opt-level").unwrap(),
+        Some("0".into())
+    );
+    assert_eq!(
+        rustc_codegen_value(&forwarded_release, "debug-assertions").unwrap(),
+        Some("off".into())
+    );
+
+    let explicit_debug_release: Vec<OsString> = vec![
+        "--emit=dep-info,metadata,link".into(),
+        "-Copt-level=3".into(),
+        "-Cdebug-assertions=on".into(),
+    ];
+    let forwarded_explicit = descriptor_rustc_args_with_carrier(
+        &explicit_debug_release,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        rustc_codegen_value(&forwarded_explicit, "opt-level").unwrap(),
+        Some("0".into())
+    );
+    assert_eq!(
+        rustc_codegen_value(&forwarded_explicit, "debug-assertions").unwrap(),
+        Some("on".into())
+    );
+
+    let dev_args: Vec<OsString> = vec!["--emit=dep-info,metadata,link".into()];
+    let forwarded_dev = descriptor_rustc_args_with_carrier(
+        &dev_args,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        rustc_codegen_value(&forwarded_dev, "opt-level").unwrap(),
+        Some("0".into())
+    );
+    assert_eq!(
+        rustc_codegen_value(&forwarded_dev, "debug-assertions").unwrap(),
+        None
+    );
 }
 
 #[test]

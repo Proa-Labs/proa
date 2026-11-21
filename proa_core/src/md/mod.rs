@@ -19,7 +19,9 @@ pub use context::MdState;
 pub use context::MdTemplateScope as __MdTemplateScope;
 use context::{MdFragmentScope, MdTemplateScope};
 #[doc(hidden)]
-pub use context::{MD_TEMPLATE_BLOCK, MD_TEMPLATE_INHERIT, MD_TEMPLATE_INLINE};
+pub use context::{
+    MD_TEMPLATE_BLOCK, MD_TEMPLATE_INHERIT, MD_TEMPLATE_INLINE, MD_TEMPLATE_URL_DESTINATION,
+};
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;

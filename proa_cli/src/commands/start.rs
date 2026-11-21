@@ -3,13 +3,17 @@
 
 //! Start a previously built release artifact.
 
-use std::{path::PathBuf, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use proa_assets::{MANIFEST_FILE, OUTPUT_ENV};
 
-use crate::{config, util::resolve_config_root};
+use crate::{config, lifecycle, util::resolve_config_root};
 
 #[derive(Debug, Args)]
 pub(crate) struct StartArgs {
@@ -27,9 +31,35 @@ pub(crate) struct StartArgs {
     port: Option<u16>,
 }
 
+fn resolve_target_dir(root: &Path) -> PathBuf {
+    match env::var_os("CARGO_TARGET_DIR").filter(|value| !value.is_empty()) {
+        Some(dir) => {
+            let path = PathBuf::from(dir);
+            if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            }
+        }
+        None => root.join("target"),
+    }
+}
+
+fn paths_match(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 pub(crate) fn run(args: StartArgs) -> Result<()> {
     let root = std::path::absolute(resolve_config_root(args.root)?)
         .context("resolve the release project root")?;
+    let target_dir = resolve_target_dir(&root);
+    let manifest = lifecycle::load_start_manifest(&target_dir);
     let selected = if let Some(path) = args.bin {
         path
     } else {
@@ -45,7 +75,17 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         if !suffix.is_empty() && !configured_binary.to_ascii_lowercase().ends_with(suffix) {
             filename.push(suffix);
         }
-        PathBuf::from("target").join("release").join(filename)
+        let default_release = target_dir.join("release").join(filename);
+        if default_release.is_file() {
+            default_release
+        } else if let Some(recorded) = manifest
+            .as_ref()
+            .filter(|entry| entry.binary == configured_binary && entry.executable.is_file())
+        {
+            recorded.executable.clone()
+        } else {
+            default_release
+        }
     };
     let executable = if selected.is_absolute() {
         selected
@@ -54,7 +94,7 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
     };
     if !executable.is_file() {
         bail!(
-            "release executable not found at {}\nExport it first with `proa build --artifact-out \"{}\"`, or select an exported executable with `proa start --bin <path>`",
+            "release executable not found at {}\nRun `proa run build` (or `proa build --artifact-out \"{}\"`) first, or select an exported executable with `proa start --bin <path>`",
             executable.display(),
             executable.display()
         );
@@ -70,6 +110,16 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
             );
         }
         command.env(OUTPUT_ENV, directory);
+    } else if env::var_os(OUTPUT_ENV).is_none() {
+        if let Some(directory) = manifest.as_ref().and_then(|entry| {
+            paths_match(&entry.executable, &executable)
+                .then_some(entry.public_assets.as_deref())
+                .flatten()
+        }) {
+            if directory.join(MANIFEST_FILE).is_file() {
+                command.env(OUTPUT_ENV, directory);
+            }
+        }
     }
     if let Some(host) = args.host {
         command.env("PROA_HOST", host);
