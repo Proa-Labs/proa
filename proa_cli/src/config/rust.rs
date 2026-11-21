@@ -94,17 +94,21 @@ struct CachedRunner {
     env_deps: EnvStamps,
 }
 
-const TOOLCHAIN_ENV_DEPS: &[&str] = &[
-    "CARGO",
-    "CARGO_ENCODED_RUSTFLAGS",
-    "CARGO_HOME",
-    "RUSTC",
-    "RUSTC_WORKSPACE_WRAPPER",
-    "RUSTC_WRAPPER",
-    "RUSTFLAGS",
-    "RUSTUP_HOME",
-    "RUSTUP_TOOLCHAIN",
-];
+/// Every variable Cargo, rustc, or rustup may read as configuration, with its
+/// value digested. Cargo maps any config key to a `CARGO_*` variable (profile
+/// settings, rustflags, target options), so the set is open-ended: stamp the
+/// whole namespace instead of a list that can fall behind. `None` when a
+/// value is not Unicode.
+fn build_environment() -> Option<EnvStamps> {
+    let mut stamps = EnvStamps::new();
+    for (name, value) in env::vars_os() {
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with("CARGO") || name.starts_with("RUST") {
+            stamps.insert(name.to_owned(), Some(hash_env_value(value.to_str()?)));
+        }
+    }
+    Some(stamps)
+}
 
 fn hash_env_value(value: &str) -> String {
     let digest = Sha256::digest(value.as_bytes());
@@ -136,12 +140,17 @@ impl CachedRunner {
         build_started: SystemTime,
     ) -> Option<Self> {
         // Use rustc's dependency list: even an SVG can be an include_bytes!
-        // input. If Cargo retained several variants, let Cargo disambiguate.
+        // input. Cargo retains one variant per profile or flag set, and the
+        // executable is a hard link to the current one, so they share a stamp.
         let deps = executable.parent()?.join("deps");
+        let current = stamp(executable).ok()??;
         let mut listings = fs::read_dir(deps).ok()?.filter_map(|entry| {
             let path = entry.ok()?.path();
             let name = path.file_name()?.to_str()?;
-            (name.starts_with("proa_config_runner-") && name.ends_with(".d")).then_some(path)
+            let variant = name.strip_suffix(".d")?;
+            let binary = path.with_file_name(format!("{variant}{}", env::consts::EXE_SUFFIX));
+            (name.starts_with("proa_config_runner-") && stamp(&binary).ok()? == Some(current))
+                .then_some(path)
         });
         let listing = listings.next()?;
         if listings.next().is_some() {
@@ -156,15 +165,7 @@ impl CachedRunner {
             }
             inputs.insert(path, Some(state));
         }
-        let mut env_deps = EnvStamps::new();
-        for &name in TOOLCHAIN_ENV_DEPS {
-            let value = match env::var(name) {
-                Ok(value) => Some(hash_env_value(&value)),
-                Err(env::VarError::NotPresent) => None,
-                Err(env::VarError::NotUnicode(_)) => return None,
-            };
-            env_deps.insert(name.to_owned(), value);
-        }
+        let mut env_deps = build_environment()?;
         for (name, value) in deps.environment {
             // Store only a SHA-256 digest of compile-time env values so secrets
             // never land in plaintext in `stamp-cache.json`.
@@ -250,6 +251,9 @@ impl CachedRunner {
                 _ => return false,
             }
         }
+        let Some(build_environment) = build_environment() else {
+            return false;
+        };
         for (name, expected_hash) in &self.env_deps {
             let actual_hash = match env::var(name) {
                 Ok(value) => Some(hash_env_value(&value)),
@@ -259,6 +263,13 @@ impl CachedRunner {
             if actual_hash != *expected_hash {
                 return false;
             }
+        }
+        // A build setting that appeared since the stamps were taken.
+        if !build_environment
+            .keys()
+            .all(|name| self.env_deps.contains_key(name))
+        {
+            return false;
         }
         true
     }

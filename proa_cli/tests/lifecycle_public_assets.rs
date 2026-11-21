@@ -928,8 +928,12 @@ exec "$REAL_CARGO" "$@"
     .unwrap();
     fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
 
+    let profile = std::cell::Cell::new(None::<&str>);
     let run_validate = |compile_env: Option<&str>| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
+        if let Some(value) = profile.get() {
+            command.env("CARGO_PROFILE_DEV_DEBUG_ASSERTIONS", value);
+        }
         command
             .current_dir(root)
             .env("CARGO_TARGET_DIR", &target)
@@ -1029,5 +1033,25 @@ exec "$REAL_CARGO" "$@"
         fs::read_to_string(&cargo_trace).unwrap().lines().count(),
         4,
         "editing proa.config.rs must invalidate persisted stamp cache"
+    );
+
+    // A Cargo profile setting can change what `cfg!(debug_assertions)` compiles to.
+    profile.set(Some("false"));
+    let profile_changed = run_validate(None);
+    assert!(
+        profile_changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&profile_changed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        5,
+        "a new CARGO_PROFILE_* setting must invalidate persisted stamp cache"
+    );
+    run_validate(None);
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        5,
+        "an unchanged profile setting reuses the persisted stamp cache"
     );
 }

@@ -339,10 +339,9 @@ pub fn dev(options: DevOptions) -> Result<()> {
             && serde_json::to_vec(&next_config).ok() == serde_json::to_vec(&config).ok()
             && launch.executable.is_file()
             && launch.compiled_inputs.as_ref().is_some_and(|inputs| {
-                // A declared build-script input can be a directory.
                 changed_asset_paths
                     .iter()
-                    .all(|path| !inputs.iter().any(|input| path.starts_with(input)))
+                    .all(|path| !is_compiled_input(&root, inputs, path))
             })
         {
             if let Some(output) = launch.public_assets.as_ref() {
@@ -518,32 +517,7 @@ fn prepare_dev_inputs(
     } else {
         None
     };
-    // `scripts.css` is an opaque command with no declared inputs, so it always
-    // reruns. Declared assets rerun unless the edit cannot reach their inputs.
-    let skip_asset_build = managed_public
-        && crate::config::css_script_output(&config).is_none()
-        && public.is_some_and(|public| {
-            !changed.is_empty()
-                && changed.iter().all(|path| path.starts_with(public))
-                && !config
-                    .build
-                    .assets()
-                    .iter()
-                    .map(|asset| asset.output.as_path())
-                    .any(|output| {
-                        !output.as_os_str().is_empty()
-                            && (!root.join(output).is_file()
-                                || changed.iter().any(|path| path == output))
-                    })
-                && !config.build.assets().iter().any(|asset| {
-                    asset.input.starts_with(public)
-                        || asset
-                            .config
-                            .as_deref()
-                            .is_some_and(|cfg| cfg.starts_with(public))
-                })
-        });
-    if !options.no_assets && !skip_asset_build {
+    if !options.no_assets {
         build_assets(root, &config)?;
     }
     let mut public_assets_only = false;
@@ -806,24 +780,39 @@ fn is_css_or_public_or_asset_input(path: &Path, public: &Path, config: &ProjectC
         })
 }
 
-/// Collect the root-relative files and directories Cargo recorded as inputs
-/// of the final dev executable.
+/// Collect the files and directories Cargo recorded as inputs of the final
+/// dev executable, with links resolved.
 ///
 /// Returns `None` when Cargo's dep-info is unavailable or a local build script
 /// declares no inputs, so asset-only edits fall back to a full linked rebuild.
-fn collect_compiled_source_inputs(
-    root: &Path,
-    output: &LinkedCargoOutput,
-) -> Option<BTreeSet<PathBuf>> {
-    let canonical_root = root.canonicalize().ok()?;
-    let mut inputs = BTreeSet::new();
-    for input in output.final_root_inputs.as_ref()? {
-        let normalized = input.canonicalize().unwrap_or_else(|_| input.clone());
-        if let Ok(relative) = normalized.strip_prefix(&canonical_root) {
-            inputs.insert(relative.to_path_buf());
-        }
+fn collect_compiled_source_inputs(output: &LinkedCargoOutput) -> Option<BTreeSet<PathBuf>> {
+    Some(
+        output
+            .final_root_inputs
+            .as_ref()?
+            .iter()
+            .map(|input| input.canonicalize().unwrap_or_else(|_| input.clone()))
+            .collect(),
+    )
+}
+
+/// Whether a watched, root-relative path is (or is inside) a compiled input.
+///
+/// The watcher reports authored paths, and `public` may be a link to another
+/// directory, so both sides are compared with links resolved. A path that no
+/// longer resolves counts as an input.
+fn is_compiled_input(root: &Path, inputs: &BTreeSet<PathBuf>, path: &Path) -> bool {
+    let path = root.join(path);
+    // A deleted file still resolves through its directory.
+    let resolved = path.canonicalize().or_else(|_| {
+        let parent = path.parent().unwrap_or(root).canonicalize()?;
+        Ok::<_, io::Error>(parent.join(path.file_name().unwrap_or_default()))
+    });
+    match resolved {
+        // A declared build-script input can be a directory.
+        Ok(resolved) => inputs.iter().any(|input| resolved.starts_with(input)),
+        Err(_) => true,
     }
-    Some(inputs)
 }
 
 fn default_watch_paths() -> Vec<PathBuf> {
@@ -1638,7 +1627,7 @@ fn run_linked_dev_cycle(
         output.final_cargo.cargo_artifacts.len(),
     );
 
-    let compiled_inputs = collect_compiled_source_inputs(root, &output);
+    let compiled_inputs = collect_compiled_source_inputs(&output);
     Ok(LinkedDevLaunch {
         executable,
         arguments: prepared.runtime_args,

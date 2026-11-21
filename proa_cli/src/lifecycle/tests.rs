@@ -1912,7 +1912,8 @@ mod dev_preparation_tests {
         let loaded = load_project_config(root).unwrap();
         let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
 
-        // 1. Editing an unrelated `public/` asset qualifies for fast republish AND skips Tailwind.
+        // 1. Editing an unrelated `public/` asset qualifies for fast republish. The asset
+        //    command still runs: its declared input is not proof of everything it reads.
         let committed = watch_snapshot(root, &watch_paths).unwrap();
         fs::write(root.join("public/images/brand.svg"), "<svg id='v2'/>").unwrap();
         let mut failure = committed.clone();
@@ -1927,7 +1928,7 @@ mod dev_preparation_tests {
         )
         .unwrap();
         assert!(asset_only.public_assets_only);
-        assert!(!root.join("asset-runs.log").exists());
+        assert!(root.join("asset-runs.log").is_file());
 
         // 2. Editing `styles/input.css` rebuilds CSS and still qualifies for fast catalog republish.
         let committed = asset_only.snapshot;
@@ -1953,7 +1954,7 @@ mod dev_preparation_tests {
                 .unwrap()
                 .lines()
                 .count(),
-            1
+            2
         );
 
         // 3. Deleting a declared asset output (`public/styles.css`) must NOT skip `build_assets`.
@@ -1980,7 +1981,7 @@ mod dev_preparation_tests {
                 .unwrap()
                 .lines()
                 .count(),
-            2
+            3
         );
 
         // 4. Editing a Rust source file disables the fast path.
@@ -1998,6 +1999,42 @@ mod dev_preparation_tests {
         )
         .unwrap();
         assert!(!rust_edit.public_assets_only);
+    }
+
+    #[test]
+    fn compiled_inputs_match_through_a_linked_public_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("site");
+        let assets = temp.path().join("shared-assets");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir(&assets).unwrap();
+        fs::write(assets.join("logo.svg"), "one").unwrap();
+        fs::write(assets.join("icon.svg"), "one").unwrap();
+        std::os::unix::fs::symlink(&assets, root.join("public")).unwrap();
+        // rustc records `include_str!("../public/logo.svg")` under the link target.
+        let inputs = BTreeSet::from([assets.join("logo.svg").canonicalize().unwrap()]);
+
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/logo.svg")
+        ));
+        assert!(!is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/icon.svg")
+        ));
+        fs::remove_file(assets.join("logo.svg")).unwrap();
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/logo.svg")
+        ));
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("gone/logo.svg")
+        ));
     }
 
     #[test]
