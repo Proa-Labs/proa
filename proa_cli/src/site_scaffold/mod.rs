@@ -394,10 +394,29 @@ mod tests {
         );
         assert!(!root.join("scripts").exists());
         assert!(!root.join("src/islands").exists());
+        assert!(!root.join("rust-toolchain.toml").exists());
+        let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(cargo_toml.contains("rust-version = \"1.93\""));
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
-        syn::parse_file(&home).unwrap();
+        let parsed_home = syn::parse_file(&home).unwrap();
+        let mut saw_non_use_item = false;
+        for item in &parsed_home.items {
+            if matches!(item, syn::Item::Use(_)) {
+                assert!(
+                    !saw_non_use_item,
+                    "src/pages/home.rs should keep all `use` imports at the top of the file"
+                );
+            } else {
+                saw_non_use_item = true;
+            }
+        }
         assert!(home.contains("DataResolver::request_scope"));
         assert!(home.contains("MdRender<L> for HomePage"));
+        assert!(home.contains("# {HEADLINE}"));
+        assert!(!home.contains("Rust\\."));
+        assert!(!home.contains("multi\\-target"));
+        let routes = std::fs::read_to_string(root.join("src/routes.rs")).unwrap();
+        assert!(routes.contains("PROA_PUBLIC_ASSETS"));
     }
 
     #[test]
@@ -409,6 +428,7 @@ mod tests {
             value.template = template.to_string();
             new_site(value).unwrap();
             assert!(!root.join(".cargo/config.toml").exists(), "{template}");
+            assert!(!root.join("rust-toolchain.toml").exists(), "{template}");
             let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
             assert!(!config.contains("template:"), "{template}");
             let formatting =
