@@ -449,40 +449,49 @@ pub async fn config() -> Result<Config> {
 "#,
     )
     .unwrap();
-    let manifest_dir = custom_target.join("proa-rsjs");
+    let manifest_dir = custom_target.join("proa-rsjs/start-manifests");
     fs::create_dir_all(&manifest_dir).unwrap();
-    fs::write(
-        manifest_dir.join("start-manifest.json"),
-        serde_json::json!({
-            "schemaVersion": 1,
-            "entries": [
-                {
-                    "packageId": "pkg-demo",
-                    "binary": "demo",
-                    "profile": "release",
-                    "executable": demo_exec,
-                    "publicAssets": catalog_demo,
-                },
-                {
-                    "packageId": "pkg-admin",
-                    "binary": "admin",
-                    "profile": "release",
-                    "executable": admin_exec,
-                    "publicAssets": catalog_admin,
-                },
-                {
-                    "packageId": "pkg-demo",
-                    "binary": "demo",
-                    "profile": "release",
-                    "targetTriple": "x86_64-unknown-linux-gnu",
-                    "executable": cross_exec,
-                    "publicAssets": catalog_admin,
-                }
-            ]
-        })
-        .to_string(),
-    )
-    .unwrap();
+    for (filename, entry) in [
+        (
+            "demo.json",
+            serde_json::json!({
+                "schemaVersion": 1,
+                "packageId": "pkg-demo",
+                "binary": "demo",
+                "profile": "release",
+                "executable": demo_exec,
+                "publicAssets": catalog_demo,
+                "updatedAtNanos": 100,
+            }),
+        ),
+        (
+            "admin.json",
+            serde_json::json!({
+                "schemaVersion": 1,
+                "packageId": "pkg-admin",
+                "binary": "admin",
+                "profile": "release",
+                "executable": admin_exec,
+                "publicAssets": catalog_admin,
+                "updatedAtNanos": 200,
+            }),
+        ),
+        (
+            "demo-cross.json",
+            serde_json::json!({
+                "schemaVersion": 1,
+                "packageId": "pkg-demo",
+                "binary": "demo",
+                "profile": "release",
+                "targetTriple": "x86_64-unknown-linux-gnu",
+                "executable": cross_exec,
+                "publicAssets": catalog_admin,
+                "updatedAtNanos": 300,
+            }),
+        ),
+    ] {
+        fs::write(manifest_dir.join(filename), entry.to_string()).unwrap();
+    }
 
     // Bare `proa start` honors `.cargo/config.toml`'s `build.target-dir`, runs the
     // host `demo` binary (ignoring the cross-target entry), and injects `demo`'s assets.

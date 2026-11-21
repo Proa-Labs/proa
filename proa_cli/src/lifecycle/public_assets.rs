@@ -6,9 +6,10 @@ use proa_assets::{build::OutputStore, sha256, OUTPUT_ENV};
 use serde::Serialize;
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const START_MANIFEST_SCHEMA_VERSION: u16 = 1;
-const START_MANIFEST_FILE: &str = "start-manifest.json";
+const START_MANIFESTS_DIR: &str = "start-manifests";
 static START_MANIFEST_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +23,8 @@ pub(crate) struct StartManifest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StartManifestEntry {
+    #[serde(default = "default_start_manifest_schema_version")]
+    pub schema_version: u16,
     #[serde(default)]
     pub package_id: String,
     pub binary: String,
@@ -31,22 +34,36 @@ pub(crate) struct StartManifestEntry {
     pub executable: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_assets: Option<PathBuf>,
+    #[serde(default)]
+    pub updated_at_nanos: u128,
 }
 
-pub(crate) fn start_manifest_path(target_dir: &Path) -> PathBuf {
+const fn default_start_manifest_schema_version() -> u16 {
+    START_MANIFEST_SCHEMA_VERSION
+}
+
+pub(crate) fn start_manifests_dir(target_dir: &Path) -> PathBuf {
     target_dir
         .join(TOOL_NAMESPACE_DIR)
-        .join(START_MANIFEST_FILE)
+        .join(START_MANIFESTS_DIR)
 }
 
-fn manifest_paths_match(left: &Path, right: &Path) -> bool {
-    if left == right {
-        return true;
-    }
-    match (left.canonicalize(), right.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    }
+fn start_manifest_entry_path(
+    target_dir: &Path,
+    package_id: &str,
+    binary: &str,
+    profile: &str,
+    target_triple: Option<&str>,
+    executable: &Path,
+) -> Result<PathBuf> {
+    let key = serde_json::to_vec(&(
+        package_id,
+        binary,
+        profile,
+        target_triple,
+        executable.to_string_lossy(),
+    ))?;
+    Ok(start_manifests_dir(target_dir).join(format!("{}.json", sha256(&key))))
 }
 
 pub(crate) fn record_start_manifest(
@@ -58,50 +75,72 @@ pub(crate) fn record_start_manifest(
     executable: &Path,
     public_assets: Option<&Path>,
 ) -> Result<()> {
-    let path = start_manifest_path(target_dir);
-    let parent = path
-        .parent()
-        .context("start manifest must have a parent directory")?;
-    fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     let abs_executable =
         std::path::absolute(executable).unwrap_or_else(|_| executable.to_path_buf());
     let abs_public_assets =
         public_assets.map(|dir| std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf()));
-    let mut manifest = load_start_manifest(target_dir).unwrap_or(StartManifest {
+    let path = start_manifest_entry_path(
+        target_dir,
+        package_id,
+        binary,
+        profile,
+        target_triple,
+        &abs_executable,
+    )?;
+    let parent = path
+        .parent()
+        .context("start manifest entry must have a parent directory")?;
+    fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    let updated_at_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    let entry = StartManifestEntry {
         schema_version: START_MANIFEST_SCHEMA_VERSION,
-        entries: Vec::new(),
-    });
-    manifest.entries.retain(|existing| {
-        let same_target = existing.package_id == package_id
-            && existing.binary == binary
-            && existing.profile == profile
-            && existing.target_triple.as_deref() == target_triple;
-        let same_executable = manifest_paths_match(&existing.executable, &abs_executable);
-        !same_target && !same_executable
-    });
-    manifest.entries.push(StartManifestEntry {
         package_id: package_id.to_string(),
         binary: binary.to_string(),
         profile: profile.to_string(),
         target_triple: target_triple.map(ToString::to_string),
         executable: abs_executable,
         public_assets: abs_public_assets,
-    });
-    let bytes = serde_json::to_vec_pretty(&manifest)?;
+        updated_at_nanos,
+    };
+    let bytes = serde_json::to_vec_pretty(&entry)?;
     let seq = START_MANIFEST_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = parent.join(format!(
-        ".{START_MANIFEST_FILE}.proa-{}-{seq}.tmp",
-        std::process::id()
-    ));
+    let tmp = parent.join(format!(".entry.proa-{}-{seq}.tmp", std::process::id()));
     fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
-    fs::rename(&tmp, &path).with_context(|| format!("commit {}", path.display()))?;
+    if let Err(err) = replace_file(&tmp, &path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(err).with_context(|| format!("commit {}", path.display()));
+    }
     Ok(())
 }
 
 pub(crate) fn load_start_manifest(target_dir: &Path) -> Option<StartManifest> {
-    let bytes = fs::read(start_manifest_path(target_dir)).ok()?;
-    let manifest: StartManifest = serde_json::from_slice(&bytes).ok()?;
-    (manifest.schema_version == START_MANIFEST_SCHEMA_VERSION).then_some(manifest)
+    let dir = start_manifests_dir(target_dir);
+    let mut entries = Vec::new();
+    for item in fs::read_dir(&dir).ok()?.flatten() {
+        let path = item.path();
+        if path.extension().and_then(OsStr::to_str) != Some("json") {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&path) else {
+            continue;
+        };
+        let Ok(entry) = serde_json::from_slice::<StartManifestEntry>(&bytes) else {
+            continue;
+        };
+        if entry.schema_version == START_MANIFEST_SCHEMA_VERSION {
+            entries.push(entry);
+        }
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    entries.sort_by_key(|entry| entry.updated_at_nanos);
+    Some(StartManifest {
+        schema_version: START_MANIFEST_SCHEMA_VERSION,
+        entries,
+    })
 }
 
 pub(super) fn configured_path(config: &ProjectConfig, enabled: bool) -> Result<Option<&Path>> {
