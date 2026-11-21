@@ -578,6 +578,7 @@ fn dev_command_honors_configured_application_binary() {
         no_css_hot_swap: false,
         reload_port: None,
         debounce_ms: None,
+        verbose: false,
         command: Vec::new(),
     };
     let config = ProjectConfig {
@@ -833,6 +834,7 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         no_css_hot_swap: false,
         reload_port: None,
         debounce_ms,
+        verbose: false,
         command: Vec::new(),
     }
 }

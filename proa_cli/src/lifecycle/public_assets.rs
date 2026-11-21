@@ -194,7 +194,7 @@ pub(super) fn publish(
     if let Some(error) = report.durability_error {
         eprintln!("warning: public manifest activated, but directory sync failed: {error}");
     }
-    println!(
+    super::dev_ui::detail!(
         "published {} public assets to {}",
         report.manifest.assets.len(),
         report.output_directory.display()

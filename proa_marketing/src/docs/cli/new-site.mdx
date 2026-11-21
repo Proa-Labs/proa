@@ -224,6 +224,7 @@ The controls are `proa dev` flags:
 | `--reload-port <PORT>` | operating-system assigned | Port for the event stream. Set it only if you want a predictable one. `proa dev` passes it to the server as `PROA_DEV_RELOAD_PORT`. |
 | `--no-css-hot-swap` | hot swap on | Restarts the server for stylesheet changes instead of swapping them in place. Use it when stylesheets are compiled into the binary rather than served from disk. |
 | `--debounce-ms <MILLISECONDS>` | `200` | Quiet window a change must survive before a rebuild starts. Raise it if a formatter or code generator triggers extra cycles. |
+| `--verbose` | off | Print the detailed build log (commands, cache reuse, artifact paths) instead of the interactive summary. Piped output is always detailed. |
 
 The debounce window cannot go below the 100ms file-watch poll interval. `proa dev` reads no `PROA_DEV_*` variables from your shell.
 
