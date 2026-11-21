@@ -202,6 +202,17 @@ pub(super) fn publish(
     Ok(Some(report.output_directory))
 }
 
+/// Whether the running server follows the catalog just published in place.
+///
+/// Any doubt, including a failure to ask, answers `false`: restarting a
+/// server that would have reloaded costs a moment, while skipping the restart
+/// of one that cannot reload leaves stale files on screen with no error.
+pub(super) fn has_live_reader(output: &Path) -> bool {
+    OutputStore::open(output)
+        .and_then(|store| store.has_live_reader())
+        .unwrap_or(false)
+}
+
 pub(super) fn cleanup(output: Option<&Path>) {
     if let Some(output) = output {
         if let Err(error) = OutputStore::open(output).and_then(|mut store| store.cleanup()) {

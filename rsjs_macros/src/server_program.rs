@@ -1203,6 +1203,39 @@ mod tests {
     }
 
     #[test]
+    fn qualified_render_calls_keep_their_trait_path_and_context_around_the_new_macro() {
+        let sync_block: Block = syn::parse_quote! {{
+            return proa::WebRenderSync::render(html_sync! { <main>"old"</main> }, cx);
+        }};
+        let async_block: Block = syn::parse_quote! {{
+            <_ as WebRender<L, B>>::render(html! { <main>"old"</main> }, cx).resolve().await
+        }};
+        for (block, replacement, prefix, suffix) in [
+            (
+                sync_block,
+                quote! { ::proa_macros::html_sync! { <rsjs-island>"new"</rsjs-island> } },
+                "return proa :: WebRenderSync :: render (:: proa_macros :: html_sync !",
+                ", cx) ;",
+            ),
+            (
+                async_block,
+                quote! { ::proa_macros::html! { <rsjs-island>"new"</rsjs-island> } },
+                "< _ as WebRender < L , B > > :: render (:: proa_macros :: html !",
+                ", cx) . resolve () . await",
+            ),
+        ] {
+            let mut tail = block.stmts.into_iter().next_back().unwrap();
+            replace_render_macro(&mut tail, replacement).unwrap();
+            let emitted = tail.to_token_stream().to_string();
+
+            assert!(emitted.starts_with(prefix), "{emitted}");
+            assert!(emitted.ends_with(suffix), "{emitted}");
+            assert!(emitted.contains("rsjs - island"), "{emitted}");
+            assert!(!emitted.contains("\"old\""), "{emitted}");
+        }
+    }
+
+    #[test]
     fn linked_sync_impl_factors_the_authored_body_and_emits_exact_child_sites() {
         let authored: ItemImpl = syn::parse_quote! {
             impl<L: proa_core::DataLoader, B: proa_core::WriteBuf>

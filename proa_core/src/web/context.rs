@@ -460,12 +460,10 @@ impl<'a> HeadWriter<'a> {
     );
 
     /// Set a manifest URL resolved against the trusted public origin and mount.
-    pub fn manifest(
-        &mut self,
-        value: impl Into<std::borrow::Cow<'static, str>>,
-    ) -> Result<(), crate::WriteError> {
+    pub fn manifest(&mut self, value: impl crate::TryIntoHeadUrl) -> Result<(), crate::WriteError> {
+        let value: String = value.try_into_head_url()?.into();
         self.metadata(crate::HeadMetadata {
-            manifest: value.into().into(),
+            manifest: std::borrow::Cow::<'static, str>::Owned(value).into(),
             ..Default::default()
         })
     }
@@ -530,26 +528,35 @@ impl<'a> HeadWriter<'a> {
     ) -> Result<(), crate::WriteError> {
         self.meta("description", value)
     }
-    pub fn canonical(&mut self, value: &str) -> Result<(), crate::WriteError> {
-        self.managed()?.canonical(value)
+    pub fn canonical(
+        &mut self,
+        value: impl crate::TryIntoHeadUrl,
+    ) -> Result<(), crate::WriteError> {
+        let value = value.try_into_head_url()?;
+        self.managed()?.canonical(value.as_ref())
     }
     pub fn module<K: Eq + Send + Sync + 'static>(
         &mut self,
         key: K,
-        value: &str,
+        value: impl crate::TryIntoHeadUrl,
     ) -> Result<(), crate::WriteError> {
-        self.managed()?
-            .resource(crate::head_fields::ResourceFamily::Module, key, Some(value))
+        let value = value.try_into_head_url()?;
+        self.managed()?.resource(
+            crate::head_fields::ResourceFamily::Module,
+            key,
+            Some(value.as_ref()),
+        )
     }
     pub fn stylesheet<K: Eq + Send + Sync + 'static>(
         &mut self,
         key: K,
-        value: &str,
+        value: impl crate::TryIntoHeadUrl,
     ) -> Result<(), crate::WriteError> {
+        let value = value.try_into_head_url()?;
         self.managed()?.resource(
             crate::head_fields::ResourceFamily::Stylesheet,
             key,
-            Some(value),
+            Some(value.as_ref()),
         )
     }
     pub fn remove_module<K: Eq + Send + Sync + 'static>(
@@ -592,6 +599,27 @@ impl<'a> HeadWriter<'a> {
         patch: crate::head_fields::OpenGraph,
     ) -> Result<(), crate::WriteError> {
         self.managed()?.open_graph(patch)
+    }
+    /// Set the Open Graph image to exactly this one, from a URL, a
+    /// `cx.url(...)` value, or a described [`crate::HeadMedia`].
+    ///
+    /// Like every Open Graph list, this replaces the images set so far,
+    /// including a layout's and an earlier call's, and leaves the other
+    /// Open Graph fields alone. For several images use
+    /// [`open_graph`](Self::open_graph) with `OpenGraph::new().images([...])`.
+    ///
+    /// Take the URL before borrowing the head:
+    /// `let og = cx.url("public/og.png"); cx.head_mut().og_image(og)?;`
+    pub fn og_image(&mut self, image: impl crate::TryIntoOgImage) -> Result<(), crate::WriteError> {
+        let media = image.try_into_og_image()?;
+        self.open_graph(crate::OpenGraph::new().images([media]))
+    }
+    /// Set the icon list to exactly this one icon, from a URL or a
+    /// `cx.url(...)` value. Use [`icons`](Self::icons) for several, or for a
+    /// kind, size, or media query.
+    pub fn icon(&mut self, url: impl crate::TryIntoHeadUrl) -> Result<(), crate::WriteError> {
+        let icon = crate::HeadIcon::from_url(url)?;
+        self.icons([icon])
     }
     pub fn remove_stylesheet<K: Eq + Send + Sync + 'static>(
         &mut self,

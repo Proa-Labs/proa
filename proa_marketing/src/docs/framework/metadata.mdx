@@ -2,6 +2,7 @@
 title: Metadata and OG images
 sidebar_title: Metadata and OG images
 description: Add page titles, descriptions, canonical URLs, and social images with render_head.
+keywords: [cx.head_mut, og_image, "og:image", HeadMedia, OpenGraph, metadata]
 ---
 
 Set page metadata in `render_head`. Proa turns your `cx.head_mut()` calls into tags at the `{cx.head()}` outlet in your document.
@@ -192,14 +193,22 @@ Page and layout hooks can override these defaults. Call `with_urls` before `with
 
 ## Add an Open Graph image
 
-Point to an existing image and describe it with `HeadMedia`:
+For a managed public asset or local image, resolve it with `cx.url(...)` and pass it directly to `cx.head_mut().og_image(...)`:
+
+```rust filename="render_head"
+let og = cx.url("public/images/og.png");
+cx.head_mut().og_image(og)?;
+```
+
+To add alt text, MIME type, or dimensions, build a `HeadMedia` via `HeadMedia::from_url(...)` (or `HeadMedia::new(...)` for static/external URLs):
 
 ```rust filename="render_head"
 use proa::{HeadMedia, OpenGraph};
 
+let og = cx.url("public/og/trail-jacket.png");
 cx.head_mut().open_graph(
     OpenGraph::new().images([
-        HeadMedia::new("/og/trail-jacket.png")
+        HeadMedia::from_url(og)?
             .mime_type("image/png")
             .alt("Trail Jacket in forest green")
             .dimensions(1200, 630),
@@ -208,12 +217,14 @@ cx.head_mut().open_graph(
 ```
 
 ```html filename="Image tags"
-<meta property="og:image" content="https://shop.example/og/trail-jacket.png">
+<meta property="og:image" content="https://shop.example/_proa/assets/og/trail-jacket.0c380908.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:alt" content="Trail Jacket in forest green">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 ```
+
+`cx.url("public/...")` resolves a [managed public asset](/docs/framework/static-assets#managed-public-assets) to its fingerprinted URL, and the trusted public origin makes it absolute. Head metadata rejects a raw `"public/..."` string, because it would point at a path the server does not serve; resolve it with `cx.url(...)` first.
 
 `OpenGraph::new()` enables social metadata. If the document already has a title, description, or canonical URL, Open Graph also emits `og:title`, `og:description`, and `og:url` from those final values. Explicit social values override those fallbacks.
 

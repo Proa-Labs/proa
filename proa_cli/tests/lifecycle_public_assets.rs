@@ -557,6 +557,114 @@ fn main() {
 
 #[cfg(unix)]
 #[test]
+fn dev_restarts_a_server_that_cannot_follow_the_catalog_and_spares_one_that_can() {
+    use std::{net::TcpListener, os::unix::process::CommandExt};
+
+    let temp = fixture();
+    let root = temp.path();
+    let artifacts = tempfile::tempdir().unwrap();
+    // The server registers as a live reader only when `follow` exists, which
+    // stands in for `PublicAssets::load_live` without a framework dependency.
+    fs::write(
+        root.join("src/main.rs"),
+        r#"
+fn main() {
+    let port = std::env::var("PORT").unwrap();
+    let output = std::path::PathBuf::from(std::env::var_os("PROA_PUBLIC_ASSETS").unwrap());
+    let _following = std::path::Path::new("follow").exists().then(|| {
+        let lock = std::fs::File::open(output.join(".live-readers.lock")).unwrap();
+        lock.lock_shared().unwrap();
+        lock
+    });
+    eprintln!("SERVER-START");
+    let listener = std::net::TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+    for stream in listener.incoming() { drop(stream.unwrap()); }
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("proa.config.rs"),
+        PUBLIC_CONFIG.replace("\"cargo run\"", "\"proa dev\""),
+    )
+    .unwrap();
+    let log = artifacts.path().join("dev.log");
+    let output = fs::File::create(&log).unwrap();
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut watch = Watcher(
+        Command::new(env!("CARGO_BIN_EXE_proa"))
+            .current_dir(root)
+            .env("CARGO_TARGET_DIR", artifacts.path().join("target"))
+            // The port comes from the environment here, the way a process
+            // manager supplies it, instead of from `--port`.
+            .env("PORT", port.to_string())
+            .env("HOST", "arm64-apple-darwin20.0.0")
+            .env_remove("PROA_HOST")
+            .args(["dev", "--offline", "--no-reload"])
+            .stdout(output.try_clone().unwrap())
+            .stderr(output)
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let ready = "Proa dev ready:";
+    let restarted = "republished catalog without Cargo";
+    let in_place = "republished catalog in place without restarting";
+    let starts = |text: &str| text.matches("SERVER-START").count();
+
+    let first = watch.wait_for(&log, ready, 1);
+    assert!(
+        first.contains(&format!("Proa dev ready: http://127.0.0.1:{port}")),
+        "{first}"
+    );
+    let published = published(&first);
+    let before = fs::read(published.join("manifest.json")).unwrap();
+
+    // The running server holds a fixed catalog: only a restart shows the edit.
+    fs::write(root.join("follow"), "").unwrap();
+    fs::write(root.join("public/logo.svg"), "second").unwrap();
+    let after_restart = watch.wait_for(&log, ready, 2);
+    assert_eq!(
+        after_restart.matches(restarted).count(),
+        1,
+        "{after_restart}"
+    );
+    assert_eq!(
+        after_restart.matches(in_place).count(),
+        0,
+        "{after_restart}"
+    );
+    assert_eq!(starts(&after_restart), 2, "{after_restart}");
+    let second = fs::read(published.join("manifest.json")).unwrap();
+    assert_ne!(second, before);
+
+    // Its replacement follows the catalog, so the next edit publishes under
+    // the same process.
+    fs::write(root.join("public/logo.svg"), "third").unwrap();
+    let after_swap = watch.wait_for(&log, in_place, 1);
+    assert_ne!(fs::read(published.join("manifest.json")).unwrap(), second);
+    fs::write(root.join("public/extra.png"), "png").unwrap();
+    let after_second_swap = watch.wait_for(&log, in_place, 2);
+    for text in [&after_swap, &after_second_swap] {
+        assert_eq!(text.matches(restarted).count(), 1, "{text}");
+        assert_eq!(text.matches(ready).count(), 2, "{text}");
+        assert_eq!(starts(text), 2, "{text}");
+    }
+    assert_eq!(
+        after_second_swap
+            .matches("running linked RSJS Cargo dev build")
+            .count(),
+        1,
+        "{after_second_swap}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn run_dispatches_configured_scripts_and_builtins_bypass_them() {
     let temp = fixture();
     let root = temp.path();

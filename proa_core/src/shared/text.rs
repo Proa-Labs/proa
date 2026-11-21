@@ -331,6 +331,90 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for &Stri
         ))
     }
 }
+/// `bool` renders as literal ASCII `"true"` or `"false"` without allocation or escaping.
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for bool {
+    #[inline(always)]
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
+        cx.out
+            .extend_static_str(if self { "true" } else { "false" })
+    }
+}
+// proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for bool {
+    #[inline(always)]
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<
+        impl core::future::Future<Output = Result<(), crate::shared::write_buf::WriteError>>,
+    > {
+        RenderOutcome::<std::future::Ready<Result<(), crate::shared::write_buf::WriteError>>>::Done(
+            WebRenderSync::render(self, cx),
+        )
+    }
+}
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for bool {
+    #[inline(always)]
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        // ASCII letters need no Markdown or link-destination escaping, so the
+        // static zero-copy path applies in every Markdown context.
+        cx.write_md_prepared_static_str(if self { "true" } else { "false" })
+    }
+}
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for bool {
+    #[inline(always)]
+    fn render_md(
+        self,
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
+            self, cx,
+        ))
+    }
+}
+/// `char` encodes onto a 4-byte stack buffer and writes through the active escaper.
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for char {
+    #[inline(always)]
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
+        let mut buf = [0u8; 4];
+        let s = self.encode_utf8(&mut buf);
+        let mode = cx.current_mode();
+        let dialect = cx.__proa_current_escape_dialect();
+        escape_text_for_dialect(&mut cx.out, s, mode, dialect)
+    }
+}
+// proa-perf-ok(scope): intentional immediate sync-to-async composition bridge
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for char {
+    #[inline(always)]
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<
+        impl core::future::Future<Output = Result<(), crate::shared::write_buf::WriteError>>,
+    > {
+        RenderOutcome::<std::future::Ready<Result<(), crate::shared::write_buf::WriteError>>>::Done(
+            WebRenderSync::render(self, cx),
+        )
+    }
+}
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for char {
+    #[inline(always)]
+    fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
+        let mut buf = [0u8; 4];
+        cx.write_md_text(self.encode_utf8(&mut buf))
+    }
+}
+impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRender<Loader, B> for char {
+    #[inline(always)]
+    fn render_md(
+        self,
+        cx: &mut WebContext<Loader, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(MdRenderSync::render_md(
+            self, cx,
+        ))
+    }
+}
 /// Pre-verified safe text that doesn't need escaping.
 /// Use `safe_text!("literal")` macro to create this safely at compile time.
 ///

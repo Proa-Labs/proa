@@ -39,6 +39,9 @@ pub(super) fn run_named(
     arguments: &[OsString],
 ) -> Result<()> {
     let scripts = &project.scripts.named;
+    if !scripts.contains_key(name) {
+        bail!("{}", unknown_script(name));
+    }
     let order = dependency_order(scripts, [name])?;
     for task_name in order {
         execute(
@@ -51,6 +54,25 @@ pub(super) fn run_named(
         )?;
     }
     Ok(())
+}
+
+/// `proa run lint` is a natural guess for anyone used to package scripts,
+/// but only project scripts live under `proa run`. Name the command they
+/// meant. The list comes from the CLI definition, so a new subcommand is
+/// covered without touching this file.
+fn unknown_script(name: &str) -> String {
+    use clap::CommandFactory;
+
+    let builtin = crate::cli::Cli::command()
+        .get_subcommands()
+        .any(|command| !command.is_hide_set() && command.get_name() == name);
+    if builtin && name != "run" {
+        format!(
+            "unknown task `{name}`: `{name}` is a built-in command, so run `proa {name}` directly, or define a `{name}` task in `scripts.named` to make `proa run {name}` work"
+        )
+    } else {
+        format!("unknown task `{name}`")
+    }
 }
 
 /// Run lifecycle-owned task roots with one dependency traversal and an exact
@@ -251,5 +273,27 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("cycle"));
+    }
+
+    #[test]
+    fn running_a_builtin_command_name_as_a_script_names_the_real_command() {
+        // Every visible subcommand is covered, not a hand-kept subset.
+        for builtin in ["lint", "fmt", "check", "test", "db", "deploy", "chunks"] {
+            let message = unknown_script(builtin);
+            assert!(message.contains(&format!("`proa {builtin}`")), "{message}");
+            assert!(message.contains("scripts.named"), "{message}");
+        }
+        for other in ["custom", "run", "install-self", "Lint"] {
+            assert_eq!(unknown_script(other), format!("unknown task `{other}`"));
+        }
+    }
+
+    #[test]
+    fn a_missing_dependency_is_not_told_to_run_a_command_instead() {
+        // `depends_on = ["lint"]` asks for a task. Running `proa lint` by
+        // hand would not satisfy it, so the advice stays out of this path.
+        let tasks = BTreeMap::from([("ci".into(), task(&["lint"]))]);
+        let error = dependency_order(&tasks, ["ci"]).unwrap_err().to_string();
+        assert_eq!(error, "unknown task `lint`");
     }
 }

@@ -49,6 +49,7 @@ pub(crate) fn run(args: RunArgs, raw: &[OsString]) -> Result<()> {
         }
         let (name, arguments) = script.expect("checked script name");
         let name = name.to_str().context("script name must be UTF-8")?;
+        let arguments = forwarded(arguments);
         if let Some((_, source)) =
             script::shell_entries(&project.scripts).find(|(script, _)| *script == name)
         {
@@ -58,9 +59,6 @@ pub(crate) fn run(args: RunArgs, raw: &[OsString]) -> Result<()> {
             );
             return script::run(&root, name, source, arguments);
         }
-        let arguments = arguments
-            .strip_prefix(&[OsString::from("--")])
-            .unwrap_or(arguments);
         return task::run_named(&root, &project, name, args.force, arguments);
     }
     ensure!(!args.force, "`--force` requires a named task");
@@ -85,6 +83,17 @@ pub(crate) fn run(args: RunArgs, raw: &[OsString]) -> Result<()> {
             })
             .collect::<Result<_>>()?,
     })
+}
+
+/// Arguments a script or task receives.
+///
+/// `proa run dev --port 4137` and `proa run dev -- --port 4137` mean the same
+/// thing, as they do for package-manager scripts. Only that one leading
+/// separator belongs to `proa run`; a later `--` is the script's own.
+fn forwarded(arguments: &[OsString]) -> &[OsString] {
+    arguments
+        .strip_prefix(&[OsString::from("--")])
+        .unwrap_or(arguments)
 }
 
 #[cfg(test)]
@@ -133,5 +142,38 @@ mod tests {
         assert!(args.cargo.locked);
         assert!(args.cargo.offline);
         assert_eq!(args.arguments, ["--seed", "42"]);
+    }
+
+    #[test]
+    fn scripts_receive_the_same_arguments_with_or_without_a_separator() {
+        let forwarded_from = |line: &[&str]| {
+            let cli = Cli::try_parse_from(line).unwrap();
+            let Command::Run(args) = cli.command else {
+                panic!("expected run command");
+            };
+            let (name, rest) = args.arguments.split_first().unwrap();
+            assert_eq!(name, "dev");
+            super::forwarded(rest).to_vec()
+        };
+
+        assert_eq!(
+            forwarded_from(&["proa", "run", "dev", "--port", "4137"]),
+            ["--port", "4137"]
+        );
+        assert_eq!(
+            forwarded_from(&["proa", "run", "dev", "--", "--port", "4137"]),
+            ["--port", "4137"]
+        );
+        // A separator the script itself needs survives in both spellings.
+        assert_eq!(
+            forwarded_from(&["proa", "run", "dev", "--port", "4137", "--", "cargo", "run"]),
+            ["--port", "4137", "--", "cargo", "run"]
+        );
+        assert_eq!(
+            forwarded_from(&["proa", "run", "dev", "--", "--", "cargo", "run"]),
+            ["--", "cargo", "run"]
+        );
+        assert!(forwarded_from(&["proa", "run", "dev"]).is_empty());
+        assert!(forwarded_from(&["proa", "run", "dev", "--"]).is_empty());
     }
 }

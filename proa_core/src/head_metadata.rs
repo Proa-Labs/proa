@@ -267,6 +267,11 @@ impl HeadIcon {
             color: None,
         }
     }
+    /// Construct icon metadata from a URL or a `cx.url(...)` value, including
+    /// a managed `public/...` asset.
+    pub fn from_url(url: impl crate::TryIntoHeadUrl) -> Result<Self, crate::WriteError> {
+        Ok(Self::new(url.try_into_head_url()?.into()))
+    }
     pub fn kind(mut self, kind: IconKind) -> Self {
         self.kind = kind;
         self

@@ -3,12 +3,12 @@
 
 //! First-class rendering support for all primitive numeric types.
 //!
-//! Implements [`crate::WebRenderSync`], [`AttrValue`], [`crate::MdRenderSync`],
-//! and [`crate::MdRender`] for all 14 Rust primitive numeric types using
-//! [`itoa_lut`] (integers) and [`zmij`] (floats) for zero-allocation,
-//! zero-escape formatting. Literal `text!` integer format plans additionally
-//! cover width, alignment/fill, signs, radix prefixes, and scientific notation
-//! without routing primitive values through `core::fmt`.
+//! Implements [`crate::WebRenderSync`], [`crate::WebRender`], [`AttrValue`],
+//! [`crate::MdRenderSync`], and [`crate::MdRender`] for all 14 Rust primitive
+//! numeric types using [`itoa_lut`] (integers) and [`zmij`] (floats) for
+//! zero-allocation, zero-escape formatting. Literal `text!` integer format
+//! plans additionally cover width, alignment/fill, signs, radix prefixes, and
+//! scientific notation without routing primitive values through `core::fmt`.
 //!
 //! Integer rendering bypasses the `itoa_lut::Buffer` API entirely, writing
 //! digits directly into a sized stack array and extending the output buffer
@@ -23,7 +23,7 @@
 use core::fmt;
 
 use crate::render::DataLoader;
-use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRenderSync};
+use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRender, WebRenderSync};
 use crate::shared::attr_value::AttrValue;
 use crate::shared::write_buf::{WriteBuf, WriteError};
 use crate::web::WebContext;
@@ -87,6 +87,17 @@ macro_rules! impl_integer_render {
                 }
             }
         }
+        impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for $unsigned {
+            #[inline(always)]
+            fn render(
+                self,
+                cx: &mut WebContext<L, B>,
+            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+                RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+                    WebRenderSync::render(self, cx),
+                )
+            }
+        }
         impl AttrValue for $unsigned {
             #[inline(always)]
             fn should_render(&self) -> bool {
@@ -142,6 +153,17 @@ macro_rules! impl_signed_render {
                         itoa_lut::$write_fn(v, buf.try_into().unwrap())
                     })
                 }
+            }
+        }
+        impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for $signed {
+            #[inline(always)]
+            fn render(
+                self,
+                cx: &mut WebContext<L, B>,
+            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+                RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+                    WebRenderSync::render(self, cx),
+                )
             }
         }
         impl AttrValue for $signed {
@@ -200,6 +222,17 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for usize {
         <u64 as WebRenderSync<L, B>>::render(self as u64, cx)
     }
 }
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for usize {
+    #[inline(always)]
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(WebRenderSync::render(
+            self, cx,
+        ))
+    }
+}
 impl AttrValue for usize {
     #[inline(always)]
     fn should_render(&self) -> bool {
@@ -233,6 +266,17 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for isize {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         <i64 as WebRenderSync<L, B>>::render(self as i64, cx)
+    }
+}
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for isize {
+    #[inline(always)]
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(WebRenderSync::render(
+            self, cx,
+        ))
     }
 }
 impl AttrValue for isize {
@@ -275,6 +319,17 @@ macro_rules! impl_float_render {
                 ) -> Result<(), crate::shared::write_buf::WriteError> {
                     let mut buf = zmij::Buffer::new();
                     write_shortest(&mut cx.out, buf.format(self))
+                }
+            }
+            impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for $ty {
+                #[inline(always)]
+                fn render(
+                    self,
+                    cx: &mut WebContext<L, B>,
+                ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+                    RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+                        WebRenderSync::render(self, cx),
+                    )
                 }
             }
             impl AttrValue for $ty {

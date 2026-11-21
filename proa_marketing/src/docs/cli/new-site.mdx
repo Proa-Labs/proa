@@ -187,8 +187,11 @@ on a connection-refused page. When `paths.public` is set to `None` (unmanaged
 serving), a stylesheet-only change rebuilds the stylesheet and re-fetches it in
 place without restarting the server, so scroll position, form values, and open
 dialogs survive. With managed `public/` assets enabled (the default), public
-file and stylesheet edits republish the catalog and restart the server before
-reloading the tab. A failed build leaves
+file and stylesheet edits republish the catalog, and a server built with
+`FrameworkBuilder` picks the new catalog up in place, so the tab reloads (or
+re-fetches its stylesheets) without a server restart. A server that cannot
+follow the catalog, such as one that loads it with `PublicAssets::load` or one
+built against an older framework release, is restarted first. A failed build leaves
 the last working server running and raises a dismissible overlay in the tab
 with the failure summary. Cargo streams the compiler diagnostics themselves to
 the `proa dev` terminal, and the overlay says so.
@@ -227,6 +230,8 @@ The controls are `proa dev` flags:
 | `--verbose` | off | Print the detailed build log (commands, cache reuse, artifact paths) instead of the interactive summary. Piped output is always detailed. |
 
 The debounce window cannot go below the 100ms file-watch poll interval. `proa dev` reads no `PROA_DEV_*` variables from your shell.
+
+The site listens on `127.0.0.1:3000` unless you say otherwise. `--host` and `--port` win. Without them `proa dev` reads `PROA_HOST` and `PORT`, the variables the server itself reads, so one exported environment gives `proa dev` and `proa start` the same address. A generic `HOST` is honored only when it is an IP address or `localhost`, because shells and toolchains export it for unrelated purposes. A `PORT` that is not a port number is an error; pass `--port` to override it. `proa dev --verbose` prints which variable decided the address.
 
 The event stream takes an operating-system assigned port by default. A fixed
 offset from the dev port would claim the port your next site wants, and that

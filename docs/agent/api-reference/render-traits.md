@@ -343,7 +343,8 @@ impl<L: DataLoader> MdRender<L> for Article {
 }
 ```
 
-Primitive strings and numbers implement both Markdown traits. A custom
+Primitive strings, numbers, `bool`, and `char` implement both Markdown traits
+and both HTML traits. A custom
 sync-only child placed inside `md!` must be lifted explicitly:
 
 ```rust

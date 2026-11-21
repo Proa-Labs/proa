@@ -1,6 +1,7 @@
 ---
 title: Linking and navigating
 description: Navigate between Proa pages with anchors, optional prefetching, and Turbo Drive.
+keywords: [cx.url, "cx.url()", base_path, BasePath, AppUrl, link, navigation]
 ---
 
 Use an anchor tag.
@@ -16,7 +17,7 @@ html_sync! {
 
 There is no `<Link>` component or client router to configure. Proa pages are server-rendered HTML, so normal document navigation is the baseline. Prefetching and Turbo Drive are optional enhancements to those same anchors; neither changes your routes.
 
-## Deployments under a path prefix
+## Resolving URLs with `cx.url` under a path prefix
 
 When serving behind a prefix-stripping proxy, configure a runtime base path and
 use `cx.url("/blog")` for your anchors, forms, and asset attributes:

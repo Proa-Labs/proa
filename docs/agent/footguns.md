@@ -58,6 +58,15 @@ by the component. If a module needs both traits, use a qualified call such as
 alias still brings the trait methods into scope and does not resolve the
 ambiguity. Lift a sync child into an async tree with `proa::to_async(...)`.
 
+Built-in values implement both traits so they compose in `html_sync!` and
+`html!` alike: strings, every integer and float type, `bool`, and `char`. A
+direct `count.render(cx)` or `'x'.render(cx)` is therefore ambiguous in a
+module that imports both traits, exactly like a string. Inside a template
+slot (`{count}`) there is nothing to qualify. The qualified form is also
+accepted as the tail of an `#[rsjs(component)]` render body:
+`WebRenderSync::render(html_sync! { ... }, cx)` or
+`WebRender::render(html! { ... }, cx).resolve().await`.
+
 ---
 
 ### "X is not a recognised IR primitive or linked `#[rsjs::client]` helper"
@@ -232,7 +241,8 @@ impl Counter {
 ```
 
 **Fix:** author the complete trait impl, context parameter, return type, and
-final `.render(cx)` chain. RSJS analyzes that Rust implementation; it does not
+final `.render(cx)` chain (or its qualified form,
+`WebRenderSync::render(html_sync! { ... }, cx)`). RSJS analyzes that Rust implementation; it does not
 generate the trait plumbing.
 
 ### "`client` is only valid with `component`"
