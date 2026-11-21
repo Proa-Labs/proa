@@ -28,15 +28,17 @@ Streaming components and loaders live under `proa::stream`; the Axum adapter is
 | --- | --- |
 | `markdown` (default) | `md!` and `md_sync!` compilation |
 | `stream` (default) | Runtime-independent loaders and streaming components |
+| `rsjs` (default) | Browser-language macros and types through `proa::rsjs` |
 | `axum` | Axum adapter, portable framework API, and streaming |
-| `framework` | Portable framework API without the HTTP adapter |
+| `framework` (default) | Portable framework API without the HTTP adapter |
 | `rt-tokio` | Eager Tokio loader execution |
 | `actions` | Action data and the `Action` derive |
 | `react` | React interoperability and the `island` attribute |
 | `html-to-markdown` | Explicit HTML-to-Markdown conversion |
 | `no-perf-hints` | Disable compiler performance hints |
 
-RSJS remains a separately versioned browser-language dependency. Font collectors
+RSJS retains its own package version and is re-exported by the default `rsjs`
+feature; applications need no separate RSJS dependency. Font collectors
 remain build dependencies. Advanced integrations may continue to depend directly
 on implementation crates; the facade re-exports the same types and introduces
 no additional rendering layer. Renamed facade dependencies are supported by the

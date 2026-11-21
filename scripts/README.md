@@ -274,6 +274,11 @@ does not use the token saved by `cargo login` in Cargo's credentials file;
 load the publishing token from your secret manager into the environment.
 This keeps credential selection explicit and consistent with Actions.
 
+Run local version preparation from an ordinary clone checked out on `main`,
+with `main` tracking `origin/main`. Avoid linked worktrees: release-plz copies
+the repository while comparing package history, and a linked worktree’s `.git`
+file can point that copy back at the original worktree.
+
 For a normal release:
 
 1. Start from a clean checkout of current `main` and run `release-pr`.

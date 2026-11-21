@@ -17,10 +17,11 @@ readme = "README.md"
 all-features = true
 
 [features]
-default = ["markdown", "stream"]
+default = ["markdown", "stream", "framework", "rsjs"]
 markdown = ["proa_macros/markdown"]
 no-perf-hints = ["proa_macros/no-perf-hints"]
 stream = ["dep:proa_stream"]
+rsjs = ["dep:rsjs"]
 framework = ["dep:proa_framework_core"]
 axum = ["dep:proa_framework_axum", "framework", "stream"]
 actions = ["dep:proa_actions", "dep:serde", "dep:serde_json"]
@@ -29,6 +30,7 @@ html-to-markdown = ["proa_core/html-to-markdown"]
 rt-tokio = ["stream", "proa_stream/rt-tokio", "proa_framework_core?/rt-tokio"]
 
 [dependencies]
+rsjs = { workspace = true, optional = true }
 proa_core = { workspace = true }
 proa_macros = { path = "../proa_macros", version = "0.4.0", default-features = false }
 proa_ir = { workspace = true }

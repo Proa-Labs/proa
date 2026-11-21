@@ -63,6 +63,8 @@
 
 extern crate proc_macro;
 
+mod runtime_paths;
+
 mod js_sentinel;
 
 use proc_macro::TokenStream;
@@ -319,7 +321,7 @@ pub fn rsjs(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr2: TokenStream2 = attr.into();
     let item2: TokenStream2 = item.into();
     match expand_rsjs(attr2, item2) {
-        Ok(ts) => ts.into(),
+        Ok(ts) => runtime_paths::resolve(ts).into(),
         Err(e) => e.to_compile_error().into(),
     }
 }
@@ -8970,14 +8972,14 @@ fn write_component_descriptor_asset(asset_id: &str, json: &str) {
 /// `rsjs_macros::client_props_derive` for the implementation.
 #[proc_macro_derive(ClientProps)]
 pub fn derive_client_props(input: TokenStream) -> TokenStream {
-    client_props_derive::derive_client_props(input.into()).into()
+    runtime_paths::resolve(client_props_derive::derive_client_props(input.into())).into()
 }
 
 /// `#[derive(rsjs::SharedState)]`: generate the rsjs client codec, stable
 /// protocol metadata, and the typed handle used by `rsjs::shared::<T>()`.
 #[proc_macro_derive(SharedState, attributes(rsjs))]
 pub fn derive_shared_state(input: TokenStream) -> TokenStream {
-    shared_state_derive::derive_shared_state(input.into()).into()
+    runtime_paths::resolve(shared_state_derive::derive_shared_state(input.into())).into()
 }
 
 /// `#[rsjs::client]` — mark a free function as a reusable client-side
@@ -9024,7 +9026,7 @@ pub fn derive_shared_state(input: TokenStream) -> TokenStream {
 /// prototype/`this` semantics part of Client IR.
 #[proc_macro_attribute]
 pub fn client(attr: TokenStream, item: TokenStream) -> TokenStream {
-    client_attr::expand(attr.into(), item.into()).into()
+    runtime_paths::resolve(client_attr::expand(attr.into(), item.into())).into()
 }
 
 /// `#[rsjs::client_module]` — group `#[rsjs::client]` helpers into a
@@ -9049,5 +9051,5 @@ pub fn client(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// `docs/agent/rsjs-islands.md` for the public helper visibility contract.
 #[proc_macro_attribute]
 pub fn client_module(attr: TokenStream, item: TokenStream) -> TokenStream {
-    client_module_attr::expand(attr.into(), item.into()).into()
+    runtime_paths::resolve(client_module_attr::expand(attr.into(), item.into())).into()
 }
