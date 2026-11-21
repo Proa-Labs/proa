@@ -759,16 +759,22 @@ fn resolve_dev_address(
         host
     } else {
         match set("HOST") {
-            Some(host) if is_listen_address(&host) => {
-                notes.push(format!("Proa dev host: {host} (from HOST)"));
-                host
-            }
-            Some(host) => {
-                notes.push(format!(
-                    "Proa dev host: ignoring HOST=`{host}` because it is not an IP address or `localhost`; set PROA_HOST or pass --host to listen on a DNS name"
-                ));
-                "127.0.0.1".to_owned()
-            }
+            Some(raw) => match normalize_listen_address(&raw) {
+                Some(normalized) => {
+                    if normalized == raw {
+                        notes.push(format!("Proa dev host: {normalized} (from HOST)"));
+                    } else {
+                        notes.push(format!("Proa dev host: {normalized} (from HOST={raw})"));
+                    }
+                    normalized
+                }
+                None => {
+                    notes.push(format!(
+                        "Proa dev host: ignoring HOST=`{raw}` because it is not an IP address or `localhost`; set PROA_HOST or pass --host to listen on a DNS name"
+                    ));
+                    "127.0.0.1".to_owned()
+                }
+            },
             None => "127.0.0.1".to_owned(),
         }
     };
@@ -792,12 +798,25 @@ fn resolve_dev_address(
     Ok(DevAddress { host, port, notes })
 }
 
-fn is_listen_address(host: &str) -> bool {
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .trim_matches(['[', ']'])
-            .parse::<std::net::IpAddr>()
-            .is_ok()
+/// Accept `HOST` values that name a listen address and normalize them to a
+/// bare `IpAddr` string so generated servers (`PROA_HOST.parse::<IpAddr>()`)
+/// can bind without failing on `localhost` or bracketed IPv6 literals.
+fn normalize_listen_address(host: &str) -> Option<String> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return Some("127.0.0.1".to_owned());
+    }
+    if let Some(inner) = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        return inner
+            .parse::<std::net::Ipv6Addr>()
+            .ok()
+            .map(|ip| ip.to_string());
+    }
+    host.parse::<std::net::IpAddr>()
+        .ok()
+        .map(|ip| ip.to_string())
 }
 
 fn dev_watch_debounce(options: &DevOptions) -> Result<Duration> {

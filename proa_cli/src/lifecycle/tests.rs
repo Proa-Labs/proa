@@ -2192,12 +2192,31 @@ mod dev_preparation_tests {
             resolve(None, None, &[("PROA_HOST", "  "), ("HOST", "0.0.0.0")]),
             ok("0.0.0.0", 3000)
         );
-        for address in ["0.0.0.0", "localhost", "::1", "[::1]", "192.168.1.20"] {
-            assert_eq!(resolve(None, None, &[("HOST", address)]), ok(address, 3000));
+        for (input, expected) in [
+            ("0.0.0.0", "0.0.0.0"),
+            ("localhost", "127.0.0.1"),
+            ("LOCALHOST", "127.0.0.1"),
+            ("::1", "::1"),
+            ("[::1]", "::1"),
+            ("192.168.1.20", "192.168.1.20"),
+        ] {
+            let resolved = resolve(None, None, &[("HOST", input)]);
+            assert_eq!(resolved, ok(expected, 3000), "{input}");
+            // Every accepted `HOST` value must parse as `IpAddr` for generated servers.
+            assert!(
+                resolved.unwrap().0.parse::<std::net::IpAddr>().is_ok(),
+                "{input}"
+            );
         }
         // `HOST` is exported for unrelated reasons: a machine name by some
         // shells, a compiler target triple by toolchain activation scripts.
-        for unrelated in ["build-box.local", "arm64-apple-darwin20.0.0", "my laptop"] {
+        for unrelated in [
+            "build-box.local",
+            "arm64-apple-darwin20.0.0",
+            "my laptop",
+            "[127.0.0.1]",
+            "[::1",
+        ] {
             assert_eq!(
                 resolve(None, None, &[("HOST", unrelated)]),
                 ok("127.0.0.1", 3000),
