@@ -831,7 +831,7 @@ impl<'a> RoleInferer<'a> {
     }
 
     fn bind_signature(&mut self, sig: &syn::Signature, body: &Block) {
-        self.reassigned = reassigned_bindings(signature_patterns(sig), body);
+        self.reassigned = reassigned_bindings(signature_patterns(sig), ScopeRoot::Body(body));
         let mut param_index = 0usize;
         for input in &sig.inputs {
             match input {
@@ -1011,13 +1011,13 @@ impl<'a> RoleInferer<'a> {
                             if is_url {
                                 self.record_url_sink_expr(value, srcset);
                             }
-                            self.visit_expr(value);
+                            self.visit_template_expr(value);
                         }
                     }
                     self.visit_html_nodes(&element.children);
                 }
                 Node::Fragment(children) => self.visit_html_nodes(children),
-                Node::Block(expr) => self.visit_expr(expr),
+                Node::Block(expr) => self.visit_template_expr(expr),
                 _ => {}
             }
         }
@@ -1067,14 +1067,25 @@ impl<'a> RoleInferer<'a> {
                 if is_url {
                     self.record_url_sink_expr(expr, false);
                 }
-                self.visit_expr(expr);
+                self.visit_template_expr(expr);
             }
         }
         self.var_types = prev_types;
         self.var_slots = prev_slots;
         for arg in &input.args {
-            self.visit_expr(&arg.value);
+            self.visit_template_expr(&arg.value);
         }
+    }
+
+    /// Visit a template slot with assignment facts for the bindings declared
+    /// inside it, which the function-level pass could not see.
+    fn visit_template_expr(&mut self, expr: &Expr) {
+        let outer = std::mem::replace(
+            &mut self.reassigned,
+            reassigned_bindings(std::iter::empty(), ScopeRoot::Slot(expr)),
+        );
+        self.visit_expr(expr);
+        self.reassigned = outer;
     }
 }
 
@@ -1673,7 +1684,10 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     let prev_locals = std::mem::take(&mut self.local_str_bindings);
                     let prev_reassigned = std::mem::replace(
                         &mut self.reassigned,
-                        reassigned_bindings(signature_patterns(&method.sig), &method.block),
+                        reassigned_bindings(
+                            signature_patterns(&method.sig),
+                            ScopeRoot::Body(&method.block),
+                        ),
                     );
                     let method_name = method.sig.ident.to_string();
                     self.in_render_context = is_render_impl
@@ -1699,7 +1713,10 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         let prev_locals = std::mem::take(&mut self.local_str_bindings);
         let prev_reassigned = std::mem::replace(
             &mut self.reassigned,
-            reassigned_bindings(signature_patterns(&item_fn.sig), &item_fn.block),
+            reassigned_bindings(
+                signature_patterns(&item_fn.sig),
+                ScopeRoot::Body(&item_fn.block),
+            ),
         );
         let prev_render = self.in_render_context;
         self.in_render_context = false;
@@ -2396,9 +2413,19 @@ fn pat_bindings(pat: &Pat) -> Vec<&syn::Ident> {
 /// `if let`, `while let`, and match arms), so an inner binding that shadows a
 /// name never affects the outer one. A reassigned binding's initializer is not
 /// its value at every use, so string and field bindings treat it as unknown.
+/// Where [`reassigned_bindings`] starts resolving.
+enum ScopeRoot<'a> {
+    /// A function body.
+    Body(&'a Block),
+    /// A template slot parsed from macro tokens, which a function-level pass
+    /// never sees. Its spans may come from a slot reparsed from a string, so
+    /// its facts are only consulted while that slot is visited.
+    Slot(&'a Expr),
+}
+
 fn reassigned_bindings<'p>(
     params: impl IntoIterator<Item = &'p Pat>,
-    body: &Block,
+    root: ScopeRoot<'_>,
 ) -> BTreeSet<BindingId> {
     struct Resolver {
         scopes: Vec<Vec<(String, BindingId)>>,
@@ -2535,7 +2562,10 @@ fn reassigned_bindings<'p>(
     for param in params {
         resolver.bind(param);
     }
-    resolver.visit_block(body);
+    match root {
+        ScopeRoot::Body(body) => resolver.visit_block(body),
+        ScopeRoot::Slot(slot) => resolver.visit_expr(slot),
+    }
     resolver.reassigned
 }
 

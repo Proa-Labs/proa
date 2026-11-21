@@ -6270,3 +6270,48 @@ fn asset_url_lint_scales_linearly_with_function_length() {
         "lint time grew from {small:?} to {large:?} for 8x the locals"
     );
 }
+
+#[test]
+fn asset_url_lint_resolves_reassignment_inside_template_slots() {
+    let source = r#"
+pub struct Card {
+    pub photo: &'static str,
+}
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <div>{{ let mut image = self.photo; image = "/route"; html_sync! { <img src={image} alt="" /> } }}</div>
+        }
+        .render(cx)
+    }
+}
+
+pub struct Badge {
+    pub icon: &'static str,
+}
+impl WebRenderSync for Badge {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <div>{{ let image = self.icon; html_sync! { <img src={image} alt="" /> } }}</div>
+        }
+        .render(cx)
+    }
+}
+
+pub fn handler() -> (Card, Badge) {
+    (
+        Card {
+            photo: "public/unused.svg",
+        },
+        Badge {
+            icon: "public/icon.svg",
+        },
+    )
+}
+"#;
+    // Only `Badge.icon` reaches the image; `Card`'s alias is reassigned.
+    assert_eq!(
+        asset_hits("src/cards.rs", source),
+        vec![(32, "asset/public-url")]
+    );
+}
