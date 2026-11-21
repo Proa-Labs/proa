@@ -339,9 +339,10 @@ pub fn dev(options: DevOptions) -> Result<()> {
             && serde_json::to_vec(&next_config).ok() == serde_json::to_vec(&config).ok()
             && launch.executable.is_file()
             && launch.compiled_inputs.as_ref().is_some_and(|inputs| {
+                // A declared build-script input can be a directory.
                 changed_asset_paths
                     .iter()
-                    .all(|path| !inputs.contains(path))
+                    .all(|path| !inputs.iter().any(|input| path.starts_with(input)))
             })
         {
             if let Some(output) = launch.public_assets.as_ref() {
@@ -805,29 +806,15 @@ fn is_css_or_public_or_asset_input(path: &Path, public: &Path, config: &ProjectC
         })
 }
 
-/// Collect the root-relative files Cargo recorded as inputs of the final dev
-/// executable.
+/// Collect the root-relative files and directories Cargo recorded as inputs
+/// of the final dev executable.
 ///
-/// Returns `None` when a local build script exists (it may read `public/`
-/// without declaring it) or Cargo's dep-info is unavailable, so asset-only
-/// edits fall back to a full linked rebuild.
+/// Returns `None` when Cargo's dep-info is unavailable or a local build script
+/// declares no inputs, so asset-only edits fall back to a full linked rebuild.
 fn collect_compiled_source_inputs(
     root: &Path,
     output: &LinkedCargoOutput,
 ) -> Option<BTreeSet<PathBuf>> {
-    if root.join("build.rs").exists() {
-        return None;
-    }
-    if output.final_cargo.cargo_artifacts.iter().any(|artifact| {
-        artifact.package_id.starts_with("path+file://")
-            && artifact
-                .target
-                .kind
-                .iter()
-                .any(|kind| kind == "custom-build")
-    }) {
-        return None;
-    }
     let canonical_root = root.canonicalize().ok()?;
     let mut inputs = BTreeSet::new();
     for input in output.final_root_inputs.as_ref()? {

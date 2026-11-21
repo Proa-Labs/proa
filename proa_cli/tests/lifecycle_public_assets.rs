@@ -510,7 +510,7 @@ fn main() {
     assert_eq!(idle.matches(failed).count(), 1, "{idle}");
     assert!(!output.join("manifest.json").exists(), "{idle}");
 
-    fs::write(&source, valid_source).unwrap();
+    fs::write(&source, &valid_source).unwrap();
     let recovered = wait(ready, 8);
     assert_eq!(recovered.matches(build_started).count(), 5, "{recovered}");
     assert!(output.join("manifest.json").is_file(), "{recovered}");
@@ -529,6 +529,30 @@ fn main() {
     let included = wait(ready, 11);
     assert_eq!(included.matches(build_started).count(), 8, "{included}");
     assert_eq!(included.matches(republish).count(), 2, "{included}");
+
+    // A build script that declares its inputs keeps the catalog-only restart.
+    // One that declares none reruns on any package change, so it cannot.
+    fs::write(&source, &valid_source).unwrap();
+    fs::write(
+        root.join("build.rs"),
+        "fn main() { println!(\"cargo:rerun-if-changed=build.rs\"); }\n",
+    )
+    .unwrap();
+    wait(ready, 12);
+    fs::write(root.join("public/logo.svg"), "four").unwrap();
+    let declared = wait(ready, 13);
+    assert_eq!(declared.matches(build_started).count(), 9, "{declared}");
+    assert_eq!(declared.matches(republish).count(), 3, "{declared}");
+    fs::write(root.join("build.rs"), "fn main() {}\n").unwrap();
+    wait(ready, 14);
+    fs::write(root.join("public/logo.svg"), "five").unwrap();
+    let undeclared = wait(ready, 15);
+    assert_eq!(
+        undeclared.matches(build_started).count(),
+        11,
+        "{undeclared}"
+    );
+    assert_eq!(undeclared.matches(republish).count(), 3, "{undeclared}");
 }
 
 #[cfg(unix)]
