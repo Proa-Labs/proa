@@ -1337,6 +1337,7 @@ fn lint_single_file(
                             path: &display,
                             origin: SpanOrigin::Macro(inv),
                             fixed_pos: None,
+                            md_slots: Vec::new(),
                             suppressions: &suppressions,
                             templates: &templates,
                             schema,
@@ -1357,6 +1358,7 @@ fn lint_single_file(
                             path: &display,
                             origin: SpanOrigin::Macro(inv),
                             fixed_pos: Some((inv.name_line, inv.name_column + 1)),
+                            md_slots: Vec::new(),
                             suppressions: &suppressions,
                             templates: &templates,
                             schema,
@@ -1440,6 +1442,7 @@ impl<'a> FileAssetChecker<'a> {
             path: self.path,
             origin: SpanOrigin::File,
             fixed_pos: None,
+            md_slots: Vec::new(),
             suppressions: self.suppressions,
             templates: self.templates,
             schema: self.schema,
@@ -1572,6 +1575,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                         path: self.path,
                         origin: SpanOrigin::File,
                         fixed_pos: None,
+                        md_slots: Vec::new(),
                         suppressions: self.suppressions,
                         templates: self.templates,
                         schema: self.schema,
@@ -1591,6 +1595,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     path: self.path,
                     origin: SpanOrigin::File,
                     fixed_pos: Some((pos.line, pos.column + 1)),
+                    md_slots: Vec::new(),
                     suppressions: self.suppressions,
                     templates: self.templates,
                     schema: self.schema,
@@ -1614,7 +1619,13 @@ struct MacroAssetChecker<'a> {
     package: &'a Path,
     path: &'a Path,
     origin: SpanOrigin<'a>,
+    /// Fallback position for Markdown diagnostics that cannot be mapped to the
+    /// authored literal: the enclosing `md!`/`md_sync!` invocation.
     fixed_pos: Option<(usize, usize)>,
+    /// Markdown slots enclosing the expression being checked, outermost first.
+    /// Slot expressions are parsed from literal text, so their spans are only
+    /// meaningful relative to these slots.
+    md_slots: Vec<proa_dsl::md::TemplateExpr>,
     suppressions: &'a SuppressionComments,
     templates: &'a Templates<'a>,
     schema: &'a UrlSchema,
@@ -1675,15 +1686,19 @@ impl MacroAssetChecker<'_> {
         };
 
         // Check static Markdown link/image destinations (e.g. `![Brand](public/brand.svg)`).
-        for dest in proa_dsl::md::static_link_destinations(&nodes) {
+        for (dest, location) in input.static_link_destinations().unwrap_or_default() {
             if let Some(kind) = asset_url(&dest, self.catalog) {
                 let (code, message, help) = diagnostic_for_asset_url(&kind, false);
+                let (line, column) = self
+                    .md_point(location)
+                    .or(self.fixed_pos)
+                    .unwrap_or((macro_line, macro_column));
                 push_source_diag_with_severity(
                     self.path,
                     self.diagnostics,
                     self.suppressions,
-                    macro_line,
-                    macro_column,
+                    line,
+                    column,
                     Severity::Warning,
                     code,
                     message,
@@ -1708,6 +1723,7 @@ impl MacroAssetChecker<'_> {
             path: self.path,
             origin: self.origin,
             fixed_pos: self.fixed_pos,
+            md_slots: self.md_slots.clone(),
             suppressions: self.suppressions,
             templates: self.templates,
             schema: self.schema,
@@ -1726,14 +1742,58 @@ impl MacroAssetChecker<'_> {
                     .get(slot_index)
                     .is_some_and(|ctx| ctx.url_destination);
                 slot_index += 1;
+                slot_checker.md_slots.push(expr.clone());
                 if is_url {
                     slot_checker.url_expr(expr, false);
                 }
                 slot_checker.visit_expr(expr);
+                slot_checker.md_slots.pop();
             }
         }
+        // Named-argument values are ordinary Rust tokens with file spans.
         for arg in &input.args {
             slot_checker.visit_expr(&arg.value);
+        }
+    }
+
+    /// File position of a Markdown location, mapped out through every
+    /// enclosing slot the way the content lint maps its ranges. `None` when the
+    /// location cannot be mapped, including spans relative to an invocation
+    /// body reparsed for a file that does not parse as Rust.
+    fn md_point(&self, mut location: proa_dsl::md::ExprLocation) -> Option<(usize, usize)> {
+        use proa_dsl::md::ExprLocation;
+        if matches!(self.origin, SpanOrigin::Macro(_)) {
+            return None;
+        }
+        for slot in self.md_slots.iter().rev() {
+            location = match &location {
+                ExprLocation::Rust(span) => slot.locate(*span)?,
+                ExprLocation::Literal { span, range } => {
+                    slot.locate_token_range(*span, range.clone())?
+                }
+                ExprLocation::Decoded(_) => return None,
+            };
+        }
+        match location {
+            ExprLocation::Rust(span) => {
+                let start = span.start();
+                Some((start.line, start.column + 1))
+            }
+            ExprLocation::Literal { span, range } => {
+                // Authored token bytes, so escapes, Unicode, and dedented
+                // indentation keep truthful columns.
+                let start = span.start();
+                let token = span.source_text()?;
+                let prefix = token.get(..range.start)?;
+                Some(match prefix.rfind('\n') {
+                    None => (start.line, start.column + 1 + prefix.chars().count()),
+                    Some(newline) => (
+                        start.line + prefix.matches('\n').count(),
+                        prefix[newline + 1..].chars().count() + 1,
+                    ),
+                })
+            }
+            ExprLocation::Decoded(_) => None,
         }
     }
 
@@ -1918,7 +1978,12 @@ impl MacroAssetChecker<'_> {
     }
 
     fn warn(&mut self, span: proc_macro2::Span, code: &'static str, message: &str, help: &str) {
-        if let Some((line, column)) = self.fixed_pos {
+        let markdown = (!self.md_slots.is_empty()).then(|| {
+            self.md_point(proa_dsl::md::ExprLocation::Rust(span))
+                .or(self.fixed_pos)
+                .unwrap_or((1, 1))
+        });
+        if let Some((line, column)) = markdown {
             push_source_diag_with_severity(
                 self.path,
                 self.diagnostics,

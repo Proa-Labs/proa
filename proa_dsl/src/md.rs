@@ -226,29 +226,68 @@ pub fn slot_contexts(nodes: &[TplNode]) -> Vec<MdSlotContext> {
     contexts
 }
 
-/// Extract static CommonMark link and image destination URLs from parsed template
-/// nodes, ignoring fenced code blocks, inline code spans, and destinations that
-/// interpolate dynamic `{...}` slots.
-pub fn static_link_destinations(nodes: &[TplNode]) -> Vec<String> {
+/// Static CommonMark link and image destinations in parsed template text,
+/// with the byte range of each destination in the decoded template.
+///
+/// `text_offsets` maps every byte of the concatenated `Text` nodes to the
+/// decoded template (see [`parse_tpl_mapped`]). Destinations that interpolate a
+/// `{...}` slot, and links inside code, are skipped. A destination whose text
+/// does not appear verbatim inside its link (for example a reference
+/// definition or a backslash escape) points at the start of the link instead.
+fn located_static_link_destinations(
+    nodes: &[TplNode],
+    text_offsets: &[usize],
+) -> Vec<(String, Option<Range<usize>>)> {
     use pulldown_cmark::{Event, Options, Parser, Tag};
 
     const SLOT_SENTINEL: char = '\u{E000}';
     let mut source = String::new();
+    let mut offsets: Vec<Option<usize>> = Vec::new();
+    let mut text_cursor = 0;
     for node in nodes {
         match node {
-            TplNode::Text(text) => source.push_str(text),
-            TplNode::Expr(_) => source.push(SLOT_SENTINEL),
+            TplNode::Text(text) => {
+                source.push_str(text);
+                offsets.extend((0..text.len()).map(|i| text_offsets.get(text_cursor + i).copied()));
+                text_cursor += text.len();
+            }
+            TplNode::Expr(_) => {
+                source.push(SLOT_SENTINEL);
+                offsets.extend([None; SLOT_SENTINEL.len_utf8()]);
+            }
         }
     }
 
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     let mut destinations = Vec::new();
-    for event in Parser::new_ext(&source, options) {
-        if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) = event {
-            if !dest_url.contains(SLOT_SENTINEL) {
-                destinations.push(dest_url.into_string());
-            }
+    for (event, range) in Parser::new_ext(&source, options).into_offset_iter() {
+        let (Event::Start(Tag::Link { dest_url, .. }) | Event::Start(Tag::Image { dest_url, .. })) =
+            event
+        else {
+            continue;
+        };
+        if dest_url.contains(SLOT_SENTINEL) {
+            continue;
         }
+        let link = &source[range.clone()];
+        let found = (!dest_url.is_empty())
+            .then(|| {
+                link.match_indices(&*dest_url).find(|(at, _)| {
+                    link[..*at]
+                        .trim_end_matches([' ', '\t', '\n', '\r'])
+                        .ends_with(['(', '<'])
+                })
+            })
+            .flatten()
+            .map(|(at, _)| range.start + at..range.start + at + dest_url.len())
+            .unwrap_or(range.start..range.start + 1);
+        let decoded = offsets
+            .get(found.start)
+            .copied()
+            .flatten()
+            .zip(offsets.get(found.end - 1).copied().flatten())
+            .map(|(start, last)| start..last + 1);
+        destinations.push((dest_url.into_string(), decoded));
     }
     destinations
 }
@@ -372,6 +411,26 @@ impl MdTemplateInput {
             parse_tpl(&source.text).map_err(|message| syn::Error::new(self.lit.span(), message))?;
         source.map_nodes(&mut nodes, self.lit.span());
         Ok(nodes)
+    }
+
+    /// Static CommonMark link and image destinations, with their location in
+    /// the authored literal. Destinations that interpolate a slot, and links
+    /// inside code spans or fenced blocks, are skipped.
+    pub fn static_link_destinations(&self) -> syn::Result<Vec<(String, ExprLocation)>> {
+        let source = source::MappedLiteral::new(&self.lit);
+        let mut text_offsets = Vec::new();
+        let nodes = parse_tpl_mapped(&source.text, Some(&mut text_offsets))
+            .map_err(|message| syn::Error::new(self.lit.span(), message))?;
+        let literal = source.literal_map(self.lit.span());
+        Ok(located_static_link_destinations(&nodes, &text_offsets)
+            .into_iter()
+            .map(|(destination, decoded)| {
+                let location = decoded.map_or(ExprLocation::Rust(self.lit.span()), |range| {
+                    literal.locate(range)
+                });
+                (destination, location)
+            })
+            .collect())
     }
 
     /// Bind argument values once, in source order, before rendering the nodes.
@@ -505,6 +564,21 @@ fn parse_slot(source: &str) -> Result<Expr, String> {
 /// lexical rules, so nested blocks, strings, and nested template literals
 /// never need escaping.
 pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
+    parse_tpl_mapped(input, None)
+}
+
+/// [`parse_tpl`], optionally recording the `input` offset of every byte of the
+/// returned `Text` nodes, concatenated in node order. `{{`/`}}` escapes make
+/// text shorter than its source, so offsets are recorded per byte.
+fn parse_tpl_mapped(
+    input: &str,
+    mut text_offsets: Option<&mut Vec<usize>>,
+) -> Result<Vec<TplNode>, String> {
+    let mut record = |range: Range<usize>| {
+        if let Some(offsets) = text_offsets.as_deref_mut() {
+            offsets.extend(range);
+        }
+    };
     let bytes = input.as_bytes();
     let mut nodes = Vec::new();
     let mut text = String::new();
@@ -514,6 +588,7 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
     while pos < bytes.len() {
         if let Some(end) = code.end_at(pos) {
             text.push_str(&input[pos..end]);
+            record(pos..end);
             pos = end;
             continue;
         }
@@ -522,6 +597,7 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
             b'{' => {
                 if bytes.get(pos + 1) == Some(&b'{') {
                     text.push('{');
+                    record(pos..pos + 1);
                     pos += 2;
                     continue;
                 }
@@ -552,6 +628,7 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
             b'}' => {
                 if bytes.get(pos + 1) == Some(&b'}') {
                     text.push('}');
+                    record(pos..pos + 1);
                     pos += 2;
                     continue;
                 }
@@ -562,6 +639,7 @@ pub fn parse_tpl(input: &str) -> Result<Vec<TplNode>, String> {
             _ => {
                 let ch = input[pos..].chars().next().unwrap();
                 text.push(ch);
+                record(pos..pos + ch.len_utf8());
                 pos += ch.len_utf8();
             }
         }
@@ -933,21 +1011,53 @@ mod tests {
 
     #[test]
     fn static_link_destinations_skip_code_and_dynamic_slots() {
-        let nodes = parse_tpl(concat!(
-            "![Brand](public/images/brand.svg)\n\n",
-            "[Dynamic]({url})\n\n",
-            "`![InlineCode](public/inline.svg)`\n\n",
-            "```md\n",
-            "![FenceCode](public/fence.svg)\n",
-            "```\n\n",
-            "[Docs](/docs/guide.md)\n",
-        ))
+        let input: MdTemplateInput = syn::parse_str(
+            r####"r###"
+            ![Brand](public/images/brand.svg)
+
+            [Dynamic]({url})
+
+            `![InlineCode](public/inline.svg)`
+
+            ```md
+            ![FenceCode](public/fence.svg)
+            ```
+
+            [Docs](</docs/guide.md>) and [Again {{x}}](public/images/brand.svg)
+            "###"####,
+        )
         .unwrap();
+        let token = input.lit.token().to_string();
+        let found: Vec<_> = input
+            .static_link_destinations()
+            .unwrap()
+            .into_iter()
+            .map(|(destination, location)| {
+                let ExprLocation::Literal { range, .. } = location else {
+                    panic!("unmapped destination {destination}: {location:?}");
+                };
+                let line = token[..range.start].matches('\n').count();
+                (destination, line, token[range].to_string())
+            })
+            .collect();
         assert_eq!(
-            static_link_destinations(&nodes),
-            vec![
-                "public/images/brand.svg".to_string(),
-                "/docs/guide.md".to_string(),
+            found,
+            [
+                (
+                    "public/images/brand.svg".to_string(),
+                    1,
+                    "public/images/brand.svg".to_string()
+                ),
+                (
+                    "/docs/guide.md".to_string(),
+                    11,
+                    "/docs/guide.md".to_string()
+                ),
+                (
+                    "public/images/brand.svg".to_string(),
+                    11,
+                    "public/images/brand.svg".to_string()
+                ),
             ]
         );
     }

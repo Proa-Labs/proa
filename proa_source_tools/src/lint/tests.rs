@@ -5600,8 +5600,9 @@ impl MdRenderSync for ArticlePage {
             (7, "asset/public-url"),    // HeadIcon::new("public/favicon.ico")
             (9, "asset/public-url"),    // <link href="public/styles.css" />
             (10, "asset/public-url"), // <meta property="og:image" content="public/images/share.png" />
-            (23, "asset/logical-path"), // cx.url("/public/images/bad.svg") in md_sync!
-            (23, "asset/public-url"), // static + slot public/ URLs in md_sync! (deduped at macro line)
+            (24, "asset/public-url"), // ![Static](public/images/static.svg)
+            (26, "asset/public-url"), // ![Slot]({raw})
+            (30, "asset/logical-path"), // cx.url("/public/images/bad.svg") in md_sync!
         ],
         "unexpected hits: {hits:#?}"
     );
@@ -5910,4 +5911,41 @@ mod assets {
 }
 "#;
     assert_eq!(asset_hits("src/ambiguous.rs", source), vec![]);
+}
+
+#[test]
+fn asset_url_lint_points_markdown_findings_at_the_authored_text() {
+    let source = r####"
+pub struct Notes;
+impl MdRenderSync for Notes {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let raw = "public/raw.svg";
+        md_sync! { r###"
+            Intro text.
+
+            ![Static](public/static.svg) and ![Slot]({raw})
+
+            {if true { md_sync! { "![Nested](public/nested.svg)" } } else { md_sync! { "" } }}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+"####;
+    let mut hits: Vec<_> = lint_file(Path::new("src/notes.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.column))
+        .collect();
+    hits.sort_unstable();
+    let line_9 = source.lines().nth(8).unwrap();
+    let line_11 = source.lines().nth(10).unwrap();
+    assert_eq!(
+        hits,
+        vec![
+            (9, line_9.find("public/static.svg").unwrap() + 1),
+            (9, line_9.find("raw}").unwrap() + 1),
+            (11, line_11.find("public/nested.svg").unwrap() + 1),
+        ]
+    );
 }
