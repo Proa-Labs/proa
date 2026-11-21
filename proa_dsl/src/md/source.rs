@@ -115,11 +115,15 @@ impl MappedLiteral {
         Self { text, ranges }
     }
 
-    pub fn map_nodes(&self, nodes: &mut [TplNode], span: Span) {
-        let literal = Arc::new(LiteralMap {
+    pub fn literal_map(&self, span: Span) -> LiteralMap {
+        LiteralMap {
             span,
             ranges: self.ranges.clone(),
-        });
+        }
+    }
+
+    pub fn map_nodes(&self, nodes: &mut [TplNode], span: Span) {
+        let literal = Arc::new(self.literal_map(span));
         for node in nodes {
             if let TplNode::Expr(expr) = node {
                 if let ExprLocation::Decoded(range) = &expr.location {

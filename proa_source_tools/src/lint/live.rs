@@ -61,6 +61,13 @@ pub fn lint_snapshot(overlays: &[SourceOverlay]) -> Result<Vec<Diagnostic>> {
     for (overlay, path) in overlays.iter().zip(&paths) {
         sources.insert(path.clone(), overlay.source.clone());
     }
+    // Unsaved buffers decide which module files are test-only in this snapshot.
+    let _overrides = super::SourceOverrides::install(
+        overlays
+            .iter()
+            .zip(&paths)
+            .map(|(overlay, path)| (path.clone(), overlay.source.clone())),
+    );
 
     let mut diagnostics = Vec::new();
     let mut invalid_packages = BTreeSet::new();
@@ -94,16 +101,32 @@ pub fn lint_snapshot(overlays: &[SourceOverlay]) -> Result<Vec<Diagnostic>> {
             diagnostics.extend(lint_file_with_cache(path, source, false, None));
         }
     }
-    let valid_sources: Vec<_> = sources
+    // Parse once for both cross-file passes. Content checks skip packages with
+    // a Rust syntax error; the asset pass falls back to template scanning there.
+    let all_sources: Vec<_> = sources
         .iter()
-        .filter(|(path, _)| !invalid_packages.contains(&package(path)))
         .map(|(p, s)| (p.clone(), s.clone()))
         .collect();
-    diagnostics.extend(content::lint_sources(
+    let parsed = super::parse_sources(&all_sources);
+    let (valid_sources, valid_parsed): (Vec<_>, Vec<_>) = all_sources
+        .iter()
+        .zip(&parsed)
+        .filter(|((path, _), _)| !invalid_packages.contains(&package(path)))
+        .map(|(source, parsed)| (source.clone(), parsed.as_ref()))
+        .unzip();
+    diagnostics.extend(content::lint_parsed(
         &valid_sources,
+        &valid_parsed,
         &reporting,
         false,
         &content::ContentOptions::default(),
+    ));
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    diagnostics.extend(super::asset_urls::lint_parsed(
+        &all_sources,
+        &parsed,
+        &reporting,
+        false,
     ));
 
     // Keep exact snapshot evidence for UTF-16 conversion in the editor, even
