@@ -624,7 +624,7 @@ fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool) -> String {
         } else {
             "## {HTML_CARD_TITLE}".to_string()
         };
-        r#"[{WORDMARK}]({cx.url("/")}) — {SUBTITLE}
+        r#"[{WORDMARK}]({cx.url("/")}) · {SUBTITLE}
 
 {KICKER}
 
@@ -638,7 +638,7 @@ __ACTION__
 
 ## {CLIENT_LABEL}
 
-{CLIENT_VALUE} — {CLIENT_NOTE}
+{CLIENT_VALUE} · {CLIENT_NOTE}
 
 __DB_SECTION__
 
