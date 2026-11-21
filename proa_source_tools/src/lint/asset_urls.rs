@@ -90,14 +90,100 @@ struct UrlSchema {
     roles: BTreeMap<ValueSlot, FieldRole>,
     /// Directed flow edges: initializing `from` flows its value into `to`.
     flow_edges: BTreeSet<(ValueSlot, ValueSlot)>,
+    /// Package-scoped struct, const/static, and free-function names seen so far.
+    defined_types: BTreeSet<(PathBuf, String)>,
+    defined_globals: BTreeSet<(PathBuf, String)>,
+    defined_fns: BTreeSet<(PathBuf, String)>,
+    /// Names defined more than once in one package (for example `web::Image`
+    /// and `files::Image`). Facts are keyed by the last path segment, so an
+    /// ambiguous name never records or reports a role rather than mixing
+    /// unrelated definitions.
+    ambiguous_types: BTreeSet<(PathBuf, String)>,
+    ambiguous_globals: BTreeSet<(PathBuf, String)>,
+    ambiguous_fns: BTreeSet<(PathBuf, String)>,
+}
+
+/// URL roles of `proa_core` head constructors that take an already resolved URL.
+fn builtin_param_role(type_name: Option<&str>, func: &str, index: usize) -> Option<FieldRole> {
+    matches!(
+        (type_name, func, index),
+        (Some("HeadMedia"), "new" | "secure_url", 0)
+            | (Some("HeadIcon" | "HeadAlternate"), "new", 0)
+    )
+    .then_some(FieldRole::ResolvedOnly { srcset: false })
 }
 
 impl UrlSchema {
+    fn note_definition(
+        defined: &mut BTreeSet<(PathBuf, String)>,
+        ambiguous: &mut BTreeSet<(PathBuf, String)>,
+        package: &Path,
+        name: String,
+    ) {
+        let key = (package.to_path_buf(), name);
+        if !defined.insert(key.clone()) {
+            ambiguous.insert(key);
+        }
+    }
+
+    /// Drop index entries for ambiguous names once every file is indexed.
+    fn retain_unambiguous_index(&mut self) {
+        let ambiguous_types = &self.ambiguous_types;
+        self.struct_field_types.retain(|key, _| {
+            !ambiguous_types.contains(&(key.package.clone(), key.type_name.clone()))
+        });
+        let ambiguous_globals = &self.ambiguous_globals;
+        self.global_types
+            .retain(|key, _| !ambiguous_globals.contains(key));
+        self.global_str_literals
+            .retain(|key, _| !ambiguous_globals.contains(key));
+    }
+
+    fn is_ambiguous(&self, slot: &ValueSlot) -> bool {
+        match slot {
+            ValueSlot::Field(key) => self
+                .ambiguous_types
+                .contains(&(key.package.clone(), key.type_name.clone())),
+            ValueSlot::Param(key) => match &key.type_name {
+                Some(type_name) => self
+                    .ambiguous_types
+                    .contains(&(key.package.clone(), type_name.clone())),
+                None => self
+                    .ambiguous_fns
+                    .contains(&(key.package.clone(), key.func.clone())),
+            },
+        }
+    }
+
     fn record_role(&mut self, slot: ValueSlot, role: FieldRole) {
+        if self.is_ambiguous(&slot) {
+            return;
+        }
         self.roles
             .entry(slot)
             .and_modify(|existing| *existing = existing.merge(role))
             .or_insert(role);
+    }
+
+    fn record_flow(&mut self, from: ValueSlot, to: ValueSlot) {
+        if from != to && !self.is_ambiguous(&from) && !self.is_ambiguous(&to) {
+            self.flow_edges.insert((from, to));
+        }
+    }
+
+    /// Inferred role, falling back to built-in constructor roles so wrappers
+    /// such as `fn media(src: &str) -> HeadMedia { HeadMedia::new(src) }`
+    /// inherit them during propagation.
+    fn slot_role(&self, slot: &ValueSlot) -> Option<FieldRole> {
+        if let Some(role) = self.roles.get(slot) {
+            return Some(*role);
+        }
+        match slot {
+            ValueSlot::Param(key) => {
+                builtin_param_role(key.type_name.as_deref(), &key.func, key.index)
+            }
+            ValueSlot::Field(_) => None,
+        }
     }
 
     fn propagate(&mut self) {
@@ -105,7 +191,7 @@ impl UrlSchema {
             let mut changed = false;
             let edges: Vec<_> = self.flow_edges.iter().cloned().collect();
             for (from, to) in edges {
-                let Some(&target_role) = self.roles.get(&to) else {
+                let Some(target_role) = self.slot_role(&to) else {
                     continue;
                 };
                 let next = match self.roles.get(&from) {
@@ -124,13 +210,15 @@ impl UrlSchema {
     }
 
     fn field_role(&self, package: &Path, type_name: &str, field: &str) -> Option<FieldRole> {
-        self.roles
-            .get(&ValueSlot::Field(FieldKey {
-                package: package.to_path_buf(),
-                type_name: type_name.to_string(),
-                field: field.to_string(),
-            }))
-            .copied()
+        let slot = ValueSlot::Field(FieldKey {
+            package: package.to_path_buf(),
+            type_name: type_name.to_string(),
+            field: field.to_string(),
+        });
+        if self.is_ambiguous(&slot) {
+            return None;
+        }
+        self.slot_role(&slot)
     }
 
     fn param_role(
@@ -140,21 +228,16 @@ impl UrlSchema {
         func: &str,
         index: usize,
     ) -> Option<FieldRole> {
-        if matches!(
-            (type_name, func, index),
-            (Some("HeadMedia"), "new" | "secure_url", 0)
-                | (Some("HeadIcon" | "HeadAlternate"), "new", 0)
-        ) {
-            return Some(FieldRole::ResolvedOnly { srcset: false });
+        let slot = ValueSlot::Param(ParamKey {
+            package: package.to_path_buf(),
+            type_name: type_name.map(ToString::to_string),
+            func: func.to_string(),
+            index,
+        });
+        if self.is_ambiguous(&slot) {
+            return None;
         }
-        self.roles
-            .get(&ValueSlot::Param(ParamKey {
-                package: package.to_path_buf(),
-                type_name: type_name.map(ToString::to_string),
-                func: func.to_string(),
-                index,
-            }))
-            .copied()
+        self.slot_role(&slot)
     }
 }
 
@@ -395,6 +478,7 @@ pub(super) fn lint_sources(
             collect_type_index(&package, file, &mut schema);
         }
     }
+    schema.retain_unambiguous_index();
     for (path, source, parsed) in &parsed_files {
         if is_config_file(path) || (!include_tests && is_test_path(path)) {
             continue;
@@ -456,6 +540,12 @@ fn collect_item_types(package: &Path, item: &Item, schema: &mut UrlSchema) {
     match item {
         Item::Struct(item_struct) => {
             let type_name = item_struct.ident.to_string();
+            UrlSchema::note_definition(
+                &mut schema.defined_types,
+                &mut schema.ambiguous_types,
+                package,
+                type_name.clone(),
+            );
             for field in &item_struct.fields {
                 if let Some(ident) = &field.ident {
                     if let Some(inner) = extract_inner_type_ident(&field.ty) {
@@ -472,6 +562,12 @@ fn collect_item_types(package: &Path, item: &Item, schema: &mut UrlSchema) {
             }
         }
         Item::Const(item_const) => {
+            UrlSchema::note_definition(
+                &mut schema.defined_globals,
+                &mut schema.ambiguous_globals,
+                package,
+                item_const.ident.to_string(),
+            );
             if let Some(inner) = extract_inner_type_ident(&item_const.ty) {
                 schema
                     .global_types
@@ -484,6 +580,12 @@ fn collect_item_types(package: &Path, item: &Item, schema: &mut UrlSchema) {
             }
         }
         Item::Static(item_static) => {
+            UrlSchema::note_definition(
+                &mut schema.defined_globals,
+                &mut schema.ambiguous_globals,
+                package,
+                item_static.ident.to_string(),
+            );
             if let Some(inner) = extract_inner_type_ident(&item_static.ty) {
                 schema.global_types.insert(
                     (package.to_path_buf(), item_static.ident.to_string()),
@@ -497,6 +599,12 @@ fn collect_item_types(package: &Path, item: &Item, schema: &mut UrlSchema) {
                 );
             }
         }
+        Item::Fn(item_fn) => UrlSchema::note_definition(
+            &mut schema.defined_fns,
+            &mut schema.ambiguous_fns,
+            package,
+            item_fn.sig.ident.to_string(),
+        ),
         Item::Mod(item_mod) => {
             if let Some((_, items)) = &item_mod.content {
                 for child in items {
@@ -576,9 +684,13 @@ fn infer_roles_in_file(
             owned_macros.insert((inv.name_line, inv.name_column), inv);
         }
     }
+    let templates = Templates {
+        owned: &owned_macros,
+        bare_html_is_foreign: crate::source::bare_html_is_imported_from_yew(source),
+    };
 
     for item in &file.items {
-        infer_roles_in_item(package, source, item, ignored_ranges, &owned_macros, schema);
+        infer_roles_in_item(package, source, item, ignored_ranges, &templates, schema);
     }
 }
 
@@ -587,7 +699,7 @@ fn infer_roles_in_item(
     source: &str,
     item: &Item,
     ignored_ranges: &[RangeInclusive<usize>],
-    owned_macros: &BTreeMap<(usize, usize), &MacroInvocation>,
+    templates: &Templates<'_>,
     schema: &mut UrlSchema,
 ) {
     match item {
@@ -613,7 +725,7 @@ fn infer_roles_in_item(
                     self_type.as_deref(),
                     Some(&method_name),
                     is_render_impl,
-                    owned_macros,
+                    templates,
                     schema,
                 );
                 infer.bind_signature(&method.sig);
@@ -631,7 +743,7 @@ fn infer_roles_in_item(
                 None,
                 Some(&fn_name),
                 false,
-                owned_macros,
+                templates,
                 schema,
             );
             infer.bind_signature(&item_fn.sig);
@@ -640,14 +752,7 @@ fn infer_roles_in_item(
         Item::Mod(item_mod) => {
             if let Some((_, items)) = &item_mod.content {
                 for child in items {
-                    infer_roles_in_item(
-                        package,
-                        source,
-                        child,
-                        ignored_ranges,
-                        owned_macros,
-                        schema,
-                    );
+                    infer_roles_in_item(package, source, child, ignored_ranges, templates, schema);
                 }
             }
         }
@@ -661,7 +766,7 @@ struct RoleInferer<'a> {
     self_type: Option<&'a str>,
     func_name: Option<&'a str>,
     in_render_impl: bool,
-    owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
+    templates: &'a Templates<'a>,
     schema: &'a mut UrlSchema,
     /// Local variable -> known struct type name.
     var_types: BTreeMap<String, String>,
@@ -676,7 +781,7 @@ impl<'a> RoleInferer<'a> {
         self_type: Option<&'a str>,
         func_name: Option<&'a str>,
         in_render_impl: bool,
-        owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
+        templates: &'a Templates<'a>,
         schema: &'a mut UrlSchema,
     ) -> Self {
         let mut var_types = BTreeMap::new();
@@ -689,7 +794,7 @@ impl<'a> RoleInferer<'a> {
             self_type,
             func_name,
             in_render_impl,
-            owned_macros,
+            templates,
             schema,
             var_types,
             var_slots: BTreeMap::new(),
@@ -890,18 +995,29 @@ impl<'a> RoleInferer<'a> {
         };
         let prev_types = self.var_types.clone();
         let prev_slots = self.var_slots.clone();
-        for arg in &input.args {
-            let name = arg.name.to_string();
-            if let Some(slot) = self.resolve_expr_slot(&arg.value) {
-                self.var_slots.insert(name.clone(), slot);
-            } else {
-                self.var_slots.remove(&name);
-            }
-            if let Some(ty) = self.resolve_expr_type(&arg.value) {
-                self.var_types.insert(name, ty);
-            } else {
-                self.var_types.remove(&name);
-            }
+        // The macro binds every argument at once (`let (a, b) = (x, y);`), so
+        // each value resolves in the caller's scope, never against an earlier
+        // argument name.
+        let resolved: Vec<_> = input
+            .args
+            .iter()
+            .map(|arg| {
+                (
+                    arg.name.to_string(),
+                    self.resolve_expr_slot(&arg.value),
+                    self.resolve_expr_type(&arg.value),
+                )
+            })
+            .collect();
+        for (name, slot, ty) in resolved {
+            match slot {
+                Some(slot) => self.var_slots.insert(name.clone(), slot),
+                None => self.var_slots.remove(&name),
+            };
+            match ty {
+                Some(ty) => self.var_types.insert(name, ty),
+                None => self.var_types.remove(&name),
+            };
         }
         let contexts = proa_dsl::md::slot_contexts(&nodes);
         let mut slot_index = 0usize;
@@ -1052,9 +1168,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                         type_name: target_type.clone(),
                         field: member.to_string(),
                     });
-                    if source_slot != target_slot {
-                        self.schema.flow_edges.insert((source_slot, target_slot));
-                    }
+                    self.schema.record_flow(source_slot, target_slot);
                 }
             }
         }
@@ -1071,9 +1185,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                         func: func_name.clone(),
                         index,
                     });
-                    if source_slot != target_slot {
-                        self.schema.flow_edges.insert((source_slot, target_slot));
-                    }
+                    self.schema.record_flow(source_slot, target_slot);
                 }
             }
         }
@@ -1085,23 +1197,65 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
             return;
         };
         let pos = last.ident.span().start();
-        let Some(inv) = self.owned_macros.get(&(pos.line, pos.column)).copied() else {
+        let owned = self.templates.owned.get(&(pos.line, pos.column)).copied();
+        let Some(dialect) = self.templates.dialect(mac, owned) else {
             return;
         };
-        match inv.dialect {
+        let name = last.ident.to_string();
+        match dialect {
             MacroDialect::Html => {
                 if let Ok(root) = syn::parse2::<HtmlRoot>(mac.tokens.clone()) {
                     self.visit_html_nodes(&root.nodes);
-                } else if let Ok(root) = parse_invocation(self.source, inv) {
+                } else if let Some(root) =
+                    owned.and_then(|inv| parse_invocation(self.source, inv).ok())
+                {
                     self.visit_html_nodes(&root.nodes);
                 }
             }
             MacroDialect::Md => {
-                self.visit_md_tokens(&inv.name, mac.tokens.clone());
+                self.visit_md_tokens(&name, mac.tokens.clone());
             }
             _ => {}
         }
         let _ = self.in_render_impl;
+    }
+}
+
+/// Proa template invocations in one file.
+struct Templates<'a> {
+    /// Outermost invocations recorded by `find_macros`, keyed by name position.
+    owned: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
+    /// Whether a bare `html!` in this file is Yew's rather than Proa's.
+    bare_html_is_foreign: bool,
+}
+
+impl Templates<'_> {
+    /// Dialect of a macro reached while walking Rust code.
+    ///
+    /// `find_macros` records only outermost invocations and skips their
+    /// bodies, so a template nested inside another template (for example
+    /// `{html_sync! { <img .. /> }}` in a slot) has no `owned` entry. Those
+    /// apply the same ownership rules: braces, an owner of `proa` or
+    /// `proa_macros` when qualified, and no bare `html!` imported from Yew.
+    fn dialect(&self, mac: &syn::Macro, owned: Option<&MacroInvocation>) -> Option<MacroDialect> {
+        if let Some(inv) = owned {
+            return Some(inv.dialect);
+        }
+        if !matches!(mac.delimiter, syn::MacroDelimiter::Brace(_)) {
+            return None;
+        }
+        let segments = &mac.path.segments;
+        let name = segments.last()?.ident.to_string();
+        let dialect = crate::source::macro_dialect(&name)?;
+        if segments.len() > 1 {
+            let owner = segments[segments.len() - 2].ident.to_string();
+            if !matches!(owner.as_str(), "proa" | "proa_macros") {
+                return None;
+            }
+        } else if name == "html" && self.bare_html_is_foreign {
+            return None;
+        }
+        Some(dialect)
     }
 }
 
@@ -1144,6 +1298,10 @@ fn lint_single_file(
             owned_macros.insert((inv.name_line, inv.name_column), inv);
         }
     }
+    let templates = Templates {
+        owned: &owned_macros,
+        bare_html_is_foreign: crate::source::bare_html_is_imported_from_yew(source),
+    };
 
     // 1. Walk parsed AST for all items (handles handlers, consts, statics,
     //    render/render_head/render_md, helper functions, and nested macros).
@@ -1154,7 +1312,7 @@ fn lint_single_file(
             source,
             suppressions: &suppressions,
             ignored_ranges: &test_ranges,
-            owned_macros: &owned_macros,
+            templates: &templates,
             schema,
             catalog,
             file_str_bindings: &file_str_bindings,
@@ -1180,7 +1338,7 @@ fn lint_single_file(
                             origin: SpanOrigin::Macro(inv),
                             fixed_pos: None,
                             suppressions: &suppressions,
-                            owned_macros: &owned_macros,
+                            templates: &templates,
                             schema,
                             catalog,
                             file_str_bindings: &file_str_bindings,
@@ -1200,7 +1358,7 @@ fn lint_single_file(
                             origin: SpanOrigin::Macro(inv),
                             fixed_pos: Some((inv.name_line, inv.name_column + 1)),
                             suppressions: &suppressions,
-                            owned_macros: &owned_macros,
+                            templates: &templates,
                             schema,
                             catalog,
                             file_str_bindings: &file_str_bindings,
@@ -1224,29 +1382,31 @@ fn lint_single_file(
 }
 
 fn collect_str_constants(file: &File, out: &mut BTreeMap<String, String>) {
+    // Constants in inline modules share one name space here, so a name
+    // defined more than once in the file is dropped instead of letting the
+    // last definition win.
+    let mut seen = BTreeSet::new();
+    let mut ambiguous = BTreeSet::new();
+    let mut note = |ident: &syn::Ident, expr: &Expr, out: &mut BTreeMap<String, String>| {
+        let name = ident.to_string();
+        if !seen.insert(name.clone()) {
+            ambiguous.insert(name.clone());
+        }
+        if let Some(value) = extract_str_literal(expr) {
+            out.insert(name, value);
+        }
+    };
     for item in &file.items {
         match item {
-            Item::Const(item_const) => {
-                if let Some(value) = extract_str_literal(&item_const.expr) {
-                    out.insert(item_const.ident.to_string(), value);
-                }
-            }
-            Item::Static(item_static) => {
-                if let Some(value) = extract_str_literal(&item_static.expr) {
-                    out.insert(item_static.ident.to_string(), value);
-                }
-            }
+            Item::Const(item_const) => note(&item_const.ident, &item_const.expr, out),
+            Item::Static(item_static) => note(&item_static.ident, &item_static.expr, out),
             Item::Mod(item_mod) => {
                 if let Some((_, items)) = &item_mod.content {
                     for child in items {
-                        if let Item::Const(c) = child {
-                            if let Some(value) = extract_str_literal(&c.expr) {
-                                out.insert(c.ident.to_string(), value);
-                            }
-                        } else if let Item::Static(s) = child {
-                            if let Some(value) = extract_str_literal(&s.expr) {
-                                out.insert(s.ident.to_string(), value);
-                            }
+                        match child {
+                            Item::Const(c) => note(&c.ident, &c.expr, out),
+                            Item::Static(s) => note(&s.ident, &s.expr, out),
+                            _ => {}
                         }
                     }
                 }
@@ -1254,6 +1414,7 @@ fn collect_str_constants(file: &File, out: &mut BTreeMap<String, String>) {
             _ => {}
         }
     }
+    out.retain(|name, _| !ambiguous.contains(name));
 }
 
 struct FileAssetChecker<'a> {
@@ -1262,7 +1423,7 @@ struct FileAssetChecker<'a> {
     source: &'a str,
     suppressions: &'a SuppressionComments,
     ignored_ranges: &'a [RangeInclusive<usize>],
-    owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
+    templates: &'a Templates<'a>,
     schema: &'a UrlSchema,
     catalog: Option<&'a PublicCatalog>,
     file_str_bindings: &'a BTreeMap<String, String>,
@@ -1280,7 +1441,7 @@ impl<'a> FileAssetChecker<'a> {
             origin: SpanOrigin::File,
             fixed_pos: None,
             suppressions: self.suppressions,
-            owned_macros: self.owned_macros,
+            templates: self.templates,
             schema: self.schema,
             catalog: self.catalog,
             file_str_bindings: self.file_str_bindings,
@@ -1398,10 +1559,12 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         if line_in_ranges(pos.line, self.ignored_ranges) {
             return;
         }
-        let Some(inv) = self.owned_macros.get(&(pos.line, pos.column)).copied() else {
+        let owned = self.templates.owned.get(&(pos.line, pos.column)).copied();
+        let Some(dialect) = self.templates.dialect(mac, owned) else {
             return;
         };
-        match inv.dialect {
+        let name = last.ident.to_string();
+        match dialect {
             MacroDialect::Html => {
                 if let Ok(root) = syn::parse2::<HtmlRoot>(mac.tokens.clone()) {
                     let mut checker = MacroAssetChecker {
@@ -1410,7 +1573,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                         origin: SpanOrigin::File,
                         fixed_pos: None,
                         suppressions: self.suppressions,
-                        owned_macros: self.owned_macros,
+                        templates: self.templates,
                         schema: self.schema,
                         catalog: self.catalog,
                         file_str_bindings: self.file_str_bindings,
@@ -1429,7 +1592,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     origin: SpanOrigin::File,
                     fixed_pos: Some((pos.line, pos.column + 1)),
                     suppressions: self.suppressions,
-                    owned_macros: self.owned_macros,
+                    templates: self.templates,
                     schema: self.schema,
                     catalog: self.catalog,
                     file_str_bindings: self.file_str_bindings,
@@ -1438,12 +1601,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     in_render_context: true,
                     diagnostics: self.diagnostics,
                 };
-                checker.lint_markdown_macro(
-                    &inv.name,
-                    mac.tokens.clone(),
-                    pos.line,
-                    pos.column + 1,
-                );
+                checker.lint_markdown_macro(&name, mac.tokens.clone(), pos.line, pos.column + 1);
             }
             _ => {
                 let _ = self.source;
@@ -1458,7 +1616,7 @@ struct MacroAssetChecker<'a> {
     origin: SpanOrigin<'a>,
     fixed_pos: Option<(usize, usize)>,
     suppressions: &'a SuppressionComments,
-    owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
+    templates: &'a Templates<'a>,
     schema: &'a UrlSchema,
     catalog: Option<&'a PublicCatalog>,
     file_str_bindings: &'a BTreeMap<String, String>,
@@ -1551,7 +1709,7 @@ impl MacroAssetChecker<'_> {
             origin: self.origin,
             fixed_pos: self.fixed_pos,
             suppressions: self.suppressions,
-            owned_macros: self.owned_macros,
+            templates: self.templates,
             schema: self.schema,
             catalog: self.catalog,
             file_str_bindings: self.file_str_bindings,
@@ -1808,10 +1966,12 @@ impl<'ast> Visit<'ast> for MacroAssetChecker<'_> {
             return;
         };
         let pos = last.ident.span().start();
-        let Some(inv) = self.owned_macros.get(&(pos.line, pos.column)).copied() else {
+        let owned = self.templates.owned.get(&(pos.line, pos.column)).copied();
+        let Some(dialect) = self.templates.dialect(mac, owned) else {
             return;
         };
-        match inv.dialect {
+        let name = last.ident.to_string();
+        match dialect {
             MacroDialect::Html => {
                 if let Ok(root) = syn::parse2::<HtmlRoot>(mac.tokens.clone()) {
                     self.visit_nodes(&root.nodes);
@@ -1820,10 +1980,15 @@ impl<'ast> Visit<'ast> for MacroAssetChecker<'_> {
             MacroDialect::Md => {
                 let prev_fixed = self.fixed_pos;
                 if prev_fixed.is_none() {
-                    self.fixed_pos = Some((pos.line, pos.column + 1));
+                    // Spans parsed from an invocation body are relative to it;
+                    // report nested Markdown at the enclosing invocation.
+                    self.fixed_pos = Some(match self.origin {
+                        SpanOrigin::Macro(inv) => (inv.name_line, inv.name_column + 1),
+                        SpanOrigin::File => (pos.line, pos.column + 1),
+                    });
                 }
                 let (line, col) = self.fixed_pos.unwrap_or((1, 1));
-                self.lint_markdown_macro(&inv.name, mac.tokens.clone(), line, col);
+                self.lint_markdown_macro(&name, mac.tokens.clone(), line, col);
                 self.fixed_pos = prev_fixed;
             }
             _ => {}

@@ -5782,3 +5782,132 @@ impl WebRenderSync for ScopedPage {
         "unexpected hits: {hits:#?}"
     );
 }
+
+fn asset_hits(path: &str, source: &str) -> Vec<(usize, &'static str)> {
+    lint_file(Path::new(path), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect()
+}
+
+#[test]
+fn asset_url_lint_checks_templates_nested_in_template_slots() {
+    let source = r#"
+pub struct Gallery {
+    pub cover: &'static str,
+}
+impl WebRenderSync for Gallery {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <div>
+                {html_sync! { <img src="public/a.png" alt="A" /> }}
+                {if true { html_sync! { <img src={self.cover} alt="Cover" /> } } else { html_sync! {} }}
+                {yew::html! { <img src="public/foreign.png" /> }}
+            </div>
+        }
+        .render(cx)
+    }
+}
+
+pub fn handler() -> Gallery {
+    Gallery {
+        cover: "public/cover.png",
+    }
+}
+"#;
+    assert_eq!(
+        asset_hits("src/gallery.rs", source),
+        vec![
+            (9, "asset/public-url"),  // nested <img src="public/a.png" />
+            (20, "asset/public-url"), // `cover` reaches the nested <img src={self.cover} />
+        ]
+    );
+}
+
+#[test]
+fn asset_url_lint_propagates_builtin_head_constructors_through_wrappers() {
+    let source = r#"
+fn media(src: &'static str) -> HeadMedia {
+    HeadMedia::new(src)
+}
+
+pub fn handler() -> HeadMedia {
+    media("public/share.png")
+}
+"#;
+    assert_eq!(
+        asset_hits("src/head.rs", source),
+        vec![(7, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_resolves_markdown_arguments_in_the_callers_scope() {
+    let source = r#"
+pub struct Album {
+    pub artwork: &'static str,
+    pub caption: &'static str,
+}
+impl MdRenderSync for Album {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let a = self.artwork;
+        md_sync! { "{a} ![Image]({b})", a = self.caption, b = a }.render_md(cx)
+    }
+}
+
+pub fn handler() -> Album {
+    Album {
+        artwork: "public/art.png",
+        caption: "public/caption-text",
+    }
+}
+"#;
+    // `b = a` binds the outer `a` (`self.artwork`), not the `a` argument.
+    assert_eq!(
+        asset_hits("src/album.rs", source),
+        vec![(15, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_ignores_names_defined_more_than_once_in_a_package() {
+    let source = r#"
+mod web {
+    pub struct Image {
+        pub src: &'static str,
+    }
+    impl WebRenderSync for Image {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            html_sync! { <img src={self.src} alt="" /> }.render(cx)
+        }
+    }
+}
+
+mod files {
+    pub struct Image {
+        pub src: &'static str,
+    }
+    pub fn copy() -> Image {
+        Image {
+            src: "public/input.png",
+        }
+    }
+}
+
+mod routes {
+    pub const LOGO: &str = "/route";
+    pub struct Nav;
+    impl WebRenderSync for Nav {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            html_sync! { <a href={LOGO}>"Home"</a> }.render(cx)
+        }
+    }
+}
+
+mod assets {
+    pub const LOGO: &str = "public/logo.svg";
+}
+"#;
+    assert_eq!(asset_hits("src/ambiguous.rs", source), vec![]);
+}

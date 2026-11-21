@@ -469,7 +469,7 @@ fn qualified_macro_owner(source: &str, name_start: usize) -> Option<&str> {
         .filter(|segment| !segment.is_empty())
 }
 
-fn bare_html_is_imported_from_yew(source: &str) -> bool {
+pub(crate) fn bare_html_is_imported_from_yew(source: &str) -> bool {
     let compact = compact_code_for_imports(source);
     let mut yew_html = false;
     let mut proa_html = false;
@@ -537,7 +537,7 @@ fn line_indentation_column(source: &str, byte: usize) -> usize {
         .count()
 }
 
-fn macro_dialect(name: &str) -> Option<MacroDialect> {
+pub(crate) fn macro_dialect(name: &str) -> Option<MacroDialect> {
     match name {
         "html" | "html_sync" => Some(MacroDialect::Html),
         "xml" | "xml_sync" => Some(MacroDialect::Xml),
