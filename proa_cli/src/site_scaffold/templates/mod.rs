@@ -40,7 +40,6 @@ pub fn populate(
     let blank = selection.starter == StarterChoice::Blank;
 
     plan.write("Cargo.toml", cargo_toml(package, has_database))?;
-    plan.write("rust-toolchain.toml", rust_toolchain())?;
     plan.write(".env.example", env_example(package, has_database))?;
     plan.write(".gitignore", gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
@@ -70,11 +69,7 @@ pub fn populate(
     plan.write("src/pages/mod.rs", "pub mod home;\n")?;
     plan.write(
         "src/pages/home.rs",
-        format!(
-            "{}\n{}",
-            app::home_rs(has_database, has_ui, selection.markdown, blank),
-            app::home_handler(has_database, selection.markdown, title)
-        ),
+        app::home_rs(has_database, has_ui, selection.markdown, blank, title),
     )?;
     plan.write("src/endpoints/mod.rs", "pub mod health;\n")?;
     plan.write("src/endpoints/health.rs", app::health_rs(has_database))?;
@@ -234,10 +229,6 @@ lto = "thin"
 codegen-units = 1
 "#
     )
-}
-
-fn rust_toolchain() -> &'static str {
-    "[toolchain]\nchannel = \"1.93.0\"\nprofile = \"minimal\"\ncomponents = [\"rustfmt\", \"clippy\"]\n"
 }
 
 fn env_example(package: &str, has_database: bool) -> String {
@@ -417,7 +408,7 @@ jobs:
           persist-credentials: false
 
       # Download immutable release artifacts and verify them before execution.
-      # rust-toolchain.toml separately pins the Rust toolchain.
+      # Cargo.toml declares rust-version = "1.93"; CI uses the runner's installed Rust toolchain.
       - name: Install the Proa CLI and Tailwind
         shell: bash
         run: |
@@ -634,6 +625,10 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     let css = app.clone().oneshot(Request::builder().uri(stylesheet).body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(css.status(), StatusCode::OK);
     assert!(css.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/css"));
+    if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
+        let unmanaged = app.clone().oneshot(Request::builder().uri("/static/styles.css").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(unmanaged.status(), StatusCode::NOT_FOUND);
+    }
 __NAVIGATION_ASSERTIONS__
     let refused_markdown = app.clone().oneshot(
         Request::builder().uri("/").header(header::ACCEPT, "text/markdown;q=0, text/html").body(Body::empty()).unwrap()
