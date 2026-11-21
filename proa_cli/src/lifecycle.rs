@@ -517,8 +517,10 @@ fn prepare_dev_inputs(
     } else {
         None
     };
-    let css_output = crate::config::css_script_output(&config);
+    // `scripts.css` is an opaque command with no declared inputs, so it always
+    // reruns. Declared assets rerun unless the edit cannot reach their inputs.
     let skip_asset_build = managed_public
+        && crate::config::css_script_output(&config).is_none()
         && public.is_some_and(|public| {
             !changed.is_empty()
                 && changed.iter().all(|path| path.starts_with(public))
@@ -527,7 +529,6 @@ fn prepare_dev_inputs(
                     .assets()
                     .iter()
                     .map(|asset| asset.output.as_path())
-                    .chain(css_output.as_deref())
                     .any(|output| {
                         !output.as_os_str().is_empty()
                             && (!root.join(output).is_file()

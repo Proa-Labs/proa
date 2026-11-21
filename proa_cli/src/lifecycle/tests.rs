@@ -1956,7 +1956,7 @@ mod dev_preparation_tests {
             1
         );
 
-        // 3. Deleting the `scripts.css` output (`public/styles.css`) must NOT skip `build_assets`.
+        // 3. Deleting a declared asset output (`public/styles.css`) must NOT skip `build_assets`.
         let committed = css_edit.snapshot;
         fs::remove_file(root.join("public/styles.css")).unwrap();
         let mut failure = committed.clone();
@@ -1998,5 +1998,41 @@ mod dev_preparation_tests {
         )
         .unwrap();
         assert!(!rust_edit.public_assets_only);
+    }
+
+    #[test]
+    fn css_script_reruns_for_public_edits_because_its_inputs_are_undeclared() {
+        let (temp, mut config) = fixture(None, None);
+        let root = temp.path();
+        config.paths.public = Some("public".into());
+        config.scripts.css = "cat public/theme.css > public/styles.css".into();
+        fs::create_dir(root.join("public")).unwrap();
+        fs::write(root.join("public/theme.css"), ".old {}").unwrap();
+        fs::write(root.join("public/styles.css"), ".old {}").unwrap();
+        fs::write(
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        fs::write(root.join("public/theme.css"), ".new {}").unwrap();
+        let mut failure = committed.clone();
+        let edit = prepare_dev_inputs(
+            root,
+            loaded,
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(edit.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new {}"
+        );
     }
 }
