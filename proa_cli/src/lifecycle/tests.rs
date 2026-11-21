@@ -1956,8 +1956,35 @@ mod dev_preparation_tests {
             1
         );
 
-        // 3. Editing a Rust source file disables the fast path.
+        // 3. Deleting the `scripts.css` output (`public/styles.css`) must NOT skip `build_assets`.
         let committed = css_edit.snapshot;
+        fs::remove_file(root.join("public/styles.css")).unwrap();
+        let mut failure = committed.clone();
+        let deleted_css = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(deleted_css.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new { color: green; }"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("asset-runs.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
+
+        // 4. Editing a Rust source file disables the fast path.
+        let committed = deleted_css.snapshot;
         fs::write(root.join("src/main.rs"), "fn main() { /* edited */ }\n").unwrap();
         let mut failure = committed.clone();
         let rust_edit = prepare_dev_inputs(

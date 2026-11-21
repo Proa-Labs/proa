@@ -842,6 +842,35 @@ fn config_runner_persists_stamp_cache_across_cli_invocations() {
 
     let temp = fixture();
     let root = temp.path();
+    fs::write(
+        root.join("proa.config.rs"),
+        r#"
+use proa::config::{BuildConfig, Config, ProjectPaths, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config<&'static str, String>> {
+    let public = proa::config::tokio::fs::read_to_string("asset-root.txt")
+        .await
+        .map_err(|error| format!("read asset-root.txt: {error}"))?;
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: option_env!("PROA_TEST_DEV_CMD").unwrap_or("cargo run"),
+            build: "cargo build --release",
+            ..Default::default()
+        },
+        paths: ProjectPaths {
+            public: Some(public),
+            ..Default::default()
+        },
+        build: BuildConfig {
+            assets: Some(vec![]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
     let artifacts = tempfile::tempdir().unwrap();
     let target = artifacts.path().join("cargo-target");
     let cargo_trace = artifacts.path().join("config-cargo.log");
@@ -856,20 +885,28 @@ exec "$REAL_CARGO" "$@"
     .unwrap();
     fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let run_validate = || {
-        Command::new(env!("CARGO_BIN_EXE_proa"))
+    let run_validate = |compile_env: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
+        command
             .current_dir(root)
             .env("CARGO_TARGET_DIR", &target)
             .env("CARGO", &cargo)
             .env("REAL_CARGO", env!("CARGO"))
             .env("CARGO_NET_OFFLINE", "true")
             .env("CONFIG_CARGO_LOG", &cargo_trace)
-            .args(["config", "validate"])
-            .output()
-            .unwrap()
+            .args(["config", "validate"]);
+        match compile_env {
+            Some(value) => {
+                command.env("PROA_TEST_DEV_CMD", value);
+            }
+            None => {
+                command.env_remove("PROA_TEST_DEV_CMD");
+            }
+        }
+        command.output().unwrap()
     };
 
-    let first = run_validate();
+    let first = run_validate(Some("cargo run --bin secret-alpha"));
     assert!(
         first.status.success(),
         "{}",
@@ -882,8 +919,20 @@ exec "$REAL_CARGO" "$@"
     );
     assert_eq!(fs::read_to_string(&cargo_trace).unwrap().lines().count(), 1);
 
-    // Second completely fresh CLI process reuses persisted stamp-cache.json without running Cargo.
-    let second = run_validate();
+    // Persisted stamp-cache.json must never store compile-time env values in plaintext.
+    let cache_files: Vec<_> = fs::read_dir(target.join("proa-config"))
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path().join("stamp-cache.json"))
+        .filter(|path| path.is_file())
+        .collect();
+    assert_eq!(cache_files.len(), 1);
+    let persisted = fs::read_to_string(&cache_files[0]).unwrap();
+    assert!(persisted.contains("PROA_TEST_DEV_CMD"), "{persisted}");
+    assert!(!persisted.contains("secret-alpha"), "{persisted}");
+
+    // Second completely fresh CLI process with identical env reuses persisted stamp-cache.json.
+    let second = run_validate(Some("cargo run --bin secret-alpha"));
     assert!(
         second.status.success(),
         "{}",
@@ -892,7 +941,33 @@ exec "$REAL_CARGO" "$@"
     assert_eq!(
         fs::read_to_string(&cargo_trace).unwrap().lines().count(),
         1,
-        "second CLI process should skip cargo build when inputs are unchanged"
+        "second CLI process should skip cargo build when inputs and compile-time env are unchanged"
+    );
+
+    // Changing a compile-time `option_env!()` value must invalidate the persisted stamp cache.
+    let env_changed = run_validate(Some("cargo run --bin secret-beta"));
+    assert!(
+        env_changed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&env_changed.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        2,
+        "changing compile-time option_env!() must invalidate persisted stamp cache"
+    );
+
+    // Unsetting the compile-time `option_env!()` variable must also invalidate the cache.
+    let env_unset = run_validate(None);
+    assert!(
+        env_unset.status.success(),
+        "{}",
+        String::from_utf8_lossy(&env_unset.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        3,
+        "unsetting compile-time option_env!() must invalidate persisted stamp cache"
     );
 
     // Editing `proa.config.rs` invalidates the persisted stamp cache and recompiles once.
@@ -901,15 +976,15 @@ exec "$REAL_CARGO" "$@"
         fs::read_to_string(root.join("proa.config.rs")).unwrap()
     );
     fs::write(root.join("proa.config.rs"), updated).unwrap();
-    let third = run_validate();
+    let file_changed = run_validate(None);
     assert!(
-        third.status.success(),
+        file_changed.status.success(),
         "{}",
-        String::from_utf8_lossy(&third.stderr)
+        String::from_utf8_lossy(&file_changed.stderr)
     );
     assert_eq!(
         fs::read_to_string(&cargo_trace).unwrap().lines().count(),
-        2,
+        4,
         "editing proa.config.rs must invalidate persisted stamp cache"
     );
 }

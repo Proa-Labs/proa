@@ -56,6 +56,7 @@ pub(crate) struct DevConfigRunner {
 }
 
 type InputStamps = BTreeMap<PathBuf, Option<(SystemTime, u64)>>;
+type EnvStamps = BTreeMap<String, Option<String>>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +64,15 @@ struct PersistedStampCache {
     schema_version: u16,
     executable: PathBuf,
     inputs: Vec<PersistedInputStamp>,
+    env_deps: Vec<PersistedEnvStamp>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedEnvStamp {
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    value_sha256: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -81,6 +91,24 @@ struct CachedRunner {
     executable: PathBuf,
     lock: PathBuf,
     inputs: InputStamps,
+    env_deps: EnvStamps,
+}
+
+const TOOLCHAIN_ENV_DEPS: &[&str] = &[
+    "CARGO",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "CARGO_HOME",
+    "RUSTC",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "RUSTC_WRAPPER",
+    "RUSTFLAGS",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+];
+
+fn hash_env_value(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    format!("{:x}", base16ct::HexDisplay(&digest))
 }
 
 fn system_time_to_unix(time: SystemTime) -> Option<(u64, u32)> {
@@ -119,14 +147,28 @@ impl CachedRunner {
         if listings.next().is_some() {
             return None;
         }
-        let paths = proa_build::build::rustc_source_dependencies(&fs::read(&listing).ok()?).ok()?;
-        for input in paths {
+        let deps = proa_build::build::rustc_dependencies(&fs::read(&listing).ok()?).ok()?;
+        for input in deps.source_paths {
             let path = runner.join(input);
             let state = stamp(&path).ok()??;
             if state.0 > build_started {
                 return None;
             }
             inputs.insert(path, Some(state));
+        }
+        let mut env_deps = EnvStamps::new();
+        for &name in TOOLCHAIN_ENV_DEPS {
+            let value = match env::var(name) {
+                Ok(value) => Some(hash_env_value(&value)),
+                Err(env::VarError::NotPresent) => None,
+                Err(env::VarError::NotUnicode(_)) => return None,
+            };
+            env_deps.insert(name.to_owned(), value);
+        }
+        for (name, value) in deps.environment {
+            // Store only a SHA-256 digest of compile-time env values so secrets
+            // never land in plaintext in `stamp-cache.json`.
+            env_deps.insert(name, value.as_deref().map(hash_env_value));
         }
         for file in [
             listing,
@@ -141,6 +183,7 @@ impl CachedRunner {
             executable: executable.to_owned(),
             lock: runner.join(".lock"),
             inputs,
+            env_deps,
         })
     }
 
@@ -207,6 +250,16 @@ impl CachedRunner {
                 _ => return false,
             }
         }
+        for (name, expected_hash) in &self.env_deps {
+            let actual_hash = match env::var(name) {
+                Ok(value) => Some(hash_env_value(&value)),
+                Err(env::VarError::NotPresent) => None,
+                Err(env::VarError::NotUnicode(_)) => return false,
+            };
+            if actual_hash != *expected_hash {
+                return false;
+            }
+        }
         true
     }
 
@@ -245,10 +298,19 @@ impl CachedRunner {
         else {
             return;
         };
+        let env_deps = self
+            .env_deps
+            .iter()
+            .map(|(name, value_sha256)| PersistedEnvStamp {
+                name: name.clone(),
+                value_sha256: value_sha256.clone(),
+            })
+            .collect();
         let payload = PersistedStampCache {
             schema_version: STAMP_CACHE_SCHEMA_VERSION,
             executable: self.executable.clone(),
             inputs,
+            env_deps,
         };
         let Ok(bytes) = serde_json::to_vec(&payload) else {
             return;
@@ -296,10 +358,15 @@ impl CachedRunner {
                 return None;
             }
         }
+        let mut env_deps = EnvStamps::new();
+        for item in persisted.env_deps {
+            env_deps.insert(item.name, item.value_sha256);
+        }
         let cached = Self {
             executable: persisted.executable,
             lock: runner.join(".lock"),
             inputs,
+            env_deps,
         };
         cached.is_fresh().then_some(cached)
     }

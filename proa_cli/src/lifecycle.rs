@@ -517,14 +517,28 @@ fn prepare_dev_inputs(
     } else {
         None
     };
+    let css_output = crate::config::css_script_output(&config);
     let skip_asset_build = managed_public
         && public.is_some_and(|public| {
             !changed.is_empty()
                 && changed.iter().all(|path| path.starts_with(public))
-                && !config.build.assets.iter().flatten().any(|asset| {
-                    !root.join(&asset.output).is_file()
-                        || changed.iter().any(|path| path == &asset.output)
-                        || asset.input.starts_with(public)
+                && !config
+                    .build
+                    .assets()
+                    .iter()
+                    .map(|asset| asset.output.as_path())
+                    .chain(css_output.as_deref())
+                    .any(|output| {
+                        !output.as_os_str().is_empty()
+                            && (!root.join(output).is_file()
+                                || changed.iter().any(|path| path == output))
+                    })
+                && !config.build.assets().iter().any(|asset| {
+                    asset.input.starts_with(public)
+                        || asset
+                            .config
+                            .as_deref()
+                            .is_some_and(|cfg| cfg.starts_with(public))
                 })
         });
     if !options.no_assets && !skip_asset_build {
@@ -577,12 +591,12 @@ fn prepare_dev_inputs(
                 && !changed.is_empty()
                 && changed
                     .iter()
-                    .all(|path| is_css_or_public_path(path, public))
+                    .all(|path| is_css_or_public_or_asset_input(path, public, &config))
                 && post_changed
                     .as_deref()
                     .unwrap_or(&changed)
                     .iter()
-                    .all(|path| is_css_or_public_path(path, public))
+                    .all(|path| is_css_or_public_or_asset_input(path, public, &config))
             {
                 public_assets_only = true;
                 changed_asset_paths = changed.clone();
@@ -779,12 +793,15 @@ fn is_stylesheet_only_change(changed: &[PathBuf]) -> bool {
         })
 }
 
-fn is_css_or_public_path(path: &Path, public: &Path) -> bool {
+fn is_css_or_public_or_asset_input(path: &Path, public: &Path, config: &ProjectConfig) -> bool {
     path.starts_with(public)
         || path
             .extension()
             .and_then(OsStr::to_str)
             .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
+        || config.build.assets().iter().any(|asset| {
+            path == asset.input || asset.config.as_deref().is_some_and(|cfg| path == cfg)
+        })
 }
 
 fn dep_info_path_for_executable(executable: &Path) -> PathBuf {
@@ -809,8 +826,9 @@ fn dep_info_path_for_executable(executable: &Path) -> PathBuf {
 
 /// Collect root-relative files observed by rustc during the final dev compile.
 ///
-/// Returns `None` when a `build.rs` exists or any local dep-info file cannot
-/// be parsed, causing asset-only edits to fall back safely to a full rebuild.
+/// Returns `None` when a local `build.rs` exists or any local dep-info file
+/// cannot be parsed, causing asset-only edits to fall back safely to a full
+/// linked rebuild.
 fn collect_compiled_source_inputs(
     root: &Path,
     output: &LinkedCargoOutput,
@@ -822,7 +840,6 @@ fn collect_compiled_source_inputs(
     let executable = output.final_root_artifact.executable.as_ref()?;
     let mut dep_files = BTreeSet::new();
     dep_files.insert(dep_info_path_for_executable(executable));
-    let root_url_fragment = canonical_root.to_string_lossy().replace('\\', "/");
     let deps_dir = executable.parent().map(|dir| dir.join("deps"));
     for artifact in &output.final_cargo.cargo_artifacts {
         if artifact.package_id == output.final_root_artifact.package_id
@@ -831,8 +848,17 @@ fn collect_compiled_source_inputs(
         {
             continue;
         }
-        if !artifact.package_id.contains(&root_url_fragment) {
+        if !artifact.package_id.starts_with("path+file://") {
             continue;
+        }
+        if artifact
+            .target
+            .kind
+            .iter()
+            .any(|kind| kind == "custom-build")
+        {
+            // A local path dependency has a build script that could read `public/`.
+            return None;
         }
         let crate_name = artifact.target.name.replace('-', "_");
         let Some(deps_dir) = deps_dir.as_ref() else {
