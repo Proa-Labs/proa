@@ -834,3 +834,82 @@ fn dev_finalizes_before_launch_and_no_assets_skips_publication() {
     assert_eq!(&manifest, catalog.manifest());
     assert!(dev.contains("final cache: 1/1 reused"), "{dev}");
 }
+
+#[cfg(unix)]
+#[test]
+fn config_runner_persists_stamp_cache_across_cli_invocations() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = fixture();
+    let root = temp.path();
+    let artifacts = tempfile::tempdir().unwrap();
+    let target = artifacts.path().join("cargo-target");
+    let cargo_trace = artifacts.path().join("config-cargo.log");
+    let cargo = artifacts.path().join("cargo-trace");
+    fs::write(
+        &cargo,
+        r#"#!/bin/sh
+case "$1:$*" in build:*proa-config/*) echo build >> "$CONFIG_CARGO_LOG";; esac
+exec "$REAL_CARGO" "$@"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let run_validate = || {
+        Command::new(env!("CARGO_BIN_EXE_proa"))
+            .current_dir(root)
+            .env("CARGO_TARGET_DIR", &target)
+            .env("CARGO", &cargo)
+            .env("REAL_CARGO", env!("CARGO"))
+            .env("CARGO_NET_OFFLINE", "true")
+            .env("CONFIG_CARGO_LOG", &cargo_trace)
+            .args(["config", "validate"])
+            .output()
+            .unwrap()
+    };
+
+    let first = run_validate();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&first.stderr).contains("compiling proa.config.rs..."),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert_eq!(fs::read_to_string(&cargo_trace).unwrap().lines().count(), 1);
+
+    // Second completely fresh CLI process reuses persisted stamp-cache.json without running Cargo.
+    let second = run_validate();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        1,
+        "second CLI process should skip cargo build when inputs are unchanged"
+    );
+
+    // Editing `proa.config.rs` invalidates the persisted stamp cache and recompiles once.
+    let updated = format!(
+        "{}\n// touched\n",
+        fs::read_to_string(root.join("proa.config.rs")).unwrap()
+    );
+    fs::write(root.join("proa.config.rs"), updated).unwrap();
+    let third = run_validate();
+    assert!(
+        third.status.success(),
+        "{}",
+        String::from_utf8_lossy(&third.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        2,
+        "editing proa.config.rs must invalidate persisted stamp cache"
+    );
+}

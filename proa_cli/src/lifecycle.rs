@@ -161,6 +161,7 @@ struct LinkedDevLaunch {
     reused_descriptor_artifacts: usize,
     reused_final_artifacts: usize,
     public_assets: Option<PathBuf>,
+    compiled_inputs: Option<BTreeSet<PathBuf>>,
 }
 
 struct LinkedDevRebuild {
@@ -323,6 +324,8 @@ pub fn dev(options: DevOptions) -> Result<()> {
             config: next_config,
             snapshot,
             css_only,
+            public_assets_only,
+            changed_asset_paths,
             hot_update,
         } = inputs;
         if css_only && !missing_catalog {
@@ -330,6 +333,38 @@ pub fn dev(options: DevOptions) -> Result<()> {
             debouncer.commit(snapshot);
             notify(reload.as_ref(), &ReloadEvent::Css);
             continue;
+        }
+        if public_assets_only
+            && !last_build_failed
+            && serde_json::to_vec(&next_config).ok() == serde_json::to_vec(&config).ok()
+            && launch.executable.is_file()
+            && launch.compiled_inputs.as_ref().is_some_and(|inputs| {
+                changed_asset_paths
+                    .iter()
+                    .all(|path| !inputs.contains(path))
+            })
+        {
+            if let Some(output) = launch.public_assets.as_ref() {
+                let source = public_assets::configured_path(&next_config, !options.no_assets)?;
+                match public_assets::publish(&root, source, output) {
+                    Ok(Some(_)) => {
+                        println!("public assets changed; republished catalog without Cargo");
+                        child.restart(&root, &launch, address, None, reload.as_ref())?;
+                        debouncer.commit(snapshot);
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        last_build_failed = true;
+                        eprintln!(
+                            "could not republish the public asset catalog; keeping the last valid server running:\n{error:#}"
+                        );
+                        notify(reload.as_ref(), &ReloadEvent::Failed(format!("{error:#}")));
+                        debouncer.commit(failure_snapshot);
+                        continue;
+                    }
+                }
+            }
         }
         if let Some(mut update) = hot_update.filter(|_| !missing_catalog) {
             match update.activate() {
@@ -427,6 +462,8 @@ struct PreparedDevInputs {
     config: ProjectConfig,
     snapshot: WatchSnapshot,
     css_only: bool,
+    public_assets_only: bool,
+    changed_asset_paths: Vec<PathBuf>,
     hot_update: Option<crate::hot_static::HotState>,
 }
 
@@ -480,9 +517,21 @@ fn prepare_dev_inputs(
     } else {
         None
     };
-    if !options.no_assets {
+    let skip_asset_build = managed_public
+        && public.is_some_and(|public| {
+            !changed.is_empty()
+                && changed.iter().all(|path| path.starts_with(public))
+                && !config.build.assets.iter().flatten().any(|asset| {
+                    !root.join(&asset.output).is_file()
+                        || changed.iter().any(|path| path == &asset.output)
+                        || asset.input.starts_with(public)
+                })
+        });
+    if !options.no_assets && !skip_asset_build {
         build_assets(root, &config)?;
     }
+    let mut public_assets_only = false;
+    let mut changed_asset_paths = Vec::new();
     if let Some(public) = public {
         let post_assets = if managed_public || root.join(public).exists() {
             Some(watch_snapshot(root, watch_paths)?)
@@ -520,15 +569,48 @@ fn prepare_dev_inputs(
         if public_changed {
             // The running server holds a fixed public catalog. Restart it when
             // inputs (including generated files) change. Keep the pre-command
-            // snapshot so concurrent authored edits still schedule another cycle.
+            // snapshot for authored files outside `public/` so concurrent edits
+            // still schedule another cycle.
             hot_update = None;
             css_only = false;
+            if managed_public
+                && !changed.is_empty()
+                && changed
+                    .iter()
+                    .all(|path| is_css_or_public_path(path, public))
+                && post_changed
+                    .as_deref()
+                    .unwrap_or(&changed)
+                    .iter()
+                    .all(|path| is_css_or_public_path(path, public))
+            {
+                public_assets_only = true;
+                changed_asset_paths = changed.clone();
+                if let Some(post_changed) = &post_changed {
+                    for path in post_changed {
+                        if !changed_asset_paths.contains(path) {
+                            changed_asset_paths.push(path.clone());
+                        }
+                    }
+                }
+                if let Some(post_assets) = &post_assets {
+                    for path in &changed_public {
+                        if let Some(stamp) = post_assets.get(*path) {
+                            snapshot.insert((*path).clone(), *stamp);
+                        } else {
+                            snapshot.remove(*path);
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(PreparedDevInputs {
         config,
         snapshot,
         css_only,
+        public_assets_only,
+        changed_asset_paths,
         hot_update,
     })
 }
@@ -695,6 +777,102 @@ fn is_stylesheet_only_change(changed: &[PathBuf]) -> bool {
                 .and_then(OsStr::to_str)
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
         })
+}
+
+fn is_css_or_public_path(path: &Path, public: &Path) -> bool {
+    path.starts_with(public)
+        || path
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("css"))
+}
+
+fn dep_info_path_for_executable(executable: &Path) -> PathBuf {
+    let mut name = executable
+        .file_name()
+        .map(OsStr::to_os_string)
+        .unwrap_or_default();
+    let suffix = std::env::consts::EXE_SUFFIX;
+    if !suffix.is_empty() {
+        if let Some(text) = name.to_str() {
+            if let Some(stripped) = text
+                .strip_suffix(suffix)
+                .or_else(|| text.strip_suffix(&suffix.to_ascii_uppercase()))
+            {
+                name = OsString::from(stripped);
+            }
+        }
+    }
+    name.push(".d");
+    executable.with_file_name(name)
+}
+
+/// Collect root-relative files observed by rustc during the final dev compile.
+///
+/// Returns `None` when a `build.rs` exists or any local dep-info file cannot
+/// be parsed, causing asset-only edits to fall back safely to a full rebuild.
+fn collect_compiled_source_inputs(
+    root: &Path,
+    output: &LinkedCargoOutput,
+) -> Option<BTreeSet<PathBuf>> {
+    if root.join("build.rs").exists() {
+        return None;
+    }
+    let canonical_root = root.canonicalize().ok()?;
+    let executable = output.final_root_artifact.executable.as_ref()?;
+    let mut dep_files = BTreeSet::new();
+    dep_files.insert(dep_info_path_for_executable(executable));
+    let root_url_fragment = canonical_root.to_string_lossy().replace('\\', "/");
+    let deps_dir = executable.parent().map(|dir| dir.join("deps"));
+    for artifact in &output.final_cargo.cargo_artifacts {
+        if artifact.package_id == output.final_root_artifact.package_id
+            && artifact.target.name == output.final_root_artifact.target.name
+            && artifact.target.kind == output.final_root_artifact.target.kind
+        {
+            continue;
+        }
+        if !artifact.package_id.contains(&root_url_fragment) {
+            continue;
+        }
+        let crate_name = artifact.target.name.replace('-', "_");
+        let Some(deps_dir) = deps_dir.as_ref() else {
+            return None;
+        };
+        let mut matched_dep = false;
+        for entry in fs::read_dir(deps_dir).ok()?.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+                continue;
+            };
+            if name.ends_with(".d")
+                && (name.starts_with(&format!("lib{crate_name}-"))
+                    || name.starts_with(&format!("{crate_name}-")))
+            {
+                dep_files.insert(path);
+                matched_dep = true;
+            }
+        }
+        if !matched_dep {
+            return None;
+        }
+    }
+    let mut inputs = BTreeSet::new();
+    for dep_file in dep_files {
+        let bytes = fs::read(&dep_file).ok()?;
+        let deps = proa_build::build::rustc_source_dependencies(&bytes).ok()?;
+        for dep in deps {
+            let abs = if dep.is_absolute() {
+                dep
+            } else {
+                canonical_root.join(dep)
+            };
+            let normalized = abs.canonicalize().unwrap_or(abs);
+            if let Ok(rel) = normalized.strip_prefix(&canonical_root) {
+                inputs.insert(rel.to_path_buf());
+            }
+        }
+    }
+    Some(inputs)
 }
 
 fn default_watch_paths() -> Vec<PathBuf> {
@@ -1509,6 +1687,7 @@ fn run_linked_dev_cycle(
         output.final_cargo.cargo_artifacts.len(),
     );
 
+    let compiled_inputs = collect_compiled_source_inputs(root, &output);
     Ok(LinkedDevLaunch {
         executable,
         arguments: prepared.runtime_args,
@@ -1517,6 +1696,7 @@ fn run_linked_dev_cycle(
         reused_descriptor_artifacts,
         reused_final_artifacts,
         public_assets,
+        compiled_inputs,
     })
 }
 

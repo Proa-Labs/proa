@@ -411,14 +411,40 @@ impl Analyzer<'_> {
 
     fn markdown_text(&self, text: &str, range: SourceRange) -> Value {
         use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+        const SLOT_SENTINEL: char = '\u{E000}';
         let mut value = Value::default();
         let mut paragraph = String::new();
+        let mut inline_labels: Vec<String> = Vec::new();
+        let flush_segments = |value: &mut Value, buffer: &mut String| {
+            for segment in buffer.split(SLOT_SENTINEL) {
+                value.append(self.literal(segment, range.clone()));
+            }
+            buffer.clear();
+        };
         for event in Parser::new(text) {
             match event {
-                Event::Text(text) | Event::Code(text) => paragraph.push_str(&text),
-                Event::SoftBreak | Event::HardBreak => paragraph.push(' '),
+                Event::Text(text) | Event::Code(text) => {
+                    paragraph.push_str(&text);
+                    for label in &mut inline_labels {
+                        label.push_str(&text);
+                    }
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    paragraph.push(' ');
+                    for label in &mut inline_labels {
+                        label.push(' ');
+                    }
+                }
                 Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                    value.append(self.literal(&dest_url, range.clone()));
+                    if !dest_url.contains(SLOT_SENTINEL) {
+                        value.append(self.literal(&dest_url, range.clone()));
+                    }
+                    inline_labels.push(String::new());
+                }
+                Event::End(TagEnd::Link | TagEnd::Image) => {
+                    if let Some(mut label) = inline_labels.pop() {
+                        flush_segments(&mut value, &mut label);
+                    }
                 }
                 Event::End(
                     TagEnd::Paragraph
@@ -427,13 +453,12 @@ impl Analyzer<'_> {
                     | TagEnd::Item
                     | TagEnd::TableCell,
                 ) => {
-                    value.append(self.literal(&paragraph, range.clone()));
-                    paragraph.clear();
+                    flush_segments(&mut value, &mut paragraph);
                 }
                 _ => {}
             }
         }
-        value.append(self.literal(&paragraph, range));
+        flush_segments(&mut value, &mut paragraph);
         value
     }
 
@@ -1234,18 +1259,21 @@ impl Analyzer<'_> {
         }
     }
     fn md(&mut self, nodes: &[TplNode], env: &Env, fallback: &SourceRange) -> Value {
-        let mut result = Value::default();
+        const SLOT_SENTINEL: char = '\u{E000}';
+        let mut combined = String::new();
         for node in nodes {
             match node {
-                TplNode::Text(text) => {
-                    result.append(self.markdown_text(text, fallback.clone()));
-                }
-                TplNode::Expr(e) => {
-                    let range = self.template_range(e);
-                    self.slots.push(e.clone());
-                    result.append(self.expr(&e.expr, env, Some(&range)));
-                    self.slots.pop();
-                }
+                TplNode::Text(text) => combined.push_str(text),
+                TplNode::Expr(_) => combined.push(SLOT_SENTINEL),
+            }
+        }
+        let mut result = self.markdown_text(&combined, fallback.clone());
+        for node in nodes {
+            if let TplNode::Expr(e) = node {
+                let range = self.template_range(e);
+                self.slots.push(e.clone());
+                result.append(self.expr(&e.expr, env, Some(&range)));
+                self.slots.pop();
             }
         }
         result

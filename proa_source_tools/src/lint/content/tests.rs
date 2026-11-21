@@ -1630,3 +1630,17 @@ fn facade_imports_preserve_coverage_and_detect_omitted_inputs() {
         .replace("md_sync!", "proa::md_sync!");
     assert_eq!(missing(&qualified).len(), 1);
 }
+
+#[test]
+fn markdown_image_alt_and_link_labels_match_across_dynamic_destinations() {
+    let matched = fixture(
+        r#"html_sync! { <img src={self.image} alt="Brand" /><a href={self.title}>"Docs"</a> }.render(cx)"#,
+        r####"md_sync! { r###"![Brand]({self.image}) [Docs]({self.title})"### }.render_md(cx)"####,
+    );
+    assert!(missing(&matched).is_empty(), "{:?}", lint(&matched));
+
+    let wrong_alt = matched.replace("![Brand]", "![Other]");
+    let diagnostics = missing(&wrong_alt);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics[0].message.contains("Brand"), "{diagnostics:?}");
+}

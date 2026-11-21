@@ -1892,4 +1892,84 @@ mod dev_preparation_tests {
             Some(assets_cross.as_path())
         );
     }
+
+    #[test]
+    fn managed_public_stylesheet_and_asset_edits_qualify_for_public_assets_only_reload() {
+        let (temp, mut config) = fixture(
+            None,
+            Some("cp styles/input.css public/styles.css && echo ran >> asset-runs.log"),
+        );
+        let root = temp.path();
+        config.paths.public = Some("public".into());
+        fs::create_dir_all(root.join("public/images")).unwrap();
+        fs::write(root.join("public/styles.css"), ".old { color: red; }").unwrap();
+        fs::write(root.join("public/images/brand.svg"), "<svg/>").unwrap();
+        fs::write(
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
+
+        // 1. Editing an unrelated `public/` asset qualifies for fast republish AND skips Tailwind.
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        fs::write(root.join("public/images/brand.svg"), "<svg id='v2'/>").unwrap();
+        let mut failure = committed.clone();
+        let asset_only = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(asset_only.public_assets_only);
+        assert!(!root.join("asset-runs.log").exists());
+
+        // 2. Editing `styles/input.css` rebuilds CSS and still qualifies for fast catalog republish.
+        let committed = asset_only.snapshot;
+        fs::write(root.join("styles/input.css"), ".new { color: green; }").unwrap();
+        let mut failure = committed.clone();
+        let css_edit = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(css_edit.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new { color: green; }"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("asset-runs.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            1
+        );
+
+        // 3. Editing a Rust source file disables the fast path.
+        let committed = css_edit.snapshot;
+        fs::write(root.join("src/main.rs"), "fn main() { /* edited */ }\n").unwrap();
+        let mut failure = committed.clone();
+        let rust_edit = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+        )
+        .unwrap();
+        assert!(!rust_edit.public_assets_only);
+    }
 }

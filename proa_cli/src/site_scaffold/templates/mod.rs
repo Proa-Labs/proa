@@ -350,9 +350,10 @@ fn agents() -> &'static str {
 - Use `WebRenderSync<L>` unless a component awaits; then use `WebRender<L>` and `html!`.
 - Put request-shared keyed reads behind `cx.load_typed(...)` and create one `DataResolver::request_scope(...)` per HTML response.
 - Keep `RootDocument` HTML-only. Put semantic non-browser output on the page with `MdRenderSync`.
+- Configure dev/build scripts, asset tasks, and `paths.public` in `proa.config.rs`. Reference managed public files with `cx.url("public/...")` so they resolve to fingerprinted URLs.
 - Static classes stay in constants and hot render paths must not allocate.
 - Every component root has a stable `data-*` marker.
-- Run `cargo fmt`, `cargo test`, `proa check`, and the Proa performance lint before merging render changes.
+- Run `cargo fmt`, `proa fmt --check`, `proa lint --deny warnings`, `proa config validate`, and `proa test` before merging render changes.
 "#
 }
 
@@ -469,6 +470,9 @@ jobs:
           cargo fmt --all -- --check
           proa fmt --check
 
+      - name: Validate config
+        run: proa config validate
+
       - name: Lint
         run: proa lint
 
@@ -479,7 +483,7 @@ jobs:
         run: env -u RUSTC_WRAPPER proa test
 
       - name: Release build
-        run: env -u RUSTC_WRAPPER proa build
+        run: env -u RUSTC_WRAPPER proa run build
 "#
     )
 }
