@@ -14,18 +14,8 @@ static START_MANIFEST_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct StartManifest {
-    pub schema_version: u16,
-    #[serde(default)]
-    pub entries: Vec<StartManifestEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct StartManifestEntry {
-    #[serde(default = "default_start_manifest_schema_version")]
     pub schema_version: u16,
-    #[serde(default)]
     pub package_id: String,
     pub binary: String,
     pub profile: String,
@@ -34,12 +24,7 @@ pub(crate) struct StartManifestEntry {
     pub executable: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_assets: Option<PathBuf>,
-    #[serde(default)]
     pub updated_at_nanos: u128,
-}
-
-const fn default_start_manifest_schema_version() -> u16 {
-    START_MANIFEST_SCHEMA_VERSION
 }
 
 pub(crate) fn start_manifests_dir(target_dir: &Path) -> PathBuf {
@@ -115,10 +100,13 @@ pub(crate) fn record_start_manifest(
     Ok(())
 }
 
-pub(crate) fn load_start_manifest(target_dir: &Path) -> Option<StartManifest> {
-    let dir = start_manifests_dir(target_dir);
+/// Every current-schema entry recorded under `target_dir`, oldest first.
+pub(crate) fn load_start_manifest(target_dir: &Path) -> Vec<StartManifestEntry> {
+    let Ok(items) = fs::read_dir(start_manifests_dir(target_dir)) else {
+        return Vec::new();
+    };
     let mut entries = Vec::new();
-    for item in fs::read_dir(&dir).ok()?.flatten() {
+    for item in items.flatten() {
         let path = item.path();
         if path.extension().and_then(OsStr::to_str) != Some("json") {
             continue;
@@ -133,14 +121,8 @@ pub(crate) fn load_start_manifest(target_dir: &Path) -> Option<StartManifest> {
             entries.push(entry);
         }
     }
-    if entries.is_empty() {
-        return None;
-    }
     entries.sort_by_key(|entry| entry.updated_at_nanos);
-    Some(StartManifest {
-        schema_version: START_MANIFEST_SCHEMA_VERSION,
-        entries,
-    })
+    entries
 }
 
 pub(super) fn configured_path(config: &ProjectConfig, enabled: bool) -> Result<Option<&Path>> {

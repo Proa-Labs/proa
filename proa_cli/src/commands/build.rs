@@ -53,6 +53,9 @@ pub(crate) struct BuildArgs {
     #[arg(long)]
     no_assets: bool,
     /// Copy the attested final executable to this path after a successful linked build.
+    /// Without it, a release build of an executable is copied to
+    /// `<target-dir>/release/<bin>` (`<target-dir>/<triple>/release/<bin>` with
+    /// `--target`), where `proa start` finds it with its public catalog.
     /// The public catalog remains in the directory reported by the build.
     /// Relative paths are resolved from the Proa project root. For warm rebuilds, prefer
     /// the Cargo target directory or a path outside the selected package source tree.

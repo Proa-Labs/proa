@@ -23,6 +23,8 @@ pub(crate) struct StartArgs {
     #[arg(long)]
     bin: Option<PathBuf>,
     /// Published public catalog directory. Relative paths resolve from the project root.
+    /// Defaults to `PROA_PUBLIC_ASSETS`, then to the catalog recorded by the
+    /// `proa build` that exported the selected executable.
     #[arg(long, value_name = "DIR")]
     public_assets: Option<PathBuf>,
     #[arg(long)]
@@ -91,7 +93,7 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
     let root = std::path::absolute(resolve_config_root(args.root)?)
         .context("resolve the release project root")?;
     let target_dir = resolve_target_dir(&root);
-    let manifest = lifecycle::load_start_manifest(&target_dir);
+    let recorded = lifecycle::load_start_manifest(&target_dir);
     let selected = if let Some(path) = args.bin {
         path
     } else {
@@ -110,14 +112,12 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         let default_release = target_dir.join("release").join(filename);
         if default_release.is_file() {
             default_release
-        } else if let Some(recorded) = manifest.as_ref().and_then(|manifest| {
-            manifest.entries.iter().rev().find(|entry| {
-                entry.target_triple.is_none()
-                    && entry.binary == configured_binary
-                    && entry.executable.is_file()
-            })
+        } else if let Some(entry) = recorded.iter().rev().find(|entry| {
+            entry.target_triple.is_none()
+                && entry.binary == configured_binary
+                && entry.executable.is_file()
         }) {
-            recorded.executable.clone()
+            entry.executable.clone()
         } else {
             default_release
         }
@@ -146,14 +146,12 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         }
         command.env(OUTPUT_ENV, directory);
     } else if env::var_os(OUTPUT_ENV).is_none() {
-        if let Some(directory) = manifest.as_ref().and_then(|manifest| {
-            manifest
-                .entries
-                .iter()
-                .rev()
-                .find(|entry| paths_match(&entry.executable, &executable))
-                .and_then(|entry| entry.public_assets.as_deref())
-        }) {
+        if let Some(directory) = recorded
+            .iter()
+            .rev()
+            .find(|entry| paths_match(&entry.executable, &executable))
+            .and_then(|entry| entry.public_assets.as_deref())
+        {
             if directory.join(MANIFEST_FILE).is_file() {
                 command.env(OUTPUT_ENV, directory);
             }
