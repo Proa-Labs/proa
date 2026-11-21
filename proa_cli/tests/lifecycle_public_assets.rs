@@ -929,10 +929,16 @@ exec "$REAL_CARGO" "$@"
     fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
 
     let profile = std::cell::Cell::new(None::<&str>);
+    let quiet = std::cell::Cell::new(false);
     let run_validate = |compile_env: Option<&str>| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
         if let Some(value) = profile.get() {
             command.env("CARGO_PROFILE_DEV_DEBUG_ASSERTIONS", value);
+        }
+        if quiet.get() {
+            command.env("CARGO_TERM_QUIET", "true");
+        } else {
+            command.env_remove("CARGO_TERM_QUIET");
         }
         command
             .current_dir(root)
@@ -1053,5 +1059,17 @@ exec "$REAL_CARGO" "$@"
         fs::read_to_string(&cargo_trace).unwrap().lines().count(),
         5,
         "an unchanged profile setting reuses the persisted stamp cache"
+    );
+
+    // Interactive `proa dev` sets CARGO_TERM_QUIET while its `proa run dev`
+    // parent does not. Output-only settings must not split their caches.
+    quiet.set(true);
+    run_validate(None);
+    quiet.set(false);
+    run_validate(None);
+    assert_eq!(
+        fs::read_to_string(&cargo_trace).unwrap().lines().count(),
+        5,
+        "CARGO_TERM_* settings must not invalidate the persisted stamp cache"
     );
 }

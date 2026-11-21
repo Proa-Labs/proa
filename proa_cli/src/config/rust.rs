@@ -99,11 +99,19 @@ struct CachedRunner {
 /// settings, rustflags, target options), so the set is open-ended: stamp the
 /// whole namespace instead of a list that can fall behind. `None` when a
 /// value is not Unicode.
+///
+/// Cargo's `[term]` settings (`CARGO_TERM_*`) only change how Cargo prints and
+/// are not part of its own fingerprint, so they are left out. The interactive
+/// `proa dev` view sets `CARGO_TERM_QUIET`, and stamping it would make that
+/// process and its `proa run dev` parent reject each other's cache. A config
+/// that reads one through `env!` is still stamped from rustc's dep-info.
 fn build_environment() -> Option<EnvStamps> {
     let mut stamps = EnvStamps::new();
     for (name, value) in env::vars_os() {
         let Some(name) = name.to_str() else { continue };
-        if name.starts_with("CARGO") || name.starts_with("RUST") {
+        if (name.starts_with("CARGO") || name.starts_with("RUST"))
+            && !name.starts_with("CARGO_TERM_")
+        {
             stamps.insert(name.to_owned(), Some(hash_env_value(value.to_str()?)));
         }
     }
