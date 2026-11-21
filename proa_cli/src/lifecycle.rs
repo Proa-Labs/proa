@@ -3668,13 +3668,16 @@ fn run_command_status(root: &Path, command: &[String], label: &str) -> Result<()
     let mut base = command_base(root, command)?;
     // The interactive dev view shows a tool's own output only when it fails.
     let run = if dev_ui::pretty() {
-        base.output().map(|output| {
-            if !output.status.success() {
-                let _ = io::Write::write_all(&mut io::stderr(), &output.stdout);
-                let _ = io::Write::write_all(&mut io::stderr(), &output.stderr);
-            }
-            output.status
-        })
+        // `output()` would close stdin. A command may still prompt on it.
+        base.stdin(std::process::Stdio::inherit())
+            .output()
+            .map(|output| {
+                if !output.status.success() {
+                    let _ = io::Write::write_all(&mut io::stderr(), &output.stdout);
+                    let _ = io::Write::write_all(&mut io::stderr(), &output.stderr);
+                }
+                output.status
+            })
     } else {
         base.status()
     };
