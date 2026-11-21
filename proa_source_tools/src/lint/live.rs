@@ -105,6 +105,14 @@ pub fn lint_snapshot(overlays: &[SourceOverlay]) -> Result<Vec<Diagnostic>> {
         false,
         &content::ContentOptions::default(),
     ));
+    diagnostics.extend(super::asset_urls::lint_sources(
+        &sources
+            .iter()
+            .map(|(p, s)| (p.clone(), s.clone()))
+            .collect::<Vec<_>>(),
+        &reporting,
+        false,
+    ));
 
     // Keep exact snapshot evidence for UTF-16 conversion in the editor, even
     // for ordinary lints which normally only carry a line and scalar column.

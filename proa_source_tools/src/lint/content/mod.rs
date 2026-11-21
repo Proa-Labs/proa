@@ -737,6 +737,8 @@ pub(super) fn lint_sources(
 ) -> Vec<Diagnostic> {
     discover::lint_sources(sources, reporting, include_tests, options)
 }
+
+#[cfg(test)]
 pub(super) fn lint_paths(
     files: &[PathBuf],
     include_tests: bool,

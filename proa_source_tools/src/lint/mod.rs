@@ -64,12 +64,20 @@ pub fn lint_file_with_options(path: &Path, source: &str, options: LintOptions) -
         options.include_tests,
         rsjs_strategy_cache.as_ref(),
     );
+    let sources = [(path.to_owned(), source.to_owned())];
+    let reporting = std::collections::BTreeSet::from([content::absolute(path)]);
     diagnostics.extend(content::lint_sources(
-        &[(path.to_owned(), source.to_owned())],
-        &std::collections::BTreeSet::from([content::absolute(path)]),
+        &sources,
+        &reporting,
         options.include_tests,
         &options.content,
     ));
+    diagnostics.extend(asset_urls::lint_sources(
+        &sources,
+        &reporting,
+        options.include_tests,
+    ));
+    dedupe_diagnostics(&mut diagnostics);
     diagnostics
 }
 
@@ -129,9 +137,6 @@ fn lint_file_with_cache(
                     lint_indentation(&display, inv, root, &mut diagnostics);
                 }
                 lint_template_accessibility(&display, inv, root, &suppressions, &mut diagnostics);
-                if inv.dialect == MacroDialect::Html {
-                    asset_urls::lint_markup(&display, inv, root, &suppressions, &mut diagnostics);
-                }
                 lint_perf(
                     &display,
                     inv,
@@ -267,11 +272,21 @@ pub fn lint_paths(paths: &[std::path::PathBuf], options: LintOptions) -> Result<
     for result in per_file {
         diagnostics.extend(result?);
     }
-    diagnostics.extend(content::lint_paths(
-        &files,
+    let sources = content::snapshot_sources(&files, &options.content)?;
+    let reporting: std::collections::BTreeSet<_> =
+        files.iter().map(|p| content::absolute(p)).collect();
+    diagnostics.extend(content::lint_sources(
+        &sources,
+        &reporting,
         options.include_tests,
         &options.content,
-    )?);
+    ));
+    diagnostics.extend(asset_urls::lint_sources(
+        &sources,
+        &reporting,
+        options.include_tests,
+    ));
+    dedupe_diagnostics(&mut diagnostics);
     Ok(diagnostics)
 }
 
@@ -663,7 +678,6 @@ fn lint_render_impl(
             continue;
         }
         check_render_block_perf(path, &method.block, suppressions, diagnostics, true);
-        asset_urls::lint_render_block(path, &method.block, suppressions, diagnostics);
         check_render_api_perf(path, item_impl, method, suppressions, diagnostics);
         check_owned_view_model_perf(path, &method.block, structs, suppressions, diagnostics);
         check_large_render_clone_perf(path, &method.block, suppressions, diagnostics);

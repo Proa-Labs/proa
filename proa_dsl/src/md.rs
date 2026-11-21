@@ -226,6 +226,33 @@ pub fn slot_contexts(nodes: &[TplNode]) -> Vec<MdSlotContext> {
     contexts
 }
 
+/// Extract static CommonMark link and image destination URLs from parsed template
+/// nodes, ignoring fenced code blocks, inline code spans, and destinations that
+/// interpolate dynamic `{...}` slots.
+pub fn static_link_destinations(nodes: &[TplNode]) -> Vec<String> {
+    use pulldown_cmark::{Event, Options, Parser, Tag};
+
+    const SLOT_SENTINEL: char = '\u{E000}';
+    let mut source = String::new();
+    for node in nodes {
+        match node {
+            TplNode::Text(text) => source.push_str(text),
+            TplNode::Expr(_) => source.push(SLOT_SENTINEL),
+        }
+    }
+
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let mut destinations = Vec::new();
+    for event in Parser::new_ext(&source, options) {
+        if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) = event {
+            if !dest_url.contains(SLOT_SENTINEL) {
+                destinations.push(dest_url.into_string());
+            }
+        }
+    }
+    destinations
+}
+
 /// Locate the byte range of the URL destination inside an inline CommonMark
 /// link or image `[label](dest)` / `[label](<dest>)` / `[label](dest "title")`.
 fn inline_link_destination_range(
@@ -901,6 +928,27 @@ mod tests {
         assert!(
             rendered[1].starts_with("for item in items {"),
             "{rendered:?}"
+        );
+    }
+
+    #[test]
+    fn static_link_destinations_skip_code_and_dynamic_slots() {
+        let nodes = parse_tpl(concat!(
+            "![Brand](public/images/brand.svg)\n\n",
+            "[Dynamic]({url})\n\n",
+            "`![InlineCode](public/inline.svg)`\n\n",
+            "```md\n",
+            "![FenceCode](public/fence.svg)\n",
+            "```\n\n",
+            "[Docs](/docs/guide.md)\n",
+        ))
+        .unwrap();
+        assert_eq!(
+            static_link_destinations(&nodes),
+            vec![
+                "public/images/brand.svg".to_string(),
+                "/docs/guide.md".to_string(),
+            ]
         );
     }
 }

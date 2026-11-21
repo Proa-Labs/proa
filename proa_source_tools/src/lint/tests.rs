@@ -5449,3 +5449,281 @@ impl<L: DataLoader> WebRenderSync<L> for Hero {
     assert_eq!(logical_count, 2, "{diagnostics:#?}");
     assert_eq!(generated_count, 1, "{diagnostics:#?}");
 }
+
+#[test]
+fn asset_url_lint_infers_arbitrary_struct_fields_constructors_and_data_slices() {
+    let source = r#"
+pub struct Avatar {
+    pub photo: &'static str,
+}
+impl WebRenderSync for Avatar {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={self.photo} alt="Avatar" /> }.render(cx)
+    }
+}
+
+pub struct TeamCard {
+    pub lead_photo: &'static str,
+}
+impl TeamCard {
+    pub const fn with_photo(photo: &'static str) -> Self {
+        Self { lead_photo: photo }
+    }
+}
+impl WebRenderSync for TeamCard {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <div>{Avatar { photo: self.lead_photo }}</div> }.render(cx)
+    }
+}
+
+pub struct SafeImage {
+    pub src: &'static str,
+}
+impl WebRenderSync for SafeImage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={cx.url(self.src)} alt="Safe" /> }.render(cx)
+    }
+}
+
+pub struct Project {
+    pub thumb: &'static str,
+}
+const PROJECTS: &[Project] = &[Project {
+    thumb: "public/images/brand.svg",
+}];
+
+const RAW_LOGO: &str = "public/images/raw_logo.svg";
+
+pub struct ProjectsPage;
+impl WebRenderSync for ProjectsPage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let local_icon = "public/images/local_icon.svg";
+        for project in PROJECTS {
+            html_sync! { <img src={project.thumb} alt="Thumb" /> }.render(cx)?;
+        }
+        html_sync! {
+            <main>
+                <img src={RAW_LOGO} alt="Const" />
+                <img src={local_icon} alt="Local" />
+                <img src={cx.url(RAW_LOGO)} alt="Resolved Const" />
+                {SafeImage { src: "public/images/resolved_inside.svg" }}
+            </main>
+        }
+        .render(cx)
+    }
+}
+
+pub fn handler() -> (TeamCard, TeamCard, SafeImage) {
+    (
+        TeamCard {
+            lead_photo: "public/images/alice.png",
+        },
+        TeamCard::with_photo("public/images/bob.png"),
+        SafeImage {
+            src: "public/images/safe_in_handler.svg",
+        },
+    )
+}
+"#;
+    let hits: Vec<_> = lint_file(Path::new("src/team.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            (38, "asset/public-url"), // const PROJECTS Project { thumb: "public/images/brand.svg" }
+            (52, "asset/public-url"), // <img src={RAW_LOGO} />
+            (53, "asset/public-url"), // <img src={local_icon} />
+            (65, "asset/public-url"), // TeamCard { lead_photo: "public/images/alice.png" } in handler
+            (67, "asset/public-url"), // TeamCard::with_photo("public/images/bob.png") in handler
+        ],
+        "unexpected hits: {hits:#?}"
+    );
+}
+
+#[test]
+fn asset_url_lint_checks_markdown_templates_and_render_head() {
+    let source = r####"
+pub struct ArticlePage;
+impl WebRenderSync for ArticlePage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let _media = HeadMedia::new("public/images/og.png");
+        let _icon = HeadIcon::new("public/favicon.ico");
+        html_sync! {
+            <link rel="stylesheet" href="public/styles.css" />
+            <meta property="og:image" content="public/images/share.png" />
+            <meta name="description" content="public/not-a-url" />
+        }
+        .render(cx)
+    }
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <main>"ok"</main> }.render(cx)
+    }
+}
+
+impl MdRenderSync for ArticlePage {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let raw = "public/images/slot.svg";
+        md_sync! { r###"
+            ![Static](public/images/static.svg)
+
+            ![Slot]({raw})
+
+            ![Safe]({cx.url("public/images/ok.svg")})
+
+            ![BadPrefix]({cx.url("/public/images/bad.svg")})
+
+            `![InlineCode](public/images/code.svg)`
+
+            ```md
+            ![FencedCode](public/images/fence.svg)
+            ```
+            "###
+        }
+        .render_md(cx)
+    }
+}
+"####;
+    let mut hits: Vec<_> = lint_file(Path::new("src/article.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    hits.sort_unstable();
+    assert_eq!(
+        hits,
+        vec![
+            (6, "asset/public-url"),    // HeadMedia::new("public/images/og.png")
+            (7, "asset/public-url"),    // HeadIcon::new("public/favicon.ico")
+            (9, "asset/public-url"),    // <link href="public/styles.css" />
+            (10, "asset/public-url"), // <meta property="og:image" content="public/images/share.png" />
+            (23, "asset/logical-path"), // cx.url("/public/images/bad.svg") in md_sync!
+            (23, "asset/public-url"), // static + slot public/ URLs in md_sync! (deduped at macro line)
+        ],
+        "unexpected hits: {hits:#?}"
+    );
+}
+
+#[test]
+fn asset_url_lint_works_cross_file_and_detects_public_catalog_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("src/components")).unwrap();
+    std::fs::create_dir_all(root.join("src/pages")).unwrap();
+    std::fs::create_dir_all(root.join("public/images")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, PathsConfig, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        paths: PathsConfig { public: Some("public") },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("public/images/brand.svg"), "<svg/>").unwrap();
+    std::fs::write(
+        root.join("src/components/card.rs"),
+        r#"pub struct BrandCard {
+    pub artwork: &'static str,
+}
+impl WebRenderSync for BrandCard {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={self.artwork} alt="Brand" /> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/pages/home.rs"),
+        r#"use crate::components::card::BrandCard;
+
+pub fn make_card() -> BrandCard {
+    BrandCard {
+        artwork: "/images/brand.svg",
+    }
+}
+
+pub struct HomePage;
+impl WebRenderSync for HomePage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <main>
+                <img src="/images/brand.svg" alt="Root Relative" />
+                <a href="/projects">"Route"</a>
+                <img src={cx.url("public/images/brand.svg")} alt="Resolved" />
+            </main>
+        }
+        .render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let diagnostics = lint_paths(
+        &[root.join("src/pages/home.rs"), root.join("proa.config.rs")],
+        LintOptions::default(),
+    )
+    .unwrap();
+    let asset_diags: Vec<_> = diagnostics
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .collect();
+    let mut hits: Vec<_> = asset_diags
+        .iter()
+        .map(|d| {
+            (
+                d.path.file_name().unwrap().to_str().unwrap().to_string(),
+                d.line,
+                d.code,
+            )
+        })
+        .collect();
+    hits.sort();
+    assert_eq!(
+        hits,
+        vec![
+            ("home.rs".to_string(), 5, "asset/public-url"), // cross-file BrandCard { artwork: "/images/brand.svg" }
+            ("home.rs".to_string(), 14, "asset/public-url"), // <img src="/images/brand.svg" />
+        ],
+        "unexpected asset diagnostics: {asset_diags:#?}"
+    );
+    assert!(asset_diags.iter().all(|d| d
+        .help
+        .as_deref()
+        .unwrap_or_default()
+        .contains("cx.url(\"public/images/brand.svg\")")));
+
+    // Disabling `paths.public = None` disables root-relative `public/` file matching.
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, PathsConfig, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        paths: PathsConfig { public: None },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let disabled_hits: Vec<_> =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default())
+            .unwrap()
+            .into_iter()
+            .filter(|d| d.code.starts_with("asset/"))
+            .collect();
+    assert!(disabled_hits.is_empty(), "{disabled_hits:#?}");
+}
