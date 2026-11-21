@@ -84,7 +84,6 @@ pub use proa_dsl::md::{MdRoot, MdTemplateInput};
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
 use std::collections::HashSet;
-use syn::visit::Visit;
 use syn::{Expr, LitStr};
 
 #[derive(Clone, Copy)]
@@ -392,13 +391,18 @@ fn is_bare_ident(s: &str) -> bool {
 // -- template codegen --
 
 /// Returns true when a top-level slot expression is a simple `<ident>.url(<arg>)`
-/// call that can be safely evaluated right before the render closure without
-/// referencing any template named arguments or `.await`.
+/// call that can be safely evaluated right before the render closure.
 ///
 /// `WebContext::url` borrows `&self` only for the call and returns an `AppUrl`
 /// independent of `&cx`. Hoisting it before the closure prevents `E0502` when
 /// calling `md_sync! { "![Alt]({cx.url(\"public/logo.svg\")})" }.render_md(cx)`
 /// while keeping the macro closure parameter hygienic.
+///
+/// The argument must be a literal or a place (see [`is_temporary_free_place`]).
+/// Any other argument stays inside the render closure, as it did before
+/// hoisting existed: a temporary such as `String::from(..).as_str()` would be
+/// dropped at the end of the hoisted `let` while the URL still borrows it, and
+/// `?`, `return`, or `.await` must keep returning from the render closure.
 fn is_hoistable_url_call(expr: &Expr, named_args: &HashSet<String>) -> bool {
     let Expr::MethodCall(call) = expr else {
         return false;
@@ -409,38 +413,36 @@ fn is_hoistable_url_call(expr: &Expr, named_args: &HashSet<String>) -> bool {
     let Some(receiver) = bare_ident(&call.receiver) else {
         return false;
     };
-    if named_args.contains(&receiver.to_string()) {
-        return false;
+    !named_args.contains(&receiver.to_string())
+        && is_temporary_free_place(&call.args[0], named_args)
+}
+
+/// A literal, path, or field/index/deref/reference projection of one, whose
+/// evaluation creates no temporary that a borrowed result could outlive and
+/// names no template argument (those are bound inside the render closure).
+fn is_temporary_free_place(expr: &Expr, named_args: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Lit(_) => true,
+        Expr::Path(path) => {
+            path.qself.is_none()
+                && path
+                    .path
+                    .get_ident()
+                    .is_none_or(|ident| !named_args.contains(&ident.to_string()))
+        }
+        Expr::Reference(reference) => is_temporary_free_place(&reference.expr, named_args),
+        Expr::Field(field) => is_temporary_free_place(&field.base, named_args),
+        Expr::Index(index) => {
+            is_temporary_free_place(&index.expr, named_args)
+                && is_temporary_free_place(&index.index, named_args)
+        }
+        Expr::Unary(unary) if matches!(unary.op, syn::UnOp::Deref(_)) => {
+            is_temporary_free_place(&unary.expr, named_args)
+        }
+        Expr::Paren(paren) => is_temporary_free_place(&paren.expr, named_args),
+        Expr::Group(group) => is_temporary_free_place(&group.expr, named_args),
+        _ => false,
     }
-    struct Guard<'a> {
-        named_args: &'a HashSet<String>,
-        blocked: bool,
-    }
-    impl<'ast> Visit<'ast> for Guard<'_> {
-        fn visit_expr_await(&mut self, _: &'ast syn::ExprAwait) {
-            self.blocked = true;
-        }
-        fn visit_expr_try(&mut self, _: &'ast syn::ExprTry) {
-            self.blocked = true;
-        }
-        fn visit_expr_return(&mut self, _: &'ast syn::ExprReturn) {
-            self.blocked = true;
-        }
-        fn visit_expr_yield(&mut self, _: &'ast syn::ExprYield) {
-            self.blocked = true;
-        }
-        fn visit_ident(&mut self, ident: &'ast syn::Ident) {
-            if self.named_args.contains(&ident.to_string()) {
-                self.blocked = true;
-            }
-        }
-    }
-    let mut guard = Guard {
-        named_args,
-        blocked: false,
-    };
-    guard.visit_expr(&call.args[0]);
-    !guard.blocked
 }
 
 fn codegen_tpl(

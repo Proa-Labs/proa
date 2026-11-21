@@ -1149,3 +1149,32 @@ fn markdown_url_slots_encode_html_and_preserve_fallible_url_arguments() {
         "[Open](/ok%3Cscript%3Ealert%601%60%3C/script%3E) and [Angle](</ok%3Cscript%3Ealert%601%60%3C/script%3E>)"
     );
 }
+
+#[test]
+fn markdown_url_calls_with_temporary_arguments_stay_in_the_render_closure() {
+    use proa_core::{BasePath, MdRenderSync, WebContext};
+
+    // A temporary argument cannot be hoisted: the `AppUrl` borrows it, so the
+    // call must run inside the render closure where the temporary lives for
+    // the whole statement.
+    let base = BasePath::new("/apps").unwrap();
+    let mut cx = WebContext::new();
+    md_sync! { "[Intro]({base.url(String::from(\"/docs/intro_page\").as_str())})" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(
+        cx.into_output().into_string(),
+        "[Intro](/apps/docs/intro_page)"
+    );
+
+    // Field places are still hoisted, so the render context can resolve them.
+    struct Link {
+        path: &'static str,
+    }
+    let link = Link { path: "/docs/a_b" };
+    let mut cx = WebContext::new();
+    md_sync! { "[Docs]({cx.url(link.path)})" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(cx.into_output().into_string(), "[Docs](/docs/a_b)");
+}
