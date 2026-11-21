@@ -449,7 +449,9 @@ pub async fn config() -> Result<Config> {
 "#,
     )
     .unwrap();
-    let manifest_dir = custom_target.join("proa-rsjs/start-manifests");
+    let manifest_dir = custom_target
+        .join(if cfg!(windows) { "p" } else { "proa-rsjs" })
+        .join("start-manifests");
     fs::create_dir_all(&manifest_dir).unwrap();
     for (filename, entry) in [
         (
