@@ -729,13 +729,28 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
     grouped
 }
 
+#[cfg(test)]
 pub(super) fn lint_sources(
     sources: &[(PathBuf, String)],
     reporting: &BTreeSet<PathBuf>,
     include_tests: bool,
     options: &ContentOptions,
 ) -> Vec<Diagnostic> {
-    discover::lint_sources(sources, reporting, include_tests, options)
+    let parsed = super::parse_sources(sources);
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    lint_parsed(sources, &parsed, reporting, include_tests, options)
+}
+
+/// [`lint_sources`] over files already parsed on this thread, so the content
+/// and asset-URL passes share one parse.
+pub(super) fn lint_parsed(
+    sources: &[(PathBuf, String)],
+    parsed: &[Option<&syn::File>],
+    reporting: &BTreeSet<PathBuf>,
+    include_tests: bool,
+    options: &ContentOptions,
+) -> Vec<Diagnostic> {
+    discover::lint_parsed(sources, parsed, reporting, include_tests, options)
 }
 
 #[cfg(test)]

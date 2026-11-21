@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
+use std::collections::BTreeSet;
 
 pub(crate) fn is_test_path(path: &Path) -> bool {
     path.components()
@@ -39,16 +40,47 @@ fn is_cfg_test_module_file(path: &Path) -> bool {
         parents.push(outer.join(format!("{dir_name}.rs")));
     }
     parents.iter().any(|parent| {
-        std::fs::read_to_string(parent).is_ok_and(|source| {
-            declares_cfg_test_module(&source, name) || is_cfg_test_module_file(parent)
-        })
+        cfg_test_module_names(parent).is_some_and(|names| names.contains(name))
+            || (parent.is_file() && is_cfg_test_module_file(parent))
     })
 }
 
-/// Whether `source` declares the out-of-line module `name` under exactly
-/// `#[cfg(test)]`, the same attribute [`cfg_test_module_line_ranges`] accepts,
-/// on the same line or on attribute lines just above it.
-fn declares_cfg_test_module(source: &str, name: &str) -> bool {
+/// Out-of-line modules that `parent` declares under `#[cfg(test)]`.
+///
+/// Every lint pass asks about every file, so each parent is read once and
+/// cached until its modification time or length changes (the editor server
+/// is long-lived).
+fn cfg_test_module_names(parent: &Path) -> Option<std::sync::Arc<BTreeSet<String>>> {
+    use std::sync::{Arc, Mutex, OnceLock};
+    type Stamp = (std::time::SystemTime, u64);
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, (Stamp, Arc<BTreeSet<String>>)>>> =
+        OnceLock::new();
+
+    let metadata = std::fs::metadata(parent).ok()?;
+    let stamp = (metadata.modified().ok()?, metadata.len());
+    let cache = CACHE.get_or_init(Default::default);
+    let lock = || {
+        cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    };
+    if let Some((cached, names)) = lock().get(parent) {
+        if *cached == stamp {
+            return Some(Arc::clone(names));
+        }
+    }
+    let names = Arc::new(cfg_test_module_declarations(
+        &std::fs::read_to_string(parent).ok()?,
+    ));
+    lock().insert(parent.to_path_buf(), (stamp, Arc::clone(&names)));
+    Some(names)
+}
+
+/// Names of out-of-line modules declared under exactly `#[cfg(test)]`, the
+/// attribute [`cfg_test_module_line_ranges`] accepts, on the same line or on
+/// attribute lines just above the declaration.
+fn cfg_test_module_declarations(source: &str) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
     let mut cfg_test_pending = false;
     for line in source.lines() {
         let mut rest = line.trim();
@@ -66,30 +98,35 @@ fn declares_cfg_test_module(source: &str, name: &str) -> bool {
         if rest.is_empty() || rest.starts_with("//") {
             continue;
         }
-        if cfg_test_pending && declares_module(rest, name) {
-            return true;
+        if cfg_test_pending {
+            if let Some(name) = declared_module(rest) {
+                names.insert(name.to_owned());
+            }
         }
         cfg_test_pending = false;
     }
-    false
+    names
 }
 
-/// `mod name;` with an optional visibility, such as `pub(crate) mod name;`.
-fn declares_module(item: &str, name: &str) -> bool {
+/// The name in `mod name;` with an optional visibility, such as
+/// `pub(crate) mod name;`.
+fn declared_module(item: &str) -> Option<&str> {
     let mut rest = item;
     if let Some(after) = rest.strip_prefix("pub") {
         rest = after.trim_start();
         if let Some(scoped) = rest.strip_prefix('(') {
-            let Some(end) = scoped.find(')') else {
-                return false;
-            };
-            rest = scoped[end + 1..].trim_start();
+            rest = scoped[scoped.find(')')? + 1..].trim_start();
         }
     }
-    rest.strip_prefix("mod")
-        .filter(|after| after.starts_with(char::is_whitespace))
-        .and_then(|after| after.trim_start().strip_prefix(name))
-        .is_some_and(|after| after.trim_start().starts_with(';'))
+    let after = rest.strip_prefix("mod")?;
+    if !after.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let after = after.trim_start();
+    let end = after
+        .find(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
+        .unwrap_or(after.len());
+    (end > 0 && after[end..].trim_start().starts_with(';')).then(|| &after[..end])
 }
 
 pub(crate) fn cfg_test_module_line_ranges(source: &str) -> Vec<RangeInclusive<usize>> {

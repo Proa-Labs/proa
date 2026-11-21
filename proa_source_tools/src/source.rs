@@ -361,7 +361,8 @@ pub fn find_macros(source: &str) -> Vec<MacroInvocation> {
     let bytes = source.as_bytes();
     let mut out = Vec::new();
     let mut i = 0;
-    let bare_html_is_foreign = bare_html_is_imported_from_yew(source);
+    // Scanning imports walks the whole file, and only a bare `html!` needs it.
+    let bare_html_is_foreign = std::cell::OnceCell::new();
 
     while i < bytes.len() {
         if let Some(next) = skip_ignored(source, i) {
@@ -391,7 +392,8 @@ pub fn find_macros(source: &str) -> Vec<MacroInvocation> {
                             .is_some_and(|owner| !matches!(owner, "proa_macros" | "proa"))
                             || (name == "html"
                                 && qualified_macro_owner(source, name_start).is_none()
-                                && bare_html_is_foreign);
+                                && *bare_html_is_foreign
+                                    .get_or_init(|| bare_html_is_imported_from_yew(source)));
                         if foreign || close_delimiter != b'}' {
                             i = close_delimiter_at + 1;
                             continue;

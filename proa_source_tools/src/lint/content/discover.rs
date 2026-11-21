@@ -246,13 +246,14 @@ fn imports(
         }
     }
 }
-fn contexts(sources: &[(PathBuf, String)], include_tests: bool) -> Vec<Context> {
+fn contexts(
+    sources: &[(PathBuf, String)],
+    parsed: &[Option<&syn::File>],
+    include_tests: bool,
+) -> Vec<Context> {
     let mut files = BTreeMap::new();
-    for (path, source) in sources {
-        files.insert(
-            absolute(path),
-            (source.clone(), syn::parse_file(source).ok()),
-        );
+    for ((path, source), parsed) in sources.iter().zip(parsed) {
+        files.insert(absolute(path), (source.as_str(), *parsed));
     }
     let mut contexts = Vec::new();
     let mut visited = BTreeSet::new();
@@ -276,7 +277,7 @@ fn contexts(sources: &[(PathBuf, String)], include_tests: bool) -> Vec<Context> 
         config: String,
         inherited: BTreeMap<String, String>,
         complete: bool,
-        files: &BTreeMap<PathBuf, (String, Option<syn::File>)>,
+        files: &BTreeMap<PathBuf, (&str, Option<&syn::File>)>,
         visited: &mut BTreeSet<PathBuf>,
         out: &mut Vec<Context>,
         include_tests: bool,
@@ -320,7 +321,7 @@ fn contexts(sources: &[(PathBuf, String)], include_tests: bool) -> Vec<Context> 
         }
         out.push(Context {
             path: path.into(),
-            source: source.clone(),
+            source: (*source).to_owned(),
             module: module.clone(),
             crate_id: crate_id.clone(),
             items: items.clone(),
@@ -677,13 +678,14 @@ fn policy(
     (result, range)
 }
 
-pub(super) fn lint_sources(
+pub(super) fn lint_parsed(
     sources: &[(PathBuf, String)],
+    parsed: &[Option<&syn::File>],
     reporting: &BTreeSet<PathBuf>,
     include_tests: bool,
     options: &ContentOptions,
 ) -> Vec<Diagnostic> {
-    let contexts = contexts(sources, include_tests);
+    let contexts = contexts(sources, parsed, include_tests);
     let mut diagnostics = Vec::new();
     let mut symbols: HashMap<String, BTreeSet<String>> = HashMap::new();
     for context in &contexts {
