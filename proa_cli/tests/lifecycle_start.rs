@@ -365,6 +365,7 @@ pub async fn config() -> Result<Config> {{
         let mut command = Command::new(env!("CARGO_BIN_EXE_proa"));
         command
             .current_dir(temp.path())
+            .env_remove("CARGO_TARGET_DIR")
             .env_remove("PROA_PUBLIC_ASSETS")
             .args(["start", "--host", "127.0.0.2", "--port", "8123"]);
         if custom {
@@ -398,12 +399,26 @@ pub async fn config() -> Result<Config> {{
 fn start_auto_discovers_public_assets_from_proa_build_start_manifest() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
-    let release = temp.path().join("target/release");
+    fs::create_dir_all(temp.path().join(".cargo")).unwrap();
+    fs::write(
+        temp.path().join(".cargo/config.toml"),
+        "[build]\ntarget-dir = \"custom-target\"\n",
+    )
+    .unwrap();
+    let custom_target = temp.path().join("custom-target");
+    let release = custom_target.join("release");
     fs::create_dir_all(&release).unwrap();
-    let catalog = temp.path().join("target/proa-output/demo/abc123");
-    fs::create_dir_all(&catalog).unwrap();
-    fs::write(catalog.join("manifest.json"), "{}").unwrap();
-    let executable = release.join(format!("demo{}", env::consts::EXE_SUFFIX));
+    let catalog_demo = custom_target.join("proa-output/demo/abc123");
+    let catalog_admin = custom_target.join("proa-output/admin/def456");
+    fs::create_dir_all(&catalog_demo).unwrap();
+    fs::create_dir_all(&catalog_admin).unwrap();
+    fs::write(catalog_demo.join("manifest.json"), "{}").unwrap();
+    fs::write(catalog_admin.join("manifest.json"), "{}").unwrap();
+    let demo_exec = release.join(format!("demo{}", env::consts::EXE_SUFFIX));
+    let admin_exec = release.join(format!("admin{}", env::consts::EXE_SUFFIX));
+    let cross_exec = custom_target.join("x86_64-unknown-linux-gnu/release/demo");
+    fs::create_dir_all(cross_exec.parent().unwrap()).unwrap();
+    fs::write(&cross_exec, b"foreign-elf").unwrap();
     let source = temp.path().join("server.rs");
     fs::write(
         &source,
@@ -412,13 +427,15 @@ fn start_auto_discovers_public_assets_from_proa_build_start_manifest() {
         }"#,
     )
     .unwrap();
-    let compiled = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
-        .arg(&source)
-        .arg("-o")
-        .arg(&executable)
-        .output()
-        .unwrap();
-    assert!(compiled.status.success());
+    for executable in [&demo_exec, &admin_exec] {
+        let compiled = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+            .arg(&source)
+            .arg("-o")
+            .arg(executable)
+            .output()
+            .unwrap();
+        assert!(compiled.status.success());
+    }
 
     fs::write(
         temp.path().join("proa.config.rs"),
@@ -432,23 +449,46 @@ pub async fn config() -> Result<Config> {
 "#,
     )
     .unwrap();
-    let manifest_dir = temp.path().join("target/proa-rsjs");
+    let manifest_dir = custom_target.join("proa-rsjs");
     fs::create_dir_all(&manifest_dir).unwrap();
     fs::write(
         manifest_dir.join("start-manifest.json"),
         serde_json::json!({
             "schemaVersion": 1,
-            "binary": "demo",
-            "profile": "release",
-            "executable": executable,
-            "publicAssets": catalog,
+            "entries": [
+                {
+                    "packageId": "pkg-demo",
+                    "binary": "demo",
+                    "profile": "release",
+                    "executable": demo_exec,
+                    "publicAssets": catalog_demo,
+                },
+                {
+                    "packageId": "pkg-admin",
+                    "binary": "admin",
+                    "profile": "release",
+                    "executable": admin_exec,
+                    "publicAssets": catalog_admin,
+                },
+                {
+                    "packageId": "pkg-demo",
+                    "binary": "demo",
+                    "profile": "release",
+                    "targetTriple": "x86_64-unknown-linux-gnu",
+                    "executable": cross_exec,
+                    "publicAssets": catalog_admin,
+                }
+            ]
         })
         .to_string(),
     )
     .unwrap();
 
+    // Bare `proa start` honors `.cargo/config.toml`'s `build.target-dir`, runs the
+    // host `demo` binary (ignoring the cross-target entry), and injects `demo`'s assets.
     let output = Command::new(env!("CARGO_BIN_EXE_proa"))
         .current_dir(temp.path())
+        .env_remove("CARGO_TARGET_DIR")
         .env_remove("PROA_PUBLIC_ASSETS")
         .args(["start"])
         .output()
@@ -462,6 +502,27 @@ pub async fn config() -> Result<Config> {
         std::path::PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
             .canonicalize()
             .unwrap(),
-        catalog.canonicalize().unwrap()
+        catalog_demo.canonicalize().unwrap()
+    );
+
+    // Starting the second binary keeps its own asset catalog from the same manifest.
+    let admin_output = Command::new(env!("CARGO_BIN_EXE_proa"))
+        .current_dir(temp.path())
+        .env_remove("CARGO_TARGET_DIR")
+        .env_remove("PROA_PUBLIC_ASSETS")
+        .args(["start", "--bin"])
+        .arg(&admin_exec)
+        .output()
+        .unwrap();
+    assert!(
+        admin_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&admin_output.stderr)
+    );
+    assert_eq!(
+        std::path::PathBuf::from(String::from_utf8_lossy(&admin_output.stdout).trim())
+            .canonicalize()
+            .unwrap(),
+        catalog_admin.canonicalize().unwrap()
     );
 }

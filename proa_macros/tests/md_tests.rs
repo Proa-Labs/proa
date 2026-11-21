@@ -1114,3 +1114,38 @@ async fn async_markdown_allows_cx_url_in_destinations() {
         "![Brand](/_proa/assets/images/brand.0dd0d0d7.svg)\n\n"
     );
 }
+
+#[test]
+fn markdown_url_slots_encode_html_and_preserve_fallible_url_arguments() {
+    use proa_core::{MdRenderSync, WebContext, WriteError};
+
+    struct UrlResolver;
+    impl UrlResolver {
+        fn url(&self, path: &'static str) -> &'static str {
+            path
+        }
+    }
+
+    fn lookup() -> Result<&'static str, WriteError> {
+        Ok("/docs/a_b.md")
+    }
+
+    fn build_fragment(resolver: &UrlResolver) -> impl MdRenderSync + '_ {
+        md_sync! { "[Open]({resolver.url(lookup()?)})" }
+    }
+
+    let resolver = UrlResolver;
+    let mut cx = WebContext::new();
+    build_fragment(&resolver).render_md(&mut cx).unwrap();
+    assert_eq!(cx.into_output().into_string(), "[Open](/docs/a_b.md)");
+
+    let hostile = "/ok<script>alert`1`</script>";
+    let mut safe_cx = WebContext::new();
+    md_sync! { "[Open]({hostile}) and [Angle](<{hostile}>)" }
+        .render_md(&mut safe_cx)
+        .unwrap();
+    assert_eq!(
+        safe_cx.into_output().into_string(),
+        "[Open](/ok%3Cscript%3Ealert%601%60%3C/script%3E) and [Angle](</ok%3Cscript%3Ealert%601%60%3C/script%3E>)"
+    );
+}

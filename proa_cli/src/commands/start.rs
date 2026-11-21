@@ -31,7 +31,39 @@ pub(crate) struct StartArgs {
     port: Option<u16>,
 }
 
+#[derive(serde::Deserialize)]
+struct CargoTargetMetadata {
+    target_directory: PathBuf,
+}
+
 fn resolve_target_dir(root: &Path) -> PathBuf {
+    let manifest_path = root.join("Cargo.toml");
+    if manifest_path.is_file() {
+        let cargo = env::var_os("CARGO")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "cargo".into());
+        if let Ok(output) = Command::new(cargo)
+            .current_dir(root)
+            .args([
+                "metadata",
+                "--format-version=1",
+                "--no-deps",
+                "--manifest-path",
+            ])
+            .arg(&manifest_path)
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(metadata) = serde_json::from_slice::<CargoTargetMetadata>(&output.stdout)
+                {
+                    if metadata.target_directory.is_absolute() {
+                        return metadata.target_directory;
+                    }
+                    return root.join(metadata.target_directory);
+                }
+            }
+        }
+    }
     match env::var_os("CARGO_TARGET_DIR").filter(|value| !value.is_empty()) {
         Some(dir) => {
             let path = PathBuf::from(dir);
@@ -78,10 +110,13 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         let default_release = target_dir.join("release").join(filename);
         if default_release.is_file() {
             default_release
-        } else if let Some(recorded) = manifest
-            .as_ref()
-            .filter(|entry| entry.binary == configured_binary && entry.executable.is_file())
-        {
+        } else if let Some(recorded) = manifest.as_ref().and_then(|manifest| {
+            manifest.entries.iter().rev().find(|entry| {
+                entry.target_triple.is_none()
+                    && entry.binary == configured_binary
+                    && entry.executable.is_file()
+            })
+        }) {
             recorded.executable.clone()
         } else {
             default_release
@@ -111,10 +146,13 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         }
         command.env(OUTPUT_ENV, directory);
     } else if env::var_os(OUTPUT_ENV).is_none() {
-        if let Some(directory) = manifest.as_ref().and_then(|entry| {
-            paths_match(&entry.executable, &executable)
-                .then_some(entry.public_assets.as_deref())
-                .flatten()
+        if let Some(directory) = manifest.as_ref().and_then(|manifest| {
+            manifest
+                .entries
+                .iter()
+                .rev()
+                .find(|entry| paths_match(&entry.executable, &executable))
+                .and_then(|entry| entry.public_assets.as_deref())
         }) {
             if directory.join(MANIFEST_FILE).is_file() {
                 command.env(OUTPUT_ENV, directory);

@@ -772,6 +772,31 @@ fn install_dev_signal_handler() {
     }
 }
 
+fn default_release_export_path(
+    target_dir: &Path,
+    target_name: &str,
+    target_triple: Option<&str>,
+) -> PathBuf {
+    let mut filename = OsString::from(target_name);
+    let suffix = match target_triple {
+        Some(triple) => {
+            if triple.contains("windows") {
+                ".exe"
+            } else {
+                ""
+            }
+        }
+        None => std::env::consts::EXE_SUFFIX,
+    };
+    if !suffix.is_empty() && !target_name.to_ascii_lowercase().ends_with(suffix) {
+        filename.push(suffix);
+    }
+    match target_triple {
+        Some(triple) => target_dir.join(triple).join("release").join(filename),
+        None => target_dir.join("release").join(filename),
+    }
+}
+
 pub fn build(mut options: BuildOptions) -> Result<()> {
     let root = absolute_project_root(scaffold::resolve_root(options.root.clone())?)?;
     let config = load_project_config(&root)?;
@@ -827,23 +852,16 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     let published_public_assets =
         public_assets::publish(&root, public_source, &prepared.public_output_directory)?;
     let target_dir = &prepared.request.descriptor.source_exclusion_directory;
+    let target_triple = prepared.target_triple.as_deref();
     let default_release_destination = (artifact_destination.is_none()
         && prepared.profile == "release"
         && prepared.request.root.role == ArtifactRole::RootExecutable)
         .then(|| {
-            let mut filename = OsString::from(&prepared.request.root.target_name);
-            let suffix = std::env::consts::EXE_SUFFIX;
-            if !suffix.is_empty()
-                && !prepared
-                    .request
-                    .root
-                    .target_name
-                    .to_ascii_lowercase()
-                    .ends_with(suffix)
-            {
-                filename.push(suffix);
-            }
-            target_dir.join("release").join(filename)
+            default_release_export_path(
+                target_dir,
+                &prepared.request.root.target_name,
+                target_triple,
+            )
         });
     let export_destination = artifact_destination
         .as_deref()
@@ -873,8 +891,10 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     {
         public_assets::record_start_manifest(
             target_dir,
+            &prepared.request.root.package_id,
             &prepared.request.root.target_name,
             &prepared.profile,
+            target_triple,
             recorded_executable.as_deref().expect("checked above"),
             published_public_assets.as_deref(),
         )?;
@@ -2145,6 +2165,7 @@ impl LinkedCargoAction {
 struct PreparedLinkedCargo {
     request: LinkedCargoRequest,
     profile: String,
+    target_triple: Option<String>,
     runtime_args: Vec<OsString>,
     descriptor_cache_directory: PathBuf,
     package_source_root: PathBuf,
@@ -2411,6 +2432,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
             final_environment: environment.clone(),
         },
         profile: parsed.profile,
+        target_triple: parsed.target,
         runtime_args: parsed.runtime_args,
         descriptor_cache_directory,
         package_source_root,

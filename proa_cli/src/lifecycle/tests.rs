@@ -1811,4 +1811,88 @@ mod dev_preparation_tests {
             b".new { color: blue; }"
         );
     }
+
+    #[test]
+    fn start_manifest_preserves_multiple_binaries_and_separates_cross_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let target_dir = temp.path().join("target");
+        let host_a = default_release_export_path(&target_dir, "web", None);
+        let host_b = default_release_export_path(&target_dir, "admin", None);
+        let cross_linux =
+            default_release_export_path(&target_dir, "web", Some("x86_64-unknown-linux-gnu"));
+        let cross_win =
+            default_release_export_path(&target_dir, "web", Some("x86_64-pc-windows-msvc"));
+
+        assert_ne!(host_a, cross_linux);
+        assert_eq!(
+            cross_linux,
+            target_dir.join("x86_64-unknown-linux-gnu/release/web")
+        );
+        assert_eq!(
+            cross_win,
+            target_dir.join("x86_64-pc-windows-msvc/release/web.exe")
+        );
+
+        let assets_a = target_dir.join("proa-output/web/aaa");
+        let assets_b = target_dir.join("proa-output/admin/bbb");
+        let assets_cross = target_dir.join("proa-output/web/ccc");
+
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-a",
+            "web",
+            "release",
+            None,
+            &host_a,
+            Some(&assets_a),
+        )
+        .unwrap();
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-b",
+            "admin",
+            "release",
+            None,
+            &host_b,
+            Some(&assets_b),
+        )
+        .unwrap();
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-a",
+            "web",
+            "release",
+            Some("x86_64-unknown-linux-gnu"),
+            &cross_linux,
+            Some(&assets_cross),
+        )
+        .unwrap();
+
+        let manifest = public_assets::load_start_manifest(&target_dir).unwrap();
+        assert_eq!(manifest.entries.len(), 3);
+        assert_eq!(
+            manifest
+                .entries
+                .iter()
+                .find(|entry| entry.binary == "web" && entry.target_triple.is_none())
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_a.as_path())
+        );
+        assert_eq!(
+            manifest
+                .entries
+                .iter()
+                .find(|entry| entry.binary == "admin" && entry.target_triple.is_none())
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_b.as_path())
+        );
+        assert_eq!(
+            manifest
+                .entries
+                .iter()
+                .find(|entry| entry.target_triple.as_deref() == Some("x86_64-unknown-linux-gnu"))
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_cross.as_path())
+        );
+    }
 }

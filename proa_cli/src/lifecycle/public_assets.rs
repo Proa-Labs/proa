@@ -5,15 +5,29 @@ use super::*;
 use proa_assets::{build::OutputStore, sha256, OUTPUT_ENV};
 use serde::Serialize;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 const START_MANIFEST_SCHEMA_VERSION: u16 = 1;
 const START_MANIFEST_FILE: &str = "start-manifest.json";
+static START_MANIFEST_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StartManifest {
     pub schema_version: u16,
+    #[serde(default)]
+    pub entries: Vec<StartManifestEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StartManifestEntry {
+    #[serde(default)]
+    pub package_id: String,
     pub binary: String,
     pub profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_triple: Option<String>,
     pub executable: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_assets: Option<PathBuf>,
@@ -25,10 +39,22 @@ pub(crate) fn start_manifest_path(target_dir: &Path) -> PathBuf {
         .join(START_MANIFEST_FILE)
 }
 
+fn manifest_paths_match(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 pub(crate) fn record_start_manifest(
     target_dir: &Path,
+    package_id: &str,
     binary: &str,
     profile: &str,
+    target_triple: Option<&str>,
     executable: &Path,
     public_assets: Option<&Path>,
 ) -> Result<()> {
@@ -37,17 +63,34 @@ pub(crate) fn record_start_manifest(
         .parent()
         .context("start manifest must have a parent directory")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    let manifest = StartManifest {
+    let abs_executable =
+        std::path::absolute(executable).unwrap_or_else(|_| executable.to_path_buf());
+    let abs_public_assets =
+        public_assets.map(|dir| std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf()));
+    let mut manifest = load_start_manifest(target_dir).unwrap_or(StartManifest {
         schema_version: START_MANIFEST_SCHEMA_VERSION,
+        entries: Vec::new(),
+    });
+    manifest.entries.retain(|existing| {
+        let same_target = existing.package_id == package_id
+            && existing.binary == binary
+            && existing.profile == profile
+            && existing.target_triple.as_deref() == target_triple;
+        let same_executable = manifest_paths_match(&existing.executable, &abs_executable);
+        !same_target && !same_executable
+    });
+    manifest.entries.push(StartManifestEntry {
+        package_id: package_id.to_string(),
         binary: binary.to_string(),
         profile: profile.to_string(),
-        executable: std::path::absolute(executable).unwrap_or_else(|_| executable.to_path_buf()),
-        public_assets: public_assets
-            .map(|dir| std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf())),
-    };
+        target_triple: target_triple.map(ToString::to_string),
+        executable: abs_executable,
+        public_assets: abs_public_assets,
+    });
     let bytes = serde_json::to_vec_pretty(&manifest)?;
+    let seq = START_MANIFEST_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp = parent.join(format!(
-        ".{START_MANIFEST_FILE}.proa-{}.tmp",
+        ".{START_MANIFEST_FILE}.proa-{}-{seq}.tmp",
         std::process::id()
     ));
     fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;

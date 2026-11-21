@@ -420,6 +420,15 @@ fn is_hoistable_url_call(expr: &Expr, named_args: &HashSet<String>) -> bool {
         fn visit_expr_await(&mut self, _: &'ast syn::ExprAwait) {
             self.blocked = true;
         }
+        fn visit_expr_try(&mut self, _: &'ast syn::ExprTry) {
+            self.blocked = true;
+        }
+        fn visit_expr_return(&mut self, _: &'ast syn::ExprReturn) {
+            self.blocked = true;
+        }
+        fn visit_expr_yield(&mut self, _: &'ast syn::ExprYield) {
+            self.blocked = true;
+        }
         fn visit_ident(&mut self, ident: &'ast syn::Ident) {
             if self.named_args.contains(&ident.to_string()) {
                 self.blocked = true;
