@@ -816,16 +816,13 @@ fn exact_sha256_hex(bytes: &[u8]) -> String {
     format!("sha256:{output}")
 }
 
-fn final_target_directory(target_root: &Path, invocation: InvocationId) -> PathBuf {
+fn final_target_directory(target_root: &Path, _invocation: InvocationId) -> PathBuf {
     if cfg!(windows) {
-        return target_root
-            .join(format!("w{FINAL_WRAPPER_POLICY_VERSION}"))
-            .join(invocation.to_string());
+        return target_root.join(format!("w{FINAL_WRAPPER_POLICY_VERSION}"));
     }
     target_root
         .join("rsjs-final")
         .join(format!("wrapper-v{FINAL_WRAPPER_POLICY_VERSION}"))
-        .join(invocation.to_string())
 }
 
 /// Publish every materialized path for one selected root into immutable,
@@ -1907,16 +1904,16 @@ mod tests {
     #[test]
     fn final_target_is_stable_within_one_wrapper_policy() {
         let root = Path::new("/fixture/final-target-root");
-        let invocation = InvocationId::derive("stable-final-target");
+        let first = InvocationId::derive("stable-final-target-a");
+        let second = InvocationId::derive("stable-final-target-b");
         let expected = if cfg!(windows) {
             root.join(format!("w{FINAL_WRAPPER_POLICY_VERSION}"))
-                .join(invocation.to_string())
         } else {
             root.join("rsjs-final")
                 .join(format!("wrapper-v{FINAL_WRAPPER_POLICY_VERSION}"))
-                .join(invocation.to_string())
         };
-        assert_eq!(final_target_directory(root, invocation), expected);
+        assert_eq!(final_target_directory(root, first), expected);
+        assert_eq!(final_target_directory(root, second), expected);
     }
 
     #[test]

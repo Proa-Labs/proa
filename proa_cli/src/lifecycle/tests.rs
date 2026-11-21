@@ -1030,13 +1030,17 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
         first.public_output_directory,
         featured.public_output_directory
     );
-    assert_ne!(
+    assert_eq!(
         first.descriptor_cache_directory,
         featured.descriptor_cache_directory
     );
-    assert_ne!(
+    assert_eq!(
         descriptor_target_dir(&first.request),
         descriptor_target_dir(&featured.request)
+    );
+    assert_eq!(
+        first.request.final_target_root,
+        featured.request.final_target_root
     );
 
     let linked_run = prepare_linked_cargo_with_wrapper(
@@ -1093,9 +1097,17 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
     .unwrap();
     crate::rsjs::pipeline::validate_linked_cargo_request(&linked_test.request).unwrap();
     assert_ne!(first.request.invocation, linked_test.request.invocation);
-    assert_ne!(
+    assert_eq!(
         first.descriptor_cache_directory,
         linked_test.descriptor_cache_directory
+    );
+    assert_eq!(
+        descriptor_target_dir(&first.request),
+        descriptor_target_dir(&linked_test.request)
+    );
+    assert_eq!(
+        first.request.final_target_root,
+        linked_test.request.final_target_root
     );
     assert_eq!(linked_test.request.root.role, ArtifactRole::RootTest);
     assert_eq!(
@@ -1797,6 +1809,87 @@ mod dev_preparation_tests {
         assert_eq!(
             fs::read(root.join("public/styles.css")).unwrap(),
             b".new { color: blue; }"
+        );
+    }
+
+    #[test]
+    fn start_manifest_preserves_multiple_binaries_and_separates_cross_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let target_dir = temp.path().join("target");
+        let host_a = default_release_export_path(&target_dir, "web", None);
+        let host_b = default_release_export_path(&target_dir, "admin", None);
+        let cross_linux =
+            default_release_export_path(&target_dir, "web", Some("x86_64-unknown-linux-gnu"));
+        let cross_win =
+            default_release_export_path(&target_dir, "web", Some("x86_64-pc-windows-msvc"));
+
+        assert_ne!(host_a, cross_linux);
+        assert_eq!(
+            cross_linux,
+            target_dir.join("x86_64-unknown-linux-gnu/release/web")
+        );
+        assert_eq!(
+            cross_win,
+            target_dir.join("x86_64-pc-windows-msvc/release/web.exe")
+        );
+
+        let assets_a = target_dir.join("proa-output/web/aaa");
+        let assets_b = target_dir.join("proa-output/admin/bbb");
+        let assets_cross = target_dir.join("proa-output/web/ccc");
+
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-a",
+            "web",
+            "release",
+            None,
+            &host_a,
+            Some(&assets_a),
+        )
+        .unwrap();
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-b",
+            "admin",
+            "release",
+            None,
+            &host_b,
+            Some(&assets_b),
+        )
+        .unwrap();
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-a",
+            "web",
+            "release",
+            Some("x86_64-unknown-linux-gnu"),
+            &cross_linux,
+            Some(&assets_cross),
+        )
+        .unwrap();
+
+        let entries = public_assets::load_start_manifest(&target_dir);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.binary == "web" && entry.target_triple.is_none())
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_a.as_path())
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.binary == "admin" && entry.target_triple.is_none())
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_b.as_path())
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.target_triple.as_deref() == Some("x86_64-unknown-linux-gnu"))
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_cross.as_path())
         );
     }
 }

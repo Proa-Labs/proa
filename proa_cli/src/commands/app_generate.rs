@@ -235,6 +235,7 @@ struct RouteName {
     markdown_alias: String,
     module: String,
     rust_type: String,
+    title: String,
 }
 
 fn route_name(raw: &str) -> Result<RouteName> {
@@ -257,9 +258,24 @@ fn route_name(raw: &str) -> Result<RouteName> {
     Ok(RouteName {
         markdown_alias: format!("{canonical}.md"),
         rust_type: format!("{}Page", rust_type_name(&module)),
+        title: human_title(&module),
         canonical,
         module,
     })
+}
+
+fn human_title(name: &str) -> String {
+    name.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut characters = part.chars();
+            characters
+                .next()
+                .map(|first| format!("{}{}", first.to_ascii_uppercase(), characters.as_str()))
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn rust_type_name(name: &str) -> String {
@@ -318,16 +334,20 @@ fn page_source(route: &RouteName, markdown: bool) -> String {
 impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {{
         md_sync! {{ r###"
-            # {ty}
+            # {title}
 
             Canonical route: `{path}`
             "###
-        }}.render_md(cx)
+        }}
+        .render_md(cx)
     }}
 }}
 
 pub async fn handler(headers: HeaderMap) -> Result<impl IntoResponse, AppError> {{
-    let html = RouteResponse::ssr_async(RootDocument {{ title: "{ty}", content: proa::to_async({ty}) }});
+    let html = RouteResponse::ssr_async(RootDocument {{
+        title: "{title}",
+        content: proa::to_async({ty}),
+    }});
     Ok(negotiate(&headers, html, {ty}, MarkdownAlternate::new("{alias}"))?)
 }}
 
@@ -336,15 +356,18 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {{
 }}
 "####,
             ty = route.rust_type,
+            title = route.title,
             path = route.canonical,
             alias = route.markdown_alias
         )
     } else {
         format!(
-            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{ title: \"{ty}\", content: proa::to_async({ty}) }}))\n}}\n",
-            ty = route.rust_type
+            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{\n        title: \"{title}\",\n        content: proa::to_async({ty}),\n    }}))\n}}\n",
+            ty = route.rust_type,
+            title = route.title
         )
     };
+    let slug = route.module.replace('_', "-");
     format!(
         r#"{imports}
 
@@ -355,14 +378,20 @@ pub struct {ty};
 
 impl<L: DataLoader> WebRenderSync<L> for {ty} {{
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {{
-        html_sync! {{ <main data-page-{module}><h1>"{ty}"</h1></main> }}.render(cx)
+        html_sync! {{
+            <main data-page-{slug}>
+                <h1>"{title}"</h1>
+            </main>
+        }}
+        .render(cx)
     }}
 }}
 {markdown_impl}
 "#,
         imports = imports,
         ty = route.rust_type,
-        module = route.module,
+        title = route.title,
+        slug = slug,
         markdown_impl = markdown_impl
     )
 }
@@ -678,5 +707,31 @@ mod tests {
     fn normalizes_migration_names() {
         assert_eq!(snake_name("CreatePosts").unwrap(), "create_posts");
         assert_eq!(snake_name("add posts-slug").unwrap(), "add_posts_slug");
+    }
+
+    #[test]
+    fn generated_page_source_is_formatted_and_uses_human_titles() {
+        let route = route_name("user-settings").unwrap();
+        assert_eq!(route.rust_type, "UserSettingsPage");
+        assert_eq!(route.title, "User Settings");
+        for markdown in [false, true] {
+            let source = page_source(&route, markdown);
+            assert!(source.contains("<h1>\"User Settings\"</h1>"), "{source}");
+            assert!(source.contains("title: \"User Settings\""), "{source}");
+            let formatted = proa_source_tools::fmt::format_file(
+                Path::new("src/pages/user_settings.rs"),
+                &source,
+            )
+            .unwrap();
+            assert!(
+                formatted.diagnostics.is_empty(),
+                "{:?}",
+                formatted.diagnostics
+            );
+            assert_eq!(
+                formatted.output, source,
+                "generated page must pass proa fmt"
+            );
+        }
     }
 }

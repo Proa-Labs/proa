@@ -3,13 +3,17 @@
 
 //! Start a previously built release artifact.
 
-use std::{path::PathBuf, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use proa_assets::{MANIFEST_FILE, OUTPUT_ENV};
 
-use crate::{config, util::resolve_config_root};
+use crate::{config, lifecycle, util::resolve_config_root};
 
 #[derive(Debug, Args)]
 pub(crate) struct StartArgs {
@@ -19,6 +23,8 @@ pub(crate) struct StartArgs {
     #[arg(long)]
     bin: Option<PathBuf>,
     /// Published public catalog directory. Relative paths resolve from the project root.
+    /// Defaults to `PROA_PUBLIC_ASSETS`, then to the catalog recorded by the
+    /// `proa build` that exported the selected executable.
     #[arg(long, value_name = "DIR")]
     public_assets: Option<PathBuf>,
     #[arg(long)]
@@ -27,9 +33,67 @@ pub(crate) struct StartArgs {
     port: Option<u16>,
 }
 
+#[derive(serde::Deserialize)]
+struct CargoTargetMetadata {
+    target_directory: PathBuf,
+}
+
+fn resolve_target_dir(root: &Path) -> PathBuf {
+    let manifest_path = root.join("Cargo.toml");
+    if manifest_path.is_file() {
+        let cargo = env::var_os("CARGO")
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "cargo".into());
+        if let Ok(output) = Command::new(cargo)
+            .current_dir(root)
+            .args([
+                "metadata",
+                "--format-version=1",
+                "--no-deps",
+                "--manifest-path",
+            ])
+            .arg(&manifest_path)
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(metadata) = serde_json::from_slice::<CargoTargetMetadata>(&output.stdout)
+                {
+                    if metadata.target_directory.is_absolute() {
+                        return metadata.target_directory;
+                    }
+                    return root.join(metadata.target_directory);
+                }
+            }
+        }
+    }
+    match env::var_os("CARGO_TARGET_DIR").filter(|value| !value.is_empty()) {
+        Some(dir) => {
+            let path = PathBuf::from(dir);
+            if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            }
+        }
+        None => root.join("target"),
+    }
+}
+
+fn paths_match(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
 pub(crate) fn run(args: StartArgs) -> Result<()> {
     let root = std::path::absolute(resolve_config_root(args.root)?)
         .context("resolve the release project root")?;
+    let target_dir = resolve_target_dir(&root);
+    let recorded = lifecycle::load_start_manifest(&target_dir);
     let selected = if let Some(path) = args.bin {
         path
     } else {
@@ -45,7 +109,18 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         if !suffix.is_empty() && !configured_binary.to_ascii_lowercase().ends_with(suffix) {
             filename.push(suffix);
         }
-        PathBuf::from("target").join("release").join(filename)
+        let default_release = target_dir.join("release").join(filename);
+        if default_release.is_file() {
+            default_release
+        } else if let Some(entry) = recorded.iter().rev().find(|entry| {
+            entry.target_triple.is_none()
+                && entry.binary == configured_binary
+                && entry.executable.is_file()
+        }) {
+            entry.executable.clone()
+        } else {
+            default_release
+        }
     };
     let executable = if selected.is_absolute() {
         selected
@@ -54,7 +129,7 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
     };
     if !executable.is_file() {
         bail!(
-            "release executable not found at {}\nExport it first with `proa build --artifact-out \"{}\"`, or select an exported executable with `proa start --bin <path>`",
+            "release executable not found at {}\nRun `proa run build` (or `proa build --artifact-out \"{}\"`) first, or select an exported executable with `proa start --bin <path>`",
             executable.display(),
             executable.display()
         );
@@ -70,6 +145,17 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
             );
         }
         command.env(OUTPUT_ENV, directory);
+    } else if env::var_os(OUTPUT_ENV).is_none() {
+        if let Some(directory) = recorded
+            .iter()
+            .rev()
+            .find(|entry| paths_match(&entry.executable, &executable))
+            .and_then(|entry| entry.public_assets.as_deref())
+        {
+            if directory.join(MANIFEST_FILE).is_file() {
+                command.env(OUTPUT_ENV, directory);
+            }
+        }
     }
     if let Some(host) = args.host {
         command.env("PROA_HOST", host);
