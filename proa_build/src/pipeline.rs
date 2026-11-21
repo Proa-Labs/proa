@@ -108,6 +108,48 @@ pub struct LinkedCargoOutput {
     pub final_cargo: FinalCargoOutput,
     /// Exact final-phase Cargo artifact attesting the selected descriptor root.
     pub final_root_artifact: CargoCompilerArtifact,
+    /// Absolute local inputs Cargo recorded for the final root executable: its
+    /// sources, `include_*!` files, and those of every path dependency. `None`
+    /// when the root has no executable or its dep-info is unavailable.
+    pub final_root_inputs: Option<Vec<PathBuf>>,
+}
+
+/// Read Cargo's `<artifact>.d` beside a final executable: one
+/// `target: dep dep ...` rule per line, with spaces and backslashes in paths
+/// escaped by a backslash. This is not rustc's dep-info dialect (no phony
+/// targets, no `# env-dep` records).
+fn cargo_dep_info_inputs(executable: &Path) -> Option<Vec<PathBuf>> {
+    let name = executable.file_name()?.to_str()?;
+    let stem = name
+        .strip_suffix(std::env::consts::EXE_SUFFIX)
+        .unwrap_or(name);
+    let text = fs::read_to_string(executable.with_file_name(format!("{stem}.d"))).ok()?;
+    let mut inputs = Vec::new();
+    for line in text.lines().filter(|line| !line.is_empty()) {
+        let mut tokens = Vec::new();
+        let mut token = String::new();
+        let mut characters = line.chars();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' => token.push(characters.next()?),
+                ' ' => tokens.push(std::mem::take(&mut token)),
+                _ => token.push(character),
+            }
+        }
+        tokens.push(token);
+        let mut tokens = tokens.into_iter().filter(|token| !token.is_empty());
+        if !tokens.next()?.ends_with(':') {
+            return None;
+        }
+        for input in tokens.map(PathBuf::from) {
+            // `build.dep-info-basedir` makes these relative to an unknown base.
+            if !input.is_absolute() {
+                return None;
+            }
+            inputs.push(input);
+        }
+    }
+    Some(inputs)
 }
 
 /// Run descriptor compilation, exact linking, semantic planning, and final
@@ -334,6 +376,12 @@ fn finish_prepared_linked_cargo(
         &request.root,
         &selected.cargo_artifact,
     )?;
+    // Cargo writes dep-info beside the artifact in the reusable target, not
+    // beside the snapshot. Read it while the target lease is still held.
+    let final_root_inputs = final_root_artifact
+        .executable
+        .as_deref()
+        .and_then(cargo_dep_info_inputs);
     let final_root_artifact = snapshot_final_artifact(
         &request.descriptor.source_exclusion_directory,
         &request
@@ -358,6 +406,7 @@ fn finish_prepared_linked_cargo(
         semantic_plan_path,
         final_cargo,
         final_root_artifact,
+        final_root_inputs,
     })
 }
 

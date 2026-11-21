@@ -446,14 +446,22 @@ fn main() {
     assert_eq!(cargo_calls(), builds);
 
     fs::write(root.join("public/logo.svg"), "two").unwrap();
-    assert!(wait(ready, 4).contains("CONFIG one two"));
+    let republish = "republished catalog without Cargo";
+    let logo = wait(ready, 4);
+    assert!(logo.contains("CONFIG one two"));
+    assert_eq!(logo.matches(republish).count(), 1, "{logo}");
+    assert_eq!(logo.matches(build_started).count(), 1, "{logo}");
+    assert_ne!(fs::read(output.join("manifest.json")).unwrap(), original);
     assert_eq!(
         cargo_calls(),
         builds,
         "runtime read should reuse the config executable"
     );
     fs::write(root.join("public/icon.svg"), "new-icon").unwrap();
-    assert!(wait(ready, 5).contains("CONFIG new-icon two"));
+    let icon = wait(ready, 5);
+    assert!(icon.contains("CONFIG new-icon two"));
+    assert_eq!(icon.matches(republish).count(), 2, "{icon}");
+    assert_eq!(icon.matches(build_started).count(), 1, "{icon}");
     assert_eq!(
         cargo_calls(),
         builds + 1,
@@ -472,7 +480,7 @@ fn main() {
     let rebuilt = wait(ready, 7);
     assert!(output.join("manifest.json").is_file());
     assert_eq!(rebuilt.matches("use `proa run dev`").count(), 1);
-    assert_eq!(rebuilt.matches(build_started).count(), 5, "{rebuilt}");
+    assert_eq!(rebuilt.matches(build_started).count(), 3, "{rebuilt}");
 
     let source = root.join("src/main.rs");
     let valid_source = fs::read(&source).unwrap();
@@ -498,18 +506,29 @@ fn main() {
     // Watch past the missing-catalog retry interval while the files are idle.
     std::thread::sleep(Duration::from_secs(3));
     let idle = fs::read_to_string(&log).unwrap();
-    assert_eq!(idle.matches(build_started).count(), 6, "{idle}");
+    assert_eq!(idle.matches(build_started).count(), 4, "{idle}");
     assert_eq!(idle.matches(failed).count(), 1, "{idle}");
     assert!(!output.join("manifest.json").exists(), "{idle}");
 
     fs::write(&source, valid_source).unwrap();
     let recovered = wait(ready, 8);
-    assert_eq!(recovered.matches(build_started).count(), 7, "{recovered}");
+    assert_eq!(recovered.matches(build_started).count(), 5, "{recovered}");
     assert!(output.join("manifest.json").is_file(), "{recovered}");
 
     fs::write(root.join("extra-input.txt"), "two").unwrap();
     let watched = wait(ready, 9);
-    assert_eq!(watched.matches(build_started).count(), 8, "{watched}");
+    assert_eq!(watched.matches(build_started).count(), 6, "{watched}");
+
+    // A public file the application compiles in is a Cargo input: editing it
+    // must take the linked rebuild, not the catalog-only restart.
+    let mut compiled = b"const _: &str = include_str!(\"../public/logo.svg\");\n".to_vec();
+    compiled.extend(fs::read(&source).unwrap());
+    fs::write(&source, compiled).unwrap();
+    wait(ready, 10);
+    fs::write(root.join("public/logo.svg"), "three").unwrap();
+    let included = wait(ready, 11);
+    assert_eq!(included.matches(build_started).count(), 8, "{included}");
+    assert_eq!(included.matches(republish).count(), 2, "{included}");
 }
 
 #[cfg(unix)]

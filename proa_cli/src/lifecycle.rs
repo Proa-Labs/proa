@@ -804,31 +804,12 @@ fn is_css_or_public_or_asset_input(path: &Path, public: &Path, config: &ProjectC
         })
 }
 
-fn dep_info_path_for_executable(executable: &Path) -> PathBuf {
-    let mut name = executable
-        .file_name()
-        .map(OsStr::to_os_string)
-        .unwrap_or_default();
-    let suffix = std::env::consts::EXE_SUFFIX;
-    if !suffix.is_empty() {
-        if let Some(text) = name.to_str() {
-            if let Some(stripped) = text
-                .strip_suffix(suffix)
-                .or_else(|| text.strip_suffix(&suffix.to_ascii_uppercase()))
-            {
-                name = OsString::from(stripped);
-            }
-        }
-    }
-    name.push(".d");
-    executable.with_file_name(name)
-}
-
-/// Collect root-relative files observed by rustc during the final dev compile.
+/// Collect the root-relative files Cargo recorded as inputs of the final dev
+/// executable.
 ///
-/// Returns `None` when a local `build.rs` exists or any local dep-info file
-/// cannot be parsed, causing asset-only edits to fall back safely to a full
-/// linked rebuild.
+/// Returns `None` when a local build script exists (it may read `public/`
+/// without declaring it) or Cargo's dep-info is unavailable, so asset-only
+/// edits fall back to a full linked rebuild.
 fn collect_compiled_source_inputs(
     root: &Path,
     output: &LinkedCargoOutput,
@@ -836,66 +817,22 @@ fn collect_compiled_source_inputs(
     if root.join("build.rs").exists() {
         return None;
     }
-    let canonical_root = root.canonicalize().ok()?;
-    let executable = output.final_root_artifact.executable.as_ref()?;
-    let mut dep_files = BTreeSet::new();
-    dep_files.insert(dep_info_path_for_executable(executable));
-    let deps_dir = executable.parent().map(|dir| dir.join("deps"));
-    for artifact in &output.final_cargo.cargo_artifacts {
-        if artifact.package_id == output.final_root_artifact.package_id
-            && artifact.target.name == output.final_root_artifact.target.name
-            && artifact.target.kind == output.final_root_artifact.target.kind
-        {
-            continue;
-        }
-        if !artifact.package_id.starts_with("path+file://") {
-            continue;
-        }
-        if artifact
-            .target
-            .kind
-            .iter()
-            .any(|kind| kind == "custom-build")
-        {
-            // A local path dependency has a build script that could read `public/`.
-            return None;
-        }
-        let crate_name = artifact.target.name.replace('-', "_");
-        let Some(deps_dir) = deps_dir.as_ref() else {
-            return None;
-        };
-        let mut matched_dep = false;
-        for entry in fs::read_dir(deps_dir).ok()?.flatten() {
-            let path = entry.path();
-            let Some(name) = path.file_name().and_then(OsStr::to_str) else {
-                continue;
-            };
-            if name.ends_with(".d")
-                && (name.starts_with(&format!("lib{crate_name}-"))
-                    || name.starts_with(&format!("{crate_name}-")))
-            {
-                dep_files.insert(path);
-                matched_dep = true;
-            }
-        }
-        if !matched_dep {
-            return None;
-        }
+    if output.final_cargo.cargo_artifacts.iter().any(|artifact| {
+        artifact.package_id.starts_with("path+file://")
+            && artifact
+                .target
+                .kind
+                .iter()
+                .any(|kind| kind == "custom-build")
+    }) {
+        return None;
     }
+    let canonical_root = root.canonicalize().ok()?;
     let mut inputs = BTreeSet::new();
-    for dep_file in dep_files {
-        let bytes = fs::read(&dep_file).ok()?;
-        let deps = proa_build::build::rustc_source_dependencies(&bytes).ok()?;
-        for dep in deps {
-            let abs = if dep.is_absolute() {
-                dep
-            } else {
-                canonical_root.join(dep)
-            };
-            let normalized = abs.canonicalize().unwrap_or(abs);
-            if let Ok(rel) = normalized.strip_prefix(&canonical_root) {
-                inputs.insert(rel.to_path_buf());
-            }
+    for input in output.final_root_inputs.as_ref()? {
+        let normalized = input.canonicalize().unwrap_or_else(|_| input.clone());
+        if let Ok(relative) = normalized.strip_prefix(&canonical_root) {
+            inputs.insert(relative.to_path_buf());
         }
     }
     Some(inputs)
