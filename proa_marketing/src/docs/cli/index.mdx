@@ -126,7 +126,7 @@ cargo proa fmt --check --verify src
 | `proa run build` | Run the configured build script. Defaults to `proa build`. |
 | `proa dev` | Build configured assets, run the app, restart on project changes, and reload open browser tabs. See [Live reload](/docs/cli/new-site#live-reload). |
 | `proa build` | Run Proa checks, build configured assets, and compile the app for deployment. |
-| `proa start --bin <path> --public-assets <dir>` | Start an exported executable with its published public catalog. |
+| `proa start` | Start the release executable exported by `proa build` with its published public catalog. Pass `--bin <path>` and `--public-assets <dir>` to start another export. |
 | `proa run` | Compile and run one exact Proa binary through the linked RSJS pipeline. |
 | `proa test` | Compile and execute one exact test target through the linked RSJS pipeline. |
 | `proa generate component` | Generate reusable render components under `src/components`. |

@@ -866,7 +866,7 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     let export_destination = artifact_destination
         .as_deref()
         .or(default_release_destination.as_deref());
-    let recorded_executable = if let Some(destination) = export_destination {
+    if let Some(destination) = export_destination {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
         copy_executable_atomically(&source, destination).with_context(|| {
@@ -880,22 +880,13 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             "exported linked RSJS executable to {}",
             destination.display()
         );
-        Some(destination.to_path_buf())
-    } else if prepared.request.root.role == ArtifactRole::RootExecutable {
-        select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build).ok()
-    } else {
-        None
-    };
-    if (prepared.profile == "release" || artifact_destination.is_some())
-        && recorded_executable.is_some()
-    {
         public_assets::record_start_manifest(
             target_dir,
             &prepared.request.root.package_id,
             &prepared.request.root.target_name,
             &prepared.profile,
             target_triple,
-            recorded_executable.as_deref().expect("checked above"),
+            destination,
             published_public_assets.as_deref(),
         )?;
     }

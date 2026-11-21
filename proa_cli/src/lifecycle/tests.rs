@@ -1868,27 +1868,24 @@ mod dev_preparation_tests {
         )
         .unwrap();
 
-        let manifest = public_assets::load_start_manifest(&target_dir).unwrap();
-        assert_eq!(manifest.entries.len(), 3);
+        let entries = public_assets::load_start_manifest(&target_dir);
+        assert_eq!(entries.len(), 3);
         assert_eq!(
-            manifest
-                .entries
+            entries
                 .iter()
                 .find(|entry| entry.binary == "web" && entry.target_triple.is_none())
                 .and_then(|entry| entry.public_assets.as_deref()),
             Some(assets_a.as_path())
         );
         assert_eq!(
-            manifest
-                .entries
+            entries
                 .iter()
                 .find(|entry| entry.binary == "admin" && entry.target_triple.is_none())
                 .and_then(|entry| entry.public_assets.as_deref()),
             Some(assets_b.as_path())
         );
         assert_eq!(
-            manifest
-                .entries
+            entries
                 .iter()
                 .find(|entry| entry.target_triple.as_deref() == Some("x86_64-unknown-linux-gnu"))
                 .and_then(|entry| entry.public_assets.as_deref()),
