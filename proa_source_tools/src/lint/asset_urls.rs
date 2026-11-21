@@ -20,29 +20,53 @@ use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FieldRole {
-    ResolvedUrl { srcset: bool },
-    LogicalPath,
+    ResolvedOnly {
+        srcset: bool,
+    },
+    LogicalOnly,
+    /// The field reaches both a `.url(...)` call and an unresolved URL sink.
+    /// Keep warning so one safe sink never hides a broken sibling sink.
+    Mixed {
+        srcset: bool,
+    },
 }
 
 impl FieldRole {
     fn merge(self, other: Self) -> Self {
         match (self, other) {
-            (Self::LogicalPath, _) | (_, Self::LogicalPath) => Self::LogicalPath,
-            (Self::ResolvedUrl { srcset: a }, Self::ResolvedUrl { srcset: b }) => {
-                Self::ResolvedUrl { srcset: a || b }
+            (Self::LogicalOnly, Self::LogicalOnly) => Self::LogicalOnly,
+            (Self::ResolvedOnly { srcset: a }, Self::ResolvedOnly { srcset: b }) => {
+                Self::ResolvedOnly { srcset: a || b }
             }
+            (Self::LogicalOnly, Self::ResolvedOnly { srcset } | Self::Mixed { srcset })
+            | (Self::ResolvedOnly { srcset } | Self::Mixed { srcset }, Self::LogicalOnly) => {
+                Self::Mixed { srcset }
+            }
+            (
+                Self::Mixed { srcset: a } | Self::ResolvedOnly { srcset: a },
+                Self::Mixed { srcset: b } | Self::ResolvedOnly { srcset: b },
+            ) => Self::Mixed { srcset: a || b },
+        }
+    }
+
+    fn resolved_srcset(self) -> Option<bool> {
+        match self {
+            Self::LogicalOnly => None,
+            Self::ResolvedOnly { srcset } | Self::Mixed { srcset } => Some(srcset),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct FieldKey {
+    package: PathBuf,
     type_name: String,
     field: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ParamKey {
+    package: PathBuf,
     type_name: Option<String>,
     func: String,
     index: usize,
@@ -58,10 +82,10 @@ enum ValueSlot {
 struct UrlSchema {
     /// Struct field type names (unwrapping &, Option, Vec, slices, Box, Arc).
     struct_field_types: BTreeMap<FieldKey, String>,
-    /// File-level const/static item element type names (e.g. `const CARDS: &[Card]` -> `Card`).
-    global_types: BTreeMap<String, String>,
-    /// Crate-wide const/static string literal bindings (e.g. `pub const LOGO: &str = "public/..."`).
-    global_str_literals: BTreeMap<String, String>,
+    /// Package-scoped const/static item element type names (e.g. `const CARDS: &[Card]` -> `Card`).
+    global_types: BTreeMap<(PathBuf, String), String>,
+    /// Package-scoped const/static string literal bindings (e.g. `pub const LOGO: &str = "public/..."`).
+    global_str_literals: BTreeMap<(PathBuf, String), String>,
     /// Inferred URL roles for struct fields and function/constructor parameters.
     roles: BTreeMap<ValueSlot, FieldRole>,
     /// Directed flow edges: initializing `from` flows its value into `to`.
@@ -69,26 +93,6 @@ struct UrlSchema {
 }
 
 impl UrlSchema {
-    fn with_builtin_seeds() -> Self {
-        let mut schema = Self::default();
-        for (type_name, func, index) in [
-            ("HeadMedia", "new", 0),
-            ("HeadMedia", "secure_url", 0),
-            ("HeadIcon", "new", 0),
-            ("HeadAlternate", "new", 0),
-        ] {
-            schema.record_role(
-                ValueSlot::Param(ParamKey {
-                    type_name: Some(type_name.to_string()),
-                    func: func.to_string(),
-                    index,
-                }),
-                FieldRole::ResolvedUrl { srcset: false },
-            );
-        }
-        schema
-    }
-
     fn record_role(&mut self, slot: ValueSlot, role: FieldRole) {
         self.roles
             .entry(slot)
@@ -119,18 +123,33 @@ impl UrlSchema {
         }
     }
 
-    fn field_role(&self, type_name: &str, field: &str) -> Option<FieldRole> {
+    fn field_role(&self, package: &Path, type_name: &str, field: &str) -> Option<FieldRole> {
         self.roles
             .get(&ValueSlot::Field(FieldKey {
+                package: package.to_path_buf(),
                 type_name: type_name.to_string(),
                 field: field.to_string(),
             }))
             .copied()
     }
 
-    fn param_role(&self, type_name: Option<&str>, func: &str, index: usize) -> Option<FieldRole> {
+    fn param_role(
+        &self,
+        package: &Path,
+        type_name: Option<&str>,
+        func: &str,
+        index: usize,
+    ) -> Option<FieldRole> {
+        if matches!(
+            (type_name, func, index),
+            (Some("HeadMedia"), "new" | "secure_url", 0)
+                | (Some("HeadIcon" | "HeadAlternate"), "new", 0)
+        ) {
+            return Some(FieldRole::ResolvedOnly { srcset: false });
+        }
         self.roles
             .get(&ValueSlot::Param(ParamKey {
+                package: package.to_path_buf(),
                 type_name: type_name.map(ToString::to_string),
                 func: func.to_string(),
                 index,
@@ -139,9 +158,20 @@ impl UrlSchema {
     }
 }
 
+fn package_scope(path: &Path) -> PathBuf {
+    let abs = content::absolute(path);
+    abs.parent()
+        .and_then(|parent| {
+            parent.ancestors().find(|dir| {
+                dir.join("Cargo.toml").is_file() || dir.join("proa.config.rs").is_file()
+            })
+        })
+        .map(Path::to_path_buf)
+        .unwrap_or(abs)
+}
+
 #[derive(Debug, Clone)]
 struct PublicCatalog {
-    prefix: String,
     files: BTreeSet<String>,
 }
 
@@ -172,12 +202,11 @@ impl PublicCatalog {
         }
         let mut files = BTreeSet::new();
         collect_public_files(&dir, &dir, 0, &mut files);
-        (!files.is_empty()).then(|| Self {
-            prefix: relative.to_string(),
-            files,
-        })
+        (!files.is_empty()).then_some(Self { files })
     }
 
+    /// `cx.url(...)` always uses the logical `public/` prefix regardless of
+    /// which disk folder `ProjectPaths.public` points to.
     fn logical_path_for_root_relative(&self, url_path: &str) -> Option<String> {
         let stripped = url_path.strip_prefix('/')?;
         if stripped.is_empty() || stripped.starts_with('/') {
@@ -185,7 +214,7 @@ impl PublicCatalog {
         }
         self.files
             .contains(stripped)
-            .then(|| format!("{}/{stripped}", self.prefix))
+            .then(|| format!("public/{stripped}"))
     }
 }
 
@@ -219,7 +248,7 @@ fn parse_public_dir_from_config(config_path: &Path) -> Option<String> {
                 .path
                 .segments
                 .last()
-                .is_some_and(|seg| seg.ident == "PathsConfig");
+                .is_some_and(|seg| seg.ident == "ProjectPaths" || seg.ident == "PathsConfig");
             if is_paths_config {
                 for field in &expr.fields {
                     if let syn::Member::Named(name) = &field.member {
@@ -356,13 +385,14 @@ pub(super) fn lint_sources(
         })
         .collect();
 
-    let mut schema = UrlSchema::with_builtin_seeds();
+    let mut schema = UrlSchema::default();
     for (path, _, parsed) in &parsed_files {
         if is_config_file(path) || (!include_tests && is_test_path(path)) {
             continue;
         }
+        let package = package_scope(path);
         if let Some(file) = parsed {
-            collect_type_index(file, &mut schema);
+            collect_type_index(&package, file, &mut schema);
         }
     }
     for (path, source, parsed) in &parsed_files {
@@ -374,8 +404,9 @@ pub(super) fn lint_sources(
         } else {
             cfg_test_module_line_ranges(source)
         };
+        let package = package_scope(path);
         if let Some(file) = parsed {
-            infer_roles_in_file(source, file, &test_ranges, &mut schema);
+            infer_roles_in_file(&package, source, file, &test_ranges, &mut schema);
         }
     }
     schema.propagate();
@@ -389,8 +420,10 @@ pub(super) fn lint_sources(
         if is_config_file(path) || (!include_tests && is_test_path(path)) {
             continue;
         }
+        let package = package_scope(path);
         let catalog = PublicCatalog::resolve_for_path(path, &mut catalog_cache);
         lint_single_file(
+            &package,
             path,
             source,
             parsed.as_ref(),
@@ -413,13 +446,13 @@ fn is_config_file(path: &Path) -> bool {
 // Pass 1: Type indexing & sink-driven URL role inference
 // ---------------------------------------------------------------------------
 
-fn collect_type_index(file: &File, schema: &mut UrlSchema) {
+fn collect_type_index(package: &Path, file: &File, schema: &mut UrlSchema) {
     for item in &file.items {
-        collect_item_types(item, schema);
+        collect_item_types(package, item, schema);
     }
 }
 
-fn collect_item_types(item: &Item, schema: &mut UrlSchema) {
+fn collect_item_types(package: &Path, item: &Item, schema: &mut UrlSchema) {
     match item {
         Item::Struct(item_struct) => {
             let type_name = item_struct.ident.to_string();
@@ -428,6 +461,7 @@ fn collect_item_types(item: &Item, schema: &mut UrlSchema) {
                     if let Some(inner) = extract_inner_type_ident(&field.ty) {
                         schema.struct_field_types.insert(
                             FieldKey {
+                                package: package.to_path_buf(),
                                 type_name: type_name.clone(),
                                 field: ident.to_string(),
                             },
@@ -441,30 +475,32 @@ fn collect_item_types(item: &Item, schema: &mut UrlSchema) {
             if let Some(inner) = extract_inner_type_ident(&item_const.ty) {
                 schema
                     .global_types
-                    .insert(item_const.ident.to_string(), inner);
+                    .insert((package.to_path_buf(), item_const.ident.to_string()), inner);
             }
             if let Some(value) = extract_str_literal(&item_const.expr) {
                 schema
                     .global_str_literals
-                    .insert(item_const.ident.to_string(), value);
+                    .insert((package.to_path_buf(), item_const.ident.to_string()), value);
             }
         }
         Item::Static(item_static) => {
             if let Some(inner) = extract_inner_type_ident(&item_static.ty) {
-                schema
-                    .global_types
-                    .insert(item_static.ident.to_string(), inner);
+                schema.global_types.insert(
+                    (package.to_path_buf(), item_static.ident.to_string()),
+                    inner,
+                );
             }
             if let Some(value) = extract_str_literal(&item_static.expr) {
-                schema
-                    .global_str_literals
-                    .insert(item_static.ident.to_string(), value);
+                schema.global_str_literals.insert(
+                    (package.to_path_buf(), item_static.ident.to_string()),
+                    value,
+                );
             }
         }
         Item::Mod(item_mod) => {
             if let Some((_, items)) = &item_mod.content {
                 for child in items {
-                    collect_item_types(child, schema);
+                    collect_item_types(package, child, schema);
                 }
             }
         }
@@ -527,29 +563,31 @@ fn extract_inner_type_ident(ty: &Type) -> Option<String> {
 }
 
 fn infer_roles_in_file(
+    package: &Path,
     source: &str,
     file: &File,
     ignored_ranges: &[RangeInclusive<usize>],
     schema: &mut UrlSchema,
 ) {
     let macros = find_macros(source);
-    let mut macro_map: BTreeMap<usize, &MacroInvocation> = BTreeMap::new();
+    let mut owned_macros: BTreeMap<(usize, usize), &MacroInvocation> = BTreeMap::new();
     for inv in &macros {
         if !line_in_ranges(inv.name_line, ignored_ranges) {
-            macro_map.entry(inv.name_line).or_insert(inv);
+            owned_macros.insert((inv.name_line, inv.name_column), inv);
         }
     }
 
     for item in &file.items {
-        infer_roles_in_item(source, item, ignored_ranges, &macro_map, schema);
+        infer_roles_in_item(package, source, item, ignored_ranges, &owned_macros, schema);
     }
 }
 
 fn infer_roles_in_item(
+    package: &Path,
     source: &str,
     item: &Item,
     ignored_ranges: &[RangeInclusive<usize>],
-    macro_map: &BTreeMap<usize, &MacroInvocation>,
+    owned_macros: &BTreeMap<(usize, usize), &MacroInvocation>,
     schema: &mut UrlSchema,
 ) {
     match item {
@@ -570,11 +608,12 @@ fn infer_roles_in_item(
                 }
                 let method_name = method.sig.ident.to_string();
                 let mut infer = RoleInferer::new(
+                    package,
                     source,
                     self_type.as_deref(),
                     Some(&method_name),
                     is_render_impl,
-                    macro_map,
+                    owned_macros,
                     schema,
                 );
                 infer.bind_signature(&method.sig);
@@ -586,15 +625,29 @@ fn infer_roles_in_item(
                 return;
             }
             let fn_name = item_fn.sig.ident.to_string();
-            let mut infer =
-                RoleInferer::new(source, None, Some(&fn_name), false, macro_map, schema);
+            let mut infer = RoleInferer::new(
+                package,
+                source,
+                None,
+                Some(&fn_name),
+                false,
+                owned_macros,
+                schema,
+            );
             infer.bind_signature(&item_fn.sig);
             infer.visit_block(&item_fn.block);
         }
         Item::Mod(item_mod) => {
             if let Some((_, items)) = &item_mod.content {
                 for child in items {
-                    infer_roles_in_item(source, child, ignored_ranges, macro_map, schema);
+                    infer_roles_in_item(
+                        package,
+                        source,
+                        child,
+                        ignored_ranges,
+                        owned_macros,
+                        schema,
+                    );
                 }
             }
         }
@@ -603,11 +656,12 @@ fn infer_roles_in_item(
 }
 
 struct RoleInferer<'a> {
+    package: &'a Path,
     source: &'a str,
     self_type: Option<&'a str>,
     func_name: Option<&'a str>,
     in_render_impl: bool,
-    macro_map: &'a BTreeMap<usize, &'a MacroInvocation>,
+    owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
     schema: &'a mut UrlSchema,
     /// Local variable -> known struct type name.
     var_types: BTreeMap<String, String>,
@@ -617,11 +671,12 @@ struct RoleInferer<'a> {
 
 impl<'a> RoleInferer<'a> {
     fn new(
+        package: &'a Path,
         source: &'a str,
         self_type: Option<&'a str>,
         func_name: Option<&'a str>,
         in_render_impl: bool,
-        macro_map: &'a BTreeMap<usize, &'a MacroInvocation>,
+        owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
         schema: &'a mut UrlSchema,
     ) -> Self {
         let mut var_types = BTreeMap::new();
@@ -629,11 +684,12 @@ impl<'a> RoleInferer<'a> {
             var_types.insert("self".to_string(), ty.to_string());
         }
         Self {
+            package,
             source,
             self_type,
             func_name,
             in_render_impl,
-            macro_map,
+            owned_macros,
             schema,
             var_types,
             var_slots: BTreeMap::new(),
@@ -654,6 +710,7 @@ impl<'a> RoleInferer<'a> {
                             self.var_slots.insert(
                                 ident,
                                 ValueSlot::Param(ParamKey {
+                                    package: self.package.to_path_buf(),
                                     type_name: self.self_type.map(ToString::to_string),
                                     func: func.to_string(),
                                     index: param_index,
@@ -682,6 +739,7 @@ impl<'a> RoleInferer<'a> {
                 };
                 let base_ty = self.resolve_expr_type(&field_expr.base)?;
                 Some(ValueSlot::Field(FieldKey {
+                    package: self.package.to_path_buf(),
                     type_name: base_ty,
                     field: member.to_string(),
                 }))
@@ -732,7 +790,11 @@ impl<'a> RoleInferer<'a> {
                 let ident = path_expr.path.get_ident()?.to_string();
                 self.var_types
                     .get(&ident)
-                    .or_else(|| self.schema.global_types.get(&ident))
+                    .or_else(|| {
+                        self.schema
+                            .global_types
+                            .get(&(self.package.to_path_buf(), ident))
+                    })
                     .cloned()
             }
             Expr::Field(field_expr) => {
@@ -743,6 +805,7 @@ impl<'a> RoleInferer<'a> {
                 self.schema
                     .struct_field_types
                     .get(&FieldKey {
+                        package: self.package.to_path_buf(),
                         type_name: base_ty,
                         field: member.to_string(),
                     })
@@ -770,7 +833,7 @@ impl<'a> RoleInferer<'a> {
     fn record_url_sink_expr(&mut self, expr: &Expr, srcset: bool) {
         if let Some(slot) = self.resolve_expr_slot(expr) {
             self.schema
-                .record_role(slot, FieldRole::ResolvedUrl { srcset });
+                .record_role(slot, FieldRole::ResolvedOnly { srcset });
             return;
         }
         match expr {
@@ -825,6 +888,21 @@ impl<'a> RoleInferer<'a> {
         let Ok(nodes) = input.parse_nodes() else {
             return;
         };
+        let prev_types = self.var_types.clone();
+        let prev_slots = self.var_slots.clone();
+        for arg in &input.args {
+            let name = arg.name.to_string();
+            if let Some(slot) = self.resolve_expr_slot(&arg.value) {
+                self.var_slots.insert(name.clone(), slot);
+            } else {
+                self.var_slots.remove(&name);
+            }
+            if let Some(ty) = self.resolve_expr_type(&arg.value) {
+                self.var_types.insert(name, ty);
+            } else {
+                self.var_types.remove(&name);
+            }
+        }
         let contexts = proa_dsl::md::slot_contexts(&nodes);
         let mut slot_index = 0usize;
         for node in &nodes {
@@ -839,21 +917,38 @@ impl<'a> RoleInferer<'a> {
                 self.visit_expr(expr);
             }
         }
+        self.var_types = prev_types;
+        self.var_slots = prev_slots;
+        for arg in &input.args {
+            self.visit_expr(&arg.value);
+        }
     }
 }
 
 impl<'ast> Visit<'ast> for RoleInferer<'_> {
+    fn visit_block(&mut self, block: &'ast Block) {
+        let prev_types = self.var_types.clone();
+        let prev_slots = self.var_slots.clone();
+        visit::visit_block(self, block);
+        self.var_types = prev_types;
+        self.var_slots = prev_slots;
+    }
+
     fn visit_local(&mut self, local: &'ast Local) {
         if let Some(init) = &local.init {
             if let Some(ident) = simple_pat_ident(&local.pat) {
                 if let Some(slot) = self.resolve_expr_slot(&init.expr) {
                     self.var_slots.insert(ident.clone(), slot);
+                } else {
+                    self.var_slots.remove(&ident);
                 }
                 if let Some(ty) = pat_explicit_type(&local.pat)
                     .and_then(extract_inner_type_ident)
                     .or_else(|| self.resolve_expr_type(&init.expr))
                 {
                     self.var_types.insert(ident, ty);
+                } else {
+                    self.var_types.remove(&ident);
                 }
             } else if let Pat::Struct(pat_struct) = &local.pat {
                 let struct_ty = path_last_ident(&pat_struct.path)
@@ -872,6 +967,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                                 self.var_slots.insert(
                                     binding.clone(),
                                     ValueSlot::Field(FieldKey {
+                                        package: self.package.to_path_buf(),
                                         type_name: ty_name.clone(),
                                         field: member.to_string(),
                                     }),
@@ -880,6 +976,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                                     .schema
                                     .struct_field_types
                                     .get(&FieldKey {
+                                        package: self.package.to_path_buf(),
                                         type_name: ty_name.clone(),
                                         field: member.to_string(),
                                     })
@@ -897,6 +994,8 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
     }
 
     fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+        let prev_types = self.var_types.clone();
+        let prev_slots = self.var_slots.clone();
         if let Some(elem_ty) = self.resolve_expr_type(&expr.expr) {
             if let Some(ident) = simple_pat_ident(&expr.pat) {
                 self.var_types.insert(ident, elem_ty);
@@ -910,9 +1009,13 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
             }
         }
         visit::visit_expr_for_loop(self, expr);
+        self.var_types = prev_types;
+        self.var_slots = prev_slots;
     }
 
     fn visit_expr_if(&mut self, expr: &'ast syn::ExprIf) {
+        let prev_types = self.var_types.clone();
+        let prev_slots = self.var_slots.clone();
         if let Expr::Let(expr_let) = expr.cond.as_ref() {
             if let Some(binding) = unwrap_some_pat_ident(&expr_let.pat) {
                 if let Some(slot) = self.resolve_expr_slot(&expr_let.expr) {
@@ -924,12 +1027,14 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
             }
         }
         visit::visit_expr_if(self, expr);
+        self.var_types = prev_types;
+        self.var_slots = prev_slots;
     }
 
     fn visit_expr_method_call(&mut self, call: &'ast ExprMethodCall) {
         if call.method == "url" && call.args.len() == 1 {
             if let Some(slot) = self.resolve_expr_slot(&call.args[0]) {
-                self.schema.record_role(slot, FieldRole::LogicalPath);
+                self.schema.record_role(slot, FieldRole::LogicalOnly);
             }
         }
         visit::visit_expr_method_call(self, call);
@@ -943,6 +1048,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                 };
                 if let Some(source_slot) = self.resolve_expr_slot(&field.expr) {
                     let target_slot = ValueSlot::Field(FieldKey {
+                        package: self.package.to_path_buf(),
                         type_name: target_type.clone(),
                         field: member.to_string(),
                     });
@@ -960,6 +1066,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
             for (index, arg) in call.args.iter().enumerate() {
                 if let Some(source_slot) = self.resolve_expr_slot(arg) {
                     let target_slot = ValueSlot::Param(ParamKey {
+                        package: self.package.to_path_buf(),
                         type_name: target_type.clone(),
                         func: func_name.clone(),
                         index,
@@ -974,21 +1081,23 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        let Some(name) = mac.path.segments.last().map(|seg| seg.ident.to_string()) else {
+        let Some(last) = mac.path.segments.last() else {
             return;
         };
-        match name.as_str() {
-            "html" | "html_sync" => {
+        let pos = last.ident.span().start();
+        let Some(inv) = self.owned_macros.get(&(pos.line, pos.column)).copied() else {
+            return;
+        };
+        match inv.dialect {
+            MacroDialect::Html => {
                 if let Ok(root) = syn::parse2::<HtmlRoot>(mac.tokens.clone()) {
                     self.visit_html_nodes(&root.nodes);
-                } else if let Some(inv) = self.macro_map.get(&mac.path.span().start().line) {
-                    if let Ok(root) = parse_invocation(self.source, inv) {
-                        self.visit_html_nodes(&root.nodes);
-                    }
+                } else if let Ok(root) = parse_invocation(self.source, inv) {
+                    self.visit_html_nodes(&root.nodes);
                 }
             }
-            "md" | "md_sync" => {
-                self.visit_md_tokens(&name, mac.tokens.clone());
+            MacroDialect::Md => {
+                self.visit_md_tokens(&inv.name, mac.tokens.clone());
             }
             _ => {}
         }
@@ -1001,6 +1110,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
 // ---------------------------------------------------------------------------
 
 fn lint_single_file(
+    package: &Path,
     path: &Path,
     source: &str,
     parsed_file: Option<&File>,
@@ -1027,14 +1137,24 @@ fn lint_single_file(
         collect_str_constants(file, &mut file_str_bindings);
     }
 
+    let macros = find_macros(source);
+    let mut owned_macros: BTreeMap<(usize, usize), &MacroInvocation> = BTreeMap::new();
+    for inv in &macros {
+        if !line_in_ranges(inv.name_line, &test_ranges) {
+            owned_macros.insert((inv.name_line, inv.name_column), inv);
+        }
+    }
+
     // 1. Walk parsed AST for all items (handles handlers, consts, statics,
     //    render/render_head/render_md, helper functions, and nested macros).
     if let Some(file) = parsed_file {
         let mut checker = FileAssetChecker {
+            package,
             path: &display,
             source,
             suppressions: &suppressions,
             ignored_ranges: &test_ranges,
+            owned_macros: &owned_macros,
             schema,
             catalog,
             file_str_bindings: &file_str_bindings,
@@ -1047,18 +1167,20 @@ fn lint_single_file(
     } else {
         // Fallback for files with transient Rust syntax errors (e.g., live editor typing):
         // still lint parseable `html!`/`html_sync!`/`md!`/`md_sync!` macro invocations.
-        for inv in find_macros(source) {
+        for inv in &macros {
             if line_in_ranges(inv.name_line, &test_ranges) {
                 continue;
             }
             match inv.dialect {
                 MacroDialect::Html => {
-                    if let Ok(root) = parse_invocation(source, &inv) {
+                    if let Ok(root) = parse_invocation(source, inv) {
                         let mut checker = MacroAssetChecker {
+                            package,
                             path: &display,
-                            origin: SpanOrigin::Macro(&inv),
+                            origin: SpanOrigin::Macro(inv),
                             fixed_pos: None,
                             suppressions: &suppressions,
+                            owned_macros: &owned_macros,
                             schema,
                             catalog,
                             file_str_bindings: &file_str_bindings,
@@ -1073,10 +1195,12 @@ fn lint_single_file(
                 MacroDialect::Md => {
                     if let Ok(tokens) = inv.body(source).parse::<proc_macro2::TokenStream>() {
                         let mut checker = MacroAssetChecker {
+                            package,
                             path: &display,
-                            origin: SpanOrigin::Macro(&inv),
+                            origin: SpanOrigin::Macro(inv),
                             fixed_pos: Some((inv.name_line, inv.name_column + 1)),
                             suppressions: &suppressions,
+                            owned_macros: &owned_macros,
                             schema,
                             catalog,
                             file_str_bindings: &file_str_bindings,
@@ -1133,10 +1257,12 @@ fn collect_str_constants(file: &File, out: &mut BTreeMap<String, String>) {
 }
 
 struct FileAssetChecker<'a> {
+    package: &'a Path,
     path: &'a Path,
     source: &'a str,
     suppressions: &'a SuppressionComments,
     ignored_ranges: &'a [RangeInclusive<usize>],
+    owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
     schema: &'a UrlSchema,
     catalog: Option<&'a PublicCatalog>,
     file_str_bindings: &'a BTreeMap<String, String>,
@@ -1149,10 +1275,12 @@ struct FileAssetChecker<'a> {
 impl<'a> FileAssetChecker<'a> {
     fn as_macro_checker(&mut self) -> MacroAssetChecker<'_> {
         MacroAssetChecker {
+            package: self.package,
             path: self.path,
             origin: SpanOrigin::File,
             fixed_pos: None,
             suppressions: self.suppressions,
+            owned_macros: self.owned_macros,
             schema: self.schema,
             catalog: self.catalog,
             file_str_bindings: self.file_str_bindings,
@@ -1165,6 +1293,12 @@ impl<'a> FileAssetChecker<'a> {
 }
 
 impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
+    fn visit_block(&mut self, block: &'ast Block) {
+        let prev_locals = self.local_str_bindings.clone();
+        visit::visit_block(self, block);
+        self.local_str_bindings = prev_locals;
+    }
+
     fn visit_item_impl(&mut self, item_impl: &'ast ItemImpl) {
         if line_in_ranges(item_impl.impl_token.span.start().line, self.ignored_ranges) {
             return;
@@ -1257,21 +1391,26 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        let start = mac.path.span().start();
-        if line_in_ranges(start.line, self.ignored_ranges) {
-            return;
-        }
-        let Some(name) = mac.path.segments.last().map(|seg| seg.ident.to_string()) else {
+        let Some(last) = mac.path.segments.last() else {
             return;
         };
-        match name.as_str() {
-            "html" | "html_sync" => {
+        let pos = last.ident.span().start();
+        if line_in_ranges(pos.line, self.ignored_ranges) {
+            return;
+        }
+        let Some(inv) = self.owned_macros.get(&(pos.line, pos.column)).copied() else {
+            return;
+        };
+        match inv.dialect {
+            MacroDialect::Html => {
                 if let Ok(root) = syn::parse2::<HtmlRoot>(mac.tokens.clone()) {
                     let mut checker = MacroAssetChecker {
+                        package: self.package,
                         path: self.path,
                         origin: SpanOrigin::File,
                         fixed_pos: None,
                         suppressions: self.suppressions,
+                        owned_macros: self.owned_macros,
                         schema: self.schema,
                         catalog: self.catalog,
                         file_str_bindings: self.file_str_bindings,
@@ -1283,12 +1422,14 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     checker.visit_nodes(&root.nodes);
                 }
             }
-            "md" | "md_sync" => {
+            MacroDialect::Md => {
                 let mut checker = MacroAssetChecker {
+                    package: self.package,
                     path: self.path,
                     origin: SpanOrigin::File,
-                    fixed_pos: Some((start.line, start.column + 1)),
+                    fixed_pos: Some((pos.line, pos.column + 1)),
                     suppressions: self.suppressions,
+                    owned_macros: self.owned_macros,
                     schema: self.schema,
                     catalog: self.catalog,
                     file_str_bindings: self.file_str_bindings,
@@ -1298,10 +1439,10 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     diagnostics: self.diagnostics,
                 };
                 checker.lint_markdown_macro(
-                    &name,
+                    &inv.name,
                     mac.tokens.clone(),
-                    start.line,
-                    start.column + 1,
+                    pos.line,
+                    pos.column + 1,
                 );
             }
             _ => {
@@ -1312,10 +1453,12 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
 }
 
 struct MacroAssetChecker<'a> {
+    package: &'a Path,
     path: &'a Path,
     origin: SpanOrigin<'a>,
     fixed_pos: Option<(usize, usize)>,
     suppressions: &'a SuppressionComments,
+    owned_macros: &'a BTreeMap<(usize, usize), &'a MacroInvocation>,
     schema: &'a UrlSchema,
     catalog: Option<&'a PublicCatalog>,
     file_str_bindings: &'a BTreeMap<String, String>,
@@ -1394,15 +1537,21 @@ impl MacroAssetChecker<'_> {
         // Check dynamic slots inside Markdown templates (including named arguments).
         let mut named_bindings = self.local_str_bindings.clone();
         for arg in &input.args {
-            if let Some(value) = extract_str_literal(&arg.value) {
+            if let Some((_, value)) = self.resolve_string_arg(&arg.value) {
                 named_bindings.insert(arg.name.to_string(), value);
+            } else if let Some(value) = extract_str_literal(&arg.value) {
+                named_bindings.insert(arg.name.to_string(), value);
+            } else {
+                named_bindings.remove(&arg.name.to_string());
             }
         }
         let mut slot_checker = MacroAssetChecker {
+            package: self.package,
             path: self.path,
             origin: self.origin,
             fixed_pos: self.fixed_pos,
             suppressions: self.suppressions,
+            owned_macros: self.owned_macros,
             schema: self.schema,
             catalog: self.catalog,
             file_str_bindings: self.file_str_bindings,
@@ -1439,13 +1588,15 @@ impl MacroAssetChecker<'_> {
             let field_name = name.to_string();
             let inferred = type_name
                 .as_deref()
-                .and_then(|ty| self.schema.field_role(ty, &field_name));
+                .and_then(|ty| self.schema.field_role(self.package, ty, &field_name));
             match inferred {
-                Some(FieldRole::LogicalPath) => {
-                    // Component resolves this field via `cx.url(...)`; logical paths are valid.
+                Some(FieldRole::LogicalOnly) => {
+                    // Component resolves this field via `cx.url(...)` everywhere; logical paths are valid.
                 }
-                Some(FieldRole::ResolvedUrl { srcset }) => {
-                    self.url_expr(&field.expr, srcset);
+                Some(role) => {
+                    if let Some(srcset) = role.resolved_srcset() {
+                        self.url_expr(&field.expr, srcset);
+                    }
                 }
                 None if self.in_render_context => {
                     if let Some(srcset) = heuristic_url_field(&field_name) {
@@ -1462,9 +1613,10 @@ impl MacroAssetChecker<'_> {
             return;
         };
         for (index, arg) in call.args.iter().enumerate() {
-            if let Some(FieldRole::ResolvedUrl { srcset }) =
-                self.schema
-                    .param_role(type_name.as_deref(), &func_name, index)
+            if let Some(srcset) = self
+                .schema
+                .param_role(self.package, type_name.as_deref(), &func_name, index)
+                .and_then(FieldRole::resolved_srcset)
             {
                 self.url_expr(arg, srcset);
             }
@@ -1499,7 +1651,11 @@ impl MacroAssetChecker<'_> {
                 .local_str_bindings
                 .get(&key)
                 .or_else(|| self.file_str_bindings.get(&key))
-                .or_else(|| self.schema.global_str_literals.get(&key))
+                .or_else(|| {
+                    self.schema
+                        .global_str_literals
+                        .get(&(self.package.to_path_buf(), key))
+                })
                 .map(String::as_str);
         }
         // Multi-segment constant paths like `crate::assets::LOGO`.
@@ -1507,7 +1663,7 @@ impl MacroAssetChecker<'_> {
         if last.chars().all(|c| !c.is_ascii_lowercase()) {
             self.schema
                 .global_str_literals
-                .get(&last)
+                .get(&(self.package.to_path_buf(), last))
                 .map(String::as_str)
         } else {
             None
@@ -1648,23 +1804,26 @@ impl<'ast> Visit<'ast> for MacroAssetChecker<'_> {
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        let Some(name) = mac.path.segments.last().map(|seg| seg.ident.to_string()) else {
+        let Some(last) = mac.path.segments.last() else {
             return;
         };
-        match name.as_str() {
-            "html" | "html_sync" => {
+        let pos = last.ident.span().start();
+        let Some(inv) = self.owned_macros.get(&(pos.line, pos.column)).copied() else {
+            return;
+        };
+        match inv.dialect {
+            MacroDialect::Html => {
                 if let Ok(root) = syn::parse2::<HtmlRoot>(mac.tokens.clone()) {
                     self.visit_nodes(&root.nodes);
                 }
             }
-            "md" | "md_sync" => {
+            MacroDialect::Md => {
                 let prev_fixed = self.fixed_pos;
                 if prev_fixed.is_none() {
-                    let start = mac.path.span().start();
-                    self.fixed_pos = Some((start.line, start.column + 1));
+                    self.fixed_pos = Some((pos.line, pos.column + 1));
                 }
                 let (line, col) = self.fixed_pos.unwrap_or((1, 1));
-                self.lint_markdown_macro(&name, mac.tokens.clone(), line, col);
+                self.lint_markdown_macro(&inv.name, mac.tokens.clone(), line, col);
                 self.fixed_pos = prev_fixed;
             }
             _ => {}

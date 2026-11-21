@@ -5621,17 +5621,18 @@ fn asset_url_lint_works_cross_file_and_detects_public_catalog_files() {
     .unwrap();
     std::fs::write(
         root.join("proa.config.rs"),
-        r#"use proa::config::{Config, PathsConfig, Result};
+        r#"use proa::config::{Config, ProjectPaths, Result};
 pub async fn config() -> Result<Config> {
     Ok(Config {
-        paths: PathsConfig { public: Some("public") },
+        paths: ProjectPaths { public: Some("static"), ..Default::default() },
         ..Config::default()
     })
 }
 "#,
     )
     .unwrap();
-    std::fs::write(root.join("public/images/brand.svg"), "<svg/>").unwrap();
+    std::fs::create_dir_all(root.join("static/images")).unwrap();
+    std::fs::write(root.join("static/images/brand.svg"), "<svg/>").unwrap();
     std::fs::write(
         root.join("src/components/card.rs"),
         r#"pub struct BrandCard {
@@ -5709,10 +5710,10 @@ impl WebRenderSync for HomePage {
     // Disabling `paths.public = None` disables root-relative `public/` file matching.
     std::fs::write(
         root.join("proa.config.rs"),
-        r#"use proa::config::{Config, PathsConfig, Result};
+        r#"use proa::config::{Config, ProjectPaths, Result};
 pub async fn config() -> Result<Config> {
     Ok(Config {
-        paths: PathsConfig { public: None },
+        paths: ProjectPaths { public: None, ..Default::default() },
         ..Config::default()
     })
 }
@@ -5726,4 +5727,58 @@ pub async fn config() -> Result<Config> {
             .filter(|d| d.code.starts_with("asset/"))
             .collect();
     assert!(disabled_hits.is_empty(), "{disabled_hits:#?}");
+}
+
+#[test]
+fn asset_url_lint_respects_block_scope_foreign_macros_named_md_args_and_mixed_sinks() {
+    let source = r####"
+pub struct MixedView {
+    pub src: &'static str,
+}
+impl WebRenderSync for MixedView {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={cx.url(self.src)} alt="Safe HTML" /> }.render(cx)
+    }
+}
+impl MdRenderSync for MixedView {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        md_sync! { "![Broken MD]({image})", image = self.src }.render_md(cx)
+    }
+}
+
+pub struct ScopedPage;
+impl WebRenderSync for ScopedPage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "/route";
+        {
+            let image = "public/inner.png";
+            let _ = image;
+        }
+        let raw = "public/named_md.svg";
+        let _md = md_sync! { "![Named]({pic})", pic = raw };
+        let _foreign = yew::html! { <img src="public/yew.svg" /> };
+        html_sync! {
+            <main>
+                <img src={image} alt="Outer Route" />
+                {MixedView { src: "public/mixed.svg" }}
+            </main>
+        }
+        .render(cx)
+    }
+}
+"####;
+    let mut hits: Vec<_> = lint_file(Path::new("src/scoped.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    hits.sort_unstable();
+    assert_eq!(
+        hits,
+        vec![
+            (25, "asset/public-url"), // named md arg `pic = raw` where `raw = "public/named_md.svg"`
+            (30, "asset/public-url"), // MixedView { src: "public/mixed.svg" } (unsafe MD sink wins over safe HTML sink)
+        ],
+        "unexpected hits: {hits:#?}"
+    );
 }
