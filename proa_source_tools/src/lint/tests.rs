@@ -6006,3 +6006,132 @@ fn files_declared_by_cfg_test_modules_are_test_paths() {
         "production modules are still linted"
     );
 }
+
+#[test]
+fn asset_url_lint_ignores_reassigned_locals() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut stale = "public/logo.svg";
+        stale = "/route";
+        let mut current = "/route";
+        current += "";
+        let fixed = "public/fixed.svg";
+        html_sync! {
+            <img src={stale} alt="" />
+            <img src={current} alt="" />
+            <img src={fixed} alt="" />
+        }
+        .render(cx)
+    }
+}
+"#;
+    // Only the never-reassigned binding is trusted.
+    assert_eq!(
+        asset_hits("src/logo.rs", source),
+        vec![(13, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_checks_static_text_before_markdown_slots() {
+    let source = r####"
+pub struct Notes;
+impl MdRenderSync for Notes {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        md_sync! { "![Logo](public/logo.svg?v={version}) [see (public/x.svg)](public/x.svg) [ok](/docs/{page})", version = "2", page = "a" }
+            .render_md(cx)
+    }
+}
+"####;
+    let line = source.lines().nth(4).unwrap();
+    let hits: Vec<_> = lint_file(Path::new("src/notes.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.column))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            (5, line.find("public/logo.svg?v=").unwrap() + 1),
+            // The destination, not the copy inside the label.
+            (5, line.rfind("public/x.svg").unwrap() + 1),
+        ]
+    );
+}
+
+#[test]
+fn shared_or_mentioned_module_files_stay_production_code() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    // The library ships `shared`; only the binary's tests use `helpers`.
+    write("lib.rs", "mod shared;\nconst EXAMPLE: &str = r\"#[cfg(test)]\nmod quoted;\";\nmod outer {\n    #[cfg(test)]\n    mod inner_only;\n}\n");
+    write(
+        "main.rs",
+        "#[cfg(test)]\nmod shared;\n#[cfg(test)]\nmod helpers;\n",
+    );
+    let shared = write("shared.rs", "");
+    let helpers = write("helpers.rs", "");
+    let quoted = write("quoted.rs", "");
+    let inner_only = write("inner_only.rs", "");
+    assert!(!is_test_path(&shared), "a production owner ships the file");
+    assert!(is_test_path(&helpers));
+    assert!(
+        !is_test_path(&quoted),
+        "text inside a string is not a declaration"
+    );
+    assert!(
+        !is_test_path(&inner_only),
+        "a declaration in an inline module owns another directory"
+    );
+}
+
+#[test]
+fn unsaved_parent_declarations_decide_test_modules() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let lib = src.join("lib.rs");
+    std::fs::write(&lib, "#[cfg(test)]\nmod fixtures;\n").unwrap();
+    let fixtures = src.join("fixtures.rs");
+    std::fs::write(&fixtures, "").unwrap();
+    assert!(is_test_path(&fixtures));
+    {
+        let _overrides = SourceOverrides::install([(lib.clone(), "mod fixtures;\n".to_string())]);
+        assert!(!is_test_path(&fixtures), "the editor buffer wins");
+    }
+    assert!(
+        is_test_path(&fixtures),
+        "disk applies again after the snapshot"
+    );
+}
+
+#[test]
+fn standalone_sibling_files_keep_separate_asset_facts() {
+    let temp = tempfile::tempdir().unwrap();
+    let snippet = |name: &str| {
+        let path = temp.path().join(name);
+        std::fs::write(
+            &path,
+            "pub struct Avatar {\n    pub photo: &'static str,\n}\nimpl WebRenderSync for Avatar {\n    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {\n        html_sync! { <img src={self.photo} alt=\"\" /> }.render(cx)\n    }\n}\npub fn handler() -> Avatar {\n    Avatar {\n        photo: \"public/a.png\",\n    }\n}\n",
+        )
+        .unwrap();
+        path
+    };
+    let first = snippet("first.rs");
+    let second = snippet("second.rs");
+    let hits: Vec<_> = lint_paths(&[first, second], LintOptions::default())
+        .unwrap()
+        .into_iter()
+        .filter(|d| d.code == "asset/public-url")
+        .map(|d| d.path.file_name().unwrap().to_owned())
+        .collect();
+    assert_eq!(hits, ["first.rs", "second.rs"]);
+}

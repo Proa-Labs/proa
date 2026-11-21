@@ -226,19 +226,32 @@ pub fn slot_contexts(nodes: &[TplNode]) -> Vec<MdSlotContext> {
     contexts
 }
 
-/// Static CommonMark link and image destinations in parsed template text,
-/// with the byte range of each destination in the decoded template.
+/// A link or image destination written in a Markdown template.
+#[derive(Clone, Debug)]
+pub struct LinkDestination {
+    /// The destination URL. For an interpolated destination such as
+    /// `public/{name}.svg`, only its static text before the first slot.
+    pub text: String,
+    /// Whether a `{...}` slot follows `text` inside the destination.
+    pub interpolated: bool,
+    /// Location of `text` in the authored literal, or of the link when the
+    /// destination text cannot be found verbatim (for example a reference
+    /// definition or a backslash escape).
+    pub location: ExprLocation,
+}
+
+/// Link and image destinations in parsed template text, with the decoded byte
+/// range of each destination's text (see [`LinkDestination`]).
 ///
 /// `text_offsets` maps every byte of the concatenated `Text` nodes to the
-/// decoded template (see [`parse_tpl_mapped`]). Destinations that interpolate a
-/// `{...}` slot, and links inside code, are skipped. A destination whose text
-/// does not appear verbatim inside its link (for example a reference
-/// definition or a backslash escape) points at the start of the link instead.
-fn located_static_link_destinations(
+/// decoded template (see [`parse_tpl_mapped`]). Links inside code are skipped,
+/// as are destinations that begin with a slot, whose value the slot itself
+/// carries.
+fn located_link_destinations(
     nodes: &[TplNode],
     text_offsets: &[usize],
-) -> Vec<(String, Option<Range<usize>>)> {
-    use pulldown_cmark::{Event, Options, Parser, Tag};
+) -> Vec<(String, bool, Option<Range<usize>>)> {
+    use pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
 
     const SLOT_SENTINEL: char = '\u{E000}';
     let mut source = String::new();
@@ -259,37 +272,78 @@ fn located_static_link_destinations(
     }
 
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    // Open links: whole range, end of the label seen so far, inline, URL.
+    let mut active: Vec<(Range<usize>, usize, bool, String)> = Vec::new();
     let mut destinations = Vec::new();
     for (event, range) in Parser::new_ext(&source, options).into_offset_iter() {
-        let (Event::Start(Tag::Link { dest_url, .. }) | Event::Start(Tag::Image { dest_url, .. })) =
-            event
-        else {
-            continue;
-        };
-        if dest_url.contains(SLOT_SENTINEL) {
-            continue;
+        // Child events extend the label; the destination follows its `](`.
+        if let Some((_, label_end, _, _)) = active.last_mut() {
+            if !matches!(event, Event::End(TagEnd::Link | TagEnd::Image)) {
+                *label_end = (*label_end).max(range.end);
+            }
         }
-        let link = &source[range.clone()];
-        let found = (!dest_url.is_empty())
-            .then(|| {
-                link.match_indices(&*dest_url).find(|(at, _)| {
-                    link[..*at]
-                        .trim_end_matches([' ', '\t', '\n', '\r'])
-                        .ends_with(['(', '<'])
-                })
-            })
-            .flatten()
-            .map(|(at, _)| range.start + at..range.start + at + dest_url.len())
-            .unwrap_or(range.start..range.start + 1);
-        let decoded = offsets
-            .get(found.start)
-            .copied()
-            .flatten()
-            .zip(offsets.get(found.end - 1).copied().flatten())
-            .map(|(start, last)| start..last + 1);
-        destinations.push((dest_url.into_string(), decoded));
+        match event {
+            Event::Start(
+                Tag::Link {
+                    link_type,
+                    dest_url,
+                    ..
+                }
+                | Tag::Image {
+                    link_type,
+                    dest_url,
+                    ..
+                },
+            ) => {
+                let label_start = if source[range.start..].starts_with("![") {
+                    range.start + 2
+                } else {
+                    range.start + 1
+                };
+                active.push((
+                    range,
+                    label_start.min(source.len()),
+                    matches!(link_type, LinkType::Inline),
+                    dest_url.into_string(),
+                ));
+            }
+            Event::End(TagEnd::Link | TagEnd::Image) => {
+                let Some((link, label_end, inline, url)) = active.pop() else {
+                    continue;
+                };
+                if let Some((_, parent_label_end, _, _)) = active.last_mut() {
+                    *parent_label_end = (*parent_label_end).max(link.end);
+                }
+                let (text, interpolated) = match url.find(SLOT_SENTINEL) {
+                    Some(at) => (url[..at].to_string(), true),
+                    None => (url, false),
+                };
+                if text.is_empty() {
+                    continue;
+                }
+                let found = inline
+                    .then(|| inline_link_destination_range(&source, &link, label_end))
+                    .flatten()
+                    .filter(|destination| source[destination.clone()].starts_with(&text))
+                    .map(|destination| destination.start..destination.start + text.len())
+                    .unwrap_or(link.start..link.start + 1);
+                let decoded = offsets
+                    .get(found.start)
+                    .copied()
+                    .flatten()
+                    .zip(offsets.get(found.end - 1).copied().flatten())
+                    .map(|(start, last)| start..last + 1);
+                destinations.push((found.start, text, interpolated, decoded));
+            }
+            _ => {}
+        }
     }
+    // Links close inside out; report destinations in document order.
+    destinations.sort_by_key(|(start, ..)| *start);
     destinations
+        .into_iter()
+        .map(|(_, text, interpolated, decoded)| (text, interpolated, decoded))
+        .collect()
 }
 
 /// Locate the byte range of the URL destination inside an inline CommonMark
@@ -413,22 +467,24 @@ impl MdTemplateInput {
         Ok(nodes)
     }
 
-    /// Static CommonMark link and image destinations, with their location in
-    /// the authored literal. Destinations that interpolate a slot, and links
-    /// inside code spans or fenced blocks, are skipped.
-    pub fn static_link_destinations(&self) -> syn::Result<Vec<(String, ExprLocation)>> {
+    /// CommonMark link and image destinations written in the template, in
+    /// document order, with their location in the authored literal. Links
+    /// inside code spans or fenced blocks are skipped; see [`LinkDestination`]
+    /// for destinations that interpolate slots.
+    pub fn link_destinations(&self) -> syn::Result<Vec<LinkDestination>> {
         let source = source::MappedLiteral::new(&self.lit);
         let mut text_offsets = Vec::new();
         let nodes = parse_tpl_mapped(&source.text, Some(&mut text_offsets))
             .map_err(|message| syn::Error::new(self.lit.span(), message))?;
         let literal = source.literal_map(self.lit.span());
-        Ok(located_static_link_destinations(&nodes, &text_offsets)
+        Ok(located_link_destinations(&nodes, &text_offsets)
             .into_iter()
-            .map(|(destination, decoded)| {
-                let location = decoded.map_or(ExprLocation::Rust(self.lit.span()), |range| {
+            .map(|(text, interpolated, decoded)| LinkDestination {
+                text,
+                interpolated,
+                location: decoded.map_or(ExprLocation::Rust(self.lit.span()), |range| {
                     literal.locate(range)
-                });
-                (destination, location)
+                }),
             })
             .collect())
     }
@@ -1010,12 +1066,12 @@ mod tests {
     }
 
     #[test]
-    fn static_link_destinations_skip_code_and_dynamic_slots() {
+    fn link_destinations_locate_urls_after_their_labels() {
         let input: MdTemplateInput = syn::parse_str(
             r####"r###"
             ![Brand](public/images/brand.svg)
 
-            [Dynamic]({url})
+            [Dynamic]({url}) and ![Versioned](public/logo.svg?v={version})
 
             `![InlineCode](public/inline.svg)`
 
@@ -1023,41 +1079,36 @@ mod tests {
             ![FenceCode](public/fence.svg)
             ```
 
-            [Docs](</docs/guide.md>) and [Again {{x}}](public/images/brand.svg)
+            [Docs](</docs/guide.md>) and [see (public/images/brand.svg) {{x}}](public/images/brand.svg)
             "###"####,
         )
         .unwrap();
         let token = input.lit.token().to_string();
         let found: Vec<_> = input
-            .static_link_destinations()
+            .link_destinations()
             .unwrap()
             .into_iter()
-            .map(|(destination, location)| {
-                let ExprLocation::Literal { range, .. } = location else {
-                    panic!("unmapped destination {destination}: {location:?}");
+            .map(|destination| {
+                let ExprLocation::Literal { range, .. } = destination.location.clone() else {
+                    panic!("unmapped destination {destination:?}");
                 };
                 let line = token[..range.start].matches('\n').count();
-                (destination, line, token[range].to_string())
+                assert_eq!(&token[range.clone()], destination.text, "{destination:?}");
+                let before = token[..range.start].trim_end_matches('<');
+                assert!(
+                    before.ends_with("]("),
+                    "points at the label: {destination:?}"
+                );
+                (destination.text, destination.interpolated, line)
             })
             .collect();
         assert_eq!(
             found,
             [
-                (
-                    "public/images/brand.svg".to_string(),
-                    1,
-                    "public/images/brand.svg".to_string()
-                ),
-                (
-                    "/docs/guide.md".to_string(),
-                    11,
-                    "/docs/guide.md".to_string()
-                ),
-                (
-                    "public/images/brand.svg".to_string(),
-                    11,
-                    "public/images/brand.svg".to_string()
-                ),
+                ("public/images/brand.svg".to_string(), false, 1),
+                ("public/logo.svg?v=".to_string(), true, 3),
+                ("/docs/guide.md".to_string(), false, 11),
+                ("public/images/brand.svg".to_string(), false, 11),
             ]
         );
     }

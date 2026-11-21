@@ -458,6 +458,104 @@ fn macro_rules_close_delimiter(source: &str, after_macro_rules: usize) -> Option
     find_matching_delimiter(source, cursor, close)
 }
 
+/// Out-of-line `mod name;` items at the top level of `source`, with whether
+/// each carries exactly `#[cfg(test)]` and whether it has a `#[path]`
+/// attribute. One lexical pass: comments, strings, and inline module bodies
+/// are skipped, so text that merely looks like a declaration never counts.
+pub(crate) fn top_level_module_declarations(source: &str) -> Vec<(String, bool, bool)> {
+    let bytes = source.as_bytes();
+    let mut declarations = Vec::new();
+    // Compact text of the outer attributes since the last item boundary.
+    let mut attributes: Vec<String> = Vec::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some(next) = skip_ignored(source, i) {
+            i = next;
+            continue;
+        }
+        match bytes[i] {
+            b'#' => {
+                let inner = bytes.get(skip_ws(bytes, i + 1)) == Some(&b'!');
+                let open = skip_ws(
+                    bytes,
+                    if inner {
+                        skip_ws(bytes, i + 1) + 1
+                    } else {
+                        i + 1
+                    },
+                );
+                match (bytes.get(open), find_matching_delimiter(source, open, b']')) {
+                    (Some(b'['), Some(close)) => {
+                        if depth == 0 && !inner {
+                            attributes.push(
+                                source[open + 1..close]
+                                    .chars()
+                                    .filter(|ch| !ch.is_whitespace())
+                                    .collect(),
+                            );
+                        }
+                        i = close + 1;
+                    }
+                    _ => i += 1,
+                }
+            }
+            b'{' | b'}' | b';' => {
+                match bytes[i] {
+                    b'{' => depth += 1,
+                    b'}' => depth = depth.saturating_sub(1),
+                    _ => {}
+                }
+                attributes.clear();
+                i += 1;
+            }
+            byte if is_ident_start(byte) => {
+                let end = parse_ident_end(bytes, i);
+                let word = &source[i..end];
+                i = end;
+                if depth != 0 {
+                    continue;
+                }
+                match word {
+                    // Visibility belongs to the item that follows.
+                    "pub" => {
+                        let open = skip_ws(bytes, i);
+                        if bytes.get(open) == Some(&b'(') {
+                            if let Some(close) = find_matching_delimiter(source, open, b')') {
+                                i = close + 1;
+                            }
+                        }
+                    }
+                    "mod" => {
+                        let name_start = skip_ws(bytes, i);
+                        if !bytes.get(name_start).is_some_and(|b| is_ident_start(*b)) {
+                            attributes.clear();
+                            continue;
+                        }
+                        let name_end = parse_ident_end(bytes, name_start);
+                        let after = skip_ws(bytes, name_end);
+                        if bytes.get(after) == Some(&b';') {
+                            declarations.push((
+                                source[name_start..name_end].to_owned(),
+                                attributes.iter().any(|attr| attr == "cfg(test)"),
+                                attributes.iter().any(|attr| attr.starts_with("path=")),
+                            ));
+                            attributes.clear();
+                            i = after + 1;
+                        } else {
+                            // An inline body: its `{` resets the attributes.
+                            i = name_end;
+                        }
+                    }
+                    _ => attributes.clear(),
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    declarations
+}
+
 fn qualified_macro_owner(source: &str, name_start: usize) -> Option<&str> {
     let prefix = source.get(..name_start)?.trim_end();
     let before_separator = prefix.strip_suffix("::")?.trim_end();

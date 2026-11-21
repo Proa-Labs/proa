@@ -470,10 +470,16 @@ pub(super) fn lint_parsed(
         if let Some(package) = package_by_dir.get(dir) {
             return *package;
         }
-        let root = package_scope(dir).unwrap_or_else(|| absolute.to_path_buf());
+        let root = package_scope(dir);
         let next = PackageId(packages.len() as u32);
-        let package = *packages.entry(root).or_insert(next);
-        package_by_dir.insert(dir.to_path_buf(), package);
+        // A file outside any package is its own scope, so unrelated sibling
+        // snippets never share (or collide on) inferred facts.
+        let package = *packages
+            .entry(root.clone().unwrap_or_else(|| absolute.to_path_buf()))
+            .or_insert(next);
+        if root.is_some() {
+            package_by_dir.insert(dir.to_path_buf(), package);
+        }
         package
     };
     let files: Vec<PreparedFile<'_>> = sources
@@ -748,6 +754,7 @@ fn infer_roles_in_item(
                     templates,
                     schema,
                 );
+                infer.reassigned = reassigned_locals(&method.block);
                 infer.bind_signature(&method.sig);
                 infer.visit_block(&method.block);
             }
@@ -766,6 +773,7 @@ fn infer_roles_in_item(
                 templates,
                 schema,
             );
+            infer.reassigned = reassigned_locals(&item_fn.block);
             infer.bind_signature(&item_fn.sig);
             infer.visit_block(&item_fn.block);
         }
@@ -792,6 +800,8 @@ struct RoleInferer<'a> {
     var_types: BTreeMap<String, String>,
     /// Local variable -> exact upstream ValueSlot (from destructuring, params, or `let x = self.f`).
     var_slots: BTreeMap<String, ValueSlot>,
+    /// Locals reassigned somewhere in the body; never bound to a slot.
+    reassigned: BTreeSet<String>,
 }
 
 impl<'a> RoleInferer<'a> {
@@ -818,6 +828,7 @@ impl<'a> RoleInferer<'a> {
             schema,
             var_types,
             var_slots: BTreeMap::new(),
+            reassigned: BTreeSet::new(),
         }
     }
 
@@ -831,7 +842,9 @@ impl<'a> RoleInferer<'a> {
                         if let Some(ty_name) = extract_inner_type_ident(&pat_type.ty) {
                             self.var_types.insert(ident.clone(), ty_name);
                         }
-                        if let Some(func) = self.func_name {
+                        if let Some(func) =
+                            self.func_name.filter(|_| !self.reassigned.contains(&ident))
+                        {
                             self.var_slots.insert(
                                 ident,
                                 ValueSlot::Param(ParamKey {
@@ -1069,10 +1082,13 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
     fn visit_local(&mut self, local: &'ast Local) {
         if let Some(init) = &local.init {
             if let Some(ident) = simple_pat_ident(&local.pat) {
-                if let Some(slot) = self.resolve_expr_slot(&init.expr) {
-                    self.var_slots.insert(ident.clone(), slot);
-                } else {
-                    self.var_slots.remove(&ident);
+                match self.resolve_expr_slot(&init.expr) {
+                    Some(slot) if !self.reassigned.contains(&ident) => {
+                        self.var_slots.insert(ident.clone(), slot);
+                    }
+                    _ => {
+                        self.var_slots.remove(&ident);
+                    }
                 }
                 if let Some(ty) = pat_explicit_type(&local.pat)
                     .and_then(extract_inner_type_ident)
@@ -1337,6 +1353,7 @@ fn lint_single_file(
             catalog,
             file_str_bindings: &file_str_bindings,
             local_str_bindings: BTreeMap::new(),
+            reassigned: BTreeSet::new(),
             self_type: None,
             in_render_context: false,
             diagnostics,
@@ -1470,6 +1487,8 @@ struct FileAssetChecker<'a> {
     catalog: Option<&'a PublicCatalog>,
     file_str_bindings: &'a BTreeMap<String, String>,
     local_str_bindings: BTreeMap<String, String>,
+    /// Locals reassigned in the current function; never bound to a string.
+    reassigned: BTreeSet<String>,
     self_type: Option<String>,
     in_render_context: bool,
     diagnostics: &'a mut Vec<Diagnostic>,
@@ -1522,6 +1541,8 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     }
                     let prev_render = self.in_render_context;
                     let prev_locals = std::mem::take(&mut self.local_str_bindings);
+                    let prev_reassigned =
+                        std::mem::replace(&mut self.reassigned, reassigned_locals(&method.block));
                     let method_name = method.sig.ident.to_string();
                     self.in_render_context = is_render_impl
                         && matches!(
@@ -1531,6 +1552,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     self.visit_block(&method.block);
                     self.in_render_context = prev_render;
                     self.local_str_bindings = prev_locals;
+                    self.reassigned = prev_reassigned;
                 }
                 other => visit::visit_impl_item(self, other),
             }
@@ -1543,11 +1565,14 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
             return;
         }
         let prev_locals = std::mem::take(&mut self.local_str_bindings);
+        let prev_reassigned =
+            std::mem::replace(&mut self.reassigned, reassigned_locals(&item_fn.block));
         let prev_render = self.in_render_context;
         self.in_render_context = false;
         visit::visit_item_fn(self, item_fn);
         self.in_render_context = prev_render;
         self.local_str_bindings = prev_locals;
+        self.reassigned = prev_reassigned;
     }
 
     fn visit_item_mod(&mut self, item_mod: &'ast syn::ItemMod) {
@@ -1560,10 +1585,13 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     fn visit_local(&mut self, local: &'ast Local) {
         if let Some(init) = &local.init {
             if let Some(ident) = simple_pat_ident(&local.pat) {
-                if let Some(value) = extract_str_literal(&init.expr) {
-                    self.local_str_bindings.insert(ident, value);
-                } else {
-                    self.local_str_bindings.remove(&ident);
+                match extract_str_literal(&init.expr) {
+                    Some(value) if !self.reassigned.contains(&ident) => {
+                        self.local_str_bindings.insert(ident, value);
+                    }
+                    _ => {
+                        self.local_str_bindings.remove(&ident);
+                    }
                 }
             }
         }
@@ -1725,9 +1753,16 @@ impl MacroAssetChecker<'_> {
             return;
         };
 
-        // Check static Markdown link/image destinations (e.g. `![Brand](public/brand.svg)`).
-        for (dest, location) in input.static_link_destinations().unwrap_or_default() {
-            if let Some(kind) = asset_url(&dest, self.catalog) {
+        // Check written Markdown link/image destinations (e.g. `![Brand](public/brand.svg)`),
+        // including the static text before a slot (`public/logo.svg?v={version}`).
+        for destination in input.link_destinations().unwrap_or_default() {
+            let kind = if destination.interpolated {
+                asset_url_prefix(&destination.text)
+            } else {
+                asset_url(&destination.text, self.catalog)
+            };
+            let location = destination.location;
+            if let Some(kind) = kind {
                 let (code, message, help) = diagnostic_for_asset_url(&kind, false);
                 let (line, column) = self
                     .md_point(location)
@@ -2185,6 +2220,52 @@ fn path_last_ident(path: &SynPath) -> Option<String> {
     path.segments.last().map(|seg| seg.ident.to_string())
 }
 
+/// Locals assigned after their binding anywhere in `block` (`x = ..` or a
+/// compound assignment such as `x += ..`). The initializer is not their value
+/// at every use, so string and field bindings ignore them rather than report
+/// a stale value or miss the current one.
+fn reassigned_locals(block: &Block) -> BTreeSet<String> {
+    #[derive(Default)]
+    struct Assignments(BTreeSet<String>);
+    impl Assignments {
+        fn target(&mut self, expr: &Expr) {
+            if let Expr::Path(path) = expr {
+                if let Some(ident) = path.path.get_ident() {
+                    self.0.insert(ident.to_string());
+                }
+            }
+        }
+    }
+    impl<'ast> Visit<'ast> for Assignments {
+        fn visit_expr_assign(&mut self, expr: &'ast syn::ExprAssign) {
+            self.target(&expr.left);
+            visit::visit_expr_assign(self, expr);
+        }
+        fn visit_expr_binary(&mut self, expr: &'ast syn::ExprBinary) {
+            use syn::BinOp::*;
+            if matches!(
+                expr.op,
+                AddAssign(_)
+                    | SubAssign(_)
+                    | MulAssign(_)
+                    | DivAssign(_)
+                    | RemAssign(_)
+                    | BitXorAssign(_)
+                    | BitAndAssign(_)
+                    | BitOrAssign(_)
+                    | ShlAssign(_)
+                    | ShrAssign(_)
+            ) {
+                self.target(&expr.left);
+            }
+            visit::visit_expr_binary(self, expr);
+        }
+    }
+    let mut assignments = Assignments::default();
+    assignments.visit_block(block);
+    assignments.0
+}
+
 fn simple_pat_ident(pat: &Pat) -> Option<String> {
     match pat {
         Pat::Ident(ident) => Some(ident.ident.to_string()),
@@ -2281,6 +2362,26 @@ fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
         catalog.and_then(|cat| cat.logical_path_for_root_relative(path))
     {
         Some(AssetUrl::PublicFile { logical_path })
+    } else {
+        None
+    }
+}
+
+/// Asset kind already proven by the static text before a slot, as in
+/// `public/{name}.svg` or `/_proa/assets/{file}`. Matching a catalog file
+/// needs the whole path, so only logical and generated prefixes count.
+fn asset_url_prefix(prefix: &str) -> Option<AssetUrl> {
+    let prefix = prefix.trim_start();
+    if ["public/", "./public/", "/public/"]
+        .iter()
+        .any(|logical| prefix.starts_with(logical))
+    {
+        Some(AssetUrl::Logical)
+    } else if prefix.starts_with('/')
+        && !prefix.starts_with("//")
+        && prefix.contains("/_proa/assets/")
+    {
+        Some(AssetUrl::Generated)
     } else {
         None
     }

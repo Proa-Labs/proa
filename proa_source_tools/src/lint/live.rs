@@ -61,6 +61,13 @@ pub fn lint_snapshot(overlays: &[SourceOverlay]) -> Result<Vec<Diagnostic>> {
     for (overlay, path) in overlays.iter().zip(&paths) {
         sources.insert(path.clone(), overlay.source.clone());
     }
+    // Unsaved buffers decide which module files are test-only in this snapshot.
+    let _overrides = super::SourceOverrides::install(
+        overlays
+            .iter()
+            .zip(&paths)
+            .map(|(overlay, path)| (path.clone(), overlay.source.clone())),
+    );
 
     let mut diagnostics = Vec::new();
     let mut invalid_packages = BTreeSet::new();

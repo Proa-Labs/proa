@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 pub(crate) fn is_test_path(path: &Path) -> bool {
     path.components()
@@ -10,10 +10,12 @@ pub(crate) fn is_test_path(path: &Path) -> bool {
         || is_cfg_test_module_file(path)
 }
 
-/// Whether `path` is a module file that its parent declares with
-/// `#[cfg(test)] mod name;` (for example `src/assets/tests.rs`), or a module
-/// nested inside one. Inline `#[cfg(test)] mod tests { .. }` blocks are
-/// covered by [`cfg_test_module_line_ranges`] instead.
+/// Whether `path` is a module file compiled only for tests: every parent that
+/// declares it does so under `#[cfg(test)]` (for example `#[cfg(test)] mod
+/// tests;` for `src/assets/tests.rs`) or is itself test-only. A file that any
+/// production module also declares ships, so it stays production code.
+/// Inline `#[cfg(test)] mod tests { .. }` blocks are covered by
+/// [`cfg_test_module_line_ranges`] instead.
 fn is_cfg_test_module_file(path: &Path) -> bool {
     let (Some(stem), Some(dir)) = (path.file_stem().and_then(|s| s.to_str()), path.parent()) else {
         return false;
@@ -27,7 +29,8 @@ fn is_cfg_test_module_file(path: &Path) -> bool {
         name => (name, dir),
     };
     // `name` is declared by the module that owns `module_dir`: `<dir>.rs`,
-    // `<dir>/mod.rs`, or a crate root beside it.
+    // `<dir>/mod.rs`, or a crate root beside it (a package can have both
+    // `lib.rs` and `main.rs`).
     let mut parents = vec![
         module_dir.join("mod.rs"),
         module_dir.join("lib.rs"),
@@ -39,22 +42,92 @@ fn is_cfg_test_module_file(path: &Path) -> bool {
     ) {
         parents.push(outer.join(format!("{dir_name}.rs")));
     }
-    parents.iter().any(|parent| {
-        cfg_test_module_names(parent).is_some_and(|names| names.contains(name))
-            || (parent.is_file() && is_cfg_test_module_file(parent))
-    })
+    let mut test_owner = false;
+    for parent in &parents {
+        let Some(test_only) = module_declarations(parent).and_then(|d| d.get(name).copied()) else {
+            continue;
+        };
+        if test_only || is_cfg_test_module_file(parent) {
+            test_owner = true;
+        } else {
+            return false;
+        }
+    }
+    test_owner
 }
 
-/// Out-of-line modules that `parent` declares under `#[cfg(test)]`.
+/// Out-of-line `mod name;` items declared at the top level of one file,
+/// mapped to whether every declaration of that name is `#[cfg(test)]`.
+/// Declarations with `#[path]` live elsewhere and are left out; nested inline
+/// modules own other directories.
+type ModuleDeclarations = BTreeMap<String, bool>;
+
+fn parse_module_declarations(source: &str) -> ModuleDeclarations {
+    let mut declarations = ModuleDeclarations::new();
+    for (name, test_only, has_path) in crate::source::top_level_module_declarations(source) {
+        if has_path {
+            continue;
+        }
+        declarations
+            .entry(name)
+            .and_modify(|all_test| *all_test &= test_only)
+            .or_insert(test_only);
+    }
+    declarations
+}
+
+thread_local! {
+    /// Unsaved editor buffers for the snapshot being linted on this thread.
+    static SOURCE_OVERRIDES: std::cell::RefCell<
+        HashMap<PathBuf, (String, Option<std::sync::Arc<ModuleDeclarations>>)>,
+    > = Default::default();
+}
+
+/// While alive, test-module checks on this thread read the given files from
+/// memory instead of disk, so an unsaved edit to a `mod` declaration takes
+/// effect in the same snapshot. The previous overrides return on drop.
+pub(crate) struct SourceOverrides {
+    previous: HashMap<PathBuf, (String, Option<std::sync::Arc<ModuleDeclarations>>)>,
+}
+
+impl SourceOverrides {
+    pub(crate) fn install(sources: impl IntoIterator<Item = (PathBuf, String)>) -> Self {
+        let overrides = sources
+            .into_iter()
+            .map(|(path, source)| (path, (source, None)))
+            .collect();
+        let previous = SOURCE_OVERRIDES.with(|cell| cell.replace(overrides));
+        Self { previous }
+    }
+}
+
+impl Drop for SourceOverrides {
+    fn drop(&mut self) {
+        let previous = std::mem::take(&mut self.previous);
+        SOURCE_OVERRIDES.with(|cell| *cell.borrow_mut() = previous);
+    }
+}
+
+/// Module declarations in `parent`, from an editor override or from disk.
 ///
-/// Every lint pass asks about every file, so each parent is read once and
+/// Every lint pass asks about every file, so a file on disk is parsed once and
 /// cached until its modification time or length changes (the editor server
 /// is long-lived).
-fn cfg_test_module_names(parent: &Path) -> Option<std::sync::Arc<BTreeSet<String>>> {
+fn module_declarations(parent: &Path) -> Option<std::sync::Arc<ModuleDeclarations>> {
     use std::sync::{Arc, Mutex, OnceLock};
     type Stamp = (std::time::SystemTime, u64);
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, (Stamp, Arc<BTreeSet<String>>)>>> =
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, (Stamp, Arc<ModuleDeclarations>)>>> =
         OnceLock::new();
+
+    if let Some(declarations) = SOURCE_OVERRIDES.with(|cell| {
+        let mut overrides = cell.borrow_mut();
+        let (source, parsed) = overrides.get_mut(parent)?;
+        Some(Arc::clone(parsed.get_or_insert_with(|| {
+            Arc::new(parse_module_declarations(source))
+        })))
+    }) {
+        return Some(declarations);
+    }
 
     let metadata = std::fs::metadata(parent).ok()?;
     let stamp = (metadata.modified().ok()?, metadata.len());
@@ -64,69 +137,16 @@ fn cfg_test_module_names(parent: &Path) -> Option<std::sync::Arc<BTreeSet<String
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     };
-    if let Some((cached, names)) = lock().get(parent) {
+    if let Some((cached, declarations)) = lock().get(parent) {
         if *cached == stamp {
-            return Some(Arc::clone(names));
+            return Some(Arc::clone(declarations));
         }
     }
-    let names = Arc::new(cfg_test_module_declarations(
+    let declarations = Arc::new(parse_module_declarations(
         &std::fs::read_to_string(parent).ok()?,
     ));
-    lock().insert(parent.to_path_buf(), (stamp, Arc::clone(&names)));
-    Some(names)
-}
-
-/// Names of out-of-line modules declared under exactly `#[cfg(test)]`, the
-/// attribute [`cfg_test_module_line_ranges`] accepts, on the same line or on
-/// attribute lines just above the declaration.
-fn cfg_test_module_declarations(source: &str) -> BTreeSet<String> {
-    let mut names = BTreeSet::new();
-    let mut cfg_test_pending = false;
-    for line in source.lines() {
-        let mut rest = line.trim();
-        while let Some(attribute) = rest.strip_prefix("#[") {
-            let Some(end) = attribute.find(']') else {
-                break;
-            };
-            let compact: String = attribute[..end]
-                .chars()
-                .filter(|ch| !ch.is_whitespace())
-                .collect();
-            cfg_test_pending |= compact == "cfg(test)";
-            rest = attribute[end + 1..].trim_start();
-        }
-        if rest.is_empty() || rest.starts_with("//") {
-            continue;
-        }
-        if cfg_test_pending {
-            if let Some(name) = declared_module(rest) {
-                names.insert(name.to_owned());
-            }
-        }
-        cfg_test_pending = false;
-    }
-    names
-}
-
-/// The name in `mod name;` with an optional visibility, such as
-/// `pub(crate) mod name;`.
-fn declared_module(item: &str) -> Option<&str> {
-    let mut rest = item;
-    if let Some(after) = rest.strip_prefix("pub") {
-        rest = after.trim_start();
-        if let Some(scoped) = rest.strip_prefix('(') {
-            rest = scoped[scoped.find(')')? + 1..].trim_start();
-        }
-    }
-    let after = rest.strip_prefix("mod")?;
-    if !after.starts_with(char::is_whitespace) {
-        return None;
-    }
-    let after = after.trim_start();
-    let end = after
-        .find(|ch: char| !(ch.is_alphanumeric() || ch == '_'))
-        .unwrap_or(after.len());
-    (end > 0 && after[end..].trim_start().starts_with(';')).then(|| &after[..end])
+    lock().insert(parent.to_path_buf(), (stamp, Arc::clone(&declarations)));
+    Some(declarations)
 }
 
 pub(crate) fn cfg_test_module_line_ranges(source: &str) -> Vec<RangeInclusive<usize>> {
@@ -196,7 +216,15 @@ pub(crate) fn dedupe_diagnostics(diagnostics: &mut Vec<Diagnostic>) {
     let mut seen = HashSet::new();
     let keep: Vec<bool> = diagnostics
         .iter()
-        .map(|diag| seen.insert((diag.line, diag.column, diag.code, diag.message.as_str())))
+        .map(|diag| {
+            seen.insert((
+                diag.path.as_path(),
+                diag.line,
+                diag.column,
+                diag.code,
+                diag.message.as_str(),
+            ))
+        })
         .collect();
     drop(seen);
     let mut keep = keep.into_iter();
