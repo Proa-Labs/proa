@@ -798,9 +798,8 @@ struct RoleInferer<'a> {
     var_types: BTreeMap<String, String>,
     /// Local variable -> exact upstream ValueSlot (from destructuring, params, or `let x = self.f`).
     var_slots: BTreeMap<String, ValueSlot>,
-    /// Set by `visit_block` for the `let` about to be visited: whether that
-    /// binding is reassigned later in its scope.
-    next_local_reassigned: bool,
+    /// Bindings in the current function assigned after they are introduced.
+    reassigned: BTreeSet<BindingId>,
 }
 
 impl<'a> RoleInferer<'a> {
@@ -827,11 +826,12 @@ impl<'a> RoleInferer<'a> {
             schema,
             var_types,
             var_slots: BTreeMap::new(),
-            next_local_reassigned: false,
+            reassigned: BTreeSet::new(),
         }
     }
 
     fn bind_signature(&mut self, sig: &syn::Signature, body: &Block) {
+        self.reassigned = reassigned_bindings(signature_patterns(sig), body);
         let mut param_index = 0usize;
         for input in &sig.inputs {
             match input {
@@ -841,10 +841,9 @@ impl<'a> RoleInferer<'a> {
                         if let Some(ty_name) = extract_inner_type_ident(&pat_type.ty) {
                             self.var_types.insert(ident.clone(), ty_name);
                         }
-                        if let Some(func) = self
-                            .func_name
-                            .filter(|_| !binding_reassigned(&ident, &body.stmts))
-                        {
+                        let reassigned = simple_pat_ident_token(&pat_type.pat)
+                            .is_some_and(|ident| self.reassigned.contains(&binding_id(ident)));
+                        if let Some(func) = self.func_name.filter(|_| !reassigned) {
                             self.var_slots.insert(
                                 ident,
                                 ValueSlot::Param(ParamKey {
@@ -859,6 +858,15 @@ impl<'a> RoleInferer<'a> {
                     param_index += 1;
                 }
             }
+        }
+    }
+
+    /// A pattern's names shadow outer bindings until its scope ends.
+    fn hide(&mut self, pat: &Pat) {
+        for ident in pat_bindings(pat) {
+            let name = ident.to_string();
+            self.var_slots.remove(&name);
+            self.var_types.remove(&name);
         }
     }
 
@@ -1074,19 +1082,34 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
     fn visit_block(&mut self, block: &'ast Block) {
         let prev_types = self.var_types.clone();
         let prev_slots = self.var_slots.clone();
-        for (index, statement) in block.stmts.iter().enumerate() {
-            self.next_local_reassigned = local_reassigned(statement, &block.stmts[index + 1..]);
-            self.visit_stmt(statement);
-        }
+        visit::visit_block(self, block);
         self.var_types = prev_types;
         self.var_slots = prev_slots;
     }
 
     fn visit_local(&mut self, local: &'ast Local) {
-        let reassigned = std::mem::take(&mut self.next_local_reassigned);
+        let reassigned = simple_pat_ident_token(&local.pat)
+            .is_some_and(|ident| self.reassigned.contains(&binding_id(ident)));
+        // The initializer sees the bindings before this `let`, and every name
+        // the pattern binds shadows an outer one.
+        let slot = local
+            .init
+            .as_ref()
+            .and_then(|init| self.resolve_expr_slot(&init.expr));
+        let ty = local
+            .init
+            .as_ref()
+            .and_then(|init| self.resolve_expr_type(&init.expr));
         if let Some(init) = &local.init {
+            self.visit_expr(&init.expr);
+            if let Some((_, diverge)) = &init.diverge {
+                self.visit_expr(diverge);
+            }
+        }
+        self.hide(&local.pat);
+        if local.init.is_some() {
             if let Some(ident) = simple_pat_ident(&local.pat) {
-                match self.resolve_expr_slot(&init.expr) {
+                match slot {
                     Some(slot) if !reassigned => {
                         self.var_slots.insert(ident.clone(), slot);
                     }
@@ -1096,7 +1119,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                 }
                 if let Some(ty) = pat_explicit_type(&local.pat)
                     .and_then(extract_inner_type_ident)
-                    .or_else(|| self.resolve_expr_type(&init.expr))
+                    .or(ty)
                 {
                     self.var_types.insert(ident, ty);
                 } else {
@@ -1111,7 +1134,7 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                             name
                         }
                     })
-                    .or_else(|| self.resolve_expr_type(&init.expr));
+                    .or(ty);
                 if let Some(ty_name) = struct_ty {
                     for field_pat in &pat_struct.fields {
                         if let syn::Member::Named(member) = &field_pat.member {
@@ -1142,13 +1165,15 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                 }
             }
         }
-        visit::visit_local(self, local);
     }
 
     fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+        let elem_ty = self.resolve_expr_type(&expr.expr);
+        self.visit_expr(&expr.expr);
         let prev_types = self.var_types.clone();
         let prev_slots = self.var_slots.clone();
-        if let Some(elem_ty) = self.resolve_expr_type(&expr.expr) {
+        self.hide(&expr.pat);
+        if let Some(elem_ty) = elem_ty {
             if let Some(ident) = simple_pat_ident(&expr.pat) {
                 self.var_types.insert(ident, elem_ty);
             } else if let Pat::Tuple(tuple) = expr.pat.as_ref() {
@@ -1160,25 +1185,68 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
                 }
             }
         }
-        visit::visit_expr_for_loop(self, expr);
+        self.visit_block(&expr.body);
         self.var_types = prev_types;
         self.var_slots = prev_slots;
     }
 
     fn visit_expr_if(&mut self, expr: &'ast syn::ExprIf) {
+        let Expr::Let(expr_let) = expr.cond.as_ref() else {
+            visit::visit_expr_if(self, expr);
+            return;
+        };
+        let slot = self.resolve_expr_slot(&expr_let.expr);
+        let ty = self.resolve_expr_type(&expr_let.expr);
+        self.visit_expr(&expr_let.expr);
         let prev_types = self.var_types.clone();
         let prev_slots = self.var_slots.clone();
-        if let Expr::Let(expr_let) = expr.cond.as_ref() {
-            if let Some(binding) = unwrap_some_pat_ident(&expr_let.pat) {
-                if let Some(slot) = self.resolve_expr_slot(&expr_let.expr) {
-                    self.var_slots.insert(binding.clone(), slot);
-                }
-                if let Some(ty) = self.resolve_expr_type(&expr_let.expr) {
-                    self.var_types.insert(binding, ty);
-                }
+        self.hide(&expr_let.pat);
+        if let Some(binding) = unwrap_some_pat_ident(&expr_let.pat) {
+            if let Some(slot) = slot {
+                self.var_slots.insert(binding.clone(), slot);
+            }
+            if let Some(ty) = ty {
+                self.var_types.insert(binding, ty);
             }
         }
-        visit::visit_expr_if(self, expr);
+        self.visit_block(&expr.then_branch);
+        self.var_types = prev_types;
+        self.var_slots = prev_slots;
+        if let Some((_, else_branch)) = &expr.else_branch {
+            self.visit_expr(else_branch);
+        }
+    }
+
+    fn visit_expr_while(&mut self, expr: &'ast syn::ExprWhile) {
+        let Expr::Let(expr_let) = expr.cond.as_ref() else {
+            visit::visit_expr_while(self, expr);
+            return;
+        };
+        self.visit_expr(&expr_let.expr);
+        let prev_types = self.var_types.clone();
+        let prev_slots = self.var_slots.clone();
+        self.hide(&expr_let.pat);
+        self.visit_block(&expr.body);
+        self.var_types = prev_types;
+        self.var_slots = prev_slots;
+    }
+
+    fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+        let prev_types = self.var_types.clone();
+        let prev_slots = self.var_slots.clone();
+        for input in &closure.inputs {
+            self.hide(input);
+        }
+        self.visit_expr(&closure.body);
+        self.var_types = prev_types;
+        self.var_slots = prev_slots;
+    }
+
+    fn visit_arm(&mut self, arm: &'ast syn::Arm) {
+        let prev_types = self.var_types.clone();
+        let prev_slots = self.var_slots.clone();
+        self.hide(&arm.pat);
+        visit::visit_arm(self, arm);
         self.var_types = prev_types;
         self.var_slots = prev_slots;
     }
@@ -1357,7 +1425,7 @@ fn lint_single_file(
             catalog,
             file_str_bindings: &file_str_bindings,
             local_str_bindings: BTreeMap::new(),
-            next_local_reassigned: false,
+            reassigned: BTreeSet::new(),
             self_type: None,
             in_render_context: false,
             diagnostics,
@@ -1491,15 +1559,21 @@ struct FileAssetChecker<'a> {
     catalog: Option<&'a PublicCatalog>,
     file_str_bindings: &'a BTreeMap<String, String>,
     local_str_bindings: BTreeMap<String, String>,
-    /// Set by `visit_block` for the `let` about to be visited: whether that
-    /// binding is reassigned later in its scope.
-    next_local_reassigned: bool,
+    /// Bindings in the current function assigned after they are introduced.
+    reassigned: BTreeSet<BindingId>,
     self_type: Option<String>,
     in_render_context: bool,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
 impl<'a> FileAssetChecker<'a> {
+    /// A pattern's names shadow outer string bindings until its scope ends.
+    fn hide(&mut self, pat: &Pat) {
+        for ident in pat_bindings(pat) {
+            self.local_str_bindings.remove(&ident.to_string());
+        }
+    }
+
     fn as_macro_checker(&mut self) -> MacroAssetChecker<'_> {
         MacroAssetChecker {
             package: self.package,
@@ -1523,10 +1597,58 @@ impl<'a> FileAssetChecker<'a> {
 impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     fn visit_block(&mut self, block: &'ast Block) {
         let prev_locals = self.local_str_bindings.clone();
-        for (index, statement) in block.stmts.iter().enumerate() {
-            self.next_local_reassigned = local_reassigned(statement, &block.stmts[index + 1..]);
-            self.visit_stmt(statement);
+        visit::visit_block(self, block);
+        self.local_str_bindings = prev_locals;
+    }
+
+    fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+        let prev_locals = self.local_str_bindings.clone();
+        for input in &closure.inputs {
+            self.hide(input);
         }
+        visit::visit_expr_closure(self, closure);
+        self.local_str_bindings = prev_locals;
+    }
+
+    fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+        self.visit_expr(&expr.expr);
+        let prev_locals = self.local_str_bindings.clone();
+        self.hide(&expr.pat);
+        self.visit_block(&expr.body);
+        self.local_str_bindings = prev_locals;
+    }
+
+    fn visit_expr_if(&mut self, expr: &'ast syn::ExprIf) {
+        let Expr::Let(cond) = expr.cond.as_ref() else {
+            visit::visit_expr_if(self, expr);
+            return;
+        };
+        self.visit_expr(&cond.expr);
+        let prev_locals = self.local_str_bindings.clone();
+        self.hide(&cond.pat);
+        self.visit_block(&expr.then_branch);
+        self.local_str_bindings = prev_locals;
+        if let Some((_, else_branch)) = &expr.else_branch {
+            self.visit_expr(else_branch);
+        }
+    }
+
+    fn visit_expr_while(&mut self, expr: &'ast syn::ExprWhile) {
+        let Expr::Let(cond) = expr.cond.as_ref() else {
+            visit::visit_expr_while(self, expr);
+            return;
+        };
+        self.visit_expr(&cond.expr);
+        let prev_locals = self.local_str_bindings.clone();
+        self.hide(&cond.pat);
+        self.visit_block(&expr.body);
+        self.local_str_bindings = prev_locals;
+    }
+
+    fn visit_arm(&mut self, arm: &'ast syn::Arm) {
+        let prev_locals = self.local_str_bindings.clone();
+        self.hide(&arm.pat);
+        visit::visit_arm(self, arm);
         self.local_str_bindings = prev_locals;
     }
 
@@ -1549,6 +1671,10 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     }
                     let prev_render = self.in_render_context;
                     let prev_locals = std::mem::take(&mut self.local_str_bindings);
+                    let prev_reassigned = std::mem::replace(
+                        &mut self.reassigned,
+                        reassigned_bindings(signature_patterns(&method.sig), &method.block),
+                    );
                     let method_name = method.sig.ident.to_string();
                     self.in_render_context = is_render_impl
                         && matches!(
@@ -1558,6 +1684,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
                     self.visit_block(&method.block);
                     self.in_render_context = prev_render;
                     self.local_str_bindings = prev_locals;
+                    self.reassigned = prev_reassigned;
                 }
                 other => visit::visit_impl_item(self, other),
             }
@@ -1570,11 +1697,16 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
             return;
         }
         let prev_locals = std::mem::take(&mut self.local_str_bindings);
+        let prev_reassigned = std::mem::replace(
+            &mut self.reassigned,
+            reassigned_bindings(signature_patterns(&item_fn.sig), &item_fn.block),
+        );
         let prev_render = self.in_render_context;
         self.in_render_context = false;
         visit::visit_item_fn(self, item_fn);
         self.in_render_context = prev_render;
         self.local_str_bindings = prev_locals;
+        self.reassigned = prev_reassigned;
     }
 
     fn visit_item_mod(&mut self, item_mod: &'ast syn::ItemMod) {
@@ -1585,20 +1717,27 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     }
 
     fn visit_local(&mut self, local: &'ast Local) {
-        let reassigned = std::mem::take(&mut self.next_local_reassigned);
+        // The initializer sees the bindings before this `let`, and every name
+        // the pattern binds shadows an outer one.
         if let Some(init) = &local.init {
-            if let Some(ident) = simple_pat_ident(&local.pat) {
-                match extract_str_literal(&init.expr) {
-                    Some(value) if !reassigned => {
-                        self.local_str_bindings.insert(ident, value);
-                    }
-                    _ => {
-                        self.local_str_bindings.remove(&ident);
-                    }
-                }
+            self.visit_expr(&init.expr);
+            if let Some((_, diverge)) = &init.diverge {
+                self.visit_expr(diverge);
             }
         }
-        visit::visit_local(self, local);
+        self.hide(&local.pat);
+        let Some(init) = &local.init else {
+            return;
+        };
+        let Some(ident) = simple_pat_ident_token(&local.pat) else {
+            return;
+        };
+        if self.reassigned.contains(&binding_id(ident)) {
+            return;
+        }
+        if let Some(value) = extract_str_literal(&init.expr) {
+            self.local_str_bindings.insert(ident.to_string(), value);
+        }
     }
 
     fn visit_expr_struct(&mut self, expr: &'ast syn::ExprStruct) {
@@ -2229,71 +2368,144 @@ fn path_last_ident(path: &SynPath) -> Option<String> {
 /// before anything re-binds `name`. Such a binding's initializer is not its
 /// value at every use, so string and field bindings treat it as unknown.
 /// Assignments to an inner binding that shadows `name` do not count.
-/// For a `let` statement binding a single name, whether that binding is
-/// reassigned in `rest`, the statements after it in the same block.
-fn local_reassigned(statement: &syn::Stmt, rest: &[syn::Stmt]) -> bool {
-    match statement {
-        syn::Stmt::Local(local) => {
-            simple_pat_ident(&local.pat).is_some_and(|name| binding_reassigned(&name, rest))
-        }
-        _ => false,
-    }
+/// A binding, identified by where its name is written.
+type BindingId = (usize, usize);
+
+fn binding_id(ident: &syn::Ident) -> BindingId {
+    let start = ident.span().start();
+    (start.line, start.column)
 }
 
-fn binding_reassigned(name: &str, rest: &[syn::Stmt]) -> bool {
-    struct Finder<'n> {
-        name: &'n str,
-        found: bool,
-    }
-    impl Finder<'_> {
-        fn binds(&self, pat: &Pat) -> bool {
-            struct Binds<'n>(&'n str, bool);
-            impl<'ast> Visit<'ast> for Binds<'_> {
-                fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
-                    self.1 |= pat.ident == self.0;
-                    visit::visit_pat_ident(self, pat);
-                }
-            }
-            let mut binds = Binds(self.name, false);
-            binds.visit_pat(pat);
-            binds.1
-        }
-        fn target(&mut self, expr: &Expr) {
-            if let Expr::Path(path) = expr {
-                self.found |= path.path.is_ident(self.name);
-            }
-        }
-        /// Statements of one scope; a `let` of `name` ends it for the rest.
-        fn statements(&mut self, statements: &[syn::Stmt]) {
-            for statement in statements {
-                if self.found {
-                    return;
-                }
-                match statement {
-                    syn::Stmt::Local(local) => {
-                        if let Some(init) = &local.init {
-                            self.visit_expr(&init.expr);
-                            if let Some((_, diverge)) = &init.diverge {
-                                self.visit_expr(diverge);
-                            }
-                        }
-                        if self.binds(&local.pat) {
-                            return;
-                        }
-                    }
-                    // Nested items cannot see the binding.
-                    syn::Stmt::Item(_) => {}
-                    other => self.visit_stmt(other),
-                }
-            }
+/// Names a pattern binds.
+fn pat_bindings(pat: &Pat) -> Vec<&syn::Ident> {
+    struct Collect<'p>(Vec<&'p syn::Ident>);
+    impl<'p> Visit<'p> for Collect<'p> {
+        fn visit_pat_ident(&mut self, pat: &'p syn::PatIdent) {
+            self.0.push(&pat.ident);
+            visit::visit_pat_ident(self, pat);
         }
     }
-    impl<'ast> Visit<'ast> for Finder<'_> {
+    let mut collect = Collect(Vec::new());
+    collect.visit_pat(pat);
+    collect.0
+}
+
+/// Bindings of one function that are assigned after they are introduced
+/// (`x = ..` or a compound assignment such as `x += ..`). One pass resolves
+/// every assignment through Rust's scopes (blocks, closure parameters, `for`,
+/// `if let`, `while let`, and match arms), so an inner binding that shadows a
+/// name never affects the outer one. A reassigned binding's initializer is not
+/// its value at every use, so string and field bindings treat it as unknown.
+fn reassigned_bindings<'p>(
+    params: impl IntoIterator<Item = &'p Pat>,
+    body: &Block,
+) -> BTreeSet<BindingId> {
+    struct Resolver {
+        scopes: Vec<Vec<(String, BindingId)>>,
+        reassigned: BTreeSet<BindingId>,
+    }
+    impl Resolver {
+        fn bind(&mut self, pat: &Pat) {
+            let scope = self.scopes.last_mut().expect("a scope is open");
+            scope.extend(
+                pat_bindings(pat)
+                    .into_iter()
+                    .map(|ident| (ident.to_string(), binding_id(ident))),
+            );
+        }
+        fn assign(&mut self, target: &Expr) {
+            let Expr::Path(path) = target else {
+                return;
+            };
+            let Some(ident) = path.path.get_ident() else {
+                return;
+            };
+            if let Some((_, id)) = self
+                .scopes
+                .iter()
+                .rev()
+                .flat_map(|scope| scope.iter().rev())
+                .find(|(name, _)| ident == name)
+            {
+                self.reassigned.insert(*id);
+            }
+        }
+        fn scoped(&mut self, pat: Option<&Pat>, visit: impl FnOnce(&mut Self)) {
+            self.scopes.push(Vec::new());
+            if let Some(pat) = pat {
+                self.bind(pat);
+            }
+            visit(self);
+            self.scopes.pop();
+        }
+    }
+    impl<'ast> Visit<'ast> for Resolver {
         fn visit_block(&mut self, block: &'ast Block) {
-            self.statements(&block.stmts);
+            self.scoped(None, |resolver| visit::visit_block(resolver, block));
+        }
+        fn visit_local(&mut self, local: &'ast Local) {
+            // The initializer runs before the new binding exists.
+            if let Some(init) = &local.init {
+                self.visit_expr(&init.expr);
+                if let Some((_, diverge)) = &init.diverge {
+                    self.visit_expr(diverge);
+                }
+            }
+            self.bind(&local.pat);
+        }
+        // Nested items cannot see the function's locals.
+        fn visit_item(&mut self, _: &'ast Item) {}
+        fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+            self.scoped(None, |resolver| {
+                for input in &closure.inputs {
+                    resolver.bind(input);
+                }
+                resolver.visit_expr(&closure.body);
+            });
+        }
+        fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
+            self.visit_expr(&expr.expr);
+            self.scoped(Some(&expr.pat), |resolver| resolver.visit_block(&expr.body));
+        }
+        fn visit_expr_if(&mut self, expr: &'ast syn::ExprIf) {
+            match expr.cond.as_ref() {
+                Expr::Let(cond) => {
+                    self.visit_expr(&cond.expr);
+                    self.scoped(Some(&cond.pat), |resolver| {
+                        resolver.visit_block(&expr.then_branch)
+                    });
+                }
+                cond => {
+                    self.visit_expr(cond);
+                    self.visit_block(&expr.then_branch);
+                }
+            }
+            if let Some((_, else_branch)) = &expr.else_branch {
+                self.visit_expr(else_branch);
+            }
+        }
+        fn visit_expr_while(&mut self, expr: &'ast syn::ExprWhile) {
+            match expr.cond.as_ref() {
+                Expr::Let(cond) => {
+                    self.visit_expr(&cond.expr);
+                    self.scoped(Some(&cond.pat), |resolver| resolver.visit_block(&expr.body));
+                }
+                cond => {
+                    self.visit_expr(cond);
+                    self.visit_block(&expr.body);
+                }
+            }
+        }
+        fn visit_arm(&mut self, arm: &'ast syn::Arm) {
+            self.scoped(Some(&arm.pat), |resolver| {
+                if let Some((_, guard)) = &arm.guard {
+                    resolver.visit_expr(guard);
+                }
+                resolver.visit_expr(&arm.body);
+            });
         }
         fn visit_expr_assign(&mut self, expr: &'ast syn::ExprAssign) {
-            self.target(&expr.left);
+            self.assign(&expr.left);
             visit::visit_expr_assign(self, expr);
         }
         fn visit_expr_binary(&mut self, expr: &'ast syn::ExprBinary) {
@@ -2311,51 +2523,37 @@ fn binding_reassigned(name: &str, rest: &[syn::Stmt]) -> bool {
                     | ShlAssign(_)
                     | ShrAssign(_)
             ) {
-                self.target(&expr.left);
+                self.assign(&expr.left);
             }
             visit::visit_expr_binary(self, expr);
         }
-        fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
-            if !closure.inputs.iter().any(|input| self.binds(input)) {
-                self.visit_expr(&closure.body);
-            }
-        }
-        fn visit_expr_for_loop(&mut self, expr: &'ast syn::ExprForLoop) {
-            self.visit_expr(&expr.expr);
-            if !self.binds(&expr.pat) {
-                self.visit_block(&expr.body);
-            }
-        }
-        fn visit_expr_if(&mut self, expr: &'ast syn::ExprIf) {
-            match expr.cond.as_ref() {
-                Expr::Let(cond) if self.binds(&cond.pat) => self.visit_expr(&cond.expr),
-                cond => {
-                    self.visit_expr(cond);
-                    self.visit_block(&expr.then_branch);
-                }
-            }
-            if let Some((_, else_branch)) = &expr.else_branch {
-                self.visit_expr(else_branch);
-            }
-        }
-        fn visit_expr_while(&mut self, expr: &'ast syn::ExprWhile) {
-            match expr.cond.as_ref() {
-                Expr::Let(cond) if self.binds(&cond.pat) => self.visit_expr(&cond.expr),
-                cond => {
-                    self.visit_expr(cond);
-                    self.visit_block(&expr.body);
-                }
-            }
-        }
-        fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-            if !self.binds(&arm.pat) {
-                visit::visit_arm(self, arm);
-            }
-        }
     }
-    let mut finder = Finder { name, found: false };
-    finder.statements(rest);
-    finder.found
+    let mut resolver = Resolver {
+        scopes: vec![Vec::new()],
+        reassigned: BTreeSet::new(),
+    };
+    for param in params {
+        resolver.bind(param);
+    }
+    resolver.visit_block(body);
+    resolver.reassigned
+}
+
+fn signature_patterns(sig: &syn::Signature) -> impl Iterator<Item = &Pat> {
+    sig.inputs.iter().filter_map(|input| match input {
+        syn::FnArg::Typed(pat_type) => Some(pat_type.pat.as_ref()),
+        syn::FnArg::Receiver(_) => None,
+    })
+}
+
+fn simple_pat_ident_token(pat: &Pat) -> Option<&syn::Ident> {
+    match pat {
+        Pat::Ident(ident) => Some(&ident.ident),
+        Pat::Type(pat_type) => simple_pat_ident_token(&pat_type.pat),
+        Pat::Reference(pat_ref) => simple_pat_ident_token(&pat_ref.pat),
+        Pat::Paren(pat_paren) => simple_pat_ident_token(&pat_paren.pat),
+        _ => None,
+    }
 }
 
 fn simple_pat_ident(pat: &Pat) -> Option<String> {

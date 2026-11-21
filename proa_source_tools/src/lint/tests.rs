@@ -6192,3 +6192,81 @@ impl MdRenderSync for Links {
         )]
     );
 }
+
+#[test]
+fn asset_url_lint_hides_names_shadowed_by_patterns() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "public/unused.svg";
+        let draw = |mut image: &str| {
+            image = "/route";
+            html_sync! { <img src={image} alt="" /> }
+        };
+        for image in ["/a"] {
+            html_sync! { <img src={image} alt="" /> }.render(cx)?;
+        }
+        match Some("/b") {
+            Some(image) => html_sync! { <img src={image} alt="" /> }.render(cx)?,
+            None => {}
+        }
+        if let Some(image) = Some("/c") {
+            html_sync! { <img src={image} alt="" /> }.render(cx)?;
+        }
+        let (image, _) = ("/d", 1);
+        html_sync! { <img src={image} alt="" /> }.render(cx)
+    }
+}
+"#;
+    assert_eq!(asset_hits("src/logo.rs", source), vec![]);
+}
+
+#[test]
+fn asset_url_lint_keeps_outer_bindings_after_pattern_scopes() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "public/logo.svg";
+        for image in ["/a"] {
+            let _ = image;
+        }
+        let _ = |image: &str| image;
+        html_sync! { <img src={image} alt="" /> }.render(cx)
+    }
+}
+"#;
+    assert_eq!(
+        asset_hits("src/logo.rs", source),
+        vec![(10, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_scales_linearly_with_function_length() {
+    let body = |locals: usize| {
+        let mut source = String::from(
+            "pub struct Big;\nimpl WebRenderSync for Big {\n    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {\n",
+        );
+        for index in 0..locals {
+            source.push_str(&format!("        let value_{index} = \"/route\";\n"));
+        }
+        source.push_str("        html_sync! { <main></main> }.render(cx)\n    }\n}\n");
+        source
+    };
+    let time = |locals: usize| {
+        let source = body(locals);
+        let start = std::time::Instant::now();
+        lint_file(Path::new("src/big.rs"), &source);
+        start.elapsed()
+    };
+    time(250);
+    let small = time(1_000);
+    let large = time(8_000);
+    // Eight times the locals: linear work is about 8x, quadratic about 64x.
+    assert!(
+        large < small * 24,
+        "lint time grew from {small:?} to {large:?} for 8x the locals"
+    );
+}
