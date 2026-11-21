@@ -495,6 +495,79 @@ impl<'a> TypeEnv<'a> {
         }
     }
 
+    /// Whether a float-typed expression's width comes from a typed signal or
+    /// prop, or a memo over one: the producers whose Rust type the client IR
+    /// records faithfully and whose server rendering is a real float. Float
+    /// arithmetic, conditionals and negation are proven when one side is,
+    /// because Rust has no implicit float conversions.
+    ///
+    /// Everything else is unproven. [`ClientType::of_value`] types every float
+    /// literal as `F64`, but Rust types a literal from its suffix, a binding
+    /// annotation, a closure parameter type or a memo's declared type, none
+    /// of which reach the client IR. Block locals take their type from an
+    /// initializer. Query data takes its type from the initial value and
+    /// reaches server rendering as JSON text, and browser reads such as
+    /// scroll offsets render as integers on the server.
+    pub fn float_width_proven(&self, expr: &ClientExpr) -> bool {
+        self.float_width_proven_inner(expr, &mut Vec::new())
+    }
+
+    fn float_width_proven_inner(&self, expr: &ClientExpr, visiting: &mut Vec<SignalId>) -> bool {
+        match expr {
+            ClientExpr::Literal(_) | ClientExpr::Local(_) => false,
+            ClientExpr::Binary {
+                op:
+                    ClientBinaryOp::Add
+                    | ClientBinaryOp::Sub
+                    | ClientBinaryOp::Mul
+                    | ClientBinaryOp::Div
+                    | ClientBinaryOp::Rem
+                    | ClientBinaryOp::DynAdd
+                    | ClientBinaryOp::DynSub
+                    | ClientBinaryOp::DynMul
+                    | ClientBinaryOp::DynDiv
+                    | ClientBinaryOp::DynRem,
+                left,
+                right,
+            } => {
+                self.float_width_proven_inner(left, visiting)
+                    || self.float_width_proven_inner(right, visiting)
+            }
+            ClientExpr::Conditional {
+                then_expr,
+                else_expr,
+                ..
+            } => {
+                self.float_width_proven_inner(then_expr, visiting)
+                    || self.float_width_proven_inner(else_expr, visiting)
+            }
+            ClientExpr::Unary {
+                op: ClientUnaryOp::Neg,
+                expr,
+            } => self.float_width_proven_inner(expr, visiting),
+            ClientExpr::SignalRead(id) => {
+                let Some(decl) = self.signals.get(id.0 as usize) else {
+                    return false;
+                };
+                // A memo cell's type is inferred from its body.
+                let Some(body) = decl.derived else {
+                    return !decl.ty.is_unknown();
+                };
+                let Some(exprs) = self.exprs else {
+                    return false;
+                };
+                if visiting.contains(id) || body.0 as usize >= exprs.len() {
+                    return false;
+                }
+                visiting.push(*id);
+                let proven = self.float_width_proven_inner(exprs.client_expr(body), visiting);
+                visiting.pop();
+                proven
+            }
+            _ => false,
+        }
+    }
+
     /// Collect the runtime numeric anchors of a numeric subtree: the
     /// representation classes of every non-literal numeric producer,
     /// recursing through arithmetic operands and conditional arms
@@ -622,10 +695,10 @@ fn unify(a: ClientType, b: ClientType) -> ClientType {
 }
 
 /// Unify arithmetic operand types into a result type. Same-width
-/// operands keep their (left) type; mixing the two Number-backed
-/// classes yields `F64` (JS arithmetic on Numbers produces a Number
-/// with no integer proof); anything involving `Unknown` or a
-/// Number/BigInt mix stays `Unknown`.
+/// operands keep their (left) type, except that a float pair containing
+/// `F32` is `F32`; mixing the two Number-backed classes yields `F64` (JS
+/// arithmetic on Numbers produces a Number with no integer proof); anything
+/// involving `Unknown` or a Number/BigInt mix stays `Unknown`.
 fn unify_arithmetic(left: ClientType, right: ClientType) -> ClientType {
     // A runtime-pinned operand absorbs: the result's representation is whatever
     // the helper produced, which is only known at run time.
@@ -636,6 +709,15 @@ fn unify_arithmetic(left: ClientType, right: ClientType) -> ClientType {
         return ClientType::Unknown;
     };
     if lw == rw {
+        // Rust has no mixed f32/f64 arithmetic, so in code that compiled an
+        // F64 operand beside an F32 one is an unsuffixed float literal that
+        // Rust inferred as f32 (`2.0 * price` with `price: f32`). Float
+        // literals always lower to `Value::Float` (typed F64), so keep the
+        // F32 side regardless of operand order.
+        if lw == NumericWidth::NumberFloat && (left == ClientType::F32 || right == ClientType::F32)
+        {
+            return ClientType::F32;
+        }
         return left;
     }
     match (lw, rw) {
@@ -886,6 +968,27 @@ mod tests {
     }
 
     #[test]
+    fn float_arithmetic_with_an_f32_operand_is_f32_in_either_order() {
+        // `2.0 * price` with `price: f32`: the literal types F64, but Rust
+        // inferred it as f32, so the product must stay F32.
+        for (left, right) in [
+            (ClientType::F64, ClientType::F32),
+            (ClientType::F32, ClientType::F64),
+            (ClientType::F32, ClientType::F32),
+        ] {
+            assert_eq!(unify_arithmetic(left, right), ClientType::F32);
+        }
+        assert_eq!(
+            unify_arithmetic(ClientType::F64, ClientType::F64),
+            ClientType::F64
+        );
+        assert_eq!(
+            unify_arithmetic(ClientType::I32, ClientType::F32),
+            ClientType::F64
+        );
+    }
+
+    #[test]
     fn serialized_payload_transport_does_not_claim_a_source_value_type() {
         let env = TypeEnv::new(&[], None);
         assert_eq!(
@@ -1116,6 +1219,53 @@ mod tests {
             }),
             Some(IntegerDomain::I64)
         );
+    }
+
+    #[test]
+    fn float_width_is_proven_only_by_typed_producers() {
+        let mul = |left: ClientExpr, right: ClientExpr| ClientExpr::Binary {
+            op: ClientBinaryOp::Mul,
+            left: Box::new(left),
+            right: Box::new(right),
+        };
+        let literal = || ClientExpr::Literal(Value::Float(0.1));
+        let mut b = IslandBuilder::new();
+        let price = b.signal_typed(Value::Float(9.5), ClientType::F64);
+        let typed_body = b.expr(mul(ClientExpr::signal_read(price), literal()));
+        let typed_memo = b.memo(typed_body);
+        let literal_body = b.expr(literal());
+        let literal_memo = b.memo(literal_body);
+        let island = b.build();
+        let env = TypeEnv::for_island(&island);
+        for (expr, proven) in [
+            (ClientExpr::signal_read(price), true),
+            (mul(literal(), ClientExpr::signal_read(price)), true),
+            (ClientExpr::signal_read(typed_memo), true),
+            (literal(), false),
+            (mul(literal(), literal()), false),
+            (ClientExpr::signal_read(literal_memo), false),
+            (ClientExpr::Local(ClientLocalId(0)), false),
+            (
+                ClientExpr::Unary {
+                    op: ClientUnaryOp::Neg,
+                    expr: Box::new(ClientExpr::signal_read(price)),
+                },
+                true,
+            ),
+            (
+                ClientExpr::BrowserRead(ClientBrowserRead::Window(WindowField::ScrollY)),
+                false,
+            ),
+            (
+                ClientExpr::QueryRead {
+                    id: QueryId(0),
+                    accessor: QueryAccessor::Data,
+                },
+                false,
+            ),
+        ] {
+            assert_eq!(env.float_width_proven(&expr), proven, "{expr:?}");
+        }
     }
 
     #[test]

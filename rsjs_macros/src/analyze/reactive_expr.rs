@@ -1502,6 +1502,19 @@ impl Analyzer {
         }
     }
 
+    /// Whether a float-typed frontend expression's width comes from a typed
+    /// producer; see `TypeEnv::float_width_proven`.
+    pub(super) fn frontend_float_width_proven(
+        &self,
+        expr: &FrontendExpr,
+        locals: &[HandlerLocalBinding],
+    ) -> bool {
+        match lower_handler_ir_expr_to_client_expr(expr, proc_macro2::Span::call_site()) {
+            Ok(client) => self.type_env(locals).float_width_proven(&client),
+            Err(_) => false,
+        }
+    }
+
     /// Reject a condition when whole-island typing proves that it is not a
     /// Rust `bool`. Unknown and dynamically represented values remain
     /// accepted because the macro cannot soundly prove their Rust type.

@@ -28,6 +28,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReactiveTextSnapshot {
         let one = signal(1.0_f64);
         let ratio = signal(0.0_f64);
         let sampled = signal(self.initial_sampled);
+        let size: rsjs::Signal<f64> = signal(self.price);
         let unknown_flag = signal(self.initial_flag);
         let active = text!("Active: {}", unknown_flag.get());
         html_sync! {
@@ -55,6 +56,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReactiveTextSnapshot {
                 </p>
                 <p>{text!("{} {:02} {:x} {:#X}", quantity.get(), 5_u32, -1_i32, -1_i64)}</p>
                 <p>{text!("Ratio {}", ratio.get())}</p>
+                <p>{text!("Size {:.1} MB {:>+9.3}|{:08.2}", size.get(), size.get(), size.get())}</p>
                 <p title={text!("{:>16.8}", if flag.get() { label.get() } else { other.get().to_uppercase() })}>
                     {text!("{} {}", if flag.get() { label.get() } else { other.get().to_uppercase() }, label.get())}
                 </p>
