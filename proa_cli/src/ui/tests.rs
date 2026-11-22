@@ -1339,3 +1339,73 @@ mod inner {
         viewed.install_conflicts
     );
 }
+
+#[test]
+fn view_install_hint_preserves_resolved_registry_and_root_and_mjs_uses_module_tag() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("my site");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+
+    fs::create_dir_all(public.join("files")).unwrap();
+    let mjs_bytes = b"export const init = () => {};\n";
+    let rs_bytes = b"pub struct Chart;\n";
+    fs::write(public.join("files/chart.mjs"), mjs_bytes).unwrap();
+    fs::write(public.join("files/chart.rs"), rs_bytes).unwrap();
+    fs::write(
+        public.join("chart.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": COMPONENT_MANIFEST_SCHEMA,
+            "schemaVersion": COMPONENT_MANIFEST_VERSION,
+            "name": "chart",
+            "version": "1.0.0",
+            "registry": PUBLIC_REGISTRY,
+            "tier": "free",
+            "license": "MIT OR Apache-2.0",
+            "files": [
+                {
+                    "source": "files/chart.mjs",
+                    "target": "@assets/proa-ui/chart.mjs",
+                    "sha256": sha256_bytes(mjs_bytes),
+                },
+                {
+                    "source": "files/chart.rs",
+                    "target": "@components/chart/chart.rs",
+                    "sha256": sha256_bytes(rs_bytes),
+                },
+            ],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let report = view(ViewOptions {
+        root: project.clone(),
+        component: "chart".into(),
+        registry: Some(PUBLIC_REGISTRY.into()),
+    })
+    .unwrap();
+    // `.mjs` assets emit `type="module"` script tag.
+    assert!(
+        report.next_steps.iter().any(|step| step.contains(
+            "<script type=\"module\" src={cx.url(\"public/proa/proa-ui/chart.mjs\")}></script>"
+        )),
+        "{:?}",
+        report.next_steps
+    );
+    // Same-dir hint uses the resolved `@proa/chart` identifier without redundant `--root`.
+    assert_eq!(
+        format_view_install_command(&report, Some(&project), false),
+        "proa ui add @proa/chart"
+    );
+    // Different-dir hint preserves `--root` with safe quoting for paths containing spaces.
+    let other_dir = temp.path();
+    let cmd = format_view_install_command(&report, Some(other_dir), true);
+    assert!(cmd.starts_with("proa ui add @proa/chart --root "), "{cmd}");
+    assert!(cmd.contains("my site"), "{cmd}");
+    assert!(cmd.ends_with(" --force"), "{cmd}");
+}

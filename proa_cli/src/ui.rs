@@ -725,16 +725,53 @@ pub fn print_view_report(report: &ViewReport, json: bool) -> Result<()> {
             println!("    {conflict}");
         }
     }
+    let cwd = env::current_dir().ok();
     if report.files_conflicting_local.is_empty() && report.install_conflicts.is_empty() {
-        let force_flag = if report.needs_force { " --force" } else { "" };
-        println!("Install:\n  proa ui add {}{force_flag}", report.requested);
+        let cmd = format_view_install_command(report, cwd.as_deref(), report.needs_force);
+        println!("Install:\n  {cmd}");
     } else {
-        println!(
-            "Resolve the conflicts above before running `proa ui add {}`.",
-            report.requested
-        );
+        let cmd = format_view_install_command(report, cwd.as_deref(), false);
+        println!("Resolve the conflicts above before running `{cmd}`.");
     }
     Ok(())
+}
+
+fn format_view_install_command(
+    report: &ViewReport,
+    cwd: Option<&Path>,
+    with_force: bool,
+) -> String {
+    let mut cmd = format!("proa ui add {}", report.resolved);
+    let same_root = cwd
+        .and_then(|dir| fs::canonicalize(dir).ok())
+        .is_some_and(|dir| dir == report.root);
+    if !same_root {
+        cmd.push_str(" --root ");
+        cmd.push_str(&quote_cli_path(&report.root));
+    }
+    if with_force {
+        cmd.push_str(" --force");
+    }
+    cmd
+}
+
+fn quote_cli_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let is_plain = !text.is_empty()
+        && text.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b':')
+        });
+    if is_plain {
+        return text.into_owned();
+    }
+    #[cfg(windows)]
+    {
+        format!("\"{}\"", text.replace('"', "\\\""))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
 }
 
 pub fn add(options: AddOptions) -> Result<AddReport> {
@@ -871,6 +908,7 @@ fn compute_next_steps(
         .unwrap_or_else(|| Path::new(config::DEFAULT_PUBLIC_DIRECTORY));
 
     let mut scripts = BTreeSet::new();
+    let mut module_scripts = BTreeSet::new();
     let mut stylesheets = BTreeSet::new();
     for id in order {
         let Some(component) = components.get(id) else {
@@ -893,8 +931,11 @@ fn compute_next_steps(
                 .map(str::to_ascii_lowercase)
                 .as_deref()
             {
-                Some("js" | "mjs") => {
+                Some("js") => {
                     scripts.insert(logical);
+                }
+                Some("mjs") => {
+                    module_scripts.insert(logical);
                 }
                 Some("css") => {
                     stylesheets.insert(logical);
@@ -908,6 +949,13 @@ fn compute_next_steps(
         if !directory_contains_literal(&root.join("src"), &script, &["rs"]) {
             steps.push(format!(
                 "Include the UI runtime in your layout: <script src={{cx.url(\"{script}\")}} defer></script>"
+            ));
+        }
+    }
+    for script in module_scripts {
+        if !directory_contains_literal(&root.join("src"), &script, &["rs"]) {
+            steps.push(format!(
+                "Include the UI module in your layout: <script type=\"module\" src={{cx.url(\"{script}\")}}></script>"
             ));
         }
     }
