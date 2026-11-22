@@ -1176,14 +1176,14 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     if let Some(destination) = export_destination {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
-        let bundled_public_assets = if artifact_destination.is_some() {
+        let bundle = if artifact_destination.is_some() {
             if destination.is_dir() {
                 bail!(
                     "artifact output must name a file, but `{}` is a directory",
                     destination.display()
                 );
             }
-            public_assets::bundle(&root, public_source, destination)?
+            Some(public_assets::bundle(&root, public_source, destination)?)
         } else {
             None
         };
@@ -1205,12 +1205,13 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             &prepared.profile,
             target_triple,
             destination,
-            bundled_public_assets
-                .as_deref()
+            bundle
+                .as_ref()
+                .and_then(|bundle| bundle.directory.as_deref())
                 .or(published_public_assets.as_deref()),
         )?;
-        if artifact_destination.is_some() && bundled_public_assets.is_none() {
-            public_assets::remove_stale_bundle(destination)?;
+        if let Some(bundle) = bundle {
+            bundle.finish()?;
         }
     }
     Ok(())

@@ -483,6 +483,20 @@ fn removal_waits_for_the_last_reader() {
     assert!(!OutputStore::open(&f.output).unwrap().remove().unwrap());
     assert!(reader.object_path("a.txt").unwrap().is_file());
     drop(reader);
+
+    // A claim keeps writers out, and dropping it leaves the output intact.
+    let claim = OutputStore::open(&f.output)
+        .unwrap()
+        .reserve_removal()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        OutputStore::open(&f.output),
+        Err(AssetError::WriterBusy(_))
+    ));
+    drop(claim);
+    assert!(AssetCatalog::load(&f.output).is_ok());
+
     assert!(OutputStore::open(&f.output).unwrap().remove().unwrap());
     assert!(!f.output.exists());
 }

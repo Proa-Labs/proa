@@ -380,7 +380,8 @@ The catalog is written before the executable is replaced, so a failed export
 leaves the previous pair working. A build that publishes nothing, because of
 `--no-assets` or `paths.public: None`, removes a catalog left beside the same
 executable path by an earlier build once the new executable is in place. If a
-running server is still reading that catalog, the build fails and leaves it. A directory at that path that Proa did not
+running server is still reading that catalog, the build fails before the
+executable is replaced and leaves both as they were. A directory at that path that Proa did not
 create fails the build untouched, and so does an export path inside the public
 directory. Do not manually modify immutable objects.
 

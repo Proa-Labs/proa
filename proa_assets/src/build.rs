@@ -40,6 +40,48 @@ impl Drop for OutputStore {
     }
 }
 
+/// An output claimed for deletion: the writer lock plus an exclusive reader
+/// lock. See [`OutputStore::reserve_removal`].
+pub struct PendingRemoval {
+    store: OutputStore,
+    readers: File,
+}
+
+impl Drop for PendingRemoval {
+    fn drop(&mut self) {
+        let _ = self.readers.unlock();
+    }
+}
+
+impl PendingRemoval {
+    pub fn commit(self) -> Result<()> {
+        let root = self.store.root.clone();
+        // Retire the pointer while readers are still locked out: a catalog
+        // loads only by reading it under the shared lock, so none can come up
+        // on files that are about to go.
+        let manifest = root.join(MANIFEST_FILE);
+        match fs::remove_file(&manifest) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(AssetError::Io {
+                    path: manifest,
+                    source,
+                })
+            }
+        }
+        // Unix deletes with both locks held, so no other writer can begin
+        // publishing into the directory while it goes. Windows cannot delete
+        // an open file and has to release them first.
+        #[cfg(unix)]
+        at(&root, fs::remove_dir_all(&root))?;
+        drop(self);
+        #[cfg(not(unix))]
+        at(&root, fs::remove_dir_all(&root))?;
+        Ok(())
+    }
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct History {
@@ -303,44 +345,30 @@ impl OutputStore {
     /// whether it went. A server resolves its files by path on every request,
     /// so removing them under a live reader turns its routes into 404s.
     pub fn remove(self) -> Result<bool> {
+        match self.reserve_removal()? {
+            Some(removal) => removal.commit().map(|()| true),
+            None => Ok(false),
+        }
+    }
+
+    /// Claim the output for deletion without deleting it yet, or return
+    /// `None` while a catalog is reading it. The claim keeps writers and new
+    /// readers out, so the caller can finish the work that makes the output
+    /// stale and only then commit. Dropping the claim leaves it untouched.
+    pub fn reserve_removal(self) -> Result<Option<PendingRemoval>> {
         let lock_path = self.root.join(READERS_FILE);
         let readers = open_lock(&lock_path)?;
         match readers.try_lock() {
-            Ok(()) => {}
-            Err(TryLockError::WouldBlock) => return Ok(false),
-            Err(TryLockError::Error(source)) => {
-                return Err(AssetError::Io {
-                    path: lock_path,
-                    source,
-                })
-            }
+            Ok(()) => Ok(Some(PendingRemoval {
+                store: self,
+                readers,
+            })),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(source)) => Err(AssetError::Io {
+                path: lock_path,
+                source,
+            }),
         }
-        let root = self.root.clone();
-        // Retire the pointer while readers are still locked out: a catalog
-        // loads only by reading it under the shared lock, so none can come up
-        // on files that are about to go.
-        let manifest = root.join(MANIFEST_FILE);
-        match fs::remove_file(&manifest) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => {
-                return Err(AssetError::Io {
-                    path: manifest,
-                    source,
-                })
-            }
-        }
-        // Unix deletes with both locks held, so no other writer can begin
-        // publishing into the directory while it goes. Windows cannot delete
-        // an open file and has to release them first.
-        #[cfg(unix)]
-        at(&root, fs::remove_dir_all(&root))?;
-        let _ = readers.unlock();
-        drop(readers);
-        drop(self);
-        #[cfg(not(unix))]
-        at(&root, fs::remove_dir_all(&root))?;
-        Ok(true)
     }
 
     /// Remove stale local objects only when no server/catalog is reading them.

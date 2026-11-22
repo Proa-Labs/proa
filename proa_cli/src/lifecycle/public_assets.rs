@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use proa_assets::{build::OutputStore, sha256, OUTPUT_ENV};
+use proa_assets::{
+    build::{OutputStore, PendingRemoval},
+    sha256, OUTPUT_ENV,
+};
 use serde::Serialize;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -177,17 +180,36 @@ pub(super) fn publish(
     publish_to(root, directory, output, "published", "to")
 }
 
+/// The catalog side of an export, prepared before the executable is replaced.
+pub(super) struct Bundle {
+    /// The catalog now beside the executable, when one was published.
+    pub(super) directory: Option<PathBuf>,
+    stale: Option<PendingRemoval>,
+}
+
+impl Bundle {
+    /// Call once the executable is in place. A build that published nothing
+    /// removes the catalog an earlier export left, so the new executable
+    /// never starts with stale files.
+    pub(super) fn finish(self) -> Result<()> {
+        match self.stale {
+            Some(stale) => stale
+                .commit()
+                .context("remove the stale public asset catalog"),
+            None => Ok(()),
+        }
+    }
+}
+
 /// Place the catalog beside an exported executable, where the server finds it
 /// without configuration. The executable and this directory are the complete
 /// deployable output: copying both anywhere is enough to run the application.
 ///
-/// This runs before the executable is replaced. The manifest swap is atomic,
-/// so a failure leaves the previous executable with the catalog it had.
-pub(super) fn bundle(
-    root: &Path,
-    directory: Option<&Path>,
-    executable: &Path,
-) -> Result<Option<PathBuf>> {
+/// This runs before the executable is replaced, and everything that can
+/// refuse the export is decided here. The manifest swap is atomic, so a
+/// failure leaves the previous executable with the catalog it had. Removal
+/// of a stale catalog is only claimed here; [`Bundle::finish`] performs it.
+pub(super) fn bundle(root: &Path, directory: Option<&Path>, executable: &Path) -> Result<Bundle> {
     let output = bundled_output(executable)?;
     // Refuse before the output store opens it, which would leave a lock file
     // inside a directory that belongs to something else.
@@ -198,56 +220,67 @@ pub(super) fn bundle(
             executable.display()
         );
     }
+    let Some(source) = public_source(root, directory) else {
+        return claim_stale_bundle(&output);
+    };
     // Checked before the store opens, which would otherwise leave catalog
     // files inside the public source for the next build to publish.
-    if let Some(directory) = directory {
-        let source = root.join(directory);
-        if overlaps(&source, &output) {
-            bail!(
-                "`{}` overlaps the public directory `{}`: export the executable `{}` outside it",
-                output.display(),
-                source.display(),
-                executable.display()
-            );
+    if overlaps(&source, &output) {
+        bail!(
+            "`{}` overlaps the public directory `{}`: export the executable `{}` outside it",
+            output.display(),
+            source.display(),
+            executable.display()
+        );
+    }
+    let context = || format!("bundle public assets beside `{}`", executable.display());
+    let existed = proa_assets::is_output(&output);
+    let mut store = OutputStore::open(&output).with_context(context)?;
+    match publish_with(&mut store, &source, "bundled", "in") {
+        Ok(directory) => Ok(Bundle {
+            directory: Some(directory),
+            stale: None,
+        }),
+        Err(error) => {
+            if !existed {
+                // This attempt created the directory, so nothing may stay: one
+                // without a manifest would stop the previous executable from
+                // starting. The writer lock is still this attempt's own.
+                let _ = store.remove();
+            }
+            Err(error).with_context(context)
         }
     }
-    let existed = proa_assets::is_output(&output);
-    let bundled = publish_to(root, directory, &output, "bundled", "in");
-    if bundled.is_err() && !existed {
-        // Nothing was here before, so nothing may stay: a directory without
-        // a manifest would stop the previous executable from starting. A
-        // concurrent writer keeps the store busy and is left alone.
-        let _ = OutputStore::open(&output).and_then(OutputStore::remove);
-    }
-    bundled.with_context(|| format!("bundle public assets beside `{}`", executable.display()))
 }
 
-/// After an export that bundled nothing, remove the catalog an earlier build
-/// left beside the same path, so the new executable never starts with stale
-/// files. This runs once the executable is in place: a failed export keeps
-/// the catalog its previous executable still needs.
-pub(super) fn remove_stale_bundle(executable: &Path) -> Result<()> {
-    let output = bundled_output(executable)?;
-    if fs::symlink_metadata(&output).is_err() {
-        return Ok(());
+/// With nothing to publish, claim whatever an earlier export left at the
+/// bundle path. A catalog a running server is reading refuses the export
+/// here, before the executable changes.
+fn claim_stale_bundle(output: &Path) -> Result<Bundle> {
+    let mut bundle = Bundle {
+        directory: None,
+        stale: None,
+    };
+    if fs::symlink_metadata(output).is_err() {
+        return Ok(bundle);
     }
-    if !proa_assets::is_output(&output) {
-        // An empty leftover would read as a damaged bundle at startup.
-        if OutputStore::accepts(&output) {
-            let _ = OutputStore::open(&output).and_then(OutputStore::remove);
-        }
-        return Ok(());
+    let context = || format!("remove stale public asset catalog {}", output.display());
+    let catalog = proa_assets::is_output(output);
+    let store = OutputStore::open(output).with_context(context)?;
+    if !catalog {
+        // An empty leftover has nothing to protect, and would read as a
+        // damaged bundle at startup.
+        store.remove().with_context(context)?;
+        return Ok(bundle);
     }
-    let removed = OutputStore::open(&output)
-        .and_then(OutputStore::remove)
-        .with_context(|| format!("remove stale public asset catalog {}", output.display()))?;
-    if !removed {
+    bundle.stale = store.reserve_removal().with_context(context)?;
+    if bundle.stale.is_none() {
         bail!(
-            "`{}` is still being read by a running server, and this build publishes no public assets to replace it. Stop that server and build again, or export the executable to a different path",
+            "`{}` is still being read by a running server, and this build publishes no public assets to replace it. Stop that server, or export the executable to a different path",
             output.display()
         );
     }
-    Ok(())
+    Ok(bundle)
 }
 
 fn bundled_output(executable: &Path) -> Result<PathBuf> {
@@ -291,19 +324,32 @@ fn publish_to(
     verb: &str,
     preposition: &str,
 ) -> Result<Option<PathBuf>> {
-    let Some(directory) = directory else {
+    let Some(source) = public_source(root, directory) else {
         return Ok(None);
     };
+    publish_with(&mut OutputStore::open(output)?, &source, verb, preposition).map(Some)
+}
+
+/// The public directory to publish, when there is one.
+fn public_source(root: &Path, directory: Option<&Path>) -> Option<PathBuf> {
+    let directory = directory?;
     let source = root.join(directory);
     // Asset commands and Cargo build scripts may create the default directory.
     // Check it after they run and leave missing custom paths as errors.
-    if directory == Path::new(crate::config::DEFAULT_PUBLIC_DIRECTORY)
-        && fs::symlink_metadata(&source).is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
-    {
-        return Ok(None);
-    }
-    let report = OutputStore::open(output)?
-        .publish(&source)
+    let absent_default = directory == Path::new(crate::config::DEFAULT_PUBLIC_DIRECTORY)
+        && fs::symlink_metadata(&source)
+            .is_err_and(|error| error.kind() == io::ErrorKind::NotFound);
+    (!absent_default).then_some(source)
+}
+
+fn publish_with(
+    store: &mut OutputStore,
+    source: &Path,
+    verb: &str,
+    preposition: &str,
+) -> Result<PathBuf> {
+    let report = store
+        .publish(source)
         .with_context(|| format!("publish configured public directory `{}`", source.display()))?;
     if let Err(error) = report.cleanup {
         eprintln!("warning: public asset cleanup deferred: {error}");
@@ -316,7 +362,7 @@ fn publish_to(
         report.manifest.assets.len(),
         report.output_directory.display()
     );
-    Ok(Some(report.output_directory))
+    Ok(report.output_directory)
 }
 
 /// Whether the running server follows the catalog just published in place.

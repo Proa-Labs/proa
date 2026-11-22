@@ -1317,8 +1317,14 @@ fn build_bundles_the_public_catalog_beside_the_exported_executable() {
     // A build that publishes nothing leaves the catalog alone while a server
     // is still reading it.
     let reader = AssetCatalog::load(&bundled).unwrap();
+    let installed = fs::metadata(&exported_bin).unwrap().modified().unwrap();
     let in_use = build(&["--no-assets"]);
     assert!(!in_use.status.success());
+    // The refusal comes before the executable is replaced.
+    assert_eq!(
+        fs::metadata(&exported_bin).unwrap().modified().unwrap(),
+        installed
+    );
     let stderr = String::from_utf8_lossy(&in_use.stderr);
     assert!(stderr.contains("still being read"), "{stderr}");
     assert!(reader.object_path("logo.svg").unwrap().is_file());
