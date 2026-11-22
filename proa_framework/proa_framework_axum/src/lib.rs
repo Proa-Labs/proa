@@ -34,7 +34,9 @@ pub use proa_framework_core::{
     SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
     MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
-pub use public_assets::{PublicAssetError, PublicAssets};
+pub use public_assets::{
+    AssetPrefix, InvalidAssetPrefix, PublicAssetError, PublicAssets, ASSET_PREFIX_ENV,
+};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
@@ -557,6 +559,31 @@ impl FrameworkBuilder {
         let rsjs_assets = rsjs_assets
             .then(|| RsjsAssets::load(public_assets.as_ref()))
             .transpose()?;
+        // Published files hosted on another origin have to be named wherever
+        // an origin allowlist decides what a page may load.
+        let asset_origin = public_assets
+            .as_ref()
+            .and_then(PublicAssets::asset_prefix)
+            .and_then(AssetPrefix::origin)
+            .map(str::to_owned);
+        let csp = match (csp, &asset_origin) {
+            (Some(policy), Some(origin)) => Some(policy.allow_asset_origin(origin)),
+            (csp, _) => csp,
+        };
+        let head = match (head, &asset_origin) {
+            (Some(mut head), Some(origin)) => {
+                if let Some(urls) = head.urls.take() {
+                    let urls = Arc::unwrap_or_clone(urls)
+                        .allow_resource_origin(origin)
+                        .map_err(|_| {
+                            PublicAssetError::AssetPrefix(InvalidAssetPrefix(origin.clone()))
+                        })?;
+                    head.urls = Some(Arc::new(urls));
+                }
+                Some(head)
+            }
+            (head, _) => head,
+        };
         if let Some(assets) = &rsjs_assets {
             app = app.merge(assets.router());
         }

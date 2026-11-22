@@ -209,7 +209,7 @@ impl RsjsAssets {
         }
         Some(Self {
             files: Arc::new(files),
-            published: FrameworkAssets::new(published),
+            published: FrameworkAssets::new(published).hosted(true),
             bundled: true,
         })
     }
@@ -830,6 +830,183 @@ mod tests {
             ..rsjs::Manifest::default()
         };
         assert!(RsjsAssets::build(&manifest, false).is_err());
+    }
+
+    static HOSTED: rsjs::IslandManifestEntry = island(
+        "hosted_fixture",
+        r#"import { signal } from "/rsjs-runtime.js"; export const value = signal(1);"#,
+    );
+
+    #[rsjs::linkme::distributed_slice(rsjs::ISLAND_REGISTRY)]
+    #[linkme(crate = rsjs::linkme)]
+    static REGISTER_HOSTED: &'static rsjs::IslandManifestEntry = &HOSTED;
+
+    /// A bundle as `proa build` writes it for this test executable.
+    fn bundle(directory: &std::path::Path, source: &str) -> std::path::PathBuf {
+        let public = directory.join("public");
+        std::fs::create_dir_all(public.join("images")).unwrap();
+        std::fs::write(public.join("images/a.png"), b"image").unwrap();
+        std::fs::write(public.join("styles.css"), b"a { color: red }").unwrap();
+        let linked = RsjsAssets::prepare().unwrap();
+        let files: Vec<_> = linked
+            .published()
+            .iter()
+            .map(|(name, published)| {
+                let file = linked
+                    .files()
+                    .iter()
+                    .find(|file| *file.path == *published.path)
+                    .unwrap();
+                proa_assets::build::FrameworkFile {
+                    name,
+                    path: file.path.strip_prefix("_proa/").unwrap(),
+                    bytes: &file.bytes,
+                }
+            })
+            .collect();
+        let output = directory.join("app.assets");
+        proa_assets::build::export_with_framework_source(
+            &output,
+            Some(&public),
+            &files,
+            Some(source),
+        )
+        .unwrap();
+        output
+    }
+
+    #[test]
+    fn modules_stored_in_the_bundle_are_used_only_by_the_executable_they_came_from() {
+        let temp = tempfile::tempdir().unwrap();
+        let own = Sources::linked(&rsjs::manifest()).unwrap().digest(minify());
+        let base = proa_core::BasePath::default();
+
+        let matching = crate::PublicAssets::load(bundle(temp.path(), &own), &base).unwrap();
+        let loaded = RsjsAssets::load(Some(&matching)).unwrap();
+        assert!(loaded.bundled());
+        assert!(loaded.published().is_hosted());
+        let prepared = RsjsAssets::prepare().unwrap();
+        for (stored, own) in loaded.files().iter().zip(prepared.files()) {
+            assert_eq!(stored.path, own.path);
+            assert_eq!(stored.bytes, own.bytes);
+        }
+        drop(matching);
+
+        // Files from another build are not this executable's modules.
+        let other = crate::PublicAssets::load(bundle(temp.path(), "another build"), &base).unwrap();
+        let fallback = RsjsAssets::load(Some(&other)).unwrap();
+        assert!(!fallback.bundled());
+        assert!(!fallback.published().is_hosted());
+        assert!(!RsjsAssets::load(None).unwrap().bundled());
+    }
+
+    #[tokio::test]
+    async fn a_page_links_hosted_files_and_its_policy_allows_their_origin() {
+        use crate::{AssetPrefix, FrameworkBuilder, PublicAssets, RouteResponse};
+        use proa_core::{WebContext, WebRenderSync, WriteError};
+        use proa_macros::html_sync;
+
+        struct Page;
+        impl WebRenderSync for Page {
+            fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+                cx.rsjs_island_used("hosted_fixture");
+                html_sync! {
+                    <link rel="stylesheet" href={cx.url("public/styles.css")} />
+                    <img src={cx.url("public/images/a.png")} alt="" />
+                    <a href={cx.url("/pricing")}>"Pricing"</a>
+                }
+                .render(cx)
+            }
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let own = Sources::linked(&rsjs::manifest()).unwrap().digest(minify());
+        let output = bundle(temp.path(), &own);
+        let base = proa_core::BasePath::new("/shop").unwrap();
+        let page = |prefix: Option<&str>| {
+            let prefix = prefix.map(|prefix| AssetPrefix::new(prefix).unwrap());
+            let assets = PublicAssets::load_hosted(&output, &base, prefix.as_ref()).unwrap();
+            let app = FrameworkBuilder::new()
+                .with_base_path(base.clone())
+                .with_public_assets(assets)
+                .with_rsjs_assets()
+                .with_strict_csp()
+                .with_dynamic_routes(
+                    Router::new().route("/", get(|| async { RouteResponse::ssr(Page) })),
+                )
+                .build();
+            async move {
+                let response = app
+                    .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
+                    .to_str()
+                    .unwrap()
+                    .to_owned();
+                let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+                (policy, String::from_utf8(body.to_vec()).unwrap())
+            }
+        };
+
+        // Served by this server: everything is under the base path, and the
+        // policy needs no host.
+        let (policy, html) = page(None).await;
+        assert!(
+            html.contains(r#"href="/shop/_proa/immutable/styles."#),
+            "{html}"
+        );
+        assert!(html.contains(r#"src="/shop/_proa/immutable/rsjs/runtime."#));
+        assert!(!html.contains("crossorigin"));
+        assert!(!policy.contains("cdn.example"), "{policy}");
+
+        // Hosted elsewhere: published files move, application routes do not.
+        let (policy, html) = page(Some("https://cdn.example/site/")).await;
+        for hosted in [
+            r#"href="https://cdn.example/site/_proa/immutable/styles."#,
+            r#"src="https://cdn.example/site/_proa/immutable/images/a."#,
+            r#"<script type="module" src="https://cdn.example/site/_proa/immutable/rsjs/runtime."#,
+            r#"<link rel="modulepreload" href="https://cdn.example/site/_proa/immutable/rsjs/island/hosted_fixture."#,
+        ] {
+            assert!(html.contains(hosted), "missing {hosted} in {html}");
+        }
+        assert!(html.contains(r#"href="/shop/pricing""#));
+        assert!(!html.contains(r#""/shop/_proa/"#), "{html}");
+        // The runtime still learns the base path from the page.
+        assert!(html.contains(r#"{"basePath":"/shop"}"#));
+        // Every tag that fetches a module names its bytes, opts into CORS,
+        // and carries the request nonce.
+        let nonce = policy
+            .split("'nonce-")
+            .nth(1)
+            .and_then(|rest| rest.split('\'').next())
+            .expect("a nonce in the policy");
+        let tags: Vec<&str> = html
+            .split('<')
+            .filter(|tag| tag.contains("/_proa/immutable/rsjs/"))
+            .collect();
+        assert!(tags.len() >= 3, "{html}");
+        for tag in tags {
+            assert!(tag.contains(r#" integrity="sha384-"#), "{tag}");
+            assert!(tag.contains(" crossorigin"), "{tag}");
+            assert!(tag.contains(&format!(r#" nonce="{nonce}""#)), "{tag}");
+        }
+        // The policy names the host for everything an allowlist governs, and
+        // leaves scripts to the nonce.
+        for directive in [
+            "style-src 'self' 'unsafe-inline' https://cdn.example",
+            "img-src 'self' https://cdn.example",
+            "font-src 'self' https://cdn.example",
+            "media-src 'self' https://cdn.example",
+            "connect-src 'self' https://cdn.example",
+            &format!("script-src 'nonce-{nonce}' 'strict-dynamic'"),
+        ] {
+            assert!(
+                policy.split("; ").any(|part| part == directive),
+                "missing `{directive}` in `{policy}`"
+            );
+        }
+        assert!(policy.contains("default-src 'self'"));
     }
 
     #[tokio::test]

@@ -2382,7 +2382,13 @@ where
             request.base_path(),
         );
     };
-    let prefix = request.base_path().as_str();
+    // Modules stored with the public files are wherever those are hosted.
+    // Modules prepared in this process are only here.
+    let (prefix, cross_origin) = if published.is_hosted() {
+        (request.asset_prefix(), request.assets_are_cross_origin())
+    } else {
+        (request.base_path().as_str(), false)
+    };
     let urls = PublishedRsjsUrls { published, prefix };
     let plan = rsjs::manifest().page_runtime_plan_with_urls(rendered_islands, &urls)?;
     let integrity = |url: &str| {
@@ -2397,7 +2403,7 @@ where
             nonce,
             base_path: request.base_path().as_str(),
             integrity: Some(&integrity),
-            cross_origin: false,
+            cross_origin,
         },
     )?;
     Ok(())

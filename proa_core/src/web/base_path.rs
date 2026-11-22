@@ -130,6 +130,9 @@ pub struct FrameworkAssets(Arc<FrameworkAssetIndex>);
 
 #[derive(Debug, Default)]
 struct FrameworkAssetIndex {
+    /// The files are stored with the public files, so they are also on a
+    /// host that serves those in place of this server.
+    hosted: bool,
     by_logical: BTreeMap<String, FrameworkAsset>,
     integrity_by_path: BTreeMap<Arc<str>, Arc<str>>,
 }
@@ -150,9 +153,26 @@ impl FrameworkAssets {
             .map(|asset| (asset.path.clone(), asset.integrity.clone()))
             .collect();
         Self(Arc::new(FrameworkAssetIndex {
+            hosted: false,
             by_logical: assets,
             integrity_by_path,
         }))
+    }
+
+    /// Declare the files part of the output a static host can serve. Their
+    /// URLs then follow the request's asset prefix. Files that exist only in
+    /// this process stay under the base path, where this server answers.
+    pub fn hosted(self, hosted: bool) -> Self {
+        let index = &*self.0;
+        Self(Arc::new(FrameworkAssetIndex {
+            hosted,
+            by_logical: index.by_logical.clone(),
+            integrity_by_path: index.integrity_by_path.clone(),
+        }))
+    }
+
+    pub fn is_hosted(&self) -> bool {
+        self.0.hosted
     }
 
     pub fn get(&self, logical: &str) -> Option<&FrameworkAsset> {

@@ -1020,3 +1020,56 @@ async fn a_bundle_serves_the_same_urls_as_a_store() {
         );
     }
 }
+
+#[test]
+fn an_asset_prefix_is_a_url_or_a_root_path_and_nothing_that_could_break_markup() {
+    let hosted = AssetPrefix::new("https://cdn.example.com/site/").unwrap();
+    assert_eq!(hosted.as_str(), "https://cdn.example.com/site");
+    assert_eq!(hosted.origin(), Some("https://cdn.example.com"));
+    let with_port = AssetPrefix::new("http://localhost:9000").unwrap();
+    assert_eq!(with_port.origin(), Some("http://localhost:9000"));
+    // A path on this origin, such as a proxy route to a bucket, needs no
+    // entry in a content security policy.
+    let path = AssetPrefix::new("/static-host").unwrap();
+    assert_eq!((path.as_str(), path.origin()), ("/static-host", None));
+    for invalid in [
+        "",
+        "/",
+        "//cdn.example.com",
+        "cdn.example.com",
+        "ftp://cdn.example.com",
+        "https://user:secret@cdn.example.com",
+        "https://cdn.example.com/?v=1",
+        "https://cdn.example.com/#x",
+        "https://cdn.example.com/a b",
+        "https://cdn.example.com/\"><script>",
+        "https://cdn.example.com; script-src *",
+    ] {
+        assert!(AssetPrefix::new(invalid).is_err(), "{invalid}");
+    }
+}
+
+#[tokio::test]
+async fn hosted_files_are_linked_from_the_asset_host_and_keyed_by_it() {
+    let f = Fixture::new();
+    f.write("images/a b.png", b"image");
+    let local = f.load("/shop");
+    let prefix = AssetPrefix::new("https://cdn.example.com/site").unwrap();
+    let hosted = PublicAssets::load_hosted(
+        f.temp.path().join("output"),
+        &BasePath::new("/shop").unwrap(),
+        Some(&prefix),
+    )
+    .unwrap();
+    let url = hosted.url("images/a b.png").unwrap();
+    assert_eq!(
+        url.strip_prefix("https://cdn.example.com/site"),
+        local.url("images/a b.png").unwrap().strip_prefix("/shop")
+    );
+    assert!(url.contains("/_proa/immutable/images/a%20b."));
+    // A cached page holds these URLs, so the host is part of its key.
+    assert_ne!(hosted.cache_key(), local.cache_key());
+    // The files are the same either way, and this server still has them.
+    let path = url.strip_prefix("https://cdn.example.com/site").unwrap();
+    assert_eq!(get_asset(&hosted, path).await.status(), StatusCode::OK);
+}

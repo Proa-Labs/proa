@@ -39,6 +39,7 @@ pub struct RouteContext {
     base_path: proa_core::BasePath,
     public_asset_urls: Option<PublicAssetUrls>,
     framework_assets: Option<proa_core::FrameworkAssets>,
+    asset_prefix: Option<Arc<str>>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -54,6 +55,7 @@ impl RouteContext {
             base_path: proa_core::BasePath::default(),
             public_asset_urls: None,
             framework_assets: None,
+            asset_prefix: None,
             head: None,
         }
     }
@@ -72,6 +74,10 @@ impl RouteContext {
 
     pub(super) fn framework_assets(&self) -> Option<proa_core::FrameworkAssets> {
         self.framework_assets.clone()
+    }
+
+    pub(super) fn asset_prefix(&self) -> Option<Arc<str>> {
+        self.asset_prefix.clone()
     }
 
     pub(super) fn set_is_client_request(&mut self, is_client: bool) {
@@ -450,6 +456,9 @@ where
             // even when `proa dev` republishes between the two.
             let assets = assets.current();
             context.public_asset_urls = Some(assets.render_urls());
+            context.asset_prefix = assets
+                .asset_prefix()
+                .map(|prefix| Arc::from(prefix.as_str()));
             req.extensions_mut().insert(assets);
         }
 

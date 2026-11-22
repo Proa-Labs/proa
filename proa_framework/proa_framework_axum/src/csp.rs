@@ -151,6 +151,50 @@ impl CspPolicy {
         self
     }
 
+    /// Let pages load published files from the host that serves them in
+    /// place of this server.
+    ///
+    /// Stylesheets, images, fonts, media, and fetches are governed by
+    /// directives that list hosts, so `origin` is appended to each of those,
+    /// whether the application set the directive or it falls back to
+    /// `default-src`. A directive the application set to `'none'` stays
+    /// closed. `script-src` is not touched: the nonce authorizes each script
+    /// tag whatever host it names, `'strict-dynamic'` extends that to the
+    /// modules it imports, and browsers ignore host sources beside it.
+    ///
+    /// `FrameworkBuilder` calls this with the origin of `PROA_ASSET_PREFIX`.
+    pub fn allow_asset_origin(mut self, origin: &str) -> Self {
+        for directive in [
+            "style-src",
+            "img-src",
+            "font-src",
+            "media-src",
+            "connect-src",
+        ] {
+            let own = self.directives.get(directive);
+            if own.is_some_and(|value| value.trim() == "'none'") {
+                continue;
+            }
+            // With neither the directive nor a default, nothing is restricted.
+            let Some(current) = own.or_else(|| self.directives.get("default-src")) else {
+                continue;
+            };
+            if current
+                .split_ascii_whitespace()
+                .any(|source| source == origin || source == "*")
+            {
+                continue;
+            }
+            let value = if current.trim() == "'none'" {
+                origin.to_owned()
+            } else {
+                format!("{current} {origin}")
+            };
+            self.directives.insert(Cow::Borrowed(directive), value);
+        }
+        self
+    }
+
     /// Send `Content-Security-Policy-Report-Only` instead of the enforcing
     /// header. Use this to observe violations before switching a live app
     /// over to enforcement.

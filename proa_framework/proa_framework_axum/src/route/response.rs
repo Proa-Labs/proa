@@ -178,6 +178,11 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         context
             .request
             .set_public_asset_urls(Some(assets.render_urls()));
+        context.request.set_asset_prefix(
+            assets
+                .asset_prefix()
+                .map(|prefix| std::sync::Arc::from(prefix.as_str())),
+        );
         self.0.render_to_bytes_with_context(&context)
     }
 
@@ -538,6 +543,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
     request.set_public_asset_urls(ctx.public_asset_urls());
     request.set_framework_assets(ctx.framework_assets());
+    request.set_asset_prefix(ctx.asset_prefix());
     if let Some(method) = ctx.current_method().cloned() {
         request.set_method(method);
     }

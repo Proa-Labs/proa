@@ -39,8 +39,88 @@ const PATH_ENCODING: &AsciiSet = &NON_ALPHANUMERIC
 /// manifest bytes decide; outside it the metadata alone is exact.
 const RACY_MANIFEST_WINDOW: Duration = Duration::from_secs(2);
 
+/// Names the host browsers fetch the catalog's files from, when that is not
+/// this server. Read once at startup, so one build runs in every environment.
+pub const ASSET_PREFIX_ENV: &str = "PROA_ASSET_PREFIX";
+
+/// Where browsers fetch the published files from when a static host serves
+/// them: the URL that the bundle's `public/` directory was uploaded to.
+///
+/// With `https://cdn.example.com/shop`, the file this server would serve at
+/// `/_proa/immutable/logo.<hash>.svg` is linked as
+/// `https://cdn.example.com/shop/_proa/immutable/logo.<hash>.svg`. Application
+/// routes keep using the base path: only published files move.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetPrefix {
+    value: Arc<str>,
+    origin: Option<Arc<str>>,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("invalid asset prefix `{0}`: use an http(s) URL or a path from the origin root, with no query or fragment")]
+pub struct InvalidAssetPrefix(pub(crate) String);
+
+impl AssetPrefix {
+    pub fn new(value: &str) -> Result<Self, InvalidAssetPrefix> {
+        let invalid = || InvalidAssetPrefix(value.to_owned());
+        let trimmed = value.trim_end_matches('/');
+        // The prefix is written into HTML, CSS, and a response header.
+        if trimmed.is_empty()
+            || trimmed
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || "\"'<>\\?#;,".contains(c))
+        {
+            return Err(invalid());
+        }
+        if trimmed.starts_with('/') {
+            if trimmed.starts_with("//") {
+                return Err(invalid());
+            }
+            return Ok(Self {
+                value: Arc::from(trimmed),
+                origin: None,
+            });
+        }
+        let url = url::Url::parse(trimmed).map_err(|_| invalid())?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Err(invalid());
+        }
+        Ok(Self {
+            value: Arc::from(trimmed),
+            origin: Some(Arc::from(url.origin().ascii_serialization())),
+        })
+    }
+
+    /// The prefix named by `PROA_ASSET_PREFIX`, when it is set and not empty.
+    pub fn from_env() -> Result<Option<Self>, InvalidAssetPrefix> {
+        match std::env::var(ASSET_PREFIX_ENV) {
+            Ok(value) if !value.trim().is_empty() => Self::new(value.trim()).map(Some),
+            Ok(_) | Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(std::env::VarError::NotUnicode(value)) => {
+                Err(InvalidAssetPrefix(value.to_string_lossy().into_owned()))
+            }
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.value
+    }
+
+    /// The origin the files are served from, when it is another origin. A
+    /// content security policy has to name it.
+    pub fn origin(&self) -> Option<&str> {
+        self.origin.as_deref()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PublicAssetError {
+    #[error(transparent)]
+    AssetPrefix(#[from] InvalidAssetPrefix),
     #[error(transparent)]
     Catalog(#[from] AssetError),
     #[error("could not prepare public asset `{path}`: {reason}")]
@@ -109,6 +189,7 @@ struct LiveCatalog {
     output: PathBuf,
     manifest: PathBuf,
     base_path: BasePath,
+    asset_prefix: Option<AssetPrefix>,
     state: RwLock<LiveState>,
     /// Tells `proa dev` that publishing in place is enough for this server.
     _registration: LiveReader,
@@ -141,8 +222,13 @@ impl LiveCatalog {
         {
             match AssetCatalog::load(&self.output)
                 .map_err(PublicAssetError::from)
-                .and_then(|catalog| PreparedCatalog::from_catalog(catalog, &self.base_path))
-            {
+                .and_then(|catalog| {
+                    PreparedCatalog::from_catalog(
+                        catalog,
+                        &self.base_path,
+                        self.asset_prefix.as_ref(),
+                    )
+                }) {
                 Ok(catalog) => {
                     tracing::debug!("public asset catalog reloaded in place");
                     state.catalog = Arc::new(catalog);
@@ -169,6 +255,7 @@ struct PreparedCatalog {
     /// Also holds the reader lock that keeps these objects on disk.
     catalog: AssetCatalog,
     base_path: BasePath,
+    asset_prefix: Option<AssetPrefix>,
     urls: PublicAssetUrls,
     routes: BTreeMap<String, PreparedFile>,
     /// Files also answered at a fixed path from the origin root, by that
@@ -206,7 +293,18 @@ fn bundled_catalog(executable: &Path) -> Option<PathBuf> {
 impl PublicAssets {
     /// An explicitly configured missing/corrupt output fails startup.
     pub fn load(output: impl AsRef<Path>, base_path: &BasePath) -> Result<Self, PublicAssetError> {
-        let prepared = PreparedCatalog::from_catalog(AssetCatalog::load(output)?, base_path)?;
+        Self::load_hosted(output, base_path, None)
+    }
+
+    /// [`load`](Self::load), linking the files at `asset_prefix` when a
+    /// static host serves them in place of this server.
+    pub fn load_hosted(
+        output: impl AsRef<Path>,
+        base_path: &BasePath,
+        asset_prefix: Option<&AssetPrefix>,
+    ) -> Result<Self, PublicAssetError> {
+        let prepared =
+            PreparedCatalog::from_catalog(AssetCatalog::load(output)?, base_path, asset_prefix)?;
         Ok(Self {
             catalog: Arc::new(prepared),
             live: None,
@@ -236,6 +334,7 @@ impl PublicAssets {
                 manifest: output.join(MANIFEST_FILE),
                 output: output.to_path_buf(),
                 base_path: base_path.clone(),
+                asset_prefix: None,
                 state: RwLock::new(LiveState {
                     catalog: fixed.catalog.clone(),
                     settled: None,
@@ -274,10 +373,11 @@ impl PublicAssets {
         else {
             return Ok(None);
         };
+        // A development server serves the files it republishes itself.
         if crate::dev_reload::session_from_env() {
             Self::load_live(path, base_path).map(Some)
         } else {
-            Self::load(path, base_path).map(Some)
+            Self::load_hosted(path, base_path, AssetPrefix::from_env()?.as_ref()).map(Some)
         }
     }
 
@@ -310,6 +410,11 @@ impl PublicAssets {
         }
     }
 
+    /// Where the files are hosted, when not on this server.
+    pub fn asset_prefix(&self) -> Option<&AssetPrefix> {
+        self.catalog.asset_prefix.as_ref()
+    }
+
     /// The catalog this handle was loaded from.
     pub(crate) fn catalog(&self) -> &AssetCatalog {
         &self.catalog.catalog
@@ -320,7 +425,8 @@ impl PublicAssets {
     }
 
     /// Include this in application caches that hold HTML containing asset URLs.
-    /// It incorporates both catalog bytes and the startup delivery base path.
+    /// It incorporates the catalog bytes, the startup delivery base path, and
+    /// the host the files are linked from.
     ///
     /// The key belongs to the catalog this handle holds. Under `proa dev`,
     /// read it from the request's `Extension<PublicAssets>` or from
@@ -374,7 +480,13 @@ impl PublicAssets {
 }
 
 impl PreparedCatalog {
-    fn from_catalog(catalog: AssetCatalog, base_path: &BasePath) -> Result<Self, PublicAssetError> {
+    fn from_catalog(
+        catalog: AssetCatalog,
+        base_path: &BasePath,
+        asset_prefix: Option<&AssetPrefix>,
+    ) -> Result<Self, PublicAssetError> {
+        // Published files are linked from wherever they are hosted.
+        let prefix = asset_prefix.map_or(base_path.as_str(), AssetPrefix::as_str);
         let mut urls = BTreeMap::new();
         let mut routes = BTreeMap::new();
         for (logical, entry) in &catalog.manifest().assets {
@@ -405,7 +517,7 @@ impl PreparedCatalog {
             let encoded = utf8_percent_encode(&url_path, PATH_ENCODING);
             urls.insert(
                 logical.clone(),
-                Arc::from(format!("{}{PUBLIC_ROUTE}/{encoded}", base_path.as_str())),
+                Arc::from(format!("{prefix}{PUBLIC_ROUTE}/{encoded}")),
             );
             routes.insert(url_path, file);
         }
@@ -419,11 +531,12 @@ impl PreparedCatalog {
             root.insert(format!("/{path}"), file);
         }
         let cache_key = proa_assets::sha256(
-            format!("{}\n{}", catalog.generation(), base_path.as_str()).as_bytes(),
+            format!("{}\n{}\n{prefix}", catalog.generation(), base_path.as_str()).as_bytes(),
         );
         Ok(Self {
             catalog,
             base_path: base_path.clone(),
+            asset_prefix: asset_prefix.cloned(),
             urls: PublicAssetUrls::new(urls),
             routes,
             root,
