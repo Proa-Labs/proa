@@ -126,7 +126,7 @@ const ECOSYSTEM_APPS: &[EcosystemApp<'static>] = &[
         status: AppStatus::Live,
         product_kind: "Production site built with Proa",
         visual: AppVisual::Screenshot {
-            src: "/static/images/synthetic/ecosystem-latency.svg",
+            src: "public/images/synthetic/ecosystem-latency.svg",
             alt: "Synthetic latency dashboard illustration",
         },
     },
@@ -138,7 +138,7 @@ const ECOSYSTEM_APPS: &[EcosystemApp<'static>] = &[
         status: AppStatus::Live,
         product_kind: "Live Proa playground and benchmark console",
         visual: AppVisual::Screenshot {
-            src: "/static/images/synthetic/ecosystem-console.svg",
+            src: "public/images/synthetic/ecosystem-console.svg",
             alt: "Synthetic Proa playground console illustration",
         },
     },
@@ -150,7 +150,7 @@ const ECOSYSTEM_APPS: &[EcosystemApp<'static>] = &[
         status: AppStatus::Live,
         product_kind: "Reference recreation - not affiliated with GitHub",
         visual: AppVisual::Screenshot {
-            src: "/static/images/synthetic/ecosystem-diff.svg",
+            src: "public/images/synthetic/ecosystem-diff.svg",
             alt: "Synthetic code review diff illustration",
         },
     },
@@ -162,7 +162,7 @@ const ECOSYSTEM_APPS: &[EcosystemApp<'static>] = &[
         status: AppStatus::Live,
         product_kind: "Reference recreation - not affiliated with Airbnb",
         visual: AppVisual::Screenshot {
-            src: "/static/images/synthetic/ecosystem-travel.svg",
+            src: "public/images/synthetic/ecosystem-travel.svg",
             alt: "Synthetic travel marketplace illustration",
         },
     },
@@ -174,7 +174,7 @@ const ECOSYSTEM_APPS: &[EcosystemApp<'static>] = &[
         status: AppStatus::Live,
         product_kind: "Reference recreation - not affiliated with Nike",
         visual: AppVisual::Screenshot {
-            src: "/static/images/synthetic/ecosystem-catalog.svg",
+            src: "public/images/synthetic/ecosystem-catalog.svg",
             alt: "Synthetic product catalog illustration",
         },
     },
@@ -186,7 +186,7 @@ const ECOSYSTEM_APPS: &[EcosystemApp<'static>] = &[
         status: AppStatus::Live,
         product_kind: "Reference recreation - not affiliated with ESPN",
         visual: AppVisual::Screenshot {
-            src: "/static/images/synthetic/ecosystem-sports.svg",
+            src: "public/images/synthetic/ecosystem-sports.svg",
             alt: "Synthetic sports score page illustration",
         },
     },
@@ -198,7 +198,7 @@ const ECOSYSTEM_APPS: &[EcosystemApp<'static>] = &[
         status: AppStatus::Live,
         product_kind: "Reference recreation - not affiliated with Sentry",
         visual: AppVisual::Screenshot {
-            src: "/static/images/synthetic/ecosystem-observability.svg",
+            src: "public/images/synthetic/ecosystem-observability.svg",
             alt: "Synthetic observability trace illustration",
         },
     },

@@ -11,7 +11,7 @@ A **Page** is the selected content for a document. A **layout** wraps that conte
 | Selected Page | `ComponentRole::PAGE` | Finalize metadata before rendering its own body. |
 | Ordinary body component | `ComponentRole::COMPONENT` (default) | Skip head invocation entirely. |
 
-![Source files and two nested LAYOUT components around one selected PAGE.](/static/images/docs/nested-layouts.svg?v=2)
+![Source files and two nested LAYOUT components around one selected PAGE.](/_proa/assets/images/docs/nested-layouts.svg)
 
 The router selects a handler. The handler composes the layout and Page. Rust filenames organize the code; URLs are registered explicitly. See [Routing](/docs/framework/routing) for route patterns and request parameters.
 
@@ -19,7 +19,7 @@ The router selects a handler. The handler composes the layout and Page. Rust fil
 
 Declare `PAGE` even when a Page inherits all of its metadata. This example accepts its content through props and uses the same title in the head and body:
 
-![A Rust Page component is selected by a registered route and renders the page's main content.](/static/images/docs/page-and-route.svg?v=2)
+![A Rust Page component is selected by a registered route and renders the page's main content.](/_proa/assets/images/docs/page-and-route.svg)
 
 ```rust filename="src/pages/content.rs"
 use proa::{
@@ -60,7 +60,7 @@ These first examples use `WebRenderSync` and `html_sync!` because they do not aw
 
 A root layout owns the document's `<html>`, `<head>`, and `<body>`. Put `{cx.head()}` at the position where generated metadata belongs, then render the child through the template.
 
-![RootDocument declares LAYOUT, owns the document and head outlet, and wraps a ContentPage declaring PAGE.](/static/images/docs/layout-and-page.svg)
+![RootDocument declares LAYOUT, owns the document and head outlet, and wraps a ContentPage declaring PAGE.](/_proa/assets/images/docs/layout-and-page.svg)
 
 ```rust filename="src/layouts/root.rs"
 use proa::{

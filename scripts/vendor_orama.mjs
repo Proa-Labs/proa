@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Bundle @orama/orama plus the English stemmer into one self-contained ESM
-// file the marketing site serves from /static/vendor/orama.mjs. The .mjs
+// file the marketing site serves from /_proa/assets/vendor/orama.mjs. The .mjs
 // extension keeps Node treating it as an ES module without a package.json
 // `type` field, which would change how every other .js file in the repo parses.
 //

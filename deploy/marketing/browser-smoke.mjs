@@ -15,8 +15,17 @@ try {
   await page.locator("#benchmark-panel-http").waitFor({ state: "visible" });
   assert.equal(await page.locator("#benchmark-tab-http").getAttribute("aria-selected"), "true");
   assert.equal(await page.locator("#benchmark-panel-render").isVisible(), false);
+  const chartLink = page.getByRole("link", { name: "Open full-size SVG" });
+  assert.equal(await chartLink.getAttribute("href"),
+    await page.locator("#benchmark-panel-http img").getAttribute("src"));
   await page.locator("#benchmark-tab-http").press("Home");
   await page.locator("#benchmark-panel-render").waitFor({ state: "visible" });
+  assert.equal(await chartLink.getAttribute("href"),
+    await page.locator("#benchmark-panel-render img").getAttribute("src"));
+  await page.locator("[data-search-open]:visible").first().click();
+  await page.locator("#search-input").fill("streaming");
+  await page.locator("[data-search-hit]").first().waitFor({ state: "visible" });
+
   await page.goto(`${base}/showcase/espn/proa`, { waitUntil: "networkidle" });
   const box = page.getByRole("button", { name: "Box Score", exact: true });
   await box.click();

@@ -61,15 +61,11 @@ def build(incoming, cache, output, report, units, lto, label):
     env.update(CARGO_PROFILE_RELEASE_OPT_LEVEL="3", CARGO_PROFILE_RELEASE_CODEGEN_UNITS=str(units),
                CARGO_PROFILE_RELEASE_LTO=lto)
     env["CARGO_LOG"] = "cargo::core::compiler::fingerprint=info"
-    run([str(target / "release-fast/proa"), "build", "--root", str(source),
+    run([str(target / "release-fast/proa"), "build", "--root", str(source / "proa_marketing"),
          "--package", "proa_marketing", "--bin", "proa_marketing", "--locked", "--no-check",
-         "--no-assets", "--artifact-out", str(output / "proa_marketing"), "--", "cargo", "build",
+         "--artifact-out", str(output / "proa_marketing"), "--", "cargo", "build",
          "--profile", "release", "--timings"],
         cwd=source, env=env, report=report, label=f"{label}-linked")
-    for name, origin in (("static", source / "proa_marketing/public"),
-                         ("showcase", source / "proa_showcase_web/public")):
-        shutil.copytree(origin, output / name, dirs_exist_ok=True)
-    shutil.copytree(source / "proa_showcase/src/espn/data/images", output / "static/images", dirs_exist_ok=True)
     for index, timing in enumerate(target.rglob("cargo-timing.html")):
         shutil.copyfile(timing, report / f"{label}-cargo-timing-{index}.html")
     with (output / "proa_marketing").open("rb") as binary:
@@ -94,7 +90,6 @@ PAGES = ("ebay-srp", "nike-catalog", "nike-pdp", "espn-gamecast", "github-pr-dif
 def runtime(binary, artifacts, report):
     env = os.environ | {
         "PORT": "5050", "HOST": "127.0.0.1", "PROA_COMPANIONS": "0", "RUST_LOG": "error",
-        "STATIC_DIR": str(artifacts / "static"), "SHOWCASE_PUBLIC_DIR": str(artifacts / "showcase"),
     }
     with (report / "server.log").open("w") as log:
         process = subprocess.Popen([str(binary)], env=env, cwd=artifacts, stdout=log, stderr=log)

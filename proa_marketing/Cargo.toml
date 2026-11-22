@@ -20,9 +20,11 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 const_format = "0.2.36"
 futures = { workspace = true }
+proa_assets = { workspace = true, features = ["build"] }
 proa_core = { workspace = true, features = ["html-to-markdown"] }
 proa_demo = { workspace = true, features = ["server"] }
 proa_docs = { workspace = true }
+proa_framework_axum = { workspace = true }
 proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_third_party = { workspace = true, features = ["google-analytics"] }
@@ -39,8 +41,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
-tower = { version = "0.4" }
-tower-http = { version = "0.5", features = ["compression-br", "compression-gzip", "cors", "fs", "set-header", "trace"] }
+tower-http = { version = "0.5", features = ["compression-br", "compression-gzip", "cors", "set-header", "trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 utoipa = { version = "6.0", features = ["axum_extras"] }

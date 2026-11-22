@@ -69,14 +69,10 @@ steps:
         cargo build --profile release-fast --locked -p proa-cli --bin proa
         export CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
         export CARGO_PROFILE_RELEASE_LTO=thin CARGO_LOG=cargo::core::compiler::fingerprint=info
-        /cache/target/release-fast/proa build --root /cache/source \
-          --package proa_marketing --bin proa_marketing --locked --no-check --no-assets \
+        /cache/target/release-fast/proa build --root /cache/source/proa_marketing \
+          --package proa_marketing --bin proa_marketing --locked --no-check \
           --artifact-out /release/artifacts/proa_marketing -- cargo build --profile release --timings \
           2>&1 | tee /release/report/build.log
-        cp -a proa_marketing/public /release/artifacts/static
-        cp -a proa_showcase_web/public /release/artifacts/showcase
-        mkdir -p /release/artifacts/static/images
-        cp -a proa_showcase/src/espn/data/images/. /release/artifacts/static/images/
         find /cache/target -name cargo-timing.html -exec cp --parents {} /release/report/ \;
         sha256sum /release/artifacts/proa_marketing > /release/report/binary.sha256
         cp -a /release/artifacts /workspace/release-artifacts

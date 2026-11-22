@@ -24,7 +24,7 @@ const MEMBERS: &[TeamMember] = &[TeamMember {
     name: "Andrew Hariri",
     role: "Founder",
     organization: site::ORGANIZATION,
-    portrait: "/static/images/team/andrew-hariri.jpg",
+    portrait: "public/images/team/andrew-hariri.jpg",
     class: None,
     links: &[
         TeamLink::Website("https://hariri.dev/"),
@@ -128,7 +128,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for TeamMember {
         html_sync! {
             <div data-team-member data-component="team-member" class={classes}>
                 <img
-                    src={self.portrait}
+                    src={cx.url(self.portrait)}
                     alt={self.name}
                     width="460"
                     height="460"
@@ -195,7 +195,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for TeamMember {
 
             {self.role}, {self.organization}
 
-            ![{self.name}]({Url(self.portrait)})
+            ![{self.name}]({cx.url(self.portrait)})
 
             {for link in self.links {
                 md_sync! { "- [{link.label()}]({Url(link.href())})\n" }
