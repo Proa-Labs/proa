@@ -537,7 +537,6 @@ fn build_command_uses_profile_override() {
         no_check: false,
         no_assets: false,
         artifact_out: None,
-        public_assets_out: None,
         command: Vec::new(),
     });
 
@@ -2297,81 +2296,5 @@ mod dev_preparation_tests {
         drop(following);
         assert!(!public_assets::has_live_reader(&output));
         drop(fixed);
-    }
-
-    #[test]
-    fn public_assets_export_destination_validation_guards_overlap_and_foreign_directories() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-        fs::create_dir(root.join("public")).unwrap();
-
-        // Missing directory and empty directory are accepted.
-        validate_public_assets_export_destination(
-            root,
-            Path::new("public"),
-            &root.join("dist/public-assets"),
-            Some(&root.join("dist/app")),
-        )
-        .unwrap();
-        let empty = root.join("empty-export");
-        fs::create_dir(&empty).unwrap();
-        validate_public_assets_export_destination(root, Path::new("public"), &empty, None).unwrap();
-
-        // Existing Proa catalog directory is accepted for warm rebuilds.
-        let owned = root.join("owned-export");
-        fs::create_dir(&owned).unwrap();
-        fs::write(owned.join(".proa-assets"), "proa-assets-output-v1\n").unwrap();
-        fs::write(owned.join("manifest.json"), "{}").unwrap();
-        validate_public_assets_export_destination(root, Path::new("public"), &owned, None).unwrap();
-
-        // Non-empty foreign directory is rejected without creating a lock file.
-        let foreign = root.join("foreign");
-        fs::create_dir(&foreign).unwrap();
-        fs::write(foreign.join("README.md"), "keep").unwrap();
-        let err =
-            validate_public_assets_export_destination(root, Path::new("public"), &foreign, None)
-                .unwrap_err()
-                .to_string();
-        assert!(err.contains("not an empty directory"), "{err}");
-        assert!(!foreign.join(".writer.lock").exists());
-
-        // Existing file is rejected.
-        let file = root.join("not-a-dir");
-        fs::write(&file, "x").unwrap();
-        let err = validate_public_assets_export_destination(root, Path::new("public"), &file, None)
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("not a directory"), "{err}");
-
-        // Overlap with configured public directory (same, child, or parent) is rejected.
-        for candidate in [
-            root.join("public"),
-            root.join("public/nested"),
-            root.to_path_buf(),
-        ] {
-            let err = validate_public_assets_export_destination(
-                root,
-                Path::new("public"),
-                &candidate,
-                None,
-            )
-            .unwrap_err()
-            .to_string();
-            assert!(
-                err.contains("overlaps configured public directory"),
-                "{err}"
-            );
-        }
-
-        // Overlap with --artifact-out is rejected.
-        let err = validate_public_assets_export_destination(
-            root,
-            Path::new("public"),
-            &root.join("dist/out"),
-            Some(&root.join("dist/out/app")),
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("overlaps --artifact-out"), "{err}");
     }
 }

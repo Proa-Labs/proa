@@ -50,7 +50,8 @@ dependency trees.
 
 For build-time fingerprinting of public images, media and downloads, see
 [managed public assets](../../docs/build-output.md). `FrameworkBuilder`
-mounts the catalog from `PROA_PUBLIC_ASSETS` at startup and enables
+mounts the catalog at startup, from `PROA_PUBLIC_ASSETS` or else from the
+directory `proa build` wrote beside the executable, and enables
 `cx.url("public/...")` in components, including detached streams.
 
 ## Route responses

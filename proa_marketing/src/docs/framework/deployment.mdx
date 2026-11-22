@@ -56,7 +56,7 @@ Whatever you pick, the app must:
 
 - Read `PORT` from the environment. Never hardcode it.
 - Bind `0.0.0.0`, or `::` for dual-stack traffic, including legacy IPv6-only private networks.
-- Export the verified public asset catalog with `--public-assets-out <dir>` and set `PROA_PUBLIC_ASSETS` to its runtime path (or opt out of managed public assets and serve `public/` yourself).
+- Ship the public asset catalog beside the binary. `proa build` writes it there (`app` and `app.assets/`), and the server loads it from there, so copy the two together.
 - Answer `200` on a cheap `/healthz`, with dependency checks on a separate `/readyz`.
 
 Verify these before you deploy anywhere:
@@ -67,7 +67,7 @@ curl -fsS http://127.0.0.1:3000/healthz
 curl -fsS http://127.0.0.1:3000/_proa/assets/styles.css -o /dev/null
 ```
 
-Build a release binary and public asset catalog with `proa build --locked --artifact-out <path> --public-assets-out <dir>`, which runs the asset build and the linked RSJS pipeline (a plain `cargo build --release` skips the assets and fails at link time on any crate with islands). Public Proa dependencies resolve from crates.io without credentials. The exported binary and public asset catalog are the deployable artifact.
+Build with `proa build --locked --artifact-out <path>`, which runs the asset build and the linked RSJS pipeline (a plain `cargo build --release` skips the assets and fails at link time on any crate with islands). Public Proa dependencies resolve from crates.io without credentials. The build writes the binary to `<path>` and its public asset catalog to `<path>.assets/`. Those two are the deployable artifact: copy them to the same directory on the host and run the binary. Nothing else needs to be staged, and no environment variable points at the assets.
 
 ## Serving behind a URL path prefix
 

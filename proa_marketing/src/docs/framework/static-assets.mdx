@@ -8,7 +8,7 @@ Proa supports both managed public assets published by the CLI under `/_proa/asse
 
 ## Managed public assets
 
-By default, `proa build`, `proa dev`, `proa run`, and `proa test` publish `public/` into a verified asset catalog under Cargo's target directory and pass its path to the app through `PROA_PUBLIC_ASSETS`. `FrameworkBuilder::try_build()` loads that catalog automatically and mounts its routes under `/_proa/assets`.
+By default, `proa build`, `proa dev`, `proa run`, and `proa test` publish `public/` into a verified asset catalog. `proa dev`, `proa run`, and `proa test` pass its path to the app through `PROA_PUBLIC_ASSETS`; `proa build` writes it beside the exported executable, where the app finds it on its own. `FrameworkBuilder::try_build()` loads that catalog automatically and mounts its routes under `/_proa/assets`.
 
 Reference files in templates by their logical `public/...` path with `cx.url(...)`:
 
@@ -36,13 +36,13 @@ md_sync! { r###"
 - **CSS, public JS, HTML, JSON, XML, text, and maps** keep stable URLs such as `/_proa/assets/styles.css` with `Cache-Control: no-cache` and a content `ETag` so browsers revalidate them after edits.
 - **Missing entries** fail rendering with a clear error instead of emitting broken links. Set `paths.public` to `None` in `proa.config.rs` to opt out, or pass an explicit catalog with `FrameworkBuilder::with_public_assets(...)`.
 
-For production deployments using managed public assets, export the verified catalog directly alongside your release binary and point `PROA_PUBLIC_ASSETS` at it:
+For production, `proa build` writes the catalog beside the executable it exports, in a directory named after the executable with `.assets` appended:
 
 ```bash
-proa build --locked --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets
+proa build --locked --artifact-out /out/app   # writes /out/app and /out/app.assets/
 ```
 
-Then copy `/tmp/proa-public-assets` into your runtime image (for example `/app/public-assets`) and set `PROA_PUBLIC_ASSETS=/app/public-assets` (or run `proa start --bin <path> --public-assets <dir>`). Published catalog files are written world-readable so non-root runtime containers can load the catalog read-only without extra `chown` steps.
+Copy the two together, to any directory, and run the binary. A server started without `PROA_PUBLIC_ASSETS` loads the catalog next to its own executable, so a deployment needs no asset path, extra flag, or copy script. Catalog files are world-readable, so a non-root runtime user can load them from a read-only image. Set `PROA_PUBLIC_ASSETS` only to load a catalog kept somewhere else.
 
 ## Serving assets from disk
 

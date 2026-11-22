@@ -694,15 +694,7 @@ fn add_deploy(
     if deploy == DeployChoice::None {
         return Ok(());
     }
-    let migration_copy = if has_database {
-        "COPY --from=build /app/migrations ./migrations\n"
-    } else {
-        ""
-    };
-    plan.write(
-        "Dockerfile",
-        deployment_dockerfile(migration_copy, CLI_DISTRIBUTION_VERSION),
-    )?;
+    plan.write("Dockerfile", current_deployment_dockerfile(has_database))?;
     plan.write(".dockerignore", "target\n.git\n.env\ndata/*.db*\n")?;
     let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies resolve from crates.io without credentials:\n\n```bash\ndocker build .\n```\n\nUse `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
     if has_database {
@@ -744,6 +736,16 @@ fn add_deploy(
     Ok(())
 }
 
+/// The Dockerfile `proa new site` and `proa add <deployment>` both write.
+pub(super) fn current_deployment_dockerfile(has_database: bool) -> String {
+    let migration_copy = if has_database {
+        "COPY --from=build /app/migrations ./migrations\n"
+    } else {
+        ""
+    };
+    deployment_dockerfile(migration_copy, CLI_DISTRIBUTION_VERSION)
+}
+
 fn cli_download_base(version: &str) -> String {
     let snapshot = version
         .split_once('-')
@@ -755,7 +757,7 @@ fn cli_download_base(version: &str) -> String {
     }
 }
 
-pub(super) fn deployment_dockerfile(migration_copy: &str, cli_version: &str) -> String {
+fn deployment_dockerfile(migration_copy: &str, cli_version: &str) -> String {
     let cli_download_base = cli_download_base(cli_version);
     format!(
         r#"FROM rust:1.93-bookworm AS rust-toolchain
@@ -790,18 +792,18 @@ RUN set -eux; \
 COPY . .
 RUN set -eu; \
     if [ -f Cargo.lock ]; then \
-        proa build --locked --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets; \
+        proa build --locked --artifact-out /out/app; \
     else \
-        proa build --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets; \
+        proa build --artifact-out /out/app; \
     fi
 FROM ubuntu:24.04
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 && rm -rf /var/lib/apt/lists/*
-COPY --from=build /tmp/proa-app /usr/local/bin/app
-COPY --from=build /tmp/proa-public-assets /app/public-assets
-{migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000 PROA_PUBLIC_ASSETS=/app/public-assets
+# The build output is the executable and its public asset catalog, side by side.
+COPY --from=build /out/ /app/
+{migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000
 EXPOSE 3000
-CMD ["/usr/local/bin/app"]
+CMD ["/app/app"]
 "#
     )
 }
@@ -883,15 +885,13 @@ mod tests {
             "base=\"https://proa.so/downloads/cli/main/{version}\""
         )));
         assert!(dockerfile.contains("sha256sum --check --strict"));
-        assert!(dockerfile.contains(
-            "proa build --locked --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets"
-        ));
-        assert!(dockerfile.contains(
-            "proa build --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets"
-        ));
-        assert!(dockerfile.contains("COPY --from=build /tmp/proa-app /usr/local/bin/app"));
-        assert!(dockerfile.contains("COPY --from=build /tmp/proa-public-assets /app/public-assets"));
-        assert!(dockerfile.contains("PROA_PUBLIC_ASSETS=/app/public-assets"));
+        assert!(dockerfile.contains("proa build --locked --artifact-out /out/app;"));
+        assert!(dockerfile.contains("proa build --artifact-out /out/app;"));
+        // One copy carries the executable and the catalog bundled beside it,
+        // and the server finds that catalog without being told where it is.
+        assert!(dockerfile.contains("COPY --from=build /out/ /app/"));
+        assert!(dockerfile.contains("CMD [\"/app/app\"]"));
+        assert!(!dockerfile.contains("PROA_PUBLIC_ASSETS"));
         assert!(!dockerfile.contains("COPY --from=build /app/public ./public"));
         assert!(!dockerfile.contains("cargo build --release"));
         assert!(!dockerfile.contains("/app/target/release/"));

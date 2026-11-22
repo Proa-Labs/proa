@@ -54,6 +54,7 @@ impl OutputStore {
         let directory = directory.as_ref();
         at(directory, fs::create_dir_all(directory))?;
         let root = at(directory, directory.canonicalize())?;
+        set_traversable_directory_permissions(&root)?;
         let writer_path = root.join(WRITER_FILE);
         let writer = open_lock(&writer_path)?;
         match writer.try_lock() {
@@ -83,8 +84,16 @@ impl OutputStore {
             }
             let mut file = at(&marker, File::create_new(&marker))?;
             at(&marker, file.write_all(OWNER_BYTES))?;
-            set_readable_file_permissions(&marker, &file)?;
             at(&marker, file.sync_all())?;
+        }
+        #[cfg(unix)]
+        {
+            // A marker written under a restrictive umask stays owner-only.
+            use std::os::unix::fs::PermissionsExt;
+            let file = at(&marker, File::open(&marker))?;
+            if at(&marker, file.metadata())?.permissions().mode() & 0o444 != 0o444 {
+                set_readable_file_permissions(&marker, &file)?;
+            }
         }
         let readers = open_lock(&root.join(READERS_FILE))?;
         set_readable_file_permissions(&root.join(READERS_FILE), &readers)?;
@@ -464,6 +473,7 @@ fn ensure_directory(root: &Path, relative: &str) -> Result<()> {
             }
             Err(source) => return Err(AssetError::Io { path, source }),
         }
+        set_traversable_directory_permissions(&path)?;
     }
     Ok(())
 }
@@ -558,6 +568,27 @@ fn set_readable_file_permissions(path: &Path, file: &File) -> Result<()> {
     #[cfg(not(unix))]
     {
         let _ = (path, file);
+    }
+    Ok(())
+}
+
+/// Published directories are at least `0o755` on Unix whatever the build's umask, so
+/// the readable files inside them can also be reached by another user.
+fn set_traversable_directory_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = at(path, fs::metadata(path))?.permissions().mode();
+        if mode & 0o755 != 0o755 {
+            at(
+                path,
+                fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o755)),
+            )?;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
     }
     Ok(())
 }

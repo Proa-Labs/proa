@@ -187,6 +187,22 @@ enum Source {
     Rewritten(Bytes),
 }
 
+/// The bundled catalog of the running executable, when one was published.
+///
+/// Symlinks are resolved first, so a link in a `bin` directory still finds
+/// the catalog beside the real file. A present but damaged catalog is
+/// returned and then fails loading; only an absent one means "no catalog".
+fn bundled_with_current_executable() -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    let executable = executable.canonicalize().unwrap_or(executable);
+    bundled_catalog(&executable)
+}
+
+fn bundled_catalog(executable: &Path) -> Option<PathBuf> {
+    let output = proa_assets::bundled_output(executable)?;
+    output.join(MANIFEST_FILE).is_file().then_some(output)
+}
+
 impl PublicAssets {
     /// An explicitly configured missing/corrupt output fails startup.
     pub fn load(output: impl AsRef<Path>, base_path: &BasePath) -> Result<Self, PublicAssetError> {
@@ -231,15 +247,24 @@ impl PublicAssets {
         })
     }
 
-    /// The CLI sets this runtime-only path after a successful build/publication.
-    /// `None` means the application has not opted into a configured public dir.
+    /// The catalog this process was built or started with.
+    ///
+    /// `PROA_PUBLIC_ASSETS` names it when set, which is how `proa dev`,
+    /// `proa run`, and `proa test` supply the one they just published.
+    /// Otherwise it is the catalog `proa build` bundled beside this
+    /// executable (`app.assets` next to `app`), so an exported build runs
+    /// from wherever the pair was copied with no configuration. `None` means
+    /// neither exists: the application has no managed public directory.
     ///
     /// A process started by `proa dev` with live reload gets a catalog that
     /// follows in-place republication. That takes the same two variables as
     /// the reload client, so a stray `PROA_DEV_RELOAD_PORT` in a deployment
     /// environment cannot switch it on.
     pub fn from_env(base_path: &BasePath) -> Result<Option<Self>, PublicAssetError> {
-        let Some(path) = std::env::var_os(OUTPUT_ENV) else {
+        let Some(path) = std::env::var_os(OUTPUT_ENV)
+            .map(PathBuf::from)
+            .or_else(bundled_with_current_executable)
+        else {
             return Ok(None);
         };
         if crate::dev_reload::session_from_env() {

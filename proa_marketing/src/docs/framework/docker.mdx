@@ -3,7 +3,7 @@ title: Docker
 description: Run the Proa image yourself, and own everything a platform would have done.
 ---
 
-Proa produces one release binary and a verified public asset catalog. This page packages both into an image and runs it on hardware you control.
+Proa produces one release binary with its public asset catalog beside it. This page packages that output into an image and runs it on hardware you control.
 
 Read [what self-managed Docker costs you](/docs/framework/deployment) first. Take this path when you are running Proa beside an existing app, deploying into Kubernetes, Nomad, or ECS, or working somewhere a managed platform is not an option. For a plain public site, [Railway](/docs/framework/railway) or [Coolify](/docs/framework/coolify) does all of this for you.
 
@@ -33,7 +33,7 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    proa build --locked --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets
+    proa build --locked --artifact-out /out/my-site
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
@@ -41,16 +41,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /tmp/proa-app /usr/local/bin/my-site
-COPY --from=build /tmp/proa-public-assets /app/public-assets
+COPY --from=build /out/ /app/
 
 ENV PROA_HOST=0.0.0.0
 ENV PORT=3000
-ENV PROA_PUBLIC_ASSETS=/app/public-assets
 ENV RUST_LOG=info
 
 EXPOSE 3000
-CMD ["my-site"]
+CMD ["/app/my-site"]
 ```
 
 The first image build compiles your project's pinned CLI from crates.io, which takes several
@@ -58,7 +56,7 @@ minutes. Docker caches that installation layer separately from your application
 source. The installer handles only Tailwind and verifies its standalone binary's
 checksum. This source-build path also works with the Bookworm base images.
 
-`proa build` runs the configured asset build and the linked RSJS pipeline, copies the attested binary to `--artifact-out`, and exports the fingerprinted public asset catalog to `--public-assets-out`. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST`, `PORT`, and `PROA_PUBLIC_ASSETS` and serves managed public assets under `/_proa/assets` from `/app/public-assets`.
+`proa build` runs the configured asset build and the linked RSJS pipeline, then writes the attested binary to `--artifact-out` and its fingerprinted public asset catalog beside it, here `/out/my-site` and `/out/my-site.assets/`. That directory is the whole deployable output, so one `COPY` carries it into the runtime stage. The server loads the catalog next to its own executable and serves it under `/_proa/assets`; there is no path to configure. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT`.
 
 ```bash
 docker build -t my-site:$(git rev-parse --short HEAD) .

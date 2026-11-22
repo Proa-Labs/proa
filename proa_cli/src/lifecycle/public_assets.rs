@@ -174,18 +174,56 @@ pub(super) fn publish(
     directory: Option<&Path>,
     output: &Path,
 ) -> Result<Option<PathBuf>> {
-    publish_with_label(root, directory, output, false)
+    publish_to(root, directory, output, "published", "to")
 }
 
-pub(super) fn export(root: &Path, directory: &Path, output: &Path) -> Result<Option<PathBuf>> {
-    publish_with_label(root, Some(directory), output, true)
+/// Place the catalog beside an exported executable, where the server finds it
+/// without configuration. The executable and this directory are the complete
+/// deployable output: copying both anywhere is enough to run the application.
+///
+/// A build with nothing to publish removes a catalog left by an earlier
+/// export to the same path, so the executable never starts with stale files.
+pub(super) fn bundle(
+    root: &Path,
+    directory: Option<&Path>,
+    executable: &Path,
+) -> Result<Option<PathBuf>> {
+    let output = proa_assets::bundled_output(executable).with_context(|| {
+        format!(
+            "exported executable `{}` has no file name",
+            executable.display()
+        )
+    })?;
+    let owned = proa_assets::is_output(&output);
+    // Refuse before the output store opens it, which would leave a lock file
+    // inside a directory that belongs to something else.
+    let foreign = !owned
+        && match fs::read_dir(&output) {
+            Ok(mut entries) => entries.next().is_some(),
+            Err(error) => error.kind() != io::ErrorKind::NotFound,
+        };
+    if foreign {
+        bail!(
+            "`{}` is in the way: Proa bundles the public asset catalog beside the exported executable `{}`. Move it, or export the executable to a different path",
+            output.display(),
+            executable.display()
+        );
+    }
+    let bundled = publish_to(root, directory, &output, "bundled", "in")
+        .with_context(|| format!("bundle public assets beside `{}`", executable.display()))?;
+    if bundled.is_none() && owned {
+        fs::remove_dir_all(&output)
+            .with_context(|| format!("remove stale public asset catalog {}", output.display()))?;
+    }
+    Ok(bundled)
 }
 
-fn publish_with_label(
+fn publish_to(
     root: &Path,
     directory: Option<&Path>,
     output: &Path,
-    quiet: bool,
+    verb: &str,
+    preposition: &str,
 ) -> Result<Option<PathBuf>> {
     let Some(directory) = directory else {
         return Ok(None);
@@ -207,13 +245,11 @@ fn publish_with_label(
     if let Some(error) = report.durability_error {
         eprintln!("warning: public manifest activated, but directory sync failed: {error}");
     }
-    if !quiet {
-        super::dev_ui::detail!(
-            "published {} public assets to {}",
-            report.manifest.assets.len(),
-            report.output_directory.display()
-        );
-    }
+    super::dev_ui::detail!(
+        "{verb} {} public assets {preposition} {}",
+        report.manifest.assets.len(),
+        report.output_directory.display()
+    );
     Ok(Some(report.output_directory))
 }
 

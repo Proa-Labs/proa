@@ -1183,45 +1183,22 @@ exec "$REAL_CARGO" "$@"
 }
 
 #[test]
-fn build_exports_public_asset_catalog_to_explicit_destination_and_validates_flags() {
+fn build_bundles_the_public_catalog_beside_the_exported_executable() {
     let temp = fixture();
     let root = temp.path();
     let exported_bin = temp.path().join("release-export/app");
-    let exported_assets = temp.path().join("release-export/public-assets");
+    let bundled = temp.path().join("release-export/app.assets");
+    let build = |extra: &[&str]| {
+        let mut args = vec!["build", "--offline", "--no-check", "--artifact-out"];
+        args.push(exported_bin.to_str().unwrap());
+        args.extend_from_slice(extra);
+        cli(root, &args)
+    };
 
-    let first = success(&cli(
-        root,
-        &[
-            "build",
-            "--offline",
-            "--no-check",
-            "--artifact-out",
-            exported_bin.to_str().unwrap(),
-            "--public-assets-out",
-            exported_assets.to_str().unwrap(),
-        ],
-    ));
-    assert!(
-        first.contains(&format!(
-            "exported public asset catalog to {}",
-            exported_assets.canonicalize().unwrap().display()
-        )) || first.contains(&format!(
-            "exported public asset catalog to {}",
-            exported_assets.display()
-        )),
-        "{first}"
-    );
-    // Export does not print a duplicate `published ...` line.
-    assert_eq!(
-        first
-            .lines()
-            .filter(|line| line.starts_with("published ") && line.contains(" public assets to "))
-            .count(),
-        1,
-        "{first}"
-    );
-
-    let catalog = AssetCatalog::load(&exported_assets).unwrap();
+    // No flag and no environment variable: the catalog follows the executable.
+    let first = success(&build(&[]));
+    assert!(first.contains(" public assets in "), "{first}");
+    let catalog = AssetCatalog::load(&bundled).unwrap();
     let first_url = catalog.manifest().assets["logo.svg"].public_path.clone();
     assert_eq!(
         fs::read(catalog.object_path("logo.svg").unwrap()).unwrap(),
@@ -1229,82 +1206,77 @@ fn build_exports_public_asset_catalog_to_explicit_destination_and_validates_flag
     );
     drop(catalog);
 
-    // Updating a public asset and rebuilding into the same destination updates the catalog in place.
+    // The directory is self-contained: it still loads after the pair is moved.
+    let moved = temp.path().join("deployed");
+    fs::create_dir(&moved).unwrap();
+    fs::copy(&exported_bin, moved.join("app")).unwrap();
+    copy_tree(&bundled, &moved.join("app.assets"));
+    let relocated = AssetCatalog::load(moved.join("app.assets")).unwrap();
+    assert_eq!(
+        relocated.manifest().assets["logo.svg"].public_path,
+        first_url
+    );
+    drop(relocated);
+
+    // A rebuild to the same path updates the bundled catalog in place.
     fs::write(root.join("public/logo.svg"), b"second").unwrap();
-    let second = success(&cli(
+    success(&build(&[]));
+    let updated = AssetCatalog::load(&bundled).unwrap();
+    let second_url = updated.manifest().assets["logo.svg"].public_path.clone();
+    assert_ne!(first_url, second_url);
+    drop(updated);
+
+    // `proa start` hands the bundled catalog to the executable it starts.
+    let started = success(&cli(
+        root,
+        &["start", "--bin", exported_bin.to_str().unwrap()],
+    ));
+    let manifest: AssetManifest = serde_json::from_str(
+        started
+            .lines()
+            .find_map(|line| line.strip_prefix("MAIN||"))
+            .expect("started executable"),
+    )
+    .unwrap();
+    assert_eq!(manifest.assets["logo.svg"].public_path, second_url);
+
+    // A directory that belongs to something else is refused and left untouched.
+    let blocked_bin = temp.path().join("blocked/app");
+    let blocked = temp.path().join("blocked/app.assets");
+    fs::create_dir_all(&blocked).unwrap();
+    fs::write(blocked.join("existing.txt"), "keep").unwrap();
+    let refused = cli(
         root,
         &[
             "build",
             "--offline",
             "--no-check",
             "--artifact-out",
-            exported_bin.to_str().unwrap(),
-            "--public-assets-out",
-            exported_assets.to_str().unwrap(),
-        ],
-    ));
-    assert!(
-        second.contains("exported public asset catalog to "),
-        "{second}"
-    );
-    let updated_catalog = AssetCatalog::load(&exported_assets).unwrap();
-    let second_url = updated_catalog.manifest().assets["logo.svg"]
-        .public_path
-        .clone();
-    assert_ne!(first_url, second_url);
-    assert_eq!(
-        fs::read(updated_catalog.object_path("logo.svg").unwrap()).unwrap(),
-        b"second"
-    );
-
-    // Running the exported binary with PROA_PUBLIC_ASSETS pointing at the exported catalog succeeds.
-    let run = Command::new(&exported_bin)
-        .env(OUTPUT_ENV, &exported_assets)
-        .arg("--probe")
-        .output()
-        .unwrap();
-    let run_stdout = success(&run);
-    let manifest = main_manifest(&run_stdout);
-    assert_eq!(manifest.assets["logo.svg"].public_path, second_url);
-
-    // `--public-assets-out` with `--no-assets` fails early before running Cargo.
-    let no_assets = cli(
-        root,
-        &[
-            "build",
-            "--offline",
-            "--no-check",
-            "--no-assets",
-            "--public-assets-out",
-            exported_assets.to_str().unwrap(),
+            blocked_bin.to_str().unwrap(),
         ],
     );
-    assert!(!no_assets.status.success());
-    let stderr = String::from_utf8_lossy(&no_assets.stderr);
-    assert!(
-        stderr.contains("--public-assets-out cannot be combined with --no-assets"),
-        "{stderr}"
-    );
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("is in the way"), "{stderr}");
+    assert_eq!(fs::read_dir(&blocked).unwrap().count(), 1);
+    assert!(!blocked_bin.exists());
 
-    // Refusing a non-empty foreign directory does not touch or leave `.writer.lock` inside it.
-    let foreign = temp.path().join("foreign-dir");
-    fs::create_dir(&foreign).unwrap();
-    fs::write(foreign.join("existing.txt"), "keep").unwrap();
-    let foreign_out = cli(
-        root,
-        &[
-            "build",
-            "--offline",
-            "--no-check",
-            "--public-assets-out",
-            foreign.to_str().unwrap(),
-        ],
-    );
-    assert!(!foreign_out.status.success());
-    assert!(
-        String::from_utf8_lossy(&foreign_out.stderr).contains("not an empty directory"),
-        "{}",
-        String::from_utf8_lossy(&foreign_out.stderr)
-    );
-    assert!(!foreign.join(".writer.lock").exists());
+    // A build that publishes nothing removes the catalog an earlier export
+    // left there, so the executable cannot start with stale files.
+    success(&build(&["--no-assets"]));
+    assert!(exported_bin.is_file());
+    assert!(!bundled.exists());
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
 }

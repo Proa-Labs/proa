@@ -881,3 +881,23 @@ async fn managed_head_resolves_catalog_urls_once_under_a_deployment_mount() {
         }
     }
 }
+
+#[test]
+fn a_catalog_bundled_beside_the_executable_is_found_without_configuration() {
+    let f = Fixture::new();
+    f.write("img/logo.png", b"logo");
+    let executable = f.temp.path().join("dist/app");
+    assert_eq!(bundled_catalog(&executable), None);
+
+    let output = f.temp.path().join("dist/app.assets");
+    OutputStore::open(&output)
+        .unwrap()
+        .publish(f.temp.path().join("public"))
+        .unwrap();
+    assert_eq!(bundled_catalog(&executable), Some(output.clone()));
+    let assets = PublicAssets::load(output, &BasePath::new("").unwrap()).unwrap();
+    assert!(assets.url("img/logo.png").is_some());
+
+    // Another executable in the same directory has no claim on it.
+    assert_eq!(bundled_catalog(&f.temp.path().join("dist/other")), None);
+}

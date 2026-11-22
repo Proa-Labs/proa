@@ -24,12 +24,7 @@ use crate::{
 pub use plan::{PlannedFile, SitePlan};
 
 pub(crate) fn deployment_dockerfile(has_database: bool) -> String {
-    let migration_copy = if has_database {
-        "COPY --from=build /app/migrations ./migrations\n"
-    } else {
-        ""
-    };
-    templates::deployment_dockerfile(migration_copy, env!("CARGO_PKG_VERSION"))
+    templates::current_deployment_dockerfile(has_database)
 }
 
 #[derive(Debug, Clone)]

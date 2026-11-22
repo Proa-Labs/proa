@@ -191,7 +191,9 @@ work; this catalog does not claim to eliminate their costs.
 ## Load and use the catalog
 
 `proa run` and `proa dev` set `PROA_PUBLIC_ASSETS` on the server process after
-publication. `FrameworkBuilder` loads and mounts that catalog at startup.
+publication. `FrameworkBuilder` loads and mounts that catalog at startup. An
+exported executable started on its own loads the catalog bundled beside it
+instead (see [deployment](#publication-cleanup-and-deployment)).
 `proa test` also publishes the configured public directory and sets
 `PROA_PUBLIC_ASSETS` when launching the selected test executable.
 With the configuration above, place the source image at
@@ -317,24 +319,46 @@ removed by the next writer. Collision reservations survive object cleanup.
 Post-publication cleanup or durability errors are reported as warnings because
 the new pointer is already active. Cleanup never adopts unrelated directories.
 
-For deployment, export the verified public asset catalog alongside the binary
-with `proa build --artifact-out <bin> --public-assets-out <dir>` and set
-`PROA_PUBLIC_ASSETS` to its deployment location. `--artifact-out` exports only
-the executable; `--public-assets-out` publishes the complete catalog directory
-(including `.proa-assets`, `.readers.lock`, `manifest.json`, and `objects/`),
-with world-readable file permissions so non-root runtime containers can load it
-from a read-only deployment without re-owning files. Do not manually modify
-immutable objects.
+For deployment, `proa build` writes the complete output side by side: the
+executable and, beside it, the catalog in a directory named after the
+executable with `.assets` appended.
 
-To start a packaged app with the CLI, pass the copied catalog alongside the
-exported executable.
-
-```bash
-proa start --root . --bin ./app --public-assets ./public-assets
+```text
+<target-dir>/release/
+  app                          linked executable
+  app.assets/                  its public asset catalog
 ```
 
-If the deployment path is set and the catalog is missing or invalid,
-`FrameworkBuilder::try_build` reports a startup error. Apps can also use
+`--artifact-out <path>` moves the pair: `--artifact-out /out/app` writes
+`/out/app` and `/out/app.assets/`. A server started without
+`PROA_PUBLIC_ASSETS` loads the catalog beside its own executable, so copying
+both to any directory is the whole deployment. No environment variable, extra
+flag, or copy script is involved.
+
+```dockerfile
+RUN proa build --locked --artifact-out /out/app
+COPY --from=build /out/ /app/
+CMD ["/app/app"]
+```
+
+Catalog files are world-readable and its directories traversable whatever the
+build's umask, so a non-root runtime user can load it from a read-only image.
+A build that publishes nothing, because of `--no-assets` or `paths.public:
+None`, removes a catalog left beside the same executable path by an earlier
+build. A directory at that path that Proa did not create fails the build
+untouched. Do not manually modify immutable objects.
+
+`PROA_PUBLIC_ASSETS` still overrides the location. `proa dev`, `proa run`, and
+`proa test` set it to the catalog they publish under the target directory, and
+`proa start --public-assets <dir>` sets it for a catalog kept elsewhere.
+
+```bash
+proa start --root . --bin ./app
+```
+
+If `PROA_PUBLIC_ASSETS` is set or a bundled catalog is present, and that
+catalog is missing or invalid, `FrameworkBuilder::try_build` reports a startup
+error. Apps can also use
 `with_public_assets` to supply an explicit catalog or check required logical
 paths at startup. The catalog has no binary hash binding.
 
