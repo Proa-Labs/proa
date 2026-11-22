@@ -815,3 +815,359 @@ fn pro_catalog_token_takes_precedence_over_legacy_cargo_token() {
             .is_none()
     );
 }
+
+#[test]
+fn view_reports_version_mismatch_and_conflicts_without_failing() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+
+    // Simulate a starter site that already locked `@proa/button` at 0.2.0 with starter contents.
+    fs::create_dir_all(project.join("src/components/button")).unwrap();
+    fs::write(
+        project.join("src/components/button/button.rs"),
+        b"pub struct StarterButton;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join(LOCK_FILE),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": "https://proa.so/schema/proa.lock.json",
+            "components": {
+                "@proa/button": {
+                    "version": "0.2.0",
+                    "registry": "@proa",
+                    "mode": "source",
+                    "sourceHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    "localHashAtInstall": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    "installedFiles": ["src/components/button/button.rs"],
+                    "dependencies": [],
+                    "rustModules": [],
+                    "cargoDependencies": []
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    write_manifest(
+        &public,
+        "button",
+        PUBLIC_REGISTRY,
+        "free",
+        "MIT OR Apache-2.0",
+        "@components/button/button.rs",
+        b"pub struct RegistryButton;\n",
+        &[],
+    );
+    write_manifest(
+        &public,
+        "dialog",
+        PUBLIC_REGISTRY,
+        "free",
+        "MIT OR Apache-2.0",
+        "@components/dialog/dialog.rs",
+        b"pub struct Dialog;\n",
+        &["@proa/button"],
+    );
+
+    let report = view(ViewOptions {
+        root: project.clone(),
+        component: "dialog".into(),
+        registry: None,
+    })
+    .unwrap();
+
+    assert_eq!(report.resolved, "@proa/dialog");
+    assert!(report.needs_force);
+    assert_eq!(
+        report.files_to_create,
+        vec![PathBuf::from("src/components/dialog/dialog.rs")]
+    );
+    assert_eq!(
+        report.files_to_overwrite_on_force,
+        vec![PathBuf::from("src/components/button/button.rs")]
+    );
+    assert!(report.files_conflicting_local.is_empty());
+    let button = report
+        .components
+        .iter()
+        .find(|item| item.name == "button")
+        .unwrap();
+    assert_eq!(
+        button.install_state,
+        ComponentInstallState::VersionMismatch {
+            installed_version: "0.2.0".into(),
+        }
+    );
+    // Read-only view never touches project files.
+    assert_eq!(
+        fs::read_to_string(project.join("src/components/button/button.rs")).unwrap(),
+        "pub struct StarterButton;\n"
+    );
+    assert!(!project.join("src/components/dialog/dialog.rs").exists());
+}
+
+#[test]
+fn force_reinstall_overwrites_locked_files_and_deduplicates_preexisting_modules() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+
+    // Pre-existing starter mod.rs + starter button owned by lockfile.
+    fs::create_dir_all(project.join("src/components/button")).unwrap();
+    fs::write(
+        project.join("src/components/mod.rs"),
+        "pub mod button;\npub use button::Button;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("src/components/button/button.rs"),
+        b"pub struct StarterButton;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join(LOCK_FILE),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": "https://proa.so/schema/proa.lock.json",
+            "components": {
+                "@proa/button": {
+                    "version": "0.2.0",
+                    "registry": "@proa",
+                    "mode": "source",
+                    "sourceHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    "localHashAtInstall": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    "installedFiles": ["src/components/button/button.rs"],
+                    "dependencies": [],
+                    "rustModules": [],
+                    "cargoDependencies": []
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // Registry button + dialog both declare rustModules on @components/mod.rs.
+    fs::create_dir_all(public.join("files")).unwrap();
+    let button_bytes = b"pub struct RegistryButton;\n";
+    let dialog_bytes = b"pub struct Dialog;\n";
+    fs::write(public.join("files/button.rs"), button_bytes).unwrap();
+    fs::write(public.join("files/dialog.rs"), dialog_bytes).unwrap();
+    fs::write(
+        public.join("button.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": COMPONENT_MANIFEST_SCHEMA,
+            "schemaVersion": COMPONENT_MANIFEST_VERSION,
+            "name": "button",
+            "version": "1.0.0",
+            "registry": PUBLIC_REGISTRY,
+            "tier": "free",
+            "license": "MIT OR Apache-2.0",
+            "rustModules": [{ "target": "@components/mod.rs", "modules": ["button"] }],
+            "files": [{
+                "source": "files/button.rs",
+                "target": "@components/button/button.rs",
+                "sha256": sha256_bytes(button_bytes),
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        public.join("dialog.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": COMPONENT_MANIFEST_SCHEMA,
+            "schemaVersion": COMPONENT_MANIFEST_VERSION,
+            "name": "dialog",
+            "version": "1.0.0",
+            "registry": PUBLIC_REGISTRY,
+            "tier": "free",
+            "license": "MIT OR Apache-2.0",
+            "dependencies": ["@proa/button"],
+            "rustModules": [{ "target": "@components/mod.rs", "modules": ["dialog"] }],
+            "files": [{
+                "source": "files/dialog.rs",
+                "target": "@components/dialog/dialog.rs",
+                "sha256": sha256_bytes(dialog_bytes),
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // Without --force, refuses to upgrade locked `@proa/button`.
+    assert!(add_fixture(&project, "dialog").is_err());
+
+    // With --force, replaces locked `@proa/button`, installs dialog, and avoids duplicate `pub mod button;`.
+    let report = add(AddOptions {
+        root: project.clone(),
+        component: "dialog".into(),
+        registry: None,
+        dry_run: false,
+        force: true,
+    })
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(project.join("src/components/button/button.rs")).unwrap(),
+        "pub struct RegistryButton;\n"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("src/components/dialog/dialog.rs")).unwrap(),
+        "pub struct Dialog;\n"
+    );
+    let mod_rs = fs::read_to_string(project.join("src/components/mod.rs")).unwrap();
+    assert_eq!(mod_rs.matches("pub mod button;").count(), 1, "{mod_rs}");
+    assert_eq!(mod_rs.matches("pub mod dialog;").count(), 1, "{mod_rs}");
+    assert!(
+        report
+            .next_steps
+            .iter()
+            .any(|step| step.contains("use crate::components::dialog::*;")),
+        "{:?}",
+        report.next_steps
+    );
+
+    // Even with --force, an unrelated local file NOT owned by the lockfile is never overwritten.
+    fs::create_dir_all(project.join("src/components/custom")).unwrap();
+    fs::write(
+        project.join("src/components/custom/custom.rs"),
+        b"pub struct MyCustom;\n",
+    )
+    .unwrap();
+    write_manifest(
+        &public,
+        "custom",
+        PUBLIC_REGISTRY,
+        "free",
+        "MIT OR Apache-2.0",
+        "@components/custom/custom.rs",
+        b"pub struct RegistryCustom;\n",
+        &[],
+    );
+    let err = add(AddOptions {
+        root: project.clone(),
+        component: "custom".into(),
+        registry: None,
+        dry_run: false,
+        force: true,
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("refusing to overwrite locally different file"),
+        "{err}"
+    );
+    assert_eq!(
+        fs::read_to_string(project.join("src/components/custom/custom.rs")).unwrap(),
+        "pub struct MyCustom;\n"
+    );
+}
+
+#[test]
+fn add_report_suggests_next_steps_for_unwired_public_assets_only() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+
+    fs::create_dir_all(public.join("files")).unwrap();
+    let js_bytes = b"console.log('proa');\n";
+    let css_bytes = b".proa-accordion {}\n";
+    let rs_bytes = b"pub struct Accordion;\n";
+    fs::write(public.join("files/proa-free.js"), js_bytes).unwrap();
+    fs::write(public.join("files/proa-free.css"), css_bytes).unwrap();
+    fs::write(public.join("files/accordion.rs"), rs_bytes).unwrap();
+    fs::write(
+        public.join("accordion.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": COMPONENT_MANIFEST_SCHEMA,
+            "schemaVersion": COMPONENT_MANIFEST_VERSION,
+            "name": "accordion",
+            "version": "1.0.0",
+            "registry": PUBLIC_REGISTRY,
+            "tier": "free",
+            "license": "MIT OR Apache-2.0",
+            "rustModules": [{ "target": "@components/mod.rs", "modules": ["accordion"] }],
+            "files": [
+                {
+                    "source": "files/proa-free.js",
+                    "target": "@assets/proa-ui/proa-free.js",
+                    "sha256": sha256_bytes(js_bytes),
+                },
+                {
+                    "source": "files/proa-free.css",
+                    "target": "@assets/proa-ui/proa-free.css",
+                    "sha256": sha256_bytes(css_bytes),
+                },
+                {
+                    "source": "files/accordion.rs",
+                    "target": "@components/accordion/accordion.rs",
+                    "sha256": sha256_bytes(rs_bytes),
+                },
+            ],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let first = add_fixture(&project, "accordion").unwrap();
+    assert!(
+        first
+            .next_steps
+            .iter()
+            .any(|s| s.contains("cx.url(\"public/proa/proa-ui/proa-free.js\")")),
+        "{:?}",
+        first.next_steps
+    );
+    assert!(
+        first
+            .next_steps
+            .iter()
+            .any(|s| s.contains("cx.url(\"public/proa/proa-ui/proa-free.css\")")),
+        "{:?}",
+        first.next_steps
+    );
+
+    // Once wired into layout + styles, those hints are omitted on repeat installs.
+    fs::write(
+        project.join("src/layout.rs"),
+        r#"let _ = cx.url("public/proa/proa-ui/proa-free.js");"#,
+    )
+    .unwrap();
+    fs::create_dir_all(project.join("styles")).unwrap();
+    fs::write(
+        project.join("styles/input.css"),
+        "@import \"../public/proa/proa-ui/proa-free.css\";\n",
+    )
+    .unwrap();
+    let second = add_fixture(&project, "accordion").unwrap();
+    assert!(
+        !second.next_steps.iter().any(|s| s.contains("proa-free.js")),
+        "{:?}",
+        second.next_steps
+    );
+    assert!(
+        !second
+            .next_steps
+            .iter()
+            .any(|s| s.contains("proa-free.css")),
+        "{:?}",
+        second.next_steps
+    );
+}

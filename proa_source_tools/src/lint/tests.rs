@@ -6315,3 +6315,86 @@ pub fn handler() -> (Card, Badge) {
         vec![(32, "asset/public-url")]
     );
 }
+
+#[test]
+fn asset_url_lint_catches_head_writer_setters_and_missing_public_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("src/pages")).unwrap();
+    std::fs::create_dir_all(root.join("public/images")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config::default())
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("public/favicon.svg"), "<svg/>").unwrap();
+    std::fs::write(root.join("public/images/og.png"), b"png").unwrap();
+
+    // Note: `public/styles.css` is intentionally NOT on disk yet to verify
+    // declared/inferred generated outputs do not false-positive.
+    std::fs::write(
+        root.join("src/pages/home.rs"),
+        r#"pub struct HomePage;
+impl WebRenderSync for HomePage {
+    fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let _ = HeadIcon::new("/favicon.svg");
+        let _ = HeadMedia::from_url("public/images/og.png");
+        let _ = HeadIcon::from_url("/favicon.svg");
+        let _ = cx.head_mut().og_image("/images/og.png");
+        let _ = cx.head_mut().og_image("public/images/og.png");
+        let _ = cx.head_mut().icon("/favicon.svg");
+        let _ = cx.head_mut().stylesheet("/favicon.svg");
+        // Valid resolved calls + inferred generated Tailwind output + unrelated `.icon(...)`
+        let og = cx.url("public/images/og.png");
+        let _ = cx.head_mut().og_image(og);
+        let css = cx.url("public/styles.css");
+        let _ = cx.head_mut().stylesheet(css);
+        let _ = HeadMedia::from_url(cx.url("public/images/og.png"));
+        let _ = my_builder.icon("/favicon.svg");
+        // Missing files under public/
+        let _ = cx.url("public/images/typo.png");
+        let _ = cx.url("public/images/absent.png?v=1#top");
+        Ok(())
+    }
+
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <main>"ok"</main> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let diagnostics =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    let mut hits: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    hits.sort();
+    assert_eq!(
+        hits,
+        vec![
+            (4, "asset/public-url"),           // HeadIcon::new("/favicon.svg")
+            (5, "asset/public-url"),           // HeadMedia::from_url("public/images/og.png")
+            (6, "asset/public-url"),           // HeadIcon::from_url("/favicon.svg")
+            (7, "asset/public-url"),           // cx.head_mut().og_image("/images/og.png")
+            (8, "asset/public-url"),           // cx.head_mut().og_image("public/images/og.png")
+            (9, "asset/public-url"),           // cx.head_mut().icon("/favicon.svg")
+            (10, "asset/public-url"),          // cx.head_mut().stylesheet("/favicon.svg")
+            (19, "asset/missing-public-file"), // cx.url("public/images/typo.png")
+            (20, "asset/missing-public-file"), // cx.url("public/images/absent.png?v=1#top")
+        ],
+        "unexpected asset diagnostics: {diagnostics:#?}"
+    );
+}
