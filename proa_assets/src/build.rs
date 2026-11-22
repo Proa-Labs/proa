@@ -57,6 +57,79 @@ impl std::fmt::Display for Diagnostic {
     }
 }
 
+/// A verified copy of a public directory: file `n` of `files` is at
+/// `<stage>/<n>`, holding the bytes `manifest` describes.
+struct Snapshot {
+    files: Vec<String>,
+    manifest: AssetManifest,
+    diagnostics: Vec<Diagnostic>,
+}
+
+/// Copy `source` into `stage`, settle every file's published name, and
+/// confirm the source did not change underneath the copy.
+fn snapshot(source: &Path, stage: &Path, history: &mut History) -> Result<Snapshot> {
+    let files = collect_files(source)?;
+    let reserved = PUBLIC_ROUTE.trim_start_matches('/');
+    if let Some(file) = files
+        .iter()
+        .find(|file| file.split('/').next() == Some(reserved))
+    {
+        // A bundle keeps every published file under `public/_proa/`.
+        return Err(AssetError::ReservedPath(file.clone()));
+    }
+    let mut sources = Vec::with_capacity(files.len());
+    for (index, logical) in files.iter().enumerate() {
+        let input = confined_file(source, logical)?;
+        let snapshot = stage.join(index.to_string());
+        at(&snapshot, fs::copy(&input, &snapshot))?;
+        // The owned snapshot must be writable: a stylesheet is rewritten
+        // in place, and Windows also needs it for FlushFileBuffers and GC.
+        // A copy carries a read-only source's mode with it.
+        make_owner_writable(&snapshot)?;
+        sources.push(hash_file(&snapshot)?);
+    }
+    let mut pass = Pass {
+        files: &files,
+        stage,
+        history,
+        entries: vec![None; files.len()],
+        visiting: vec![false; files.len()],
+        diagnostics: Vec::new(),
+    };
+    for index in 0..files.len() {
+        pass.entry(index)?;
+    }
+    let diagnostics = std::mem::take(&mut pass.diagnostics);
+    let mut manifest = AssetManifest::default();
+    for (logical, entry) in files.iter().zip(pass.entries) {
+        manifest
+            .assets
+            .insert(logical.clone(), entry.expect("every file was published"));
+    }
+    for path in AssetManifest::default_root_files() {
+        if manifest.assets.contains_key(path) {
+            manifest.root.insert(path.into(), path.into());
+        }
+    }
+    manifest.validate()?;
+    // Checking bytes, rather than only metadata, also handles editor writes
+    // that preserve size/mtime. A failure leaves the old manifest in place.
+    if collect_files(source)? != files {
+        return Err(AssetError::SourceChanged(source.display().to_string()));
+    }
+    for (logical, snapshot) in files.iter().zip(&sources) {
+        let current = hash_file(&confined_file(source, logical)?)?;
+        if current.sha256 != snapshot.sha256 || current.byte_length != snapshot.byte_length {
+            return Err(AssetError::SourceChanged(logical.clone()));
+        }
+    }
+    Ok(Snapshot {
+        files,
+        manifest,
+        diagnostics,
+    })
+}
+
 /// One publication's walk over the snapshot. A stylesheet's bytes hold the
 /// published names of the files it refers to, so those are settled first.
 struct Pass<'a> {
@@ -195,10 +268,13 @@ impl Drop for OutputStore {
     }
 }
 
-/// An output claimed for deletion: the writer lock plus an exclusive reader
-/// lock. See [`OutputStore::reserve_removal`].
+/// An output claimed for deletion: an exclusive reader lock, and for a store
+/// its writer lock too. See [`OutputStore::reserve_removal`] and
+/// [`reserve_bundle_removal`].
 pub struct PendingRemoval {
-    store: OutputStore,
+    root: PathBuf,
+    /// Held so no other writer can begin publishing into a store.
+    _store: Option<OutputStore>,
     readers: File,
 }
 
@@ -210,7 +286,7 @@ impl Drop for PendingRemoval {
 
 impl PendingRemoval {
     pub fn commit(self) -> Result<()> {
-        let root = self.store.root.clone();
+        let root = self.root.clone();
         // Retire the pointer while readers are still locked out: a catalog
         // loads only by reading it under the shared lock, so none can come up
         // on files that are about to go.
@@ -225,9 +301,9 @@ impl PendingRemoval {
                 })
             }
         }
-        // Unix deletes with both locks held, so no other writer can begin
-        // publishing into the directory while it goes. Windows cannot delete
-        // an open file and has to release them first.
+        // Unix deletes with the locks held, so nothing can begin using the
+        // directory while it goes. Windows cannot delete an open file and
+        // has to release them first.
         #[cfg(unix)]
         at(&root, fs::remove_dir_all(&root))?;
         drop(self);
@@ -326,7 +402,6 @@ impl OutputStore {
         if source.starts_with(&self.root) || self.root.starts_with(&source) {
             return Err(AssetError::OverlappingDirectories);
         }
-        let files = collect_files(&source)?;
         let staging_root = self.root.join("staging");
         let stage = at(
             &staging_root,
@@ -335,47 +410,11 @@ impl OutputStore {
                 .tempdir_in(&staging_root),
         )?;
         let mut history = self.history()?;
-        let mut sources = Vec::with_capacity(files.len());
-        for (index, logical) in files.iter().enumerate() {
-            let input = confined_file(&source, logical)?;
-            let snapshot = stage.path().join(index.to_string());
-            at(&snapshot, fs::copy(&input, &snapshot))?;
-            // The owned snapshot must be writable: a stylesheet is rewritten
-            // in place, and Windows also needs it for FlushFileBuffers and GC.
-            // A copy carries a read-only source's mode with it.
-            make_owner_writable(&snapshot)?;
-            sources.push(hash_file(&snapshot)?);
-        }
-        let mut pass = Pass {
-            files: &files,
-            stage: stage.path(),
-            history: &mut history,
-            entries: vec![None; files.len()],
-            visiting: vec![false; files.len()],
-            diagnostics: Vec::new(),
-        };
-        for index in 0..files.len() {
-            pass.entry(index)?;
-        }
-        let diagnostics = std::mem::take(&mut pass.diagnostics);
-        let mut manifest = AssetManifest::default();
-        for (logical, entry) in files.iter().zip(pass.entries) {
-            manifest
-                .assets
-                .insert(logical.clone(), entry.expect("every file was published"));
-        }
-        manifest.validate()?;
-        // Checking bytes, rather than only metadata, also handles editor writes
-        // that preserve size/mtime. A failure leaves the old manifest in place.
-        if collect_files(&source)? != files {
-            return Err(AssetError::SourceChanged(source.display().to_string()));
-        }
-        for (logical, snapshot) in files.iter().zip(&sources) {
-            let current = hash_file(&confined_file(&source, logical)?)?;
-            if current.sha256 != snapshot.sha256 || current.byte_length != snapshot.byte_length {
-                return Err(AssetError::SourceChanged(logical.clone()));
-            }
-        }
+        let Snapshot {
+            files,
+            manifest,
+            diagnostics,
+        } = snapshot(&source, stage.path(), &mut history)?;
         let objects = self.root.join("objects");
         let mut object_directories = BTreeSet::new();
         for (index, logical) in files.iter().enumerate() {
@@ -499,7 +538,8 @@ impl OutputStore {
         let readers = open_lock(&lock_path)?;
         match readers.try_lock() {
             Ok(()) => Ok(Some(PendingRemoval {
-                store: self,
+                root: self.root.clone(),
+                _store: Some(self),
                 readers,
             })),
             Err(TryLockError::WouldBlock) => Ok(None),
@@ -849,6 +889,10 @@ fn sync_directory(path: &Path) -> Result<()> {
     let _ = path;
     Ok(())
 }
+
+#[path = "export.rs"]
+mod export;
+pub use export::{export, remove_bundle, reserve_bundle_removal, Export, FrameworkFile};
 
 #[cfg(test)]
 #[path = "build_tests.rs"]

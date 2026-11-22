@@ -13,7 +13,7 @@ use std::{
 use axum::{
     body::Body,
     extract::{Path as RequestPath, State},
-    http::{header, HeaderValue, Request, Response, StatusCode},
+    http::{header, HeaderValue, Method, Request, Response, StatusCode},
     routing::get,
     Router,
 };
@@ -171,6 +171,9 @@ struct PreparedCatalog {
     base_path: BasePath,
     urls: PublicAssetUrls,
     routes: BTreeMap<String, PreparedFile>,
+    /// Files also answered at a fixed path from the origin root, by that
+    /// path with its leading slash.
+    root: BTreeMap<String, PreparedFile>,
     cache_key: String,
 }
 
@@ -321,6 +324,36 @@ impl PublicAssets {
         &self.catalog.cache_key
     }
 
+    /// Answer the fixed paths browsers request on their own, such as
+    /// `/favicon.ico`, from the public files of those names. A route of the
+    /// application's own at one of those paths still wins: a root file is
+    /// served only where the router would have answered 404.
+    ///
+    /// `FrameworkBuilder` applies this. A custom router wraps itself.
+    pub fn serve_root_files(&self, router: Router) -> Router {
+        let assets = self.clone();
+        router.layer(axum::middleware::from_fn(
+            move |request: Request<Body>, next: axum::middleware::Next| {
+                let assets = assets.clone();
+                async move {
+                    let assets = assets.current();
+                    let wanted = matches!(*request.method(), Method::GET | Method::HEAD)
+                        && assets.catalog.root.contains_key(request.uri().path());
+                    if !wanted {
+                        return next.run(request).await;
+                    }
+                    let (parts, body) = request.into_parts();
+                    let response = next.run(Request::from_parts(parts.clone(), body)).await;
+                    if response.status() != StatusCode::NOT_FOUND {
+                        return response;
+                    }
+                    let file = &assets.catalog.root[parts.uri.path()];
+                    respond(file, Request::from_parts(parts, Body::empty())).await
+                }
+            },
+        ))
+    }
+
     pub fn router(&self) -> Router {
         Router::new()
             .route(
@@ -371,6 +404,15 @@ impl PreparedCatalog {
             );
             routes.insert(url_path, file);
         }
+        let mut root = BTreeMap::new();
+        for (path, logical) in &catalog.manifest().root {
+            let entry = &catalog.manifest().assets[logical];
+            let mut file = routes[&entry.url_path()].clone();
+            // The path stays the same when the bytes change.
+            file.cache_control =
+                HeaderValue::from_static(proa_assets::CachePolicy::Revalidate.cache_control());
+            root.insert(format!("/{path}"), file);
+        }
         let cache_key = proa_assets::sha256(
             format!("{}\n{}", catalog.generation(), base_path.as_str()).as_bytes(),
         );
@@ -379,6 +421,7 @@ impl PreparedCatalog {
             base_path: base_path.clone(),
             urls: PublicAssetUrls::new(urls),
             routes,
+            root,
             cache_key,
         })
     }
@@ -407,9 +450,13 @@ async fn serve(
     mut request: Request<Body>,
 ) -> Response<Body> {
     let assets = assets.current();
-    let Some(file) = assets.catalog.routes.get(&format!("{directory}/{path}")) else {
-        return empty(StatusCode::NOT_FOUND);
-    };
+    match assets.catalog.routes.get(&format!("{directory}/{path}")) {
+        Some(file) => respond(file, request).await,
+        None => empty(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn respond(file: &PreparedFile, mut request: Request<Body>) -> Response<Body> {
     let matches = request
         .headers()
         .get_all(header::IF_NONE_MATCH)

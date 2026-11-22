@@ -573,7 +573,7 @@ impl FrameworkBuilder {
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
         let mut layer = RouteContextLayer::new(computed_metadata);
         if let Some(assets) = public_assets {
-            app = app.merge(assets.router());
+            app = assets.serve_root_files(app.merge(assets.router()));
             layer = layer.with_public_assets(assets);
         }
         if let Some(assets) = &rsjs_assets {

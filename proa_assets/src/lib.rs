@@ -44,6 +44,9 @@ pub const MUTABLE_DIRECTORY: &str = "mutable";
 pub const FINGERPRINT_LENGTH: usize = 16;
 /// Appended to an exported executable's file name to name its catalog.
 pub const BUNDLED_SUFFIX: &str = ".assets";
+/// The directory of a bundle that mirrors browser URLs: the file served at
+/// `/_proa/immutable/a.<hash>.png` is `public/_proa/immutable/a.<hash>.png`.
+pub const BUNDLE_PUBLIC_DIRECTORY: &str = "public";
 const OWNER_FILE: &str = ".proa-assets";
 const OWNER_BYTES: &[u8] = b"proa-public-assets-v1\n";
 const READERS_FILE: &str = ".readers.lock";
@@ -65,6 +68,10 @@ pub enum AssetError {
     OverlappingDirectories,
     #[error("another writer is publishing asset output `{0}`")]
     WriterBusy(PathBuf),
+    #[error("public file `{0}` is under `_proa/`, which holds the published files")]
+    ReservedPath(String),
+    #[error("asset output `{0}` is being read by a running server")]
+    InUse(PathBuf),
     #[error("stylesheet `{0}` imports itself through its own imports")]
     ImportCycle(String),
     #[error("asset `{0}` changed during publication; retry the build")]
@@ -136,19 +143,67 @@ impl AssetEntry {
     }
 }
 
+/// How an output directory arranges the files its manifest lists.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Layout {
+    /// The local output `proa dev`, `proa run`, and `proa test` republish
+    /// into: every file under `objects/`, beside the locks and staging area
+    /// that let a writer replace the manifest under a running server.
+    #[default]
+    Store,
+    /// What `proa build --artifact-out` writes: every file at
+    /// `public/<its URL path>`, and nothing else. It is written once and
+    /// only read afterwards, and `public/` can be handed to a static host.
+    Bundle,
+}
+
+impl Layout {
+    fn is_store(&self) -> bool {
+        *self == Self::Store
+    }
+}
+
+/// A file the framework itself serves, exported from the built executable.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FrameworkEntry {
+    /// Path below [`PUBLIC_ROUTE`], such as `immutable/rsjs/runtime.<hash>.js`.
+    pub path: String,
+    pub sha256: String,
+    /// Subresource Integrity value: `sha384-<base64>`.
+    pub integrity: String,
+    pub byte_length: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AssetManifest {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Layout::is_store")]
+    pub layout: Layout,
     /// Keys are package-public logical paths, such as `images/logo.svg`.
     pub assets: BTreeMap<String, AssetEntry>,
+    /// Files a browser asks for at a fixed path from the origin root, such as
+    /// `favicon.ico`, by the logical path that holds their bytes. They are
+    /// served there in addition to their catalog URL.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub root: BTreeMap<String, String>,
+    /// The framework's own modules, by the canonical name the framework
+    /// knows each one by. Only a bundle holds them: they are exported from
+    /// the executable the bundle sits beside.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub framework: BTreeMap<String, FrameworkEntry>,
 }
 
 impl Default for AssetManifest {
     fn default() -> Self {
         Self {
             version: MANIFEST_VERSION,
+            layout: Layout::Store,
             assets: BTreeMap::new(),
+            root: BTreeMap::new(),
+            framework: BTreeMap::new(),
         }
     }
 }
@@ -210,7 +265,56 @@ impl AssetManifest {
                 }
             }
         }
+        for (path, logical) in &self.root {
+            validate_relative(path)?;
+            // A root file may not take a path the catalog itself answers.
+            let reserved = PUBLIC_ROUTE.trim_start_matches('/');
+            if path.split('/').next() == Some(reserved) || !self.assets.contains_key(logical) {
+                return Err(AssetError::InvalidManifest(format!(
+                    "root file `{path}` does not name a public file"
+                )));
+            }
+        }
+        for (name, entry) in &self.framework {
+            validate_relative(name)?;
+            validate_relative(&entry.path)?;
+            validate_digest(&entry.sha256)?;
+            validate_integrity(&entry.integrity)?;
+            let immutable = entry
+                .path
+                .strip_prefix(IMMUTABLE_DIRECTORY)
+                .is_some_and(|rest| rest.starts_with('/'));
+            if !immutable {
+                return Err(AssetError::InvalidManifest(format!(
+                    "framework file `{name}` is not content-hashed"
+                )));
+            }
+            if let Some(previous) = urls.insert(entry.path.clone(), &entry.sha256) {
+                if previous != entry.sha256 {
+                    return Err(AssetError::Collision {
+                        path: entry.path.clone(),
+                        previous: previous.into(),
+                        current: entry.sha256.clone(),
+                    });
+                }
+            }
+        }
+        if self.layout == Layout::Store && !self.framework.is_empty() {
+            return Err(AssetError::InvalidManifest(
+                "only a bundle holds framework files".into(),
+            ));
+        }
         Ok(())
+    }
+
+    /// The root paths this public directory fills without being asked:
+    /// the icons browsers request on their own.
+    pub fn default_root_files() -> [&'static str; 3] {
+        [
+            "favicon.ico",
+            "apple-touch-icon.png",
+            "apple-touch-icon-precomposed.png",
+        ]
     }
 }
 
@@ -253,29 +357,51 @@ impl AssetCatalog {
         let output = output.as_ref();
         let output = at(output, output.canonicalize())?;
         validate_owner(&output)?;
-        let reader_path = output.join(READERS_FILE);
+        // A store has a lock file of its own, shared with its writer. A
+        // bundle is never written again, so a reader holds the marker
+        // itself: that is how an export knows a server is still running on
+        // the files it is about to replace.
+        let store_lock = output.join(READERS_FILE);
+        let reader_path = match fs::symlink_metadata(&store_lock) {
+            Ok(_) => store_lock,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => output.join(OWNER_FILE),
+            Err(source) => {
+                return Err(AssetError::Io {
+                    path: store_lock,
+                    source,
+                })
+            }
+        };
         plain_file(&reader_path)?;
         let reader = at(&reader_path, File::open(&reader_path))?;
         at(&reader_path, reader.lock_shared())?;
         // Lock before reading the pointer. Cleanup then cannot remove files
         // referenced by either the old or the new atomically read manifest.
         let (manifest, bytes) = AssetManifest::read(&output.join(MANIFEST_FILE))?;
-        let objects = output.join("objects");
-        let mut checked = BTreeSet::new();
-        for entry in manifest.assets.values() {
-            if checked.insert(&entry.object) {
-                let path = confined_file(&objects, &entry.object)?;
-                if !entry.matches_contents(&path)? {
-                    return Err(AssetError::Integrity(entry.object.clone()));
-                }
-            }
-        }
-        Ok(Self {
+        let catalog = Self {
             output,
             manifest,
             generation: sha256(&bytes),
             _reader: reader,
-        })
+        };
+        let mut checked = BTreeSet::new();
+        for entry in catalog.manifest.assets.values() {
+            let (root, relative) = catalog.location(entry);
+            if checked.insert(relative.clone()) {
+                let path = confined_file(&root, &relative)?;
+                if !entry.matches_contents(&path)? {
+                    return Err(AssetError::Integrity(relative));
+                }
+            }
+        }
+        for entry in catalog.manifest.framework.values() {
+            let path = confined_file(&catalog.public_root(), &entry.path)?;
+            let hashed = hash_file(&path)?;
+            if hashed.sha256 != entry.sha256 || hashed.byte_length != entry.byte_length {
+                return Err(AssetError::Integrity(entry.path.clone()));
+            }
+        }
+        Ok(catalog)
     }
 
     pub fn manifest(&self) -> &AssetManifest {
@@ -285,11 +411,33 @@ impl AssetCatalog {
     pub fn generation(&self) -> &str {
         &self.generation
     }
+    /// The file that holds the bytes of a public file.
     pub fn object_path(&self, logical: &str) -> Option<PathBuf> {
+        self.manifest.assets.get(logical).map(|entry| {
+            let (root, relative) = self.location(entry);
+            root.join(relative)
+        })
+    }
+    /// The file that holds one of the framework's own modules.
+    pub fn framework_path(&self, name: &str) -> Option<PathBuf> {
         self.manifest
-            .assets
-            .get(logical)
-            .map(|entry| self.output.join("objects").join(&entry.object))
+            .framework
+            .get(name)
+            .map(|entry| self.public_root().join(&entry.path))
+    }
+
+    /// Where a bundle keeps the file served at each URL path.
+    fn public_root(&self) -> PathBuf {
+        self.output
+            .join(BUNDLE_PUBLIC_DIRECTORY)
+            .join(PUBLIC_ROUTE.trim_start_matches('/'))
+    }
+
+    fn location(&self, entry: &AssetEntry) -> (PathBuf, String) {
+        match self.manifest.layout {
+            Layout::Store => (self.output.join("objects"), entry.object.clone()),
+            Layout::Bundle => (self.public_root(), entry.url_path()),
+        }
     }
 }
 

@@ -936,3 +936,87 @@ fn a_catalog_bundled_beside_the_executable_is_found_without_configuration() {
     assert_eq!(bundled_catalog(&executable), Some(output.clone()));
     assert!(PublicAssets::load(&output, &base_path).is_err());
 }
+
+#[tokio::test]
+async fn icons_browsers_request_on_their_own_are_answered_at_the_root() {
+    let f = Fixture::new();
+    f.write("favicon.ico", b"icon");
+    f.write("apple-touch-icon.png", b"touch");
+    f.write("robots.txt", b"not a root file");
+    let assets = f.load("/shop");
+    let own = Router::new().route("/apple-touch-icon.png", get(|| async { "the app's own" }));
+    let app = assets.serve_root_files(own.merge(assets.router()));
+    let get = |path: &'static str, method: Method| {
+        app.clone().oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+
+    let icon = get("/favicon.ico", Method::GET).await.unwrap();
+    assert_eq!(icon.status(), StatusCode::OK);
+    assert_eq!(icon.headers()[header::CACHE_CONTROL], "public, no-cache");
+    assert_eq!(icon.headers()[header::CONTENT_TYPE], "image/x-icon");
+    let etag = icon.headers()[header::ETAG].clone();
+    assert_eq!(to_bytes(icon.into_body(), 1024).await.unwrap(), "icon");
+    let head = get("/favicon.ico", Method::HEAD).await.unwrap();
+    assert_eq!(head.headers()[header::CONTENT_LENGTH], "4");
+    // It is the same file the catalog serves under its hashed name.
+    let hashed = assets
+        .url("favicon.ico")
+        .unwrap()
+        .strip_prefix("/shop")
+        .unwrap();
+    let hashed = get_asset(&assets, hashed).await;
+    assert_eq!(hashed.headers()[header::ETAG], etag);
+    assert_eq!(
+        hashed.headers()[header::CACHE_CONTROL],
+        "public, max-age=31536000, immutable"
+    );
+
+    // The application's own route at such a path is left alone, and no other
+    // public file gains a root URL.
+    let own = get("/apple-touch-icon.png", Method::GET).await.unwrap();
+    assert_eq!(
+        to_bytes(own.into_body(), 1024).await.unwrap(),
+        "the app's own"
+    );
+    for absent in ["/robots.txt", "/apple-touch-icon-precomposed.png"] {
+        assert_eq!(
+            get(absent, Method::GET).await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        get("/favicon.ico", Method::POST).await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn a_bundle_serves_the_same_urls_as_a_store() {
+    let f = Fixture::new();
+    f.write("images/a.png", b"image");
+    f.write("styles.css", b"a { background: url(images/a.png) }");
+    f.write("data.json", b"{}");
+    let store = f.load("");
+    let bundle = f.temp.path().join("app.assets");
+    proa_assets::build::export(&bundle, Some(&f.temp.path().join("public")), &[]).unwrap();
+    let bundled = PublicAssets::load(&bundle, &BasePath::default()).unwrap();
+    for logical in ["images/a.png", "styles.css", "data.json"] {
+        let url = store.url(logical).unwrap();
+        assert_eq!(bundled.url(logical), Some(url));
+        let (expected, served) = (get_asset(&store, url).await, get_asset(&bundled, url).await);
+        assert_eq!(served.status(), StatusCode::OK, "{logical}");
+        for name in [header::CACHE_CONTROL, header::ETAG, header::CONTENT_TYPE] {
+            assert_eq!(served.headers()[&name], expected.headers()[&name]);
+        }
+        assert_eq!(
+            to_bytes(served.into_body(), 1024).await.unwrap(),
+            to_bytes(expected.into_body(), 1024).await.unwrap()
+        );
+    }
+}

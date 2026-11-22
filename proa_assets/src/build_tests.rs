@@ -608,3 +608,167 @@ fn removal_waits_for_the_last_reader() {
     assert!(OutputStore::open(&f.output).unwrap().remove().unwrap());
     assert!(!f.output.exists());
 }
+
+fn tree(root: &Path) -> Vec<String> {
+    let mut files = collect_files(root).unwrap();
+    files.sort();
+    files
+}
+
+#[test]
+fn a_bundle_holds_every_file_at_the_path_of_its_url_and_nothing_else() {
+    let f = Fixture::new();
+    f.write("favicon.ico", b"icon");
+    f.write("images/a.png", b"image");
+    f.write("styles.css", b"a { background: url(images/a.png) }");
+    f.write("data.json", b"{}");
+    let bundle = f.output.with_file_name("app.assets");
+    let runtime = b"export const runtime = 1;";
+    let report = export(
+        &bundle,
+        Some(&f.source),
+        &[FrameworkFile {
+            name: "rsjs-runtime.js",
+            path: "immutable/rsjs/runtime.0123456789abcdef.js",
+            bytes: runtime,
+        }],
+    )
+    .unwrap();
+    let manifest = &report.manifest;
+    assert_eq!(manifest.layout, Layout::Bundle);
+    let image = manifest.assets["images/a.png"].url_path();
+    let styles = manifest.assets["styles.css"].url_path();
+    let icon = manifest.assets["favicon.ico"].url_path();
+    let mut expected = vec![
+        ".proa-assets".to_owned(),
+        "manifest.json".to_owned(),
+        "public/favicon.ico".to_owned(),
+        format!("public/_proa/{icon}"),
+        format!("public/_proa/{image}"),
+        format!("public/_proa/{styles}"),
+        "public/_proa/mutable/data.json".to_owned(),
+        "public/_proa/immutable/rsjs/runtime.0123456789abcdef.js".to_owned(),
+    ];
+    expected.sort();
+    assert_eq!(tree(&bundle), expected);
+    // Nothing is left beside it.
+    assert_eq!(
+        fs::read_dir(bundle.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name.starts_with(".proa-export-"))
+            .count(),
+        0
+    );
+    assert_eq!(manifest.root["favicon.ico"], "favicon.ico");
+    assert_eq!(
+        fs::read(bundle.join("public/favicon.ico")).unwrap(),
+        b"icon"
+    );
+
+    let catalog = AssetCatalog::load(&bundle).unwrap();
+    assert_eq!(catalog.manifest(), manifest);
+    assert_eq!(
+        catalog.object_path("images/a.png").unwrap(),
+        bundle
+            .canonicalize()
+            .unwrap()
+            .join("public/_proa")
+            .join(&image)
+    );
+    assert_eq!(
+        fs::read(catalog.framework_path("rsjs-runtime.js").unwrap()).unwrap(),
+        runtime
+    );
+    // The stylesheet reaches the image by a path that holds in the mirror.
+    let css = fs::read_to_string(catalog.object_path("styles.css").unwrap()).unwrap();
+    assert!(
+        css.contains(image.strip_prefix("immutable/").unwrap()),
+        "{css}"
+    );
+
+    // A changed file is caught the same way as in a store.
+    fs::write(
+        catalog.framework_path("rsjs-runtime.js").unwrap(),
+        b"tampered",
+    )
+    .unwrap();
+    drop(catalog);
+    assert!(matches!(
+        AssetCatalog::load(&bundle),
+        Err(AssetError::Integrity(_))
+    ));
+}
+
+#[test]
+fn an_export_replaces_the_previous_output_whole_or_not_at_all() {
+    let f = Fixture::new();
+    f.write("logo.png", b"one");
+    let bundle = f.output.with_file_name("app.assets");
+    let first = export(&bundle, Some(&f.source), &[]).unwrap().manifest;
+
+    // A running server keeps the bundle it loaded.
+    let reader = AssetCatalog::load(&bundle).unwrap();
+    f.write("logo.png", b"two");
+    assert!(matches!(
+        export(&bundle, Some(&f.source), &[]),
+        Err(AssetError::InUse(_))
+    ));
+    assert!(!remove_bundle(&bundle).unwrap());
+    assert_eq!(reader.manifest(), &first);
+    assert_eq!(
+        fs::read(reader.object_path("logo.png").unwrap()).unwrap(),
+        b"one"
+    );
+    drop(reader);
+
+    // A failed export leaves it alone too.
+    f.write("a.css", b"@import 'b.css';");
+    f.write("b.css", b"@import 'a.css';");
+    assert!(export(&bundle, Some(&f.source), &[]).is_err());
+    assert_eq!(AssetCatalog::load(&bundle).unwrap().manifest(), &first);
+    fs::remove_file(f.source.join("a.css")).unwrap();
+    fs::remove_file(f.source.join("b.css")).unwrap();
+
+    let second = export(&bundle, Some(&f.source), &[]).unwrap().manifest;
+    assert_ne!(first, second);
+    // The first build's file is gone: a bundle is one build, not a history.
+    assert_eq!(
+        tree(&bundle.join("public")),
+        [format!("_proa/{}", second.assets["logo.png"].url_path())]
+    );
+
+    // A store an earlier release bundled is replaced the same way.
+    remove_bundle(&bundle).unwrap();
+    OutputStore::open(&bundle)
+        .unwrap()
+        .publish(&f.source)
+        .unwrap();
+    assert!(bundle.join("objects").exists());
+    export(&bundle, Some(&f.source), &[]).unwrap();
+    assert!(!bundle.join("objects").exists());
+    assert_eq!(
+        AssetCatalog::load(&bundle).unwrap().manifest().layout,
+        Layout::Bundle
+    );
+
+    // Anything else at that path is not Proa's to replace.
+    let foreign = f.output.with_file_name("data");
+    fs::create_dir_all(&foreign).unwrap();
+    fs::write(foreign.join("keep"), b"keep").unwrap();
+    assert!(matches!(
+        export(&foreign, Some(&f.source), &[]),
+        Err(AssetError::NotOwned(_))
+    ));
+    assert_eq!(fs::read(foreign.join("keep")).unwrap(), b"keep");
+}
+
+#[test]
+fn published_names_under_the_reserved_directory_are_refused() {
+    let f = Fixture::new();
+    f.write("_proa/immutable/x.png", b"x");
+    assert!(matches!(
+        OutputStore::open(&f.output).unwrap().publish(&f.source),
+        Err(AssetError::ReservedPath(_))
+    ));
+}
