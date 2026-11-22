@@ -66,7 +66,9 @@ def bundle_acceptance(cli, project, work, environment):
     contract of the output directory.
     """
     out = work / "out"
-    run([cli, "build", "--locked", "--artifact-out", out / "app"], project, environment)
+    # The generated additions are not formatted; this lane is about the output.
+    run([cli, "build", "--locked", "--no-check", "--artifact-out", out / "app"],
+        project, environment)
     bundle = out / "app.assets"
     public = bundle / "public"
     assert sorted(path.name for path in bundle.iterdir()) == [

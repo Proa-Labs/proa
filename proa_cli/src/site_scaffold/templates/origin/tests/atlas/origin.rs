@@ -5,7 +5,6 @@ use axum::{
     body::Body,
     http::{header, Request, StatusCode},
 };
-use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use __CRATE_IDENT__ as atlas;

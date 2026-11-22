@@ -189,7 +189,6 @@ struct LiveCatalog {
     output: PathBuf,
     manifest: PathBuf,
     base_path: BasePath,
-    asset_prefix: Option<AssetPrefix>,
     state: RwLock<LiveState>,
     /// Tells `proa dev` that publishing in place is enough for this server.
     _registration: LiveReader,
@@ -222,13 +221,9 @@ impl LiveCatalog {
         {
             match AssetCatalog::load(&self.output)
                 .map_err(PublicAssetError::from)
-                .and_then(|catalog| {
-                    PreparedCatalog::from_catalog(
-                        catalog,
-                        &self.base_path,
-                        self.asset_prefix.as_ref(),
-                    )
-                }) {
+                // A development server serves the files it republishes.
+                .and_then(|catalog| PreparedCatalog::from_catalog(catalog, &self.base_path, None))
+            {
                 Ok(catalog) => {
                     tracing::debug!("public asset catalog reloaded in place");
                     state.catalog = Arc::new(catalog);
@@ -334,7 +329,6 @@ impl PublicAssets {
                 manifest: output.join(MANIFEST_FILE),
                 output: output.to_path_buf(),
                 base_path: base_path.clone(),
-                asset_prefix: None,
                 state: RwLock::new(LiveState {
                     catalog: fixed.catalog.clone(),
                     settled: None,
