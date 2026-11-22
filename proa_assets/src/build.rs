@@ -306,7 +306,21 @@ impl OutputStore {
             }
         }
         let root = self.root.clone();
-        // Windows cannot delete a file that is still open.
+        // Retire the pointer while readers are still locked out: a catalog
+        // loads only by reading it under the shared lock, so none can come up
+        // on files that are about to go. The locks are released before the
+        // rest is deleted because Windows cannot delete an open file.
+        let manifest = root.join(MANIFEST_FILE);
+        match fs::remove_file(&manifest) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(AssetError::Io {
+                    path: manifest,
+                    source,
+                })
+            }
+        }
         let _ = readers.unlock();
         drop(readers);
         drop(self);
