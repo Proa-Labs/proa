@@ -96,6 +96,9 @@ def main():
         generate_additions(cli, project, environment, "marketing")
         run(["cargo", "tree", "--offline", "--depth", "0"], project, environment)
         run(["cargo", "check", "--locked", "--all-targets"], project, environment)
+        unmanaged = {key: value for key, value in environment.items() if key != "PROA_PUBLIC_ASSETS"}
+        run(["cargo", "test", "--locked", "--test", "representations"], project, unmanaged)
+        run([cli, "test", "--root", project, "--locked", "--test", "representations"], project, unmanaged)
 
 
 if __name__ == "__main__":

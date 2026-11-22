@@ -392,7 +392,7 @@ fn write_prefix<B: WriteBuf, L: DataLoader>(
     cx.out.extend_str(seed_key)?;
     cx.out
         .extend_static_str("\" data-rsjs-linked-candidate=\"")?;
-    site.candidate_id.render(cx)?;
+    proa_core::WebRenderSync::render(site.candidate_id, cx)?;
     cx.out.extend_static_str("\">")?;
     Ok(cx.csp_nonce_cloned())
 }

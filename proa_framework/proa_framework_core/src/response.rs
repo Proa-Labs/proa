@@ -674,6 +674,15 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// than deadlocking. Eager `proa_stream` preloads (`rt-tokio`) spawn on an
     /// ambient tokio runtime and panic without one.
     pub fn render_to_bytes(self) -> Result<Bytes, FrameworkError> {
+        self.render_to_bytes_with_context(&FrameworkRequestContext::default())
+    }
+
+    /// Render a complete document with an explicit framework context.
+    /// See [`render_to_bytes`](Self::render_to_bytes) for buffering and runtime behavior.
+    pub fn render_to_bytes_with_context(
+        self,
+        request: &FrameworkRequestContext,
+    ) -> Result<Bytes, FrameworkError> {
         #[cfg(feature = "rt-tokio")]
         if !self.is_synchronous() {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -685,12 +694,11 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
                 }
             }
         }
-        let request = FrameworkRequestContext::default();
         let response = if self.is_synchronous() {
-            self.into_sync_framework_response(&request, RouteFinalizeMode::Document)?
+            self.into_sync_framework_response(request, RouteFinalizeMode::Document)?
         } else {
             let buffered = self.with_render_mode(RenderMode::Static);
-            futures::executor::block_on(buffered.into_framework_response(&request))?
+            futures::executor::block_on(buffered.into_framework_response(request))?
         };
         if !response.status.is_success() {
             return Err(FrameworkError::StaticStatus(response.status));

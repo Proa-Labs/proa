@@ -13,6 +13,11 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote
 
+if __package__:
+    from .check_crate_archives import LITERAL_INCLUDE, rust_code_mask
+else:
+    from check_crate_archives import LITERAL_INCLUDE, rust_code_mask
+
 try:
     import tomllib
 except ModuleNotFoundError as error:  # pragma: no cover - Python < 3.11
@@ -46,9 +51,6 @@ FORBIDDEN_TEXT = (
 FORBIDDEN_PUBLIC_TERMS = re.compile(
     r"\b(?:Page VM|Document VM|proa_page_vm|proa_document)\b"
 )
-LITERAL_INCLUDE = re.compile(
-    r"\binclude_(?:str|bytes)!\s*\(\s*\"(?P<path>[^\"\\\r\n]+)\"\s*\)"
-)
 INLINE_MARKDOWN_LINK = re.compile(
     r"!?\[[^\]\r\n]*\]\(\s*(?P<target><[^>\r\n]+>|[^)\s\r\n]+)"
 )
@@ -68,12 +70,6 @@ NON_FILE_LINK_PREFIXES = (
 )
 TERM_EXCEPTIONS = {
     Path("docs/open-source-boundary.md"),
-}
-# Files whose `include_str!` / `include_bytes!` literals are template data for a
-# generated project rather than includes this repository performs. Their paths
-# resolve inside the scaffolded project, so they cannot be checked here.
-INCLUDE_EXCEPTIONS = {
-    Path("proa_cli/src/site_scaffold/templates/mod.rs"),
 }
 
 
@@ -336,8 +332,11 @@ def main() -> int:
         text = read_text(path)
         if text is None:
             continue
-        if path.suffix == ".rs" and relative not in INCLUDE_EXCEPTIONS:
+        if path.suffix == ".rs" and LITERAL_INCLUDE.search(text):
+            code = rust_code_mask(text)
             for include_match in LITERAL_INCLUDE.finditer(text):
+                if code[include_match.start()] == " ":
+                    continue
                 include_path = include_match.group("path")
                 resolved_include = (path.parent / include_path).resolve(strict=False)
                 line = text.count("\n", 0, include_match.start()) + 1

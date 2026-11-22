@@ -1,9 +1,42 @@
 ---
 title: Static assets
 description: Serve static files and embedded assets safely.
+keywords: [cx.url, "cx.url()", public assets, fingerprint, AppUrl, MdRender, static]
 ---
 
-`FrameworkBuilder` nests your static router at `/static`, and you supply that router, so the service, cache headers, and deployment rules stay yours. This page covers [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [linked island assets](#serving-linked-island-assets), [the CSS manifest](#linking-the-css-manifest), and [external apps](#mounting-external-apps).
+Proa supports both managed public assets published by the CLI under `/_proa/assets` and custom static routers nested at `/static` through `FrameworkBuilder`. This page covers [managed public assets](#managed-public-assets), [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [linked island assets](#serving-linked-island-assets), [linking stylesheets](#linking-the-application-stylesheet), and [external apps](#mounting-external-apps).
+
+## Managed public assets
+
+By default, `proa build`, `proa dev`, `proa run`, and `proa test` publish `public/` into a verified asset catalog under Cargo's target directory and pass its path to the app through `PROA_PUBLIC_ASSETS`. `FrameworkBuilder::try_build()` loads that catalog automatically and mounts its routes under `/_proa/assets`.
+
+Reference files in templates by their logical `public/...` path with `cx.url(...)`:
+
+```rust filename="src/layouts/root.rs"
+let favicon = cx.url("public/favicon.svg");
+let stylesheet = cx.url("public/styles.css");
+
+html_sync! {
+    <link rel="icon" href={favicon} />
+    <link rel="stylesheet" href={stylesheet} />
+}
+```
+
+The same `cx.url(...)` call works directly inside Markdown (`MdRenderSync` / `MdRender` with `md_sync!` / `md!`) and preserves query strings, fragments, and deployment base paths:
+
+```rust filename="src/pages/home.rs"
+md_sync! { r###"
+    ![Brand]({cx.url("public/images/brand.svg")})
+    "###
+}
+.render_md(cx)
+```
+
+- **Images, fonts, media, and other opaque files** receive a fingerprinted URL such as `/_proa/assets/favicon.d6018082.svg` with `Cache-Control: public, max-age=31536000, immutable`.
+- **CSS, public JS, HTML, JSON, XML, text, and maps** keep stable URLs such as `/_proa/assets/styles.css` with `Cache-Control: no-cache` and a content `ETag` so browsers revalidate them after edits.
+- **Missing entries** fail rendering with a clear error instead of emitting broken links. Set `paths.public` to `None` in `proa.config.rs` to opt out, or pass an explicit catalog with `FrameworkBuilder::with_public_assets(...)`.
+
+For production deployments using managed public assets, copy the published catalog directory reported by `proa build` alongside the binary and point `PROA_PUBLIC_ASSETS` at it (or pass `proa start --bin <path> --public-assets <dir>`).
 
 ## Serving assets from disk
 

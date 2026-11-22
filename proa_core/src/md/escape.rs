@@ -280,7 +280,7 @@ fn fence_info_encoding(ch: char) -> CharacterEncoding {
 
 #[inline(always)]
 fn destination_encoding(ch: char) -> CharacterEncoding {
-    if ch.is_control() || ch.is_whitespace() {
+    if ch.is_control() || ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '`') {
         CharacterEncoding::PercentEncode
     } else if matches!(ch, '\\' | '(' | ')') {
         CharacterEncoding::BackslashEscape
@@ -375,8 +375,9 @@ fn write_percent_encoded<B: WriteBuf>(buf: &mut B, bytes: &[u8]) -> Result<(), W
 /// Write a sanitized CommonMark link destination without `(` / `)` wrappers.
 ///
 /// Dangerous schemes, including executable `data:` URLs, emit an empty
-/// destination. Controls and whitespace are percent-encoded, while backslash
-/// and parentheses are CommonMark-backslash-escaped. Other UTF-8 is preserved.
+/// destination. Controls, whitespace, angle brackets, double quotes, and
+/// backticks are percent-encoded, while backslash and parentheses are
+/// CommonMark-backslash-escaped. Other UTF-8 is preserved.
 /// The returned boolean reports whether a non-empty destination was emitted.
 pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<bool, WriteError> {
     if value.is_empty() || has_dangerous_url_scheme(value) {
@@ -538,6 +539,21 @@ mod tests {
         );
         assert_eq!(destination("/café/東京"), "/café/東京");
         assert_eq!(destination("/a\r\n\tb"), "/a%0D%0A%09b");
+        assert_eq!(
+            destination("/ok<script>alert`1`</script>\"x\""),
+            "/ok%3Cscript%3Ealert%601%60%3C/script%3E%22x%22"
+        );
+        let link = format!("[Open]({})", destination("/ok<script>alert`1`</script>"));
+        let mut rendered_html = String::new();
+        html::push_html(&mut rendered_html, Parser::new(&link));
+        assert!(!rendered_html.contains("<script>"), "{rendered_html}");
+        assert!(rendered_html.contains("<a href="), "{rendered_html}");
+
+        let bracketed = format!("[Open](<{}>)", destination("/ok><script>alert(1)</script>"));
+        let mut bracketed_html = String::new();
+        html::push_html(&mut bracketed_html, Parser::new(&bracketed));
+        assert!(!bracketed_html.contains("<script>"), "{bracketed_html}");
+        assert!(bracketed_html.contains("<a href="), "{bracketed_html}");
     }
 
     #[test]

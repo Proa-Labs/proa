@@ -13,7 +13,9 @@ mod page;
 pub use fixture::{LogPattern, LOG_PATTERNS};
 #[cfg(feature = "rsjs-pages")]
 pub use page::{render, render_into, render_into_with_props, render_rows, SentryOtelPage};
-pub use page::{render_benchmark_rows, SentryLogEntry, SentryPageProps};
+pub use page::{
+    render_benchmark_rows, render_benchmark_rows_into, SentryLogEntry, SentryPageProps,
+};
 
 pub const CSS: &str = include_str!("sentry_otel.css");
 pub const DEFAULT_ROW_COUNT: usize = 400;

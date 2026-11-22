@@ -522,26 +522,23 @@ fn descriptor_producer_version_is_explicitly_versioned() {
 
 #[test]
 fn build_command_uses_profile_override() {
-    let command = build_command(
-        &ProjectConfig::default(),
-        &BuildOptions {
-            root: None,
-            profile: Some("release-fast".to_string()),
-            package: Some("demo".to_string()),
-            bin: Some("server".to_string()),
-            example: None,
-            target: Some("aarch64-apple-darwin".to_string()),
-            features: vec!["hydration".to_string(), "metrics".to_string()],
-            all_features: false,
-            no_default_features: true,
-            locked: true,
-            offline: true,
-            no_check: false,
-            no_assets: false,
-            artifact_out: None,
-            command: Vec::new(),
-        },
-    );
+    let command = build_command(&BuildOptions {
+        root: None,
+        profile: Some("release-fast".to_string()),
+        package: Some("demo".to_string()),
+        bin: Some("server".to_string()),
+        example: None,
+        target: Some("aarch64-apple-darwin".to_string()),
+        features: vec!["hydration".to_string(), "metrics".to_string()],
+        all_features: false,
+        no_default_features: true,
+        locked: true,
+        offline: true,
+        no_check: false,
+        no_assets: false,
+        artifact_out: None,
+        command: Vec::new(),
+    });
 
     assert_eq!(
         command,
@@ -563,6 +560,103 @@ fn build_command_uses_profile_override() {
             "--offline"
         ]
     );
+}
+
+#[test]
+fn dev_command_honors_configured_application_binary() {
+    let options = DevOptions {
+        root: None,
+        host: None,
+        port: None,
+        watch: Vec::new(),
+        open: false,
+        offline: true,
+        no_assets: false,
+        hot_static: false,
+        no_restart: false,
+        no_reload: false,
+        no_css_hot_swap: false,
+        reload_port: None,
+        debounce_ms: None,
+        verbose: false,
+        command: Vec::new(),
+    };
+    let config = ProjectConfig {
+        application: Some(crate::config::ApplicationConfig {
+            binary: "incident-desk".into(),
+        }),
+        ..Default::default()
+    };
+    assert_eq!(
+        dev_command(&options, &config),
+        ["cargo", "run", "--bin", "incident-desk", "--offline"]
+    );
+}
+
+#[test]
+fn generated_public_output_check_never_swallows_post_snapshot_edits() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let public = Path::new("public");
+    fs::create_dir_all(root.join(public)).unwrap();
+    let css = PathBuf::from("public/styles.css");
+    let logo = PathBuf::from("public/logo.svg");
+    fs::write(root.join(&css), "body{color:black}").unwrap();
+    fs::write(root.join(&logo), "<svg/>").unwrap();
+
+    let config = ProjectConfig {
+        build: crate::config::BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "tailwind".into(),
+                input: PathBuf::from("styles/input.css"),
+                output: css.clone(),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let watch_paths = vec![public.to_path_buf()];
+    let snapshot = watch_snapshot(root, &watch_paths).unwrap();
+
+    // Case 1: Declared generated output rewritten with identical bytes (newer stamp).
+    let before = snapshot_generated_public_outputs(root, &config, public, &snapshot).unwrap();
+    assert!(before.contains_key(&css));
+    assert!(!before.contains_key(&logo));
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(root.join(&css), "body{color:black}").unwrap();
+    let post = watch_snapshot(root, &watch_paths).unwrap();
+    assert!(all_unchanged_generated_outputs(root, &[&css], &before, &post).unwrap());
+
+    // Case 2: Authored file saved after `snapshot` is never considered unchanged.
+    fs::write(root.join(&logo), "<svg><circle/></svg>").unwrap();
+    let post_with_logo = watch_snapshot(root, &watch_paths).unwrap();
+    assert!(
+        !all_unchanged_generated_outputs(root, &[&css, &logo], &before, &post_with_logo).unwrap()
+    );
+
+    // Case 3: Declared output edited between `snapshot` and `before` is skipped.
+    fs::write(root.join(&css), "body{color:white}").unwrap();
+    let before_after_edit =
+        snapshot_generated_public_outputs(root, &config, public, &snapshot).unwrap();
+    assert!(!before_after_edit.contains_key(&css));
+}
+
+#[cfg(unix)]
+#[test]
+fn watch_snapshot_records_dangling_symlinks_without_aborting() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let public = root.join("public");
+    fs::create_dir_all(&public).unwrap();
+    let broken = public.join("missing.svg");
+    symlink(public.join("does-not-exist.svg"), &broken).unwrap();
+
+    let snapshot = watch_snapshot(root, &[PathBuf::from("public")]).unwrap();
+    assert!(snapshot.contains_key(Path::new("public/missing.svg")));
 }
 
 #[test]
@@ -651,6 +745,7 @@ fn run_and_test_commands_place_execution_arguments_after_cargo_selection() {
         locked: false,
         offline: true,
         watch: false,
+        watch_paths: Vec::new(),
         keep_database: false,
         arguments: vec!["--nocapture".to_string(), "linked_plan".to_string()],
     });
@@ -729,6 +824,7 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         root: None,
         host: None,
         port: None,
+        watch: vec![],
         open: false,
         offline: false,
         no_assets: false,
@@ -738,6 +834,7 @@ fn dev_options(debounce_ms: Option<u64>) -> DevOptions {
         no_css_hot_swap: false,
         reload_port: None,
         debounce_ms,
+        verbose: false,
         command: Vec::new(),
     }
 }
@@ -868,6 +965,17 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
 
     assert_eq!(first.request.invocation, source_changed.request.invocation);
     assert_eq!(
+        first.public_output_directory,
+        source_changed.public_output_directory
+    );
+    assert!(first.public_output_directory.starts_with(
+        first
+            .request
+            .descriptor
+            .source_exclusion_directory
+            .join("proa-output")
+    ));
+    assert_eq!(
         first.descriptor_cache_directory,
         source_changed.descriptor_cache_directory
     );
@@ -921,12 +1029,20 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
     .unwrap();
     assert_ne!(first.request.invocation, featured.request.invocation);
     assert_ne!(
+        first.public_output_directory,
+        featured.public_output_directory
+    );
+    assert_eq!(
         first.descriptor_cache_directory,
         featured.descriptor_cache_directory
     );
-    assert_ne!(
+    assert_eq!(
         descriptor_target_dir(&first.request),
         descriptor_target_dir(&featured.request)
+    );
+    assert_eq!(
+        first.request.final_target_root,
+        featured.request.final_target_root
     );
 
     let linked_run = prepare_linked_cargo_with_wrapper(
@@ -944,6 +1060,10 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
     .unwrap();
     crate::rsjs::pipeline::validate_linked_cargo_request(&linked_run.request).unwrap();
     assert_eq!(first.request.invocation, linked_run.request.invocation);
+    assert_eq!(
+        first.public_output_directory,
+        linked_run.public_output_directory
+    );
     assert_eq!(
         first.descriptor_cache_directory,
         linked_run.descriptor_cache_directory
@@ -979,9 +1099,17 @@ fn persistent_namespace_reuses_source_cycles_and_splits_features_and_test_mode()
     .unwrap();
     crate::rsjs::pipeline::validate_linked_cargo_request(&linked_test.request).unwrap();
     assert_ne!(first.request.invocation, linked_test.request.invocation);
-    assert_ne!(
+    assert_eq!(
         first.descriptor_cache_directory,
         linked_test.descriptor_cache_directory
+    );
+    assert_eq!(
+        descriptor_target_dir(&first.request),
+        descriptor_target_dir(&linked_test.request)
+    );
+    assert_eq!(
+        first.request.final_target_root,
+        linked_test.request.final_target_root
     );
     assert_eq!(linked_test.request.root.role, ArtifactRole::RootTest);
     assert_eq!(
@@ -1063,6 +1191,10 @@ fn same_path_wrapper_replacement_splits_persistent_cache_namespaces() {
     )
     .unwrap();
     let replaced_snapshot = replaced.request.descriptor.wrapper.clone();
+    assert_eq!(
+        first.public_output_directory,
+        replaced.public_output_directory
+    );
     let replaced_fingerprint = wrapper_executable_fingerprint(&replaced_snapshot).unwrap();
 
     // Reusing an existing snapshot still verifies its current bytes, even
@@ -1368,6 +1500,7 @@ mod dev_preparation_tests {
         let root = temp.path();
         fs::create_dir(root.join("src")).unwrap();
         fs::create_dir(root.join("styles")).unwrap();
+        fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
         fs::write(root.join("src/main.rs"), SOURCE).unwrap();
         fs::write(root.join("src/generated.rs"), "const GENERATED: u8 = 1;").unwrap();
         // Same-length edits must change the stamp even on coarse-timestamp filesystems.
@@ -1379,15 +1512,16 @@ mod dev_preparation_tests {
         }
         fs::write(root.join("generator-input"), "const GENERATED: u8 = 1;").unwrap();
         fs::write(root.join("styles/input.css"), ".old { color: red; }").unwrap();
-        let mut config = ProjectConfig::default();
-        config.dev.watch = vec!["src".into(), "styles".into(), "proa.config.json".into()];
+        let mut config = crate::config::ProjectConfig::default();
+        config.paths.public = None;
         if let Some(command) = before {
-            config.dev.before = vec!["generate".into()];
-            config.tasks.insert(
+            config.scripts.before.dev = vec!["generate".into()];
+            config.scripts.named.insert(
                 "generate".into(),
-                serde_json::json!({
-                    "command": ["sh", "-c", command],
-                }),
+                crate::config::ScriptConfig {
+                    command: vec!["sh".into(), "-c".into(), command.into()],
+                    ..Default::default()
+                },
             );
         }
         config.build.assets = Some(
@@ -1403,8 +1537,8 @@ mod dev_preparation_tests {
                 .collect(),
         );
         fs::write(
-            root.join("proa.config.json"),
-            serde_json::to_vec(&config).unwrap(),
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
         )
         .unwrap();
         (temp, config)
@@ -1415,21 +1549,54 @@ mod dev_preparation_tests {
     }
 
     #[test]
+    fn watcher_observes_links_without_following_public_directory_cycles() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join("public")).unwrap();
+        let watched = [PathBuf::from("public")];
+        let before = watch_snapshot(temp.path(), &watched).unwrap();
+        std::os::unix::fs::symlink(".", temp.path().join("public/loop")).unwrap();
+        let after = watch_snapshot(temp.path(), &watched).unwrap();
+        assert_eq!(
+            changed_paths(&before, &after),
+            [PathBuf::from("public/loop")]
+        );
+        assert_eq!(after.len(), 1);
+        assert!(public_assets::publish(
+            temp.path(),
+            Some(Path::new("public")),
+            &temp.path().join("output")
+        )
+        .is_err());
+        fs::create_dir(temp.path().join("shared")).unwrap();
+        fs::write(temp.path().join("shared/file.txt"), "one").unwrap();
+        std::os::unix::fs::symlink("../shared", temp.path().join("public/shared")).unwrap();
+        let before = watch_snapshot(temp.path(), &watched).unwrap();
+        fs::write(temp.path().join("shared/file.txt"), "different").unwrap();
+        let after = watch_snapshot(temp.path(), &watched).unwrap();
+        assert_eq!(
+            changed_paths(&before, &after),
+            [PathBuf::from("public/shared/file.txt")]
+        );
+    }
+
+    #[test]
     fn generated_identical_rust_is_consumed_without_another_reload() {
-        let (temp, config) = fixture(Some("cp generator-input src/generated.rs"), None);
+        let (temp, _config) = fixture(Some("cp generator-input src/generated.rs"), None);
         let root = temp.path();
         let active = crate::hot_static::HotState::prepare(root).unwrap();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
-        let trigger = watch_snapshot(root, &config.dev.watch).unwrap();
+        let trigger = watch_snapshot(root, &default_watch_paths()).unwrap();
         let mut failure = trigger.clone();
         let mut inputs = prepare_dev_inputs(
             root,
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             Some(&active),
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert_ne!(
@@ -1441,7 +1608,7 @@ mod dev_preparation_tests {
         assert_eq!(
             watch.observe(
                 Duration::ZERO,
-                watch_snapshot(root, &config.dev.watch).unwrap()
+                watch_snapshot(root, &default_watch_paths()).unwrap()
             ),
             DevWatchDecision::Idle
         );
@@ -1453,20 +1620,22 @@ mod dev_preparation_tests {
             (Some("cp generator-input src/generated.rs; exit 1"), None),
             (Some("cp generator-input src/generated.rs"), Some("exit 1")),
         ] {
-            let (temp, config) = fixture(before, asset);
+            let (temp, _config) = fixture(before, asset);
             let root = temp.path();
             let active = crate::hot_static::HotState::prepare(root).unwrap();
             let published = fs::read(manifest(&active)).unwrap();
-            let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+            let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
             fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
-            let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+            let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
             assert!(prepare_dev_inputs(
                 root,
+                load_project_config(root).unwrap(),
                 &dev_options(None),
                 &committed,
                 Some(&active),
                 &mut failure,
-                &mut config.dev.watch.clone(),
+                &mut default_watch_paths(),
+                AssetState::Current,
             )
             .is_err());
             assert_eq!(fs::read(manifest(&active)).unwrap(), published);
@@ -1480,7 +1649,7 @@ mod dev_preparation_tests {
             assert_eq!(
                 watch.observe(
                     Duration::ZERO,
-                    watch_snapshot(root, &config.dev.watch).unwrap()
+                    watch_snapshot(root, &default_watch_paths()).unwrap()
                 ),
                 DevWatchDecision::Idle
             );
@@ -1489,20 +1658,22 @@ mod dev_preparation_tests {
 
     #[test]
     fn edits_during_publication_are_still_pending() {
-        let (temp, config) = fixture(None, None);
+        let (temp, _config) = fixture(None, None);
         let root = temp.path();
         let active = crate::hot_static::HotState::prepare(root).unwrap();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         let published = fs::read(manifest(&active)).unwrap();
         fs::write(root.join("src/main.rs"), SOURCE.replace("old", "new")).unwrap();
-        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
         let mut inputs = prepare_dev_inputs(
             root,
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             Some(&active),
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert_eq!(fs::read(manifest(&active)).unwrap(), published);
@@ -1517,7 +1688,7 @@ mod dev_preparation_tests {
         assert_eq!(
             watch.observe(
                 Duration::ZERO,
-                watch_snapshot(root, &config.dev.watch).unwrap()
+                watch_snapshot(root, &default_watch_paths()).unwrap()
             ),
             DevWatchDecision::Debouncing
         );
@@ -1525,20 +1696,22 @@ mod dev_preparation_tests {
 
     #[test]
     fn css_cycle_with_new_generated_rust_requires_a_linked_rebuild() {
-        let (temp, config) = fixture(Some("cp generator-input src/generated.rs"), None);
+        let (temp, _config) = fixture(Some("cp generator-input src/generated.rs"), None);
         let root = temp.path();
         let active = crate::hot_static::HotState::prepare(root).unwrap();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         fs::write(root.join("generator-input"), "const GENERATED: u8 = 2;").unwrap();
         fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
-        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
         let inputs = prepare_dev_inputs(
             root,
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             Some(&active),
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert!(!inputs.css_only);
@@ -1549,27 +1722,32 @@ mod dev_preparation_tests {
     fn failed_preparation_keeps_the_snapshot_and_watch_paths_in_agreement() {
         let (temp, mut config) = fixture(None, Some("exit 1"));
         let root = temp.path();
-        let mut watch_paths = config.dev.watch.clone();
+        let mut watch_paths = default_watch_paths();
         let committed = watch_snapshot(root, &watch_paths).unwrap();
-        config.dev.watch.push("generated".into());
+        config.paths.public = Some("generated".into());
         fs::create_dir(root.join("generated")).unwrap();
         fs::write(root.join("generated/output.rs"), "const OUTPUT: u8 = 1;").unwrap();
         fs::write(
-            root.join("proa.config.json"),
-            serde_json::to_vec(&config).unwrap(),
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
         )
         .unwrap();
         let mut failure = watch_snapshot(root, &watch_paths).unwrap();
         assert!(prepare_dev_inputs(
             root,
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             None,
             &mut failure,
-            &mut watch_paths
+            &mut watch_paths,
+            AssetState::Current,
         )
         .is_err());
-        assert_eq!(watch_paths, config.dev.watch);
+        assert_eq!(
+            watch_paths,
+            dev_watch_paths(&config, &dev_options(None)).unwrap()
+        );
         let mut watch = DevWatchDebouncer::new(failure, DEV_WATCH_DEBOUNCE);
         assert_eq!(
             watch.observe(Duration::ZERO, watch_snapshot(root, &watch_paths).unwrap()),
@@ -1579,19 +1757,21 @@ mod dev_preparation_tests {
 
     #[test]
     fn stylesheet_edits_during_asset_build_are_not_swallowed() {
-        let (temp, config) = fixture(None, Some("cp late.css styles/input.css"));
+        let (temp, _config) = fixture(None, Some("cp late.css styles/input.css"));
         let root = temp.path();
-        let committed = watch_snapshot(root, &config.dev.watch).unwrap();
+        let committed = watch_snapshot(root, &default_watch_paths()).unwrap();
         fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
         fs::write(root.join("late.css"), ".later { color: green; }").unwrap();
-        let mut failure = watch_snapshot(root, &config.dev.watch).unwrap();
+        let mut failure = watch_snapshot(root, &default_watch_paths()).unwrap();
         let inputs = prepare_dev_inputs(
             root,
+            load_project_config(root).unwrap(),
             &dev_options(None),
             &committed,
             None,
             &mut failure,
-            &mut config.dev.watch.clone(),
+            &mut default_watch_paths(),
+            AssetState::Current,
         )
         .unwrap();
         assert!(inputs.css_only);
@@ -1599,9 +1779,522 @@ mod dev_preparation_tests {
         assert_eq!(
             watch.observe(
                 Duration::ZERO,
-                watch_snapshot(root, &config.dev.watch).unwrap()
+                watch_snapshot(root, &default_watch_paths()).unwrap()
             ),
             DevWatchDecision::Debouncing
         );
+    }
+
+    #[test]
+    fn publishing_the_new_default_public_directory_requires_a_catalog_restart() {
+        let (temp, mut config) = fixture(None, Some("cp styles/input.css public/styles.css"));
+        let root = temp.path();
+        config.paths.public = Some("public".into());
+        fs::write(
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
+        assert!(watch_paths.contains(&PathBuf::from("public")));
+        assert!(!root.join("public").exists());
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        fs::write(root.join("styles/input.css"), ".new { color: blue; }").unwrap();
+        let mut failure = committed.clone();
+        let inputs = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+            AssetState::Current,
+        )
+        .unwrap();
+        assert!(!inputs.css_only);
+        assert!(inputs.hot_update.is_none());
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new { color: blue; }"
+        );
+    }
+
+    #[test]
+    fn start_manifest_preserves_multiple_binaries_and_separates_cross_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let target_dir = temp.path().join("target");
+        let host_a = default_release_export_path(&target_dir, "web", None);
+        let host_b = default_release_export_path(&target_dir, "admin", None);
+        let cross_linux =
+            default_release_export_path(&target_dir, "web", Some("x86_64-unknown-linux-gnu"));
+        let cross_win =
+            default_release_export_path(&target_dir, "web", Some("x86_64-pc-windows-msvc"));
+
+        assert_ne!(host_a, cross_linux);
+        assert_eq!(
+            cross_linux,
+            target_dir.join("x86_64-unknown-linux-gnu/release/web")
+        );
+        assert_eq!(
+            cross_win,
+            target_dir.join("x86_64-pc-windows-msvc/release/web.exe")
+        );
+
+        let assets_a = target_dir.join("proa-output/web/aaa");
+        let assets_b = target_dir.join("proa-output/admin/bbb");
+        let assets_cross = target_dir.join("proa-output/web/ccc");
+
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-a",
+            "web",
+            "release",
+            None,
+            &host_a,
+            Some(&assets_a),
+        )
+        .unwrap();
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-b",
+            "admin",
+            "release",
+            None,
+            &host_b,
+            Some(&assets_b),
+        )
+        .unwrap();
+        public_assets::record_start_manifest(
+            &target_dir,
+            "pkg-a",
+            "web",
+            "release",
+            Some("x86_64-unknown-linux-gnu"),
+            &cross_linux,
+            Some(&assets_cross),
+        )
+        .unwrap();
+
+        let entries = public_assets::load_start_manifest(&target_dir);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.binary == "web" && entry.target_triple.is_none())
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_a.as_path())
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.binary == "admin" && entry.target_triple.is_none())
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_b.as_path())
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.target_triple.as_deref() == Some("x86_64-unknown-linux-gnu"))
+                .and_then(|entry| entry.public_assets.as_deref()),
+            Some(assets_cross.as_path())
+        );
+    }
+
+    #[test]
+    fn managed_public_stylesheet_and_asset_edits_qualify_for_public_assets_only_reload() {
+        let (temp, mut config) = fixture(
+            None,
+            Some("cp styles/input.css public/styles.css && echo ran >> asset-runs.log"),
+        );
+        let root = temp.path();
+        config.paths.public = Some("public".into());
+        fs::create_dir_all(root.join("public/images")).unwrap();
+        fs::write(root.join("public/styles.css"), ".old { color: red; }").unwrap();
+        fs::write(root.join("public/images/brand.svg"), "<svg/>").unwrap();
+        fs::write(
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
+
+        // 1. Editing an unrelated `public/` asset qualifies for fast republish. The asset
+        //    command still runs: its declared input is not proof of everything it reads.
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        fs::write(root.join("public/images/brand.svg"), "<svg id='v2'/>").unwrap();
+        let mut failure = committed.clone();
+        let asset_only = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+            AssetState::Current,
+        )
+        .unwrap();
+        assert!(asset_only.public_assets_only);
+        assert!(root.join("asset-runs.log").is_file());
+
+        // 2. Editing `styles/input.css` rebuilds CSS and still qualifies for fast catalog republish.
+        let committed = asset_only.snapshot;
+        fs::write(root.join("styles/input.css"), ".new { color: green; }").unwrap();
+        let mut failure = committed.clone();
+        let css_edit = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+            AssetState::Current,
+        )
+        .unwrap();
+        assert!(css_edit.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new { color: green; }"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("asset-runs.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            2
+        );
+
+        // 3. Deleting a declared asset output (`public/styles.css`) must NOT skip `build_assets`.
+        let committed = css_edit.snapshot;
+        fs::remove_file(root.join("public/styles.css")).unwrap();
+        let mut failure = committed.clone();
+        let deleted_css = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+            AssetState::Current,
+        )
+        .unwrap();
+        assert!(deleted_css.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new { color: green; }"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("asset-runs.log"))
+                .unwrap()
+                .lines()
+                .count(),
+            3
+        );
+
+        // 4. Editing a Rust source file disables the fast path.
+        let committed = deleted_css.snapshot;
+        fs::write(root.join("src/main.rs"), "fn main() { /* edited */ }\n").unwrap();
+        let mut failure = committed.clone();
+        let rust_edit = prepare_dev_inputs(
+            root,
+            load_project_config(root).unwrap(),
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+            AssetState::Current,
+        )
+        .unwrap();
+        assert!(!rust_edit.public_assets_only);
+    }
+
+    #[test]
+    fn compiled_inputs_match_through_a_linked_public_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("site");
+        let assets = temp.path().join("shared-assets");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir(&assets).unwrap();
+        fs::write(assets.join("logo.svg"), "one").unwrap();
+        fs::write(assets.join("icon.svg"), "one").unwrap();
+        std::os::unix::fs::symlink(&assets, root.join("public")).unwrap();
+        // rustc records `include_str!("../public/logo.svg")` under the link target.
+        let inputs = BTreeSet::from([assets.join("logo.svg").canonicalize().unwrap()]);
+
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/logo.svg")
+        ));
+        assert!(!is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/icon.svg")
+        ));
+        fs::remove_file(assets.join("logo.svg")).unwrap();
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("public/logo.svg")
+        ));
+        assert!(is_compiled_input(
+            &root,
+            &inputs,
+            Path::new("gone/logo.svg")
+        ));
+    }
+
+    #[test]
+    fn css_script_reruns_for_public_edits_because_its_inputs_are_undeclared() {
+        let (temp, mut config) = fixture(None, None);
+        let root = temp.path();
+        config.paths.public = Some("public".into());
+        config.scripts.css = "cat public/theme.css > public/styles.css".into();
+        fs::create_dir(root.join("public")).unwrap();
+        fs::write(root.join("public/theme.css"), ".old {}").unwrap();
+        fs::write(root.join("public/styles.css"), ".old {}").unwrap();
+        fs::write(
+            root.join("proa.config.rs"),
+            crate::config::generated_rust_config(&config).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_project_config(root).unwrap();
+        let mut watch_paths = dev_watch_paths(&loaded, &dev_options(None)).unwrap();
+        let committed = watch_snapshot(root, &watch_paths).unwrap();
+        fs::write(root.join("public/theme.css"), ".new {}").unwrap();
+        let mut failure = committed.clone();
+        let edit = prepare_dev_inputs(
+            root,
+            loaded,
+            &dev_options(None),
+            &committed,
+            None,
+            &mut failure,
+            &mut watch_paths,
+            AssetState::Current,
+        )
+        .unwrap();
+        assert!(edit.public_assets_only);
+        assert_eq!(
+            fs::read(root.join("public/styles.css")).unwrap(),
+            b".new {}"
+        );
+    }
+
+    #[test]
+    fn managed_tailwind_is_skipped_only_for_files_it_can_never_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("public/images")).unwrap();
+        fs::write(root.join("public/styles.css"), ".ready {}").unwrap();
+        let asset = AssetConfig {
+            kind: "tailwind".into(),
+            command: Vec::new(),
+            input: PathBuf::from("styles/input.css"),
+            output: PathBuf::from("public/styles.css"),
+            config: Some(PathBuf::from("public/tailwind.config.js")),
+        };
+        let public = Path::new("public");
+        let skips = |asset: &AssetConfig, changed: &[&str]| {
+            let changed: Vec<PathBuf> = changed.iter().map(PathBuf::from).collect();
+            should_skip_managed_tailwind_asset(root, public, asset, &changed)
+        };
+
+        // Binary formats, including a deleted or uppercase-named one.
+        assert!(skips(
+            &asset,
+            &[
+                "public/images/og.png",
+                "public/fonts/inter.woff2",
+                "public/intro.MP4",
+            ]
+        ));
+        // Tailwind scans every text file for class names, whatever its
+        // extension, and resolves imports. One such file in a batch of
+        // images is enough to need it.
+        for scanned in [
+            "public/theme.css",
+            "public/widget.html",
+            "public/app.js",
+            "public/icons.svg",
+            "public/content.json",
+            "public/LICENSE",
+            "public/styles.css",
+            "public/tailwind.config.js",
+        ] {
+            assert!(!skips(&asset, &[scanned]), "{scanned}");
+            assert!(
+                !skips(&asset, &["public/images/og.png", scanned]),
+                "{scanned}"
+            );
+        }
+        // Outside `public/` nothing is assumed, and no change means no skip.
+        assert!(!skips(&asset, &["assets/og.png"]));
+        assert!(!skips(&asset, &[]));
+
+        // A missing stylesheet has to be generated whatever changed.
+        fs::remove_file(root.join("public/styles.css")).unwrap();
+        assert!(!skips(&asset, &["public/images/og.png"]));
+
+        // Custom commands may read anything and are never skipped.
+        fs::write(root.join("public/styles.css"), ".ready {}").unwrap();
+        let custom = AssetConfig {
+            command: vec!["sh".into(), "-c".into(), "true".into()],
+            ..asset
+        };
+        assert!(!skips(&custom, &["public/images/og.png"]));
+    }
+
+    #[test]
+    fn dev_address_prefers_flags_then_the_servers_own_variables() {
+        let resolve = |host: Option<&str>, port: Option<u16>, vars: &[(&str, &str)]| {
+            let vars: BTreeMap<String, String> = vars
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect();
+            resolve_dev_address(host, port, |name| vars.get(name).cloned())
+                .map(|address| (address.host, address.port))
+                .map_err(|error| format!("{error:#}"))
+        };
+        let ok = |host: &str, port: u16| Ok((host.to_owned(), port));
+
+        assert_eq!(resolve(None, None, &[]), ok("127.0.0.1", 3000));
+        assert_eq!(
+            resolve(None, None, &[("PROA_HOST", "0.0.0.0"), ("PORT", " 4137 ")]),
+            ok("0.0.0.0", 4137)
+        );
+        // Flags beat every variable, including an invalid one.
+        assert_eq!(
+            resolve(
+                Some("127.0.0.2"),
+                Some(8080),
+                &[("PROA_HOST", "0.0.0.0"), ("HOST", "::1"), ("PORT", "junk")]
+            ),
+            ok("127.0.0.2", 8080)
+        );
+        // The Proa-specific variable beats the generic one and is taken as
+        // written; blank values are unset.
+        assert_eq!(
+            resolve(
+                None,
+                None,
+                &[("PROA_HOST", "dev.internal"), ("HOST", "0.0.0.0")]
+            ),
+            ok("dev.internal", 3000)
+        );
+        assert_eq!(
+            resolve(None, None, &[("PROA_HOST", "  "), ("HOST", "0.0.0.0")]),
+            ok("0.0.0.0", 3000)
+        );
+        for (input, expected) in [
+            ("0.0.0.0", "0.0.0.0"),
+            ("localhost", "127.0.0.1"),
+            ("LOCALHOST", "127.0.0.1"),
+            ("::1", "::1"),
+            ("[::1]", "::1"),
+            ("192.168.1.20", "192.168.1.20"),
+        ] {
+            let resolved = resolve(None, None, &[("HOST", input)]);
+            assert_eq!(resolved, ok(expected, 3000), "{input}");
+            // Every accepted `HOST` value must parse as `IpAddr` for generated servers.
+            assert!(
+                resolved.unwrap().0.parse::<std::net::IpAddr>().is_ok(),
+                "{input}"
+            );
+        }
+        // `HOST` is exported for unrelated reasons: a machine name by some
+        // shells, a compiler target triple by toolchain activation scripts.
+        for unrelated in [
+            "build-box.local",
+            "arm64-apple-darwin20.0.0",
+            "my laptop",
+            "[127.0.0.1]",
+            "[::1",
+        ] {
+            assert_eq!(
+                resolve(None, None, &[("HOST", unrelated)]),
+                ok("127.0.0.1", 3000),
+                "{unrelated}"
+            );
+        }
+
+        for invalid in ["0", "not-a-port", "70000", "-1", "3000/tcp"] {
+            let error = resolve(None, None, &[("PORT", invalid)]).unwrap_err();
+            assert!(
+                error.contains(invalid) && error.contains("--port"),
+                "{error}"
+            );
+        }
+        assert_eq!(
+            resolve(None, None, &[("PORT", "  ")]),
+            ok("127.0.0.1", 3000)
+        );
+    }
+
+    #[test]
+    fn dev_address_reports_what_the_environment_decided() {
+        let notes = |vars: &[(&str, &str)]| {
+            let vars: BTreeMap<String, String> = vars
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect();
+            resolve_dev_address(None, None, |name| vars.get(name).cloned())
+                .unwrap()
+                .notes
+        };
+        assert!(notes(&[]).is_empty());
+        // A listen address that came from the environment is otherwise
+        // invisible: the banner prints 127.0.0.1 for a wildcard bind.
+        let exported = notes(&[("HOST", "0.0.0.0"), ("PORT", "4137")]);
+        assert_eq!(exported.len(), 2);
+        assert!(exported[0].contains("0.0.0.0") && exported[0].contains("HOST"));
+        assert!(exported[1].contains("4137") && exported[1].contains("PORT"));
+        let ignored = notes(&[("HOST", "arm64-apple-darwin20.0.0")]);
+        assert_eq!(ignored.len(), 1);
+        assert!(
+            ignored[0].contains("arm64-apple-darwin20.0.0") && ignored[0].contains("PROA_HOST")
+        );
+    }
+
+    #[test]
+    fn a_server_is_left_running_only_when_it_registered_to_follow_the_catalog() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir(root.join("public")).unwrap();
+        fs::write(root.join("public/logo.svg"), "logo").unwrap();
+        let output = root.join("target/proa-output/app");
+
+        // Nothing published yet, and nothing this CLI owns: restart.
+        assert!(!public_assets::has_live_reader(&root.join("missing")));
+        assert!(!public_assets::has_live_reader(&root.join("public")));
+
+        public_assets::publish(root, Some(Path::new("public")), &output)
+            .unwrap()
+            .unwrap();
+        assert!(!public_assets::has_live_reader(&output));
+
+        // A server holding a fixed catalog still needs the restart.
+        let fixed = proa_assets::AssetCatalog::load(&output).unwrap();
+        assert!(!public_assets::has_live_reader(&output));
+
+        let following = proa_assets::LiveReader::register(&output).unwrap();
+        assert!(public_assets::has_live_reader(&output));
+        // Publishing again must not disturb the registration it relies on.
+        fs::write(root.join("public/logo.svg"), "new logo").unwrap();
+        public_assets::publish(root, Some(Path::new("public")), &output)
+            .unwrap()
+            .unwrap();
+        assert!(public_assets::has_live_reader(&output));
+
+        // The server exits, or is replaced by one that has not loaded yet.
+        drop(following);
+        assert!(!public_assets::has_live_reader(&output));
+        drop(fixed);
     }
 }

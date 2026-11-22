@@ -192,12 +192,12 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
         &self.parts.request
     }
 
-    /// Compose an application URL using the configured base path.
+    /// Compose an application URL or resolve a logical `public/...` path.
     ///
-    /// Like [`WebContext::url`], this shares the prefix and borrows only `path`;
-    /// rendering the URL does not allocate an intermediate string.
+    /// Like [`WebContext::url`], this renders without allocating an
+    /// intermediate string.
     pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
-        self.request().base_path().url(path)
+        self.request().url(path)
     }
 
     pub fn request_mut(&mut self) -> &mut RequestContext {

@@ -177,6 +177,9 @@ All the macro essentials from `/add-component` still apply:
 - Underscores in attribute names → dashes (`hx_post` → `hx-post`).
 - `Option<&str>` attrs auto-omit when None.
 - Boolean attrs render as `attr=""`.
+- Use `src={cx.url("public/images/logo.svg")}` and other ordinary server
+  expressions directly. Reserve `rsjs::server_attr(...)` for an intentional
+  snapshot of an inbound value or a server expression the compiler cannot classify.
 - Performance: no `format!()`, use inline segments and pre-computed
   strings (see `/add-component` § Performance for details).
 - Security: automatic XSS escape, `javascript:` URL blocking,

@@ -13,7 +13,7 @@ Components share data and typed children across HTML, Markdown, and other render
 - Get started: https://proa.so/docs
 - Source and contributions: https://github.com/Proa-Labs/proa
 - Explore apps: https://proa.so/ecosystem/apps
-- Benchmarks: https://github.com/Proa-Labs/proa-benchmarks
+- Benchmarks: https://github.com/Proa-Labs/framework-benchmarks
 
 Read #rules, say hello in #general, ask questions in #help, and share your work in #showcase. Use #feedback for ideas and #contributors for work on Proa itself.
 

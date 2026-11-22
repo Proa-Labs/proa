@@ -42,6 +42,13 @@ pub struct AddOptions {
     pub force: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct ViewOptions {
+    pub root: PathBuf,
+    pub component: String,
+    pub registry: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddReport {
@@ -55,6 +62,49 @@ pub struct AddReport {
     pub files_written: Vec<PathBuf>,
     pub files_unchanged: Vec<PathBuf>,
     pub lock_path: PathBuf,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub next_steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewReport {
+    pub root: PathBuf,
+    pub requested: String,
+    pub resolved: String,
+    pub registry: String,
+    pub version: String,
+    pub components: Vec<ViewedComponentReport>,
+    pub files_to_create: Vec<PathBuf>,
+    pub files_unchanged: Vec<PathBuf>,
+    pub files_to_overwrite_on_force: Vec<PathBuf>,
+    pub files_conflicting_local: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub install_conflicts: Vec<String>,
+    pub needs_force: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub next_steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum ComponentInstallState {
+    New,
+    Current,
+    VersionMismatch { installed_version: String },
+    ModifiedTargets,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewedComponentReport {
+    pub name: String,
+    pub kind: RegistryItemKind,
+    pub registry: String,
+    pub version: String,
+    pub tier: ComponentTier,
+    pub dependency: bool,
+    pub install_state: ComponentInstallState,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -256,21 +306,30 @@ struct Resolver<'a> {
     total_bytes: usize,
 }
 
-pub fn add(options: AddOptions) -> Result<AddReport> {
-    let root = canonical_project_root(&options.root)?;
-    let config = config::load_project_config(&root)?;
+struct ResolvedGraph {
+    resolved_registry: &'static str,
+    resolved_id: String,
+    components: BTreeMap<String, PreparedComponent>,
+    order: Vec<String>,
+}
+
+fn resolve_graph(
+    root: &Path,
+    config: &ProjectConfig,
+    component: &str,
+    registry: Option<&str>,
+) -> Result<ResolvedGraph> {
     // Registry slugs are underscored because a component's slug is also its
     // Cargo feature name. Hyphens are what people type, so accept them and
     // resolve to the canonical spelling rather than 404ing on `alert-dialog`.
-    let requested = canonical_component_reference(&options.component);
+    let requested = canonical_component_reference(component);
     let (qualified_registry, slug) = parse_component_reference(&requested)?;
-    let requested_registry = normalize_registry_option(options.registry.as_deref())?;
+    let requested_registry = normalize_registry_option(registry)?;
 
     if let (Some(from_name), Some(from_flag)) = (qualified_registry, requested_registry) {
         if from_name != from_flag {
             bail!(
-                "component `{}` selects registry `{from_name}`, but --registry selected `{from_flag}`",
-                options.component
+                "component `{component}` selects registry `{from_name}`, but --registry selected `{from_flag}`"
             );
         }
     }
@@ -282,8 +341,8 @@ pub fn add(options: AddOptions) -> Result<AddReport> {
         .build()
         .context("build Proa UI registry client")?;
     let mut resolver = Resolver {
-        root: &root,
-        config: &config,
+        root,
+        config,
         client,
         components: BTreeMap::new(),
         order: Vec::new(),
@@ -294,12 +353,22 @@ pub fn add(options: AddOptions) -> Result<AddReport> {
     let (resolved_registry, loaded) = resolver.resolve_top_level(explicit_registry, slug)?;
     let resolved_id = component_id(resolved_registry, slug);
     resolver.resolve_loaded(resolved_registry, slug, loaded)?;
+    Ok(ResolvedGraph {
+        resolved_registry,
+        resolved_id,
+        components: resolver.components,
+        order: resolver.order,
+    })
+}
 
-    let existing_lock = config::load_component_lock(&root)?;
+fn build_next_lock(
+    existing_lock: &ComponentLockFile,
+    components: &BTreeMap<String, PreparedComponent>,
+    order: &[String],
+) -> ComponentLockFile {
     let mut next_lock = existing_lock.clone();
-    for id in &resolver.order {
-        let component = resolver
-            .components
+    for id in order {
+        let component = components
             .get(id)
             .expect("resolver order only contains resolved components");
         next_lock.components.insert(
@@ -356,13 +425,376 @@ pub fn add(options: AddOptions) -> Result<AddReport> {
             },
         );
     }
+    next_lock
+}
+
+fn collect_other_locked_owners(
+    current_lock: &ComponentLockFile,
+    order: &[String],
+) -> BTreeMap<PathBuf, Vec<String>> {
+    let reinstalling: BTreeSet<&str> = order.iter().map(String::as_str).collect();
+    let mut owners: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    for (id, installed) in &current_lock.components {
+        if reinstalling.contains(id.as_str()) {
+            continue;
+        }
+        for path in &installed.installed_files {
+            owners.entry(path.clone()).or_default().push(id.clone());
+        }
+    }
+    owners
+}
+
+pub fn view(options: ViewOptions) -> Result<ViewReport> {
+    let root = canonical_project_root(&options.root)?;
+    let config = config::load_project_config(&root)?;
+    let graph = resolve_graph(
+        &root,
+        &config,
+        &options.component,
+        options.registry.as_deref(),
+    )?;
+    let existing_lock = config::load_component_lock(&root)?;
+    let next_lock = build_next_lock(&existing_lock, &graph.components, &graph.order);
+    let other_locked_owners = collect_other_locked_owners(&existing_lock, &graph.order);
+
+    let mut target_contents: BTreeMap<PathBuf, PreparedFile> = BTreeMap::new();
+    let mut locked_graph_files: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut viewed_components = Vec::with_capacity(graph.order.len());
+    let mut needs_force = false;
+
+    for id in &graph.order {
+        let component = graph
+            .components
+            .get(id)
+            .expect("resolver order only contains resolved components");
+        let install_state = match existing_lock.components.get(id) {
+            None => ComponentInstallState::New,
+            Some(installed) => {
+                for path in &installed.installed_files {
+                    locked_graph_files.insert(path.clone());
+                }
+                if installed.version != component.manifest.version {
+                    needs_force = true;
+                    ComponentInstallState::VersionMismatch {
+                        installed_version: installed.version.clone(),
+                    }
+                } else if installed.registry != component.manifest.registry
+                    || installed.source_hash != component.source_hash
+                {
+                    needs_force = true;
+                    ComponentInstallState::ModifiedTargets
+                } else {
+                    ComponentInstallState::Current
+                }
+            }
+        };
+        for file in &component.files {
+            if let Some(existing) = target_contents.get(&file.target_relative) {
+                if existing.bytes != file.bytes {
+                    bail!(
+                        "component manifests disagree on shared target `{}`",
+                        file.target_relative.display()
+                    );
+                }
+                continue;
+            }
+            target_contents.insert(file.target_relative.clone(), file.clone());
+        }
+        viewed_components.push(ViewedComponentReport {
+            name: component.manifest.name.clone(),
+            kind: component.manifest.kind,
+            registry: component.manifest.registry.clone(),
+            version: component.manifest.version.clone(),
+            tier: component.manifest.tier,
+            dependency: id != &graph.resolved_id,
+            install_state,
+        });
+    }
+
+    let mut files_to_create = Vec::new();
+    let mut files_unchanged = Vec::new();
+    let mut files_to_overwrite_on_force = Vec::new();
+    let mut files_conflicting_local = Vec::new();
+    let mut install_conflicts = Vec::new();
+    for file in target_contents.values() {
+        ensure_no_symlink_path(&root, &file.target_relative)?;
+        match fs::read(&file.target) {
+            Ok(existing) if existing == file.bytes => {
+                files_unchanged.push(file.target_relative.clone());
+            }
+            Ok(_) if locked_graph_files.contains(&file.target_relative) => {
+                if let Some(other_owners) = other_locked_owners.get(&file.target_relative) {
+                    files_conflicting_local.push(file.target_relative.clone());
+                    install_conflicts.push(format!(
+                        "shared file `{}` is also owned by installed component(s) not in this reinstall: {}",
+                        file.target_relative.display(),
+                        other_owners.join(", ")
+                    ));
+                } else {
+                    needs_force = true;
+                    files_to_overwrite_on_force.push(file.target_relative.clone());
+                }
+            }
+            Ok(_) => {
+                files_conflicting_local.push(file.target_relative.clone());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                files_to_create.push(file.target_relative.clone());
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("read install target {}", file.target.display()))
+            }
+        }
+    }
+
+    // Also simulate managed Rust module and Cargo dependency updates without
+    // writing anything so `view` surfaces conflicts that `add` would hit.
+    match (
+        collect_locked_immutable_files(&existing_lock),
+        collect_locked_modules(&existing_lock),
+        collect_locked_modules(&next_lock),
+    ) {
+        (Ok(current_immutable_files), Ok(current_modules), Ok(next_modules)) => {
+            for (target_relative, modules) in &next_modules {
+                if target_contents.contains_key(target_relative) {
+                    install_conflicts.push(format!(
+                        "immutable artifact and managed Rust modules both target `{}`",
+                        target_relative.display()
+                    ));
+                    continue;
+                }
+                if current_immutable_files.contains(target_relative) {
+                    install_conflicts.push(format!(
+                        "managed Rust modules cannot update `{}` because an installed component owns it as an immutable artifact",
+                        target_relative.display()
+                    ));
+                    continue;
+                }
+                if let Err(error) =
+                    validate_relative_path(target_relative, "locked Rust module target")
+                        .and_then(|()| ensure_no_symlink_path(&root, target_relative))
+                {
+                    install_conflicts.push(error.to_string());
+                    continue;
+                }
+                let target = root.join(target_relative);
+                let before = match fs::read(&target) {
+                    Ok(bytes) => Some(bytes),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => {
+                        install_conflicts.push(format!(
+                            "read Rust module target {}: {error}",
+                            target.display()
+                        ));
+                        continue;
+                    }
+                };
+                let expected_current = current_modules
+                    .get(target_relative)
+                    .cloned()
+                    .unwrap_or_default();
+                if let Err(error) = update_managed_rust_modules(
+                    before.as_deref(),
+                    &expected_current,
+                    modules,
+                    target_relative,
+                ) {
+                    install_conflicts.push(error.to_string());
+                }
+            }
+        }
+        (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
+            install_conflicts.push(error.to_string());
+        }
+    }
+
+    match collect_locked_cargo_dependencies(&next_lock) {
+        Ok(cargo_dependencies) if !cargo_dependencies.is_empty() => {
+            let cargo_relative = PathBuf::from("Cargo.toml");
+            if target_contents.contains_key(&cargo_relative) {
+                install_conflicts
+                    .push("component manifest cannot replace the project Cargo.toml".to_string());
+            } else {
+                let cargo_path = root.join(&cargo_relative);
+                match fs::read(&cargo_path) {
+                    Ok(before) => {
+                        if let Err(error) = update_cargo_dependencies(&before, &cargo_dependencies)
+                        {
+                            install_conflicts.push(error.to_string());
+                        }
+                    }
+                    Err(error) => install_conflicts.push(format!(
+                        "read project manifest {}: {error}",
+                        cargo_path.display()
+                    )),
+                }
+            }
+        }
+        Ok(_) => {}
+        Err(error) => install_conflicts.push(error.to_string()),
+    }
+
+    let top = graph
+        .components
+        .get(&graph.resolved_id)
+        .expect("top-level component was resolved");
+    let next_steps = compute_next_steps(
+        &root,
+        &config,
+        &graph.resolved_id,
+        &graph.components,
+        &graph.order,
+    );
+
+    Ok(ViewReport {
+        root,
+        requested: options.component,
+        resolved: graph.resolved_id,
+        registry: graph.resolved_registry.to_string(),
+        version: top.manifest.version.clone(),
+        components: viewed_components,
+        files_to_create,
+        files_unchanged,
+        files_to_overwrite_on_force,
+        files_conflicting_local,
+        install_conflicts,
+        needs_force,
+        next_steps,
+    })
+}
+
+pub fn print_view_report(report: &ViewReport, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+        return Ok(());
+    }
+
+    println!(
+        "{} {} from {}",
+        report.resolved, report.version, report.registry
+    );
+    for component in &report.components {
+        let role = if component.dependency {
+            "dependency"
+        } else {
+            "component"
+        };
+        let status = match &component.install_state {
+            ComponentInstallState::New => "new".to_string(),
+            ComponentInstallState::Current => "installed".to_string(),
+            ComponentInstallState::VersionMismatch { installed_version } => {
+                format!("installed at {installed_version} (differs from registry)")
+            }
+            ComponentInstallState::ModifiedTargets => {
+                "installed (resolved targets differ)".to_string()
+            }
+        };
+        println!(
+            "  {role} {}/{} {} [{status}]",
+            component.registry, component.name, component.version
+        );
+    }
+    println!(
+        "  {} new file(s), {} already current",
+        report.files_to_create.len(),
+        report.files_unchanged.len()
+    );
+    if !report.files_to_overwrite_on_force.is_empty() {
+        println!(
+            "  {} installed file(s) would be overwritten with --force:",
+            report.files_to_overwrite_on_force.len()
+        );
+        for file in &report.files_to_overwrite_on_force {
+            println!("    {}", file.display());
+        }
+    }
+    if !report.files_conflicting_local.is_empty() {
+        println!(
+            "  {} local file(s) conflict and will not be overwritten:",
+            report.files_conflicting_local.len()
+        );
+        for file in &report.files_conflicting_local {
+            println!("    {}", file.display());
+        }
+    }
+    if !report.install_conflicts.is_empty() {
+        println!("  {} install conflict(s):", report.install_conflicts.len());
+        for conflict in &report.install_conflicts {
+            println!("    {conflict}");
+        }
+    }
+    let cwd = env::current_dir().ok();
+    if report.files_conflicting_local.is_empty() && report.install_conflicts.is_empty() {
+        let cmd = format_view_install_command(report, cwd.as_deref(), report.needs_force);
+        println!("Install:\n  {cmd}");
+    } else {
+        let cmd = format_view_install_command(report, cwd.as_deref(), false);
+        println!("Resolve the conflicts above before running `{cmd}`.");
+    }
+    Ok(())
+}
+
+fn format_view_install_command(
+    report: &ViewReport,
+    cwd: Option<&Path>,
+    with_force: bool,
+) -> String {
+    let mut cmd = format!("proa ui add {}", report.resolved);
+    let same_root = cwd
+        .and_then(|dir| fs::canonicalize(dir).ok())
+        .is_some_and(|dir| dir == report.root);
+    if !same_root {
+        cmd.push_str(" --root ");
+        cmd.push_str(&quote_cli_path(&report.root));
+    }
+    if with_force {
+        cmd.push_str(" --force");
+    }
+    cmd
+}
+
+fn quote_cli_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    let is_plain = !text.is_empty()
+        && text.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b':')
+        });
+    if is_plain {
+        return text.into_owned();
+    }
+    #[cfg(windows)]
+    {
+        format!("\"{}\"", text.replace('"', "\\\""))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
+}
+
+pub fn add(options: AddOptions) -> Result<AddReport> {
+    let root = canonical_project_root(&options.root)?;
+    let config = config::load_project_config(&root)?;
+    let graph = resolve_graph(
+        &root,
+        &config,
+        &options.component,
+        options.registry.as_deref(),
+    )?;
+    let resolved_registry = graph.resolved_registry;
+    let resolved_id = graph.resolved_id;
+
+    let existing_lock = config::load_component_lock(&root)?;
+    let next_lock = build_next_lock(&existing_lock, &graph.components, &graph.order);
 
     let transaction = prepare_transaction(
         &root,
         &existing_lock,
         &next_lock,
-        &resolver.components,
-        &resolver.order,
+        &graph.components,
+        &graph.order,
         options.force,
     )?;
 
@@ -370,15 +802,15 @@ pub fn add(options: AddOptions) -> Result<AddReport> {
         commit_transaction(&root, &transaction.mutations, &next_lock)?;
     }
 
-    let top = resolver
+    let top = graph
         .components
         .get(&resolved_id)
         .expect("top-level component was resolved");
-    let components = resolver
+    let components = graph
         .order
         .iter()
         .map(|id| {
-            let component = resolver
+            let component = graph
                 .components
                 .get(id)
                 .expect("resolver order only contains resolved components");
@@ -392,6 +824,13 @@ pub fn add(options: AddOptions) -> Result<AddReport> {
             }
         })
         .collect();
+    let next_steps = compute_next_steps(
+        &root,
+        &config,
+        &resolved_id,
+        &graph.components,
+        &graph.order,
+    );
 
     Ok(AddReport {
         root: root.clone(),
@@ -408,6 +847,7 @@ pub fn add(options: AddOptions) -> Result<AddReport> {
             .collect(),
         files_unchanged: transaction.files_unchanged,
         lock_path: root.join(LOCK_FILE),
+        next_steps,
     })
 }
 
@@ -442,8 +882,141 @@ pub fn print_add_report(report: &AddReport, json: bool) -> Result<()> {
     );
     if !report.dry_run {
         println!("  lock {}", report.lock_path.display());
+        if !report.next_steps.is_empty() {
+            println!("Next:");
+            for step in &report.next_steps {
+                println!("  {step}");
+            }
+        }
     }
     Ok(())
+}
+
+// proa-perf-ok(scope): CLI terminal hints display example html_sync! snippets, not rendered HTML
+fn compute_next_steps(
+    root: &Path,
+    config: &ProjectConfig,
+    resolved_id: &str,
+    components: &BTreeMap<String, PreparedComponent>,
+    order: &[String],
+) -> Vec<String> {
+    let mut steps = Vec::new();
+    let public_root = config
+        .paths
+        .public
+        .as_deref()
+        .unwrap_or_else(|| Path::new(config::DEFAULT_PUBLIC_DIRECTORY));
+
+    let mut scripts = BTreeSet::new();
+    let mut module_scripts = BTreeSet::new();
+    let mut stylesheets = BTreeSet::new();
+    for id in order {
+        let Some(component) = components.get(id) else {
+            continue;
+        };
+        for file in &component.files {
+            let Ok(rel) = file.target_relative.strip_prefix(public_root) else {
+                continue;
+            };
+            let rel_posix = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            let logical = format!("public/{rel_posix}");
+            match file
+                .target_relative
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(str::to_ascii_lowercase)
+                .as_deref()
+            {
+                Some("js") => {
+                    scripts.insert(logical);
+                }
+                Some("mjs") => {
+                    module_scripts.insert(logical);
+                }
+                Some("css") => {
+                    stylesheets.insert(logical);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    for script in scripts {
+        if !directory_contains_literal(&root.join("src"), &script, &["rs"]) {
+            steps.push(format!(
+                "Include the UI runtime in your layout: <script src={{cx.url(\"{script}\")}} defer></script>"
+            ));
+        }
+    }
+    for script in module_scripts {
+        if !directory_contains_literal(&root.join("src"), &script, &["rs"]) {
+            steps.push(format!(
+                "Include the UI module in your layout: <script type=\"module\" src={{cx.url(\"{script}\")}}></script>"
+            ));
+        }
+    }
+    for stylesheet in stylesheets {
+        let referenced_in_src = directory_contains_literal(&root.join("src"), &stylesheet, &["rs"]);
+        let rel_suffix = stylesheet.strip_prefix("public/").unwrap_or(&stylesheet);
+        let referenced_in_styles =
+            directory_contains_literal(&root.join("styles"), rel_suffix, &["css"]);
+        if !referenced_in_src && !referenced_in_styles {
+            steps.push(format!(
+                "Include the UI stylesheet in your layout: <link rel=\"stylesheet\" href={{cx.url(\"{stylesheet}\")}} /> (or @import it in styles/input.css)"
+            ));
+        }
+    }
+
+    if let Some(top) = components.get(resolved_id) {
+        let components_mod = config.paths.components.join("mod.rs");
+        for entry in &top.rust_modules {
+            if entry.target_relative == components_mod {
+                for module in &entry.modules {
+                    steps.push(format!(
+                        "Import in your pages: use crate::components::{module}::*;"
+                    ));
+                }
+            }
+        }
+    }
+    steps
+}
+
+fn directory_contains_literal(dir: &Path, needle: &str, extensions: &[&str]) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    for entry in walkdir::WalkDir::new(dir)
+        .max_depth(6)
+        .into_iter()
+        .flatten()
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let matches_ext = entry
+            .path()
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                extensions
+                    .iter()
+                    .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+            });
+        if !matches_ext {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(entry.path()) {
+            if text.contains(needle) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 impl<'a> Resolver<'a> {
@@ -460,7 +1033,7 @@ impl<'a> Resolver<'a> {
                 .map_err(|error| fetch_error_to_anyhow(registry, slug, error));
         }
 
-        let public_not_found = if self.config.registries.contains_key(PUBLIC_REGISTRY) {
+        let public_not_found = if self.config.registries.get(PUBLIC_REGISTRY).is_some() {
             match self.fetch_manifest(PUBLIC_REGISTRY, slug) {
                 Ok(manifest) => return Ok((PUBLIC_REGISTRY, manifest)),
                 Err(FetchError::NotFound(detail)) => Some(detail),
@@ -472,7 +1045,7 @@ impl<'a> Resolver<'a> {
             None
         };
 
-        if self.config.registries.contains_key(PRO_REGISTRY) {
+        if self.config.registries.get(PRO_REGISTRY).is_some() {
             match self.fetch_manifest(PRO_REGISTRY, slug) {
                 Ok(manifest) => return Ok((PRO_REGISTRY, manifest)),
                 Err(error) => {
@@ -1271,12 +1844,19 @@ fn prepare_transaction(
     force: bool,
 ) -> Result<PreparedTransaction> {
     let mut target_contents: BTreeMap<PathBuf, PreparedFile> = BTreeMap::new();
+    let mut force_replaceable_files: BTreeSet<PathBuf> = BTreeSet::new();
+    let other_locked_owners = collect_other_locked_owners(current_lock, order);
 
     for id in order {
         let component = components
             .get(id)
             .expect("resolver order only contains resolved components");
         if let Some(installed) = current_lock.components.get(id) {
+            if force {
+                for path in &installed.installed_files {
+                    force_replaceable_files.insert(path.clone());
+                }
+            }
             if !force
                 && (installed.version != component.manifest.version
                     || installed.registry != component.manifest.registry
@@ -1324,6 +1904,21 @@ fn prepare_transaction(
         match fs::read(&file.target) {
             Ok(existing) if existing == file.bytes => {
                 files_unchanged.push(file.target_relative.clone());
+            }
+            Ok(existing) if force && force_replaceable_files.contains(&file.target_relative) => {
+                if let Some(other_owners) = other_locked_owners.get(&file.target_relative) {
+                    bail!(
+                        "refusing to overwrite shared file `{}` because it is also owned by installed component(s) not in this reinstall: {}; reinstall those components together or resolve the conflict",
+                        file.target_relative.display(),
+                        other_owners.join(", ")
+                    );
+                }
+                mutations.push(FileMutation {
+                    target: file.target.clone(),
+                    target_relative: file.target_relative.clone(),
+                    before: Some(existing),
+                    after: file.bytes.clone(),
+                });
             }
             Ok(_) => {
                 bail!(
@@ -1483,8 +2078,6 @@ fn update_managed_rust_modules(
         })?,
         None => "",
     };
-    let expected_block = managed_module_block(expected_current);
-    let next_block = managed_module_block(next);
     let start = existing.find(MODULES_START);
     let end = existing.find(MODULES_END);
 
@@ -1496,6 +2089,7 @@ fn update_managed_rust_modules(
                     target.display()
                 );
             }
+            let next_block = managed_module_block_for(existing, next);
             let mut output = existing.to_string();
             if !output.is_empty() && !output.ends_with('\n') {
                 output.push('\n');
@@ -1508,15 +2102,18 @@ fn update_managed_rust_modules(
         }
         (Some(start), Some(end)) if start < end => {
             let end = end + MODULES_END.len();
-            if existing[start..end] != expected_block {
-                bail!(
-                    "managed Rust module block in `{}` was edited locally; refusing to overwrite it",
-                    target.display()
-                );
-            }
             if existing[end..].contains(MODULES_START) || existing[end..].contains(MODULES_END) {
                 bail!(
                     "managed Rust module file `{}` contains duplicate marker blocks",
+                    target.display()
+                );
+            }
+            let outside = format!("{}{}", &existing[..start], &existing[end..]);
+            let expected_block = managed_module_block_for(&outside, expected_current);
+            let next_block = managed_module_block_for(&outside, next);
+            if existing[start..end] != expected_block {
+                bail!(
+                    "managed Rust module block in `{}` was edited locally; refusing to overwrite it",
                     target.display()
                 );
             }
@@ -1534,18 +2131,77 @@ fn update_managed_rust_modules(
     }
 }
 
-fn managed_module_block(modules: &BTreeSet<String>) -> String {
+fn managed_module_block_for(outside: &str, modules: &BTreeSet<String>) -> String {
+    let (existing_mods, existing_glob_uses) = top_level_rust_module_decls(outside);
     let mut block = String::from(MODULES_START);
     block.push('\n');
     for module in modules {
-        block.push_str("pub mod ");
-        block.push_str(module);
-        block.push_str(";\npub use ");
-        block.push_str(module);
-        block.push_str("::*;\n");
+        if !existing_mods.contains(module) {
+            block.push_str("pub mod ");
+            block.push_str(module);
+            block.push_str(";\n");
+        }
+        if !existing_glob_uses.contains(module) {
+            block.push_str("pub use ");
+            block.push_str(module);
+            block.push_str("::*;\n");
+        }
     }
     block.push_str(MODULES_END);
     block
+}
+
+/// Inspect top-level Rust `mod` and `pub use <module>::*` items in `source`
+/// using `syn` so inline comments, visibility modifiers, block comments, and
+/// nested modules never confuse managed module deduplication.
+fn top_level_rust_module_decls(source: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut mods = BTreeSet::new();
+    let mut glob_uses = BTreeSet::new();
+    let Ok(parsed) = syn::parse_file(source) else {
+        return (mods, glob_uses);
+    };
+    for item in parsed.items {
+        match item {
+            syn::Item::Mod(item_mod) => {
+                mods.insert(item_mod.ident.to_string());
+            }
+            syn::Item::Use(item_use) if matches!(item_use.vis, syn::Visibility::Public(_)) => {
+                collect_top_level_glob_uses(&item_use.tree, None, &mut glob_uses);
+            }
+            _ => {}
+        }
+    }
+    (mods, glob_uses)
+}
+
+fn collect_top_level_glob_uses(
+    tree: &syn::UseTree,
+    prefix: Option<&str>,
+    out: &mut BTreeSet<String>,
+) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            let ident = path.ident.to_string();
+            if prefix.is_none() {
+                if ident == "self" {
+                    collect_top_level_glob_uses(&path.tree, None, out);
+                } else {
+                    collect_top_level_glob_uses(&path.tree, Some(&ident), out);
+                }
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            if let Some(module) = prefix {
+                out.insert(module.to_string());
+            }
+        }
+        syn::UseTree::Group(group) => {
+            for item in &group.items {
+                collect_top_level_glob_uses(item, prefix, out);
+            }
+        }
+        syn::UseTree::Name(_) | syn::UseTree::Rename(_) => {}
+    }
 }
 
 #[derive(Debug)]
@@ -2257,7 +2913,7 @@ fn fetch_error_to_anyhow(registry: &str, slug: &str, error: FetchError) -> anyho
         FetchError::Failed(detail) => anyhow::anyhow!(
             "could not fetch component `{registry}/{slug}`: {detail}. \
              Component artifacts may not be published at the configured endpoint yet. \
-             Check `proa.config.json` with `proa registry list`. No project files were changed."
+             Check `proa.config.rs` with `proa registry list`. No project files were changed."
         ),
     }
 }

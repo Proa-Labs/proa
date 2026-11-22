@@ -123,6 +123,17 @@ impl AttrValue for &str {
         let dialect = cx.__proa_current_escape_dialect();
         crate::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self, dialect)
     }
+
+    #[inline(always)]
+    fn render_attr<B: WriteBuf, L: DataLoader>(
+        &self,
+        name_prefix: &'static str,
+        _name_bool: &'static str,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        let dialect = cx.__proa_current_escape_dialect();
+        crate::shared::escape::write_attr_for_dialect(&mut cx.out, name_prefix, self, dialect)
+    }
 }
 
 // Implementation for String - always renders, escapes the value.
@@ -144,6 +155,39 @@ impl AttrValue for String {
     ) -> Result<(), crate::shared::write_buf::WriteError> {
         let dialect = cx.__proa_current_escape_dialect();
         crate::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self.as_str(), dialect)
+    }
+
+    #[inline(always)]
+    fn render_attr<B: WriteBuf, L: DataLoader>(
+        &self,
+        name_prefix: &'static str,
+        name_bool: &'static str,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        self.as_str().render_attr(name_prefix, name_bool, cx)
+    }
+}
+
+// Implementation for char - always renders, escapes the value. The UTF-8
+// encoding lives in a 4-byte stack buffer, so no allocation is needed.
+impl AttrValue for char {
+    #[inline(always)]
+    fn should_render(&self) -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn render_attr_value<B: WriteBuf, L: DataLoader>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        let mut buf = [0u8; 4];
+        let dialect = cx.__proa_current_escape_dialect();
+        crate::shared::escape::escape_attr_value_for_dialect(
+            &mut cx.out,
+            self.encode_utf8(&mut buf),
+            dialect,
+        )
     }
 }
 

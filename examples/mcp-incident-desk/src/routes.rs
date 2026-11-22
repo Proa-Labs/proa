@@ -31,7 +31,7 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             crate::mcp::authenticate,
         ));
-    router
+    let router = router
         .route("/healthz", get(endpoints::health::live))
         .route("/readyz", get(endpoints::health::ready))
         // proa:explicit-routes:start
@@ -47,8 +47,8 @@ pub fn router(state: AppState) -> Router {
             get(auth::provider::resource),
         )
         // proa:explicit-routes:end
-        .merge(mcp)
-        .nest_service("/static", static_assets::service())
+        .merge(mcp);
+    static_assets::mount(router, state.public_assets.as_ref())
         .with_state(state.clone())
         .layer(RouteContextLayer::new(metadata))
         .layer(DefaultBodyLimit::max(16384))
@@ -59,7 +59,7 @@ pub fn router(state: AppState) -> Router {
 }
 pub fn issuer(state: AppState) -> Router {
     let expected = state.config.issuer.clone();
-    Router::new()
+    let router = Router::new()
         .route(
             "/.well-known/oauth-authorization-server",
             get(auth::provider::metadata),
@@ -74,8 +74,8 @@ pub fn issuer(state: AppState) -> Router {
         .route("/authorize/login", post(auth::provider::login))
         .route("/consent", post(auth::provider::consent))
         .route("/token", post(auth::provider::token))
-        .route("/revoke", post(auth::provider::revoke))
-        .nest_service("/static", static_assets::service())
+        .route("/revoke", post(auth::provider::revoke));
+    static_assets::mount(router, state.public_assets.as_ref())
         .with_state(state)
         .layer(DefaultBodyLimit::max(16384))
         .layer(middleware::from_fn_with_state(expected, boundary))

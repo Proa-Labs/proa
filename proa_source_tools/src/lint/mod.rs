@@ -26,6 +26,7 @@ use crate::source::{
     display_path, file_line_column_for_body_span, find_macros, MacroDialect, MacroInvocation,
 };
 
+mod asset_urls;
 pub mod content;
 pub mod live;
 mod predicates;
@@ -63,12 +64,24 @@ pub fn lint_file_with_options(path: &Path, source: &str, options: LintOptions) -
         options.include_tests,
         rsjs_strategy_cache.as_ref(),
     );
-    diagnostics.extend(content::lint_sources(
-        &[(path.to_owned(), source.to_owned())],
-        &std::collections::BTreeSet::from([content::absolute(path)]),
+    let sources = [(path.to_owned(), source.to_owned())];
+    let reporting = std::collections::BTreeSet::from([content::absolute(path)]);
+    let parsed = parse_sources(&sources);
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    diagnostics.extend(content::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
         options.include_tests,
         &options.content,
     ));
+    diagnostics.extend(asset_urls::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    dedupe_diagnostics(&mut diagnostics);
     diagnostics
 }
 
@@ -263,12 +276,36 @@ pub fn lint_paths(paths: &[std::path::PathBuf], options: LintOptions) -> Result<
     for result in per_file {
         diagnostics.extend(result?);
     }
-    diagnostics.extend(content::lint_paths(
-        &files,
+    let sources = content::snapshot_sources(&files, &options.content)?;
+    let reporting: std::collections::BTreeSet<_> =
+        files.iter().map(|p| content::absolute(p)).collect();
+    let parsed = parse_sources(&sources);
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    diagnostics.extend(content::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
         options.include_tests,
         &options.content,
-    )?);
+    ));
+    diagnostics.extend(asset_urls::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    dedupe_diagnostics(&mut diagnostics);
     Ok(diagnostics)
+}
+
+/// Parse cross-file lint sources once, on the calling thread. `syn` trees are
+/// not `Send`, and their spans resolve against the parsing thread's source
+/// map, so every pass that shares them must run on this thread.
+pub(super) fn parse_sources(sources: &[(PathBuf, String)]) -> Vec<Option<File>> {
+    sources
+        .iter()
+        .map(|(_, source)| syn::parse_file(source).ok())
+        .collect()
 }
 
 fn lint_format_canonicalization(

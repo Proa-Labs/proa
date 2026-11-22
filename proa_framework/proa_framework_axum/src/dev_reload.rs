@@ -99,6 +99,21 @@ pub fn layer_from_env() -> Option<DevReloadLayer> {
     Some(DevReloadLayer::new(port, token).with_base_path(&base_path))
 }
 
+/// Whether `proa dev` started this process with a live-reload session.
+///
+/// Uses the same two-variable rule as [`layer_from_env`] and stays silent:
+/// `serve` reports a malformed pair once when it builds the layer.
+pub(crate) fn session_from_env() -> bool {
+    is_session(
+        env::var(RELOAD_PORT_ENV).ok().as_deref(),
+        env::var(RELOAD_TOKEN_ENV).ok().as_deref(),
+    )
+}
+
+fn is_session(port: Option<&str>, token: Option<&str>) -> bool {
+    port.and_then(parse_reload_port).is_some() && token.and_then(parse_reload_token).is_some()
+}
+
 fn parse_reload_port(value: &str) -> Option<u16> {
     match value.trim().parse::<u16>() {
         Ok(0) | Err(_) => None,

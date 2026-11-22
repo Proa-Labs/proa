@@ -185,8 +185,13 @@ where
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let RootDocument { title, content } = self;
-            let favicon = cx.url("/static/favicon.svg");
-            let stylesheet = cx.url("/static/styles.css");
+            let (favicon, stylesheet) = if cx.request().has_public_assets() {
+                ("public/favicon.svg", "public/styles.css")
+            } else {
+                ("/static/favicon.svg", "/static/styles.css")
+            };
+            let favicon = cx.url(favicon);
+            let stylesheet = cx.url(stylesheet);
             html! {
                 <!DOCTYPE html>
                 <html lang="en">
@@ -296,73 +301,186 @@ impl<L: DataLoader> proa::MdRender<L> for DatabaseCard {
 "####
 }
 
-pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) -> String {
-    let imports = match (has_database, has_ui) {
-        (true, true) => {
-            "use crate::components::{Badge, Button, Card, DatabaseBadge, DatabaseCard};"
+pub fn home_rs(
+    has_database: bool,
+    has_ui: bool,
+    markdown: bool,
+    blank: bool,
+    title: &str,
+) -> String {
+    let mut imports = Vec::new();
+    if has_database {
+        imports.push("use std::future::Future;");
+        imports.push("");
+    }
+    imports.push(match (has_database, markdown) {
+        (true, true) => "use axum::{extract::State, http::HeaderMap, response::IntoResponse};",
+        (true, false) => "use axum::{extract::State, response::IntoResponse};",
+        (false, true) => "use axum::{http::HeaderMap, response::IntoResponse};",
+        (false, false) => "use axum::response::IntoResponse;",
+    });
+    imports.push(if markdown {
+        if has_database {
+            "use proa::axum::{explicit_markdown_async_with_loader, negotiate_async_with_loader, MarkdownAlternate, RouteResponse};"
+        } else {
+            "use proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};"
         }
-        (true, false) => "use crate::components::{DatabaseBadge, DatabaseCard};",
-        (false, true) => "use crate::components::{Badge, Button, Card};",
-        (false, false) => "",
-    };
+    } else {
+        "use proa::axum::RouteResponse;"
+    });
+    if has_database {
+        imports.push("use proa::stream::DataResolver;");
+        imports.push(
+            "use proa::{html, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
+        );
+    } else {
+        imports.push("use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};");
+    }
+    if markdown {
+        if has_database {
+            imports.push("use proa::{md, MdRender};");
+        } else {
+            imports.push("use proa::{md_sync, MdRenderSync, WriteBuf};");
+        }
+    }
+    imports.push("");
+    if has_database {
+        imports.push("use crate::{app::AppState, error::AppError, layouts::RootDocument};");
+    } else {
+        imports.push("use crate::{error::AppError, layouts::RootDocument};");
+    }
+    if !blank {
+        match (has_database, has_ui) {
+            (true, true) => imports
+                .push("use crate::components::{Badge, Button, Card, DatabaseBadge, DatabaseCard};"),
+            (true, false) => {
+                imports.push("use crate::components::{DatabaseBadge, DatabaseCard};");
+            }
+            (false, true) => imports.push("use crate::components::{Badge, Button, Card};"),
+            (false, false) => {}
+        }
+    }
+
+    let mut constants = Vec::new();
+    if blank {
+        constants.push("const READY_HEADING: &str = \"Ready.\";");
+    } else {
+        constants.extend([
+            "const WORDMARK: &str = \"PROA\";",
+            "const SUBTITLE: &str = \"COMPILED APPLICATION STARTER\";",
+            "const KICKER: &str = \"THE SERVER ALREADY DID THE WORK\";",
+            "const HEADLINE: &str = \"Build the page in Rust. Ship only what moves.\";",
+            "const LEDE: &str = \"Typed SSR, request-local data loading, semantic Markdown, and source-owned components in one production-shaped application.\";",
+            "const SERVER_BADGE: &str = \"SERVER RENDERED IN RUST\";",
+            "const READ_MARKDOWN_LABEL: &str = \"READ THE MARKDOWN\";",
+            "const READ_MARKDOWN_HREF: &str = \"/index.md\";",
+            "const CLIENT_LABEL: &str = \"CLIENT\";",
+            "const CLIENT_VALUE: &str = \"0 B\";",
+            "const CLIENT_NOTE: &str = \"No client root on this route.\";",
+            "const RECEIPT_QUERY: &str = \"2 component requests → 1 origin query\";",
+            "const RECEIPT_RENDER: &str = \"Composable, multi-target rendering\";",
+            "const RECEIPT_BRAND: &str = \"Rendered by Proa\";",
+        ]);
+        if !has_database {
+            constants.extend([
+                "const NO_DATABASE_BADGE: &str = \"NO DATABASE SELECTED\";",
+                "const NO_DATABASE_LABEL: &str = \"DATA\";",
+                "const NO_DATABASE_VALUE: &str = \"NONE\";",
+            ]);
+        }
+        if has_ui {
+            constants.push(
+                r#"const REPRESENTATIONS_CARD: Card = Card {
+    eyebrow: "REPRESENTATIONS",
+    title: "Multi-target rendering",
+    body: "Share component data and typed children across HTML, Markdown, and other render targets.",
+    class: None,
+};"#,
+            );
+        } else {
+            constants.push("const HTML_CARD_TITLE: &str = \"HTML from Rust\";");
+        }
+    }
+
     let html_macro = if has_database { "html" } else { "html_sync" };
     let body = if blank {
-        "__HTML_MACRO__! { <main class=\"blank-page\"><h1>\"Ready.\"</h1></main> }.render(cx)"
+        r#"__HTML_MACRO__! {
+            <main class="blank-page">
+                <h1>{READY_HEADING}</h1>
+            </main>
+        }
+        .render(cx)"#
             .replace("__HTML_MACRO__", html_macro)
     } else {
         let badge = if has_ui {
             if has_database {
-                "{proa::to_async(Badge::new(\"SERVER RENDERED IN RUST\"))}"
+                "{proa::to_async(Badge::new(SERVER_BADGE))}"
             } else {
-                "{Badge::new(\"SERVER RENDERED IN RUST\")}"
+                "{Badge::new(SERVER_BADGE)}"
             }
         } else {
-            "<span class=\"status-pill\">\"SERVER RENDERED IN RUST\"</span>"
+            "<span class=\"status-pill\">{SERVER_BADGE}</span>"
         };
         let database_badge = if has_database {
             "{DatabaseBadge}"
         } else {
-            "<span class=\"status-pill\">\"NO DATABASE SELECTED\"</span>"
+            "<span class=\"status-pill\">{NO_DATABASE_BADGE}</span>"
         };
         let card = if has_ui {
             if has_database {
-                r#"{proa::to_async(Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None })}"#
+                "{proa::to_async(REPRESENTATIONS_CARD)}"
             } else {
-                r#"{Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None }}"#
+                "{REPRESENTATIONS_CARD}"
             }
         } else {
-            r#"<article class="metric-card"><h2>"HTML from Rust"</h2></article>"#
+            "<article class=\"metric-card\">\n                        <h2>{HTML_CARD_TITLE}</h2>\n                    </article>"
         };
         let db_card = if has_database {
             "{DatabaseCard}"
         } else {
-            r#"<article class="metric-card"><p class="metric-label">"DATA"</p><p class="metric-value">"NONE"</p></article>"#
+            "<article class=\"metric-card\">\n                        <p class=\"metric-label\">{NO_DATABASE_LABEL}</p>\n                        <p class=\"metric-value\">{NO_DATABASE_VALUE}</p>\n                    </article>"
         };
         let button = if has_ui {
             if has_database {
-                r#"{proa::to_async(Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None })}"#
+                "{proa::to_async(Button::link(READ_MARKDOWN_LABEL, READ_MARKDOWN_HREF))}"
             } else {
-                r#"{Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }}"#
+                "{Button::link(READ_MARKDOWN_LABEL, READ_MARKDOWN_HREF)}"
             }
         } else {
-            r#"<a href={cx.url("/index.md")}>"READ THE MARKDOWN"</a>"#
+            "<a href={cx.url(READ_MARKDOWN_HREF)}>{READ_MARKDOWN_LABEL}</a>"
         };
         r#"__HTML_MACRO__! {
             <main>
-                <header class="topbar"><a class="wordmark" href={cx.url("/")}>"PROA"</a><span>"COMPILED APPLICATION STARTER"</span></header>
+                <header class="topbar">
+                    <a class="wordmark" href={cx.url("/")}>{WORDMARK}</a>
+                    <span>{SUBTITLE}</span>
+                </header>
                 <section class="hero">
-                    <p class="kicker">"THE SERVER ALREADY DID THE WORK"</p>
-                    <h1>"Build the page in Rust. Ship only what moves."</h1>
-                    <p class="lede">"Typed SSR, request-local data loading, semantic Markdown, and source-owned components in one production-shaped application."</p>
-                    <div class="badges">__BADGE____DATABASE_BADGE__</div>
-                    <div class="hero-action">__BUTTON__</div>
+                    <p class="kicker">{KICKER}</p>
+                    <h1>{HEADLINE}</h1>
+                    <p class="lede">{LEDE}</p>
+                    <div class="badges">
+                        __BADGE__
+                        __DATABASE_BADGE__
+                    </div>
+                    <div class="hero-action">
+                        __BUTTON__
+                    </div>
                 </section>
                 <section class="metrics">
-                    <article class="metric-card"><p class="metric-label">"CLIENT"</p><p class="metric-value">"0 B"</p><p class="metric-note">"No client root on this route."</p></article>
+                    <article class="metric-card">
+                        <p class="metric-label">{CLIENT_LABEL}</p>
+                        <p class="metric-value">{CLIENT_VALUE}</p>
+                        <p class="metric-note">{CLIENT_NOTE}</p>
+                    </article>
                     __DB_CARD__
                     __CARD__
                 </section>
-                <footer class="receipt"><span>"2 component requests → 1 origin query"</span><span>"Composable, multi-target rendering"</span><strong>"Rendered by Proa"</strong></footer>
+                <footer class="receipt">
+                    <span>{RECEIPT_QUERY}</span>
+                    <span>{RECEIPT_RENDER}</span>
+                    <strong>{RECEIPT_BRAND}</strong>
+                </footer>
             </main>
         }
         .render(cx)"#
@@ -373,195 +491,37 @@ pub fn home_rs(has_database: bool, has_ui: bool, markdown: bool, blank: bool) ->
             .replace("__CARD__", card)
             .replace("__HTML_MACRO__", html_macro)
     };
-    let copy = if markdown {
-        starter_markdown_copy(&body)
-    } else {
-        String::new()
-    };
+
     let markdown_impl = if markdown {
-        home_markdown_impl(has_database, has_ui, blank, &copy)
+        home_markdown_impl(has_database, has_ui, blank)
     } else {
         String::new()
     };
-    let (core_imports, macro_import, render_impl) = if has_database {
-        (
-            "use std::future::Future;\n\nuse proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
-            "use proa::html;",
-            r#"impl<L: DataLoader> WebRender<L> for HomePage {
-    fn render(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+
+    let render_impl = if has_database {
+        r#"impl<L: DataLoader> WebRender<L> for HomePage {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         __BODY__
     }
-}"#,
-        )
+}"#
     } else {
-        (
-            "use proa::{DataLoader, WebContext, WebRenderSync, WriteError};",
-            "use proa::html_sync;",
-            r#"impl<L: DataLoader> WebRenderSync<L> for HomePage {
+        r#"impl<L: DataLoader> WebRenderSync<L> for HomePage {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         __BODY__
     }
-}"#,
-        )
+}"#
     };
-    r#"__CORE_IMPORTS__
-__MACRO_IMPORT__
-__MD_IMPORTS__
-__COMPONENT_IMPORTS__
 
-#[derive(Debug, Clone, Copy)]
-pub struct HomePage;
-
-__RENDER_IMPL__
-__MARKDOWN_IMPL__
-"#
-    .replace("__CORE_IMPORTS__", core_imports)
-    .replace("__MACRO_IMPORT__", macro_import)
-    .replace(
-        "__MD_IMPORTS__",
-        if markdown {
-            if has_database {
-                "use proa::MdRender;\nuse proa::md;"
-            } else {
-                "use proa::{MdRenderSync, WriteBuf};\nuse proa::md_sync;"
-            }
-        } else {
-            ""
-        },
-    )
-    .replace("__COMPONENT_IMPORTS__", imports)
-    .replace("__RENDER_IMPL__", &render_impl.replace("__BODY__", &body))
-    .replace("__MARKDOWN_IMPL__", &markdown_impl)
-}
-
-fn starter_markdown_copy(body: &str) -> String {
-    use proa_dsl::parse::{Attribute, Node};
-    fn collect(nodes: &[Node], values: &mut Vec<syn::LitStr>) {
-        for node in nodes {
-            match node {
-                Node::Text(value) if value.value().chars().any(char::is_alphanumeric) => {
-                    values.push(value.clone());
-                }
-                Node::Element(element) => {
-                    for attribute in &element.attrs {
-                        let (name, value) = match attribute {
-                            Attribute::Static { name, value } => (name, Some(value)),
-                            Attribute::Dynamic { name, value } => {
-                                let literal = match value.as_ref() {
-                                    syn::Expr::MethodCall(call) if call.method == "url" => {
-                                        match call.args.first() {
-                                            Some(syn::Expr::Lit(lit)) => match &lit.lit {
-                                                syn::Lit::Str(value) => Some(value),
-                                                _ => None,
-                                            },
-                                            _ => None,
-                                        }
-                                    }
-                                    _ => None,
-                                };
-                                (name, literal)
-                            }
-                            _ => continue,
-                        };
-                        if matches!(name.to_string().as_str(), "href" | "src" | "alt" | "title") {
-                            if let Some(value) = value {
-                                values.push(value.clone());
-                            }
-                        }
-                    }
-                    collect(&element.children, values);
-                }
-                Node::Fragment(children) => collect(children, values),
-                _ => {}
-            }
-        }
-    }
-    let invocation = crate::source::find_macros(body).remove(0);
-    let root = crate::lint::parse_invocation(body, &invocation).expect("valid starter HTML");
-    let mut values = Vec::new();
-    collect(&root.nodes, &mut values);
-    let mut markdown = String::new();
-    for value in values {
-        // Emit literal Markdown directly. Escape inline/list punctuation and
-        // double braces for the raw-template slot grammar.
-        for character in value.value().chars() {
-            match character {
-                '{' => markdown.push_str("{{"),
-                '}' => markdown.push_str("}}"),
-                '\\' | '`' | '*' | '_' | '[' | ']' | '(' | ')' | '<' | '>' | '|' | '~' | '&'
-                | '#' | '+' | '-' | '.' | '!' | '=' | ':' => {
-                    markdown.push('\\');
-                    markdown.push(character);
-                }
-                '\r' | '\n' | '\t' => markdown.push(' '),
-                _ => markdown.push(character),
-            }
-        }
-        markdown.push_str("\n\n");
-    }
-    markdown
-}
-
-fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool, copy: &str) -> String {
-    let mut children = copy.to_string();
-    let lift = |child: &str| {
-        if has_database {
-            format!("{{proa::to_md_async({child})}}")
-        } else {
-            format!("{{{child}}}")
-        }
-    };
-    if !blank {
-        if has_ui {
-            children.push_str(&lift("Badge::new(\"SERVER RENDERED IN RUST\")"));
-            children.push_str("\n\n");
-            children.push_str(&lift(
-                r#"Button { label: "READ THE MARKDOWN", href: Some("/index.md"), class: None }"#,
-            ));
-            children.push_str("\n\n");
-        }
-        if has_database {
-            children.push_str("{DatabaseBadge}\n\n{DatabaseCard}\n\n");
-        }
-        if has_ui {
-            children.push_str(&lift(r#"Card { eyebrow: "REPRESENTATIONS", title: "Multi-target rendering", body: "Share component data and typed children across HTML, Markdown, and other render targets.", class: None }"#));
-        }
-    }
-    let implementation = if has_database {
-        "impl<L: DataLoader> MdRender<L> for HomePage"
-    } else {
-        "impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage"
-    };
-    let signature = if has_database {
-        "fn render_md(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>"
-    } else {
-        "fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError>"
-    };
-    r####"
-__IMPL__ {
-    __SIGNATURE__ {
-        __MACRO__! { r###"
-            __CHILDREN__
-            "###
-        }
-        .render_md(cx)
-    }
-}
-"####
-        .replace("__IMPL__", implementation)
-        .replace("__SIGNATURE__", signature)
-        .replace("__MACRO__", if has_database { "md" } else { "md_sync" })
-        .replace("__CHILDREN__", &children.replace('\n', "\n            "))
-}
-
-pub fn home_handler(has_database: bool, markdown: bool, title: &str) -> String {
     let args = match (has_database, markdown) {
         (true, true) => "State(state): State<AppState>, headers: HeaderMap",
         (true, false) => "State(state): State<AppState>",
         (false, true) => "headers: HeaderMap",
         (false, false) => "",
     };
-    let html = if has_database {
+    let html_response = if has_database {
         r#"let resolver = DataResolver::request_scope(state.loader.clone());
     let html = RouteResponse::ssr_async_with_loader(
         RootDocument { title: __TITLE__, content: HomePage },
@@ -599,58 +559,135 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
     } else {
         ""
     };
-    let axum_import = match (has_database, markdown) {
-        (true, true) => "use axum::{extract::State, http::HeaderMap, response::IntoResponse};",
-        (true, false) => "use axum::{extract::State, response::IntoResponse};",
-        (false, true) => "use axum::{http::HeaderMap, response::IntoResponse};",
-        (false, false) => "use axum::response::IntoResponse;",
-    };
-    let crate_import = if has_database {
-        "use crate::{app::AppState, error::AppError, layouts::RootDocument};"
-    } else {
-        "use crate::{error::AppError, layouts::RootDocument};"
-    };
-    r#"__AXUM_IMPORT__
-__FRAMEWORK_IMPORT__
-__RESOLVER_IMPORT__
 
-__CRATE_IMPORT__
+    r#"__IMPORTS__
+
+__CONSTANTS__
+
+#[derive(Debug, Clone, Copy)]
+pub struct HomePage;
+
+__RENDER_IMPL__
+__MARKDOWN_IMPL__
 
 pub async fn handler(__ARGS__) -> Result<impl IntoResponse, AppError> {
-    __HTML__
+    __HTML_RESPONSE__
     __RESPONSE__
 }
-__MD_HANDLER__
-"#
-    .replace("__AXUM_IMPORT__", axum_import)
-    .replace(
-        "__FRAMEWORK_IMPORT__",
-        if markdown {
-            if has_database {
-                "use proa::axum::{explicit_markdown_async_with_loader, negotiate_async_with_loader, MarkdownAlternate, RouteResponse};"
-            } else {
-                "use proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};"
-            }
-        } else {
-            "use proa::axum::RouteResponse;"
-        },
-    )
-    .replace(
-        "__RESOLVER_IMPORT__",
+__MD_HANDLER__"#
+        .replace("__IMPORTS__", &imports.join("\n"))
+        .replace("__CONSTANTS__", &constants.join("\n"))
+        .replace("__RENDER_IMPL__", &render_impl.replace("__BODY__", &body))
+        .replace("__MARKDOWN_IMPL__", &markdown_impl)
+        .replace("__ARGS__", args)
+        .replace(
+            "__HTML_RESPONSE__",
+            &html_response.replace("__TITLE__", &super::rust_string_literal(title)),
+        )
+        .replace("__RESPONSE__", response)
+        .replace("__MD_HANDLER__", md_handler)
+}
+
+fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool) -> String {
+    let lift = |child: &str| {
         if has_database {
-            "use proa::stream::DataResolver;"
+            format!("{{proa::to_md_async({child})}}")
         } else {
-            ""
-        },
-    )
-    .replace("__CRATE_IMPORT__", crate_import)
-    .replace("__ARGS__", args)
-    .replace(
-        "__HTML__",
-        &html.replace("__TITLE__", &super::rust_string_literal(title)),
-    )
-    .replace("__RESPONSE__", response)
-    .replace("__MD_HANDLER__", md_handler)
+            format!("{{{child}}}")
+        }
+    };
+    let lines = if blank {
+        "# {READY_HEADING}".to_string()
+    } else {
+        let server_badge = if has_ui {
+            lift("Badge::new(SERVER_BADGE)")
+        } else {
+            "{SERVER_BADGE}".to_string()
+        };
+        let db_badge = if has_database {
+            "{DatabaseBadge}"
+        } else {
+            "{NO_DATABASE_BADGE}"
+        };
+        let action = if has_ui {
+            lift("Button::link(READ_MARKDOWN_LABEL, READ_MARKDOWN_HREF)")
+        } else {
+            "[{READ_MARKDOWN_LABEL}]({cx.url(READ_MARKDOWN_HREF)})".to_string()
+        };
+        let db_section = if has_database {
+            "{DatabaseCard}"
+        } else {
+            "## {NO_DATABASE_LABEL}\n\n{NO_DATABASE_VALUE}"
+        };
+        let card_section = if has_ui {
+            lift("REPRESENTATIONS_CARD")
+        } else {
+            "## {HTML_CARD_TITLE}".to_string()
+        };
+        r#"[{WORDMARK}]({cx.url("/")}) · {SUBTITLE}
+
+{KICKER}
+
+# {HEADLINE}
+
+{LEDE}
+
+__SERVER_BADGE__ · __DB_BADGE__
+
+__ACTION__
+
+## {CLIENT_LABEL}
+
+{CLIENT_VALUE} · {CLIENT_NOTE}
+
+__DB_SECTION__
+
+__CARD_SECTION__
+
+---
+
+{RECEIPT_QUERY} · {RECEIPT_RENDER} · **{RECEIPT_BRAND}**"#
+            .replace("__SERVER_BADGE__", &server_badge)
+            .replace("__DB_BADGE__", db_badge)
+            .replace("__ACTION__", &action)
+            .replace("__DB_SECTION__", db_section)
+            .replace("__CARD_SECTION__", &card_section)
+    };
+    let implementation = if has_database {
+        "impl<L: DataLoader> MdRender<L> for HomePage"
+    } else {
+        "impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage"
+    };
+    let signature = if has_database {
+        "fn render_md(\n        self,\n        cx: &mut WebContext<L>,\n    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>"
+    } else {
+        "fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError>"
+    };
+    let indented = lines
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("            {line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    r####"
+__IMPL__ {
+    __SIGNATURE__ {
+        __MACRO__! { r###"
+__LINES__
+            "###
+        }
+        .render_md(cx)
+    }
+}"####
+        .replace("__IMPL__", implementation)
+        .replace("__SIGNATURE__", signature)
+        .replace("__MACRO__", if has_database { "md" } else { "md_sync" })
+        .replace("__LINES__", &indented)
 }
 
 pub fn routes_rs(markdown: bool) -> String {
@@ -660,28 +697,36 @@ pub fn routes_rs(markdown: bool) -> String {
         ""
     };
     r#"use axum::{routing::get, Router};
-use proa::axum::{router_from_spec, Route, RouteContextLayer};
+use proa::axum::{router_from_spec, FrameworkBuildError, FrameworkBuilder, Route};
 use tower_http::trace::TraceLayer;
 
 use crate::{app::AppState, endpoints, pages, static_assets};
 
-pub fn router(state: AppState, base_path: proa::BasePath) -> Router {
+pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, FrameworkBuildError> {
     let (router, metadata) = router_from_spec(vec![
         // proa:route-specs:start
         Route::endpoint("/", get(pages::home::handler)),
         // proa:route-specs:end
     ]);
-    router
+    let router = router
         .route("/healthz", get(endpoints::health::live))
         .route("/readyz", get(endpoints::health::ready))
         // proa:explicit-routes:start
         __MARKDOWN_ROUTE__
         // proa:explicit-routes:end
-        .nest_service("/static", static_assets::service(base_path.clone()))
-        .with_state(state)
-        .merge(proa::axum::rsjs_assets_router(&base_path))
-        .layer(RouteContextLayer::new(metadata).with_base_path(base_path))
-        .layer(TraceLayer::new_for_http())
+        .with_state(state);
+    let router = if std::env::var_os("PROA_PUBLIC_ASSETS").is_none() {
+        // Fallback when running bare `cargo test` without `proa` publishing `public/`.
+        router.nest_service("/static", static_assets::service(base_path.clone()))
+    } else {
+        router
+    };
+    let app = FrameworkBuilder::new()
+        .with_base_path(base_path)
+        .with_rsjs_assets()
+        .with_dynamic_routes_and_metadata(router, metadata)
+        .try_build()?;
+    Ok(app.layer(TraceLayer::new_for_http()))
 }
 "#
     .replace("__MARKDOWN_ROUTE__", md_route)
@@ -761,7 +806,7 @@ mod static_assets;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env()).init();
     let config = config::Config::from_env()?;
-__STATE__    let app = routes::router(state, config.base_path);
+__STATE__    let app = routes::router(state, config.base_path)?;
     let listener = TcpListener::bind(config.address).await?;
     tracing::info!(address = %listener.local_addr()?, "Proa site listening");
     let _ = proa::axum::serve(listener, app, Duration::from_secs(30)).await?;

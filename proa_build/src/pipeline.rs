@@ -83,6 +83,7 @@ pub struct LinkedCargoRequest {
     pub final_target_root: PathBuf,
     /// Cargo arguments for final compilation, without runner-owned
     /// `--message-format` or `--target-dir`.
+    /// A final `test --no-run` returns the attested harness without launching it.
     pub final_cargo_args: Vec<OsString>,
     /// Exact additional environment for final Cargo.
     pub final_environment: BTreeMap<OsString, OsString>,
@@ -107,6 +108,104 @@ pub struct LinkedCargoOutput {
     pub final_cargo: FinalCargoOutput,
     /// Exact final-phase Cargo artifact attesting the selected descriptor root.
     pub final_root_artifact: CargoCompilerArtifact,
+    /// Absolute local inputs Cargo recorded for the final root executable: its
+    /// sources, `include_*!` files, declared build-script inputs (files or
+    /// directories), and those of every path dependency. `None` when the root
+    /// has no executable, its dep-info is unavailable, or a local build script
+    /// declares no inputs (Cargo then treats its whole package as an input).
+    pub final_root_inputs: Option<Vec<PathBuf>>,
+}
+
+/// Whether every local build script behind `executable` declared its inputs
+/// with `rerun-if-changed`. One that did not reruns on any package change,
+/// which Cargo's dep-info cannot express.
+fn local_build_scripts_declare_inputs(
+    executable: &Path,
+    artifacts: &[CargoCompilerArtifact],
+) -> bool {
+    let Some(build) = executable.parent().map(|profile| profile.join("build")) else {
+        return false;
+    };
+    artifacts
+        .iter()
+        .filter(|artifact| {
+            artifact.package_id.starts_with("path+file://")
+                && artifact.target.kind.contains("custom-build")
+        })
+        .all(|artifact| {
+            // `path+file:///dir#name@version`, or `path+file:///name#version`.
+            let Some((source, fragment)) = artifact.package_id.rsplit_once('#') else {
+                return false;
+            };
+            let name = match fragment.split_once('@') {
+                Some((name, _)) => name,
+                None => source.rsplit('/').next().unwrap_or_default(),
+            };
+            let Ok(entries) = fs::read_dir(&build) else {
+                return false;
+            };
+            // Cargo may retain several runs of one script. Require all of them.
+            let mut declared = false;
+            for entry in entries.flatten() {
+                let is_run = entry
+                    .file_name()
+                    .to_str()
+                    .and_then(|directory| directory.strip_prefix(name)?.strip_prefix('-'))
+                    .is_some_and(|hash| hash.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                let Ok(output) = fs::read_to_string(entry.path().join("output")) else {
+                    continue;
+                };
+                if !is_run {
+                    continue;
+                }
+                if !output.lines().any(|line| {
+                    line.starts_with("cargo:rerun-if-changed=")
+                        || line.starts_with("cargo::rerun-if-changed=")
+                }) {
+                    return false;
+                }
+                declared = true;
+            }
+            declared
+        })
+}
+
+/// Read Cargo's `<artifact>.d` beside a final executable: one
+/// `target: dep dep ...` rule per line, with spaces and backslashes in paths
+/// escaped by a backslash. This is not rustc's dep-info dialect (no phony
+/// targets, no `# env-dep` records).
+fn cargo_dep_info_inputs(executable: &Path) -> Option<Vec<PathBuf>> {
+    let name = executable.file_name()?.to_str()?;
+    let stem = name
+        .strip_suffix(std::env::consts::EXE_SUFFIX)
+        .unwrap_or(name);
+    let text = fs::read_to_string(executable.with_file_name(format!("{stem}.d"))).ok()?;
+    let mut inputs = Vec::new();
+    for line in text.lines().filter(|line| !line.is_empty()) {
+        let mut tokens = Vec::new();
+        let mut token = String::new();
+        let mut characters = line.chars();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' => token.push(characters.next()?),
+                ' ' => tokens.push(std::mem::take(&mut token)),
+                _ => token.push(character),
+            }
+        }
+        tokens.push(token);
+        let mut tokens = tokens.into_iter().filter(|token| !token.is_empty());
+        if !tokens.next()?.ends_with(':') {
+            return None;
+        }
+        for input in tokens.map(PathBuf::from) {
+            // `build.dep-info-basedir` makes these relative to an unknown base.
+            if !input.is_absolute() {
+                return None;
+            }
+            inputs.push(input);
+        }
+    }
+    Some(inputs)
 }
 
 /// Run descriptor compilation, exact linking, semantic planning, and final
@@ -333,6 +432,15 @@ fn finish_prepared_linked_cargo(
         &request.root,
         &selected.cargo_artifact,
     )?;
+    // Cargo writes dep-info beside the artifact in the reusable target, not
+    // beside the snapshot. Read it while the target lease is still held.
+    let final_root_inputs = final_root_artifact
+        .executable
+        .as_deref()
+        .filter(|executable| {
+            local_build_scripts_declare_inputs(executable, final_cargo_run.cargo_artifacts())
+        })
+        .and_then(cargo_dep_info_inputs);
     let final_root_artifact = snapshot_final_artifact(
         &request.descriptor.source_exclusion_directory,
         &request
@@ -357,6 +465,7 @@ fn finish_prepared_linked_cargo(
         semantic_plan_path,
         final_cargo,
         final_root_artifact,
+        final_root_inputs,
     })
 }
 
@@ -547,7 +656,11 @@ fn requested_final_execution(arguments: &[OsString]) -> FinalExecution<'_> {
             FinalExecution::Run(runtime_arguments)
         }
         Some(subcommand) if subcommand == OsStr::new("test") => {
-            FinalExecution::Test(runtime_arguments)
+            if compile_arguments.iter().any(|arg| arg == "--no-run") {
+                FinalExecution::None
+            } else {
+                FinalExecution::Test(runtime_arguments)
+            }
         }
         _ => FinalExecution::None,
     }
@@ -648,20 +761,20 @@ fn validate_phase_cargo_arguments(
     normalized_descriptor[0] = OsString::from("<linked-phase>");
     normalized_final[0] = OsString::from("<linked-phase>");
 
-    let descriptor_no_run = normalized_descriptor
-        .iter()
-        .enumerate()
-        .filter_map(|(index, argument)| (argument == OsStr::new("--no-run")).then_some(index))
-        .collect::<Vec<_>>();
-    let final_has_no_run = normalized_final
-        .iter()
-        .any(|argument| argument == OsStr::new("--no-run"));
+    let descriptor_len = normalized_descriptor.len();
+    normalized_descriptor.retain(|argument| argument != "--no-run");
+    let descriptor_no_run = descriptor_len - normalized_descriptor.len();
+    let final_len = normalized_final.len();
+    normalized_final.retain(|argument| argument != "--no-run");
+    let final_no_run = final_len - normalized_final.len();
     if descriptor_subcommand == OsStr::new("test") {
-        if descriptor_no_run.len() != 1 || final_has_no_run {
+        if descriptor_no_run != 1
+            || final_no_run > 1
+            || (final_no_run == 1 && final_runtime.is_some())
+        {
             return Err(LinkedCargoError::InvalidTestPhaseNoRun);
         }
-        normalized_descriptor.remove(descriptor_no_run[0]);
-    } else if !descriptor_no_run.is_empty() || final_has_no_run {
+    } else if descriptor_no_run != 0 || final_no_run != 0 {
         return Err(LinkedCargoError::InvalidTestPhaseNoRun);
     }
 
@@ -829,10 +942,10 @@ pub enum LinkedCargoError {
     /// Runtime arguments are meaningful only for final run/test invocations.
     #[error("final Cargo subcommand {0:?} may not contain runtime arguments after `--`")]
     UnsupportedFinalRuntimeArguments(OsString),
-    /// Tests compile without execution in the descriptor phase and execute
-    /// only in the final phase.
+    /// Tests compile without execution in the descriptor phase. The final
+    /// phase may return a harness for a caller to launch with runtime setup.
     #[error(
-        "linked Cargo test requires exactly one descriptor-only `--no-run` and none in the final compile arguments"
+        "`--no-run` is required exactly once for the descriptor test pass and is allowed once for a final test pass without harness arguments"
     )]
     InvalidTestPhaseNoRun,
     /// After the controlled phase rewrite, every Cargo selection/config input

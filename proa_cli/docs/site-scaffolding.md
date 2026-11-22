@@ -53,32 +53,42 @@ The default application includes:
 - static data under `src/static_data/` and public assets under `public/`;
 - Tailwind source plus a checked-in prebuilt stylesheet, so the first page is
   styled even when a local Tailwind executable is unavailable;
-- `proa.config.json`, registry lock metadata, local environment examples, and
+- `proa.config.rs`, registry lock metadata, local environment examples, and
   optional provider-native deployment files.
+
+The generated `proa.config.rs` sits next to `Cargo.toml` and exports
+`pub async fn config() -> proa::config::Result<proa::config::Config>`.
+It shows the default scripts, `proa dev` and `proa build`. Use `proa run dev`
+or `proa run build` to run those scripts or your project overrides.
+The CLI generates a host runner under Cargo's target directory. Its main
+module imports the config by path and awaits it before the app build.
 
 Run the generated app with:
 
 ```text
 cd atlas
 proa db migrate
-proa dev
+proa run dev
 ```
 
-Use `proa build` for a linked release build and `proa start` to run an already
-built release without compiling or watching.
+Use `proa run build` for a linked release build. Use `proa start --bin <path>`
+to run an exported executable without loading the build config.
 
 `proa test` creates a unique migrated SQLite database under
 `target/proa-tests/`, runs binary and integration-test targets through the
 linked pipeline, and removes the database plus its WAL/SHM companions. Use
-`--watch` to keep one isolated database while inputs change, or
+`--watch` to keep one isolated database while inputs change. The watcher
+includes `paths.public` when configured. Pass `--watch-path PATH` for extra
+inputs such as `content`. Use
 `--keep-database` to preserve and print a failing run's exact path. Values from
 `.env.test` overlay `.env` for test children while explicitly exported values
 still win; neither file is rewritten.
 
 ## Evolve an existing site
 
-Capability commands update configuration and owned files through the same
-plan/commit machinery:
+Capability commands record applied choices in `proa.lock.json` and update
+any owned files. Database and deployment commands also update their
+operational settings in `proa.config.rs`.
 
 ```text
 proa add database

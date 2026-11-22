@@ -216,11 +216,28 @@ fn main() {
     if std::env::args().any(|arg| arg == "--exit-before-ready") {
         std::process::exit(9);
     }
+    if std::env::args().any(|arg| arg == "--slow-exit-before-ready") {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::process::exit(9);
+    }
+    assert_eq!(std::env::args().skip(1).collect::<Vec<_>>(), ["Local shop"]);
     std::thread::sleep(std::time::Duration::from_millis(300));
     let host = std::env::var("PROA_HOST").unwrap();
     let port = std::env::var("PORT").unwrap();
+    let report = std::env::var("TEST_BROWSER_URL").ok().map(|url| {
+        let endpoint = std::env::var("PROA_DEV_READY").unwrap();
+        let (port, token) = endpoint.split_once(':').unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.connect(format!("127.0.0.1:{port}")).unwrap();
+        socket.send(token.as_bytes()).unwrap();
+        (socket, format!("{token}\n{url}"))
+    });
     let listener = std::net::TcpListener::bind(format!("{host}:{port}")).unwrap();
+    // A bound socket alone must never open the HTTP fallback for a TLS app
+    // that is still initializing its handlers.
+    if report.is_some() { std::thread::sleep(std::time::Duration::from_millis(450)); }
     std::fs::write(std::env::var("PROA_TEST_READY_FILE").unwrap(), "ready").unwrap();
+    if let Some((socket, message)) = report { socket.send(message.as_bytes()).unwrap(); }
     for connection in listener.incoming() { drop(connection.unwrap()); }
 }
 "#,
@@ -257,23 +274,21 @@ fn main() {
     for once in [false, true] {
         let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = reservation.local_addr().unwrap().port();
-        fs::write(
-            root.join("proa.config.json"),
-            serde_json::json!({
-                "dev": { "host": "0.0.0.0", "port": port, "command": ["cargo", "run"] }
-            })
-            .to_string(),
-        )
-        .unwrap();
         let _ = fs::remove_file(&ready_file);
         let _ = fs::remove_file(&browser_log);
         let log_path = root.join("dev.log");
         let log = fs::File::create(&log_path).unwrap();
         let mut command = command();
-        if once {
-            command.arg("--no-restart");
-        }
+        command.args(["--host", "0.0.0.0", "--port", &port.to_string()]);
+        let expected_url = if once {
+            let url = format!("https://localhost:{port}/shop");
+            command.arg("--no-restart").env("TEST_BROWSER_URL", &url);
+            url
+        } else {
+            format!("http://127.0.0.1:{port}")
+        };
         command
+            .args(["--", "cargo", "run", "--", "Local shop"])
             .stdout(log.try_clone().unwrap())
             .stderr(log)
             .process_group(0);
@@ -294,7 +309,7 @@ fn main() {
             std::thread::sleep(Duration::from_millis(25));
         }
         // Wait for the opener's write, rather than racing creation of its file.
-        let expected = format!("READY http://127.0.0.1:{port}\n");
+        let expected = format!("READY {expected_url}\n");
         while fs::read_to_string(&browser_log).unwrap().is_empty() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -328,6 +343,29 @@ fn main() {
         .unwrap();
     assert!(!failed_start.status.success());
     assert!(!browser_log.exists(), "browser opened for a failed server");
+
+    let busy = TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied = command()
+        .args([
+            "--no-restart",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &busy.local_addr().unwrap().port().to_string(),
+            "--",
+            "cargo",
+            "run",
+            "--",
+            "--slow-exit-before-ready",
+        ])
+        .output()
+        .unwrap();
+    assert!(!occupied.status.success());
+    assert!(
+        !browser_log.exists(),
+        "browser opened for a listener owned by another process"
+    );
+    drop(busy);
 
     fs::write(root.join("src/main.rs"), "this does not compile").unwrap();
     let failed_build = command().arg("--no-restart").output().unwrap();

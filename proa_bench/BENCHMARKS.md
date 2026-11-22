@@ -4,7 +4,7 @@ This crate contains Proa-only regression guards and diagnostic fixtures that
 should evolve with the framework implementation. Cross-framework and
 cross-language comparisons, parity gates, external adapters, and historical
 results live in
-[`Proa-Labs/proa-benchmarks`](https://github.com/Proa-Labs/proa-benchmarks).
+[`Proa-Labs/framework-benchmarks`](https://github.com/Proa-Labs/framework-benchmarks).
 
 Keeping that boundary prevents ordinary Proa workspace Clippy and test jobs
 from compiling Leptos, Dioxus, Yew, Sailfish, Askama, Topcoat, and the

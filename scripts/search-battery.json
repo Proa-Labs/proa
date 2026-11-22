@@ -1,8 +1,8 @@
 {
   "description": "Ground truth for scripts/search_battery.mjs: each query names the page a reader obviously wants first, or a short list when two pages are equally right. Thresholds gate the run; raise them when the ranking improves.",
   "thresholds": {
-    "top1": 56,
-    "top3": 58
+    "top1": 67,
+    "top3": 69
   },
   "queries": [
     {
@@ -251,6 +251,59 @@
     {
       "query": "rails",
       "expect": "/docs/migration/rails"
+    },
+    {
+      "query": "cx.url",
+      "expect": [
+        "/docs/framework/linking",
+        "/docs/framework/static-assets"
+      ]
+    },
+    {
+      "query": "cx.url()",
+      "expect": [
+        "/docs/framework/linking",
+        "/docs/framework/static-assets"
+      ]
+    },
+    {
+      "query": "cx.url(",
+      "expect": [
+        "/docs/framework/linking",
+        "/docs/framework/static-assets"
+      ]
+    },
+    {
+      "query": "og:image",
+      "expect": "/docs/framework/metadata"
+    },
+    {
+      "query": "og_image",
+      "expect": "/docs/framework/metadata"
+    },
+    {
+      "query": "cx.head_mut().og_image()",
+      "expect": "/docs/framework/metadata"
+    },
+    {
+      "query": "HeadIcon",
+      "expect": "/docs/framework/metadata-reference"
+    },
+    {
+      "query": "proa.config.rs",
+      "expect": "/docs/framework/project-config"
+    },
+    {
+      "query": "lightningcss",
+      "expect": "/docs/framework/project-config"
+    },
+    {
+      "query": "public assets",
+      "expect": "/docs/framework/static-assets"
+    },
+    {
+      "query": "html!",
+      "expect": "/docs/core/html-rendering"
     }
   ]
 }

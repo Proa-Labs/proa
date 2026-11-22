@@ -167,6 +167,20 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         self.0.render_to_bytes()
     }
 
+    /// Render a complete document using the catalog's public URLs and base path.
+    /// This performs the same buffered render as [`render_to_bytes`](Self::render_to_bytes).
+    pub fn render_to_bytes_with_public_assets(
+        self,
+        assets: &crate::PublicAssets,
+    ) -> Result<bytes::Bytes, FrameworkError> {
+        let mut context = FrameworkRequestContext::default();
+        context.request.set_base_path(assets.base_path().clone());
+        context
+            .request
+            .set_public_asset_urls(Some(assets.render_urls()));
+        self.0.render_to_bytes_with_context(&context)
+    }
+
     /// [`render_to_bytes`](Self::render_to_bytes) as an owned UTF-8 `String`.
     pub fn render_to_string(self) -> Result<String, FrameworkError> {
         self.0.render_to_string()
@@ -522,6 +536,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     let request_location = ctx.current_uri().cloned().map(RequestLocation::from);
     let route_params = Some(ctx.current_route_params().clone());
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
+    request.set_public_asset_urls(ctx.public_asset_urls());
     if let Some(method) = ctx.current_method().cloned() {
         request.set_method(method);
     }

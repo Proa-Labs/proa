@@ -1,7 +1,7 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! `proa init`: write proa.config.json and proa.lock.json into an existing
+//! `proa init`: write proa.config.rs and proa.lock.json into an existing
 //! project.
 
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ pub(crate) struct InitArgs {
     /// Project root to initialize. Defaults to the current directory.
     #[arg(long)]
     root: Option<PathBuf>,
-    /// Overwrite existing proa.config.json and proa.lock.json.
+    /// Overwrite existing proa.config.rs and proa.lock.json.
     #[arg(long)]
     force: bool,
     /// Print the owned files that would be created without writing.

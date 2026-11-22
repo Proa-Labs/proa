@@ -15,6 +15,7 @@ pub struct MdState {
     list_depth: u8,
     inline: bool,
     inline_scope: bool,
+    url_destination: bool,
     trailing_line: TrailingLineState,
     pending_cr: bool,
 }
@@ -25,6 +26,7 @@ impl Default for MdState {
             list_depth: 0,
             inline: false,
             inline_scope: false,
+            url_destination: false,
             trailing_line: TrailingLineState::Start,
             pending_cr: false,
         }
@@ -407,6 +409,9 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         if s.is_empty() {
             return Ok(());
         }
+        if self.md_state.url_destination {
+            return self.write_md_url(s);
+        }
         self.write_md_observed(|out| super::escape::escape_md(out, s))
     }
 
@@ -680,8 +685,15 @@ pub const MD_TEMPLATE_INLINE: u8 = 1;
 /// after it succeeds. See [`MD_TEMPLATE_INHERIT`] for the full mode table.
 #[doc(hidden)]
 pub const MD_TEMPLATE_BLOCK: u8 = 2;
+/// Inline URL-destination mode, selected for slots inside Markdown link or
+/// image destinations such as `[label]({url})` and `![alt]({url})`: marks the
+/// inline scope so block children are rejected and switches text writes to
+/// CommonMark link-destination escaping rather than prose punctuation escaping.
+#[doc(hidden)]
+pub const MD_TEMPLATE_URL_DESTINATION: u8 = 3;
 
-/// Borrow the live context while restoring only the template's inline setting.
+/// Borrow the live context while restoring only the template's inline and URL
+/// destination settings.
 /// In particular, successful writes remain reflected in the suffix tracker on
 /// errors, unwinding, and cancellation. Finishing a block is an explicit success
 /// operation; dropping a scope never writes to the output.
@@ -690,6 +702,7 @@ pub struct MdTemplateScope<'cx, L: DataLoader, B: WriteBuf, const MODE: u8> {
     cx: &'cx mut WebContext<L, B>,
     inline: bool,
     inline_scope: bool,
+    url_destination: bool,
 }
 
 impl<'cx, L: DataLoader, B: WriteBuf, const MODE: u8> MdTemplateScope<'cx, L, B, MODE> {
@@ -697,6 +710,7 @@ impl<'cx, L: DataLoader, B: WriteBuf, const MODE: u8> MdTemplateScope<'cx, L, B,
     pub fn enter(cx: &'cx mut WebContext<L, B>) -> Result<Self, WriteError> {
         let inline = cx.md_inline();
         let inline_scope = cx.md_state.inline_scope;
+        let url_destination = cx.md_state.url_destination;
         if MODE == MD_TEMPLATE_BLOCK && (inline || inline_scope) {
             return Err(WriteError::render(
                 "cannot render a block Markdown template inside an inline scope; use an ordinary-string inline template",
@@ -706,10 +720,15 @@ impl<'cx, L: DataLoader, B: WriteBuf, const MODE: u8> MdTemplateScope<'cx, L, B,
             cx,
             inline,
             inline_scope,
+            url_destination,
         };
         if MODE == MD_TEMPLATE_INLINE {
             scope.cx.md_set_inline(true);
             scope.cx.md_state.inline_scope = true;
+        } else if MODE == MD_TEMPLATE_URL_DESTINATION {
+            scope.cx.md_set_inline(true);
+            scope.cx.md_state.inline_scope = true;
+            scope.cx.md_state.url_destination = true;
         } else if MODE == MD_TEMPLATE_BLOCK {
             scope.cx.md_block_boundary()?;
         }
@@ -737,6 +756,7 @@ impl<L: DataLoader, B: WriteBuf, const MODE: u8> Drop for MdTemplateScope<'_, L,
         if MODE != MD_TEMPLATE_INHERIT {
             self.cx.md_set_inline(self.inline);
             self.cx.md_state.inline_scope = self.inline_scope;
+            self.cx.md_state.url_destination = self.url_destination;
         }
     }
 }

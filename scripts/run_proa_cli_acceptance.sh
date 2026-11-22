@@ -11,6 +11,7 @@ readonly -a MAIN_SHARD_1=(
   rsjs_explicit_island_static_scalar
   rsjs_shared_state_async_provider
   lifecycle_run_test
+  lifecycle_public_assets
   lifecycle_start
 )
 readonly -a MAIN_SHARD_2=(
@@ -57,6 +58,7 @@ readonly -a PR_SHARD_1A=(
   rsjs_descriptor_cache
   lifecycle_dev
   lifecycle_start
+  lifecycle_public_assets
 )
 readonly -a PR_SHARD_1B=(
   rsjs_build_wrapper

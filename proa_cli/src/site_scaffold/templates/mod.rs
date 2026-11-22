@@ -40,13 +40,20 @@ pub fn populate(
     let blank = selection.starter == StarterChoice::Blank;
 
     plan.write("Cargo.toml", cargo_toml(package, has_database))?;
-    plan.write("rust-toolchain.toml", rust_toolchain())?;
     plan.write(".env.example", env_example(package, has_database))?;
     plan.write(".gitignore", gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
     plan.write("README.md", readme(package, title, selection))?;
-    plan.write("build.rs", build_rs(has_database))?;
-    plan.write("proa.config.json", project_config(package, selection)?)?;
+    if has_database {
+        plan.write(
+            "build.rs",
+            "fn main() {\n    println!(\"cargo:rerun-if-changed=migrations\");\n}\n",
+        )?;
+    }
+    plan.write(
+        crate::config::CONFIG_FILE,
+        project_config(package, selection)?,
+    )?;
 
     plan.write("src/main.rs", app::main_rs(has_database))?;
     plan.write("src/app.rs", app::app_state(has_database))?;
@@ -62,11 +69,7 @@ pub fn populate(
     plan.write("src/pages/mod.rs", "pub mod home;\n")?;
     plan.write(
         "src/pages/home.rs",
-        format!(
-            "{}\n{}",
-            app::home_rs(has_database, has_ui, selection.markdown, blank),
-            app::home_handler(has_database, selection.markdown, title)
-        ),
+        app::home_rs(has_database, has_ui, selection.markdown, blank, title),
     )?;
     plan.write("src/endpoints/mod.rs", "pub mod health;\n")?;
     plan.write("src/endpoints/health.rs", app::health_rs(has_database))?;
@@ -85,7 +88,7 @@ pub fn populate(
         )?;
         plan.write(
             "src/docs/getting-started.md",
-            "# Getting started\n\nEdit this collection and run `proa dev`.\n",
+            "# Getting started\n\nEdit this collection and run `proa run dev`.\n",
         )?;
     }
     if has_database {
@@ -228,10 +231,6 @@ codegen-units = 1
     )
 }
 
-fn rust_toolchain() -> &'static str {
-    "[toolchain]\nchannel = \"1.93.0\"\nprofile = \"minimal\"\ncomponents = [\"rustfmt\", \"clippy\"]\n"
-}
-
 fn env_example(package: &str, has_database: bool) -> String {
     let database = if has_database {
         format!("DATABASE_URL=sqlite://data/{package}.db\n")
@@ -245,71 +244,33 @@ fn gitignore() -> &'static str {
     ".env\n/target/\n/data/*.db\n/data/*.db-shm\n/data/*.db-wal\n"
 }
 
-fn build_rs(has_database: bool) -> &'static str {
-    if has_database {
-        "fn main() {\n    println!(\"cargo:rerun-if-changed=migrations\");\n    println!(\"cargo:rerun-if-changed=public\");\n}\n"
-    } else {
-        "fn main() {\n    println!(\"cargo:rerun-if-changed=public\");\n}\n"
-    }
-}
-
 fn project_config(package: &str, selection: CapabilitySelection) -> Result<String> {
-    let database = match selection.database {
-        DatabaseChoice::Sqlite => json!({
-            "driver": "sqlite",
-            "migrations": "migrations",
-            "runMigrationsOnStartup": true
-        }),
-        DatabaseChoice::None => json!({ "driver": "none" }),
+    use crate::config::{
+        ApplicationConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig, ProjectConfig,
     };
-    let markdown = if selection.markdown {
-        json!({
-            "enabled": true,
-            "negotiateOnCanonicalPath": true,
-            "explicitSuffix": ".md",
-            "rootPath": "/index.md"
-        })
-    } else {
-        json!({ "enabled": false })
-    };
-    let styling = match selection.styling {
-        StylingChoice::Tailwind => json!({
-            "kind": "tailwind", "input": "styles/input.css", "output": "public/styles.css"
-        }),
-        StylingChoice::Css => json!({ "kind": "css", "output": "public/styles.css" }),
-        StylingChoice::Docs => json!({ "kind": "docs", "output": "public/styles.css" }),
-    };
-    let assets = if selection.styling == StylingChoice::Tailwind {
-        json!([{ "kind": "tailwind", "input": "styles/input.css", "output": "public/styles.css" }])
-    } else {
-        json!([])
-    };
-    let value = json!({
-        "$schema": crate::config::CONFIG_SCHEMA_URL,
-        "application": {
-            "kind": "site", "package": package, "binary": package,
-            "template": selection.template.as_str(), "starter": selection.starter.as_str()
-        },
-        "database": database,
-        "ui": { "provider": selection.ui.as_str() },
-        "representations": { "html": { "enabled": true }, "markdown": markdown },
-        "styling": styling,
-        "paths": {
-            "pages": "src/pages", "endpoints": "src/endpoints",
-            "components": "src/components", "layouts": "src/layouts",
-            "models": "src/models", "public": "public", "runtimeData": "data"
-        },
-        "deploy": { "provider": selection.deploy.as_str() },
-        "tasks": {},
-        "dev": {
-            "command": ["cargo", "run"], "before": [],
-            "watch": ["src", "styles", "migrations", "Cargo.toml", "build.rs", "proa.config.json", "proa.lock.json"]
-        },
-        "build": { "command": ["cargo", "build", "--release"], "before": [], "assets": assets },
-        "test": { "before": [] },
-        "registries": { "@proa": "https://ui.proa.so/r/{name}.json" }
+
+    let database = (selection.database == DatabaseChoice::Sqlite).then(|| DatabaseConfig {
+        driver: DatabaseDriver::Sqlite,
+        ..Default::default()
     });
-    Ok(format!("{}\n", serde_json::to_string_pretty(&value)?))
+    crate::config::generated_rust_config(&ProjectConfig {
+        application: Some(ApplicationConfig {
+            binary: package.into(),
+        }),
+        database,
+        deploy: (selection.deploy != crate::capabilities::DeployChoice::None).then(|| {
+            DeployConfig {
+                provider: selection.deploy.as_str().into(),
+                ..Default::default()
+            }
+        }),
+        build: BuildConfig {
+            assets: (selection.styling != StylingChoice::Tailwind).then(Vec::new),
+            ..Default::default()
+        },
+        registries: crate::config::RegistriesConfig::public_only(),
+        ..Default::default()
+    })
 }
 
 fn lock_file(
@@ -368,7 +329,7 @@ fn components_mod(has_database: bool, has_ui: bool) -> String {
 
 fn readme(package: &str, title: &str, selection: CapabilitySelection) -> String {
     format!(
-        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
+        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa run dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa run build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
         selection.template.as_str(),
         if selection.markdown { " and the same typed resource has semantic Markdown at `/index.md`" } else { "" }
     )
@@ -380,9 +341,10 @@ fn agents() -> &'static str {
 - Use `WebRenderSync<L>` unless a component awaits; then use `WebRender<L>` and `html!`.
 - Put request-shared keyed reads behind `cx.load_typed(...)` and create one `DataResolver::request_scope(...)` per HTML response.
 - Keep `RootDocument` HTML-only. Put semantic non-browser output on the page with `MdRenderSync`.
+- Configure dev/build scripts, asset tasks, and `paths.public` in `proa.config.rs`. Reference managed public files with `cx.url("public/...")` so they resolve to fingerprinted URLs.
 - Static classes stay in constants and hot render paths must not allocate.
 - Every component root has a stable `data-*` marker.
-- Run `cargo fmt`, `cargo test`, `proa check`, and the Proa performance lint before merging render changes.
+- Run `cargo fmt`, `proa fmt --check`, `proa lint --deny warnings`, `proa config validate`, and `proa test` before merging render changes.
 "#
 }
 
@@ -447,7 +409,7 @@ jobs:
           persist-credentials: false
 
       # Download immutable release artifacts and verify them before execution.
-      # rust-toolchain.toml separately pins the Rust toolchain.
+      # Cargo.toml declares rust-version = "1.93"; CI uses the runner's installed Rust toolchain.
       - name: Install the Proa CLI and Tailwind
         shell: bash
         run: |
@@ -499,6 +461,9 @@ jobs:
           cargo fmt --all -- --check
           proa fmt --check
 
+      - name: Validate config
+        run: proa config validate
+
       - name: Lint
         run: proa lint
 
@@ -509,7 +474,7 @@ jobs:
         run: env -u RUSTC_WRAPPER proa test
 
       - name: Release build
-        run: env -u RUSTC_WRAPPER proa build
+        run: env -u RUSTC_WRAPPER proa run build
 "#
     )
 }
@@ -612,9 +577,9 @@ fn representation_test(has_database: bool, starter: StarterChoice) -> String {
         r#"let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
     let pool = db::connect(&database_url).await.unwrap();
     let loader = Arc::new(loader::AppLoader::new(pool.clone()));
-    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa::BasePath::new("/apps/demo").unwrap());"#
+    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa::BasePath::new("/apps/demo").unwrap()).unwrap();"#
     } else {
-        "let app = routes::router(app::AppState, proa::BasePath::new(\"/apps/demo\").unwrap());"
+        "let app = routes::router(app::AppState, proa::BasePath::new(\"/apps/demo\").unwrap()).unwrap();"
     };
     let close = if has_database {
         "pool.close().await;"
@@ -655,7 +620,19 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     assert_eq!(html.headers()[header::VARY], "Accept");
     assert!(html.headers()[header::LINK].to_str().unwrap().contains("/apps/demo/index.md"));
     let document = String::from_utf8(body(html).await).unwrap();
-    assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
+    let stylesheet = if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
+        "/_proa/assets/styles.css"
+    } else {
+        "/static/styles.css"
+    };
+    assert!(document.contains(&format!("href=\"/apps/demo{stylesheet}\"")));
+    let css = app.clone().oneshot(Request::builder().uri(stylesheet).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(css.status(), StatusCode::OK);
+    assert!(css.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/css"));
+    if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
+        let unmanaged = app.clone().oneshot(Request::builder().uri("/static/styles.css").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(unmanaged.status(), StatusCode::NOT_FOUND);
+    }
 __NAVIGATION_ASSERTIONS__
     let refused_markdown = app.clone().oneshot(
         Request::builder().uri("/").header(header::ACCEPT, "text/markdown;q=0, text/html").body(Body::empty()).unwrap()
@@ -696,7 +673,7 @@ fn vscode_settings() -> &'static str {
 
 fn vscode_tasks(has_database: bool) -> String {
     let mut tasks = vec![
-        json!({ "label": "proa: dev", "type": "process", "command": "proa", "args": ["dev", "--open"], "problemMatcher": [] }),
+        json!({ "label": "proa: dev", "type": "process", "command": "proa", "args": ["run", "dev", "--open"], "problemMatcher": [] }),
         json!({ "label": "proa: check", "type": "process", "command": "proa", "args": ["check", "--all"], "problemMatcher": ["$rustc"] }),
     ];
     if has_database {

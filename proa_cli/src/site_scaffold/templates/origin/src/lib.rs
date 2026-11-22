@@ -22,8 +22,8 @@ use axum::{
     Router,
 };
 use proa::axum::{
-    explicit_markdown, negotiate, router_from_spec, rsjs_assets_router, BasePath,
-    MarkdownAlternate, Route, RouteContextLayer, RouteResponse,
+    explicit_markdown, negotiate, router_from_spec, BasePath, FrameworkBuildError,
+    FrameworkBuilder, MarkdownAlternate, Route, RouteResponse,
 };
 use proa::stream::DataResolver;
 use serde::Deserialize;
@@ -108,6 +108,10 @@ pub fn app() -> Router {
 }
 
 pub fn app_with_base_path(base_path: BasePath) -> Router {
+    try_app_with_base_path(base_path).expect("build the ORIGIN router")
+}
+
+pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBuildError> {
     // Measure one full document render from canned data (pure CPU) so the
     // receipt can report this server's own share of a lookup separately from
     // upstream latency. Inside that render the receipt itself reads the
@@ -129,7 +133,7 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         loader: Arc::new(AtlasLoader::new(client)),
     };
     let (router, metadata) = router_from_spec(vec![Route::endpoint("/", get(index))]);
-    router
+    let router = router
         .route("/index.md", get(markdown))
         .route("/site/:file", get(site_markdown))
         .route("/lab/rows", get(lab_rows))
@@ -149,14 +153,14 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
             "/fonts",
             ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/public/fonts")),
         )
-        .with_state(state)
-        .merge(rsjs_assets_router(&base_path))
-        .layer(
-            RouteContextLayer::new(metadata)
-                .with_base_path(base_path)
-                .with_head(proa::HeadConfig::default()),
-        )
-        .layer(TraceLayer::new_for_http())
+        .with_state(state);
+    let app = FrameworkBuilder::new()
+        .with_base_path(base_path)
+        .with_head(proa::HeadConfig::default())
+        .with_rsjs_assets()
+        .with_dynamic_routes_and_metadata(router, metadata)
+        .try_build()?;
+    Ok(app.layer(TraceLayer::new_for_http()))
 }
 
 /// Markdown routes fetch through the same TTL cache as the page's loader,

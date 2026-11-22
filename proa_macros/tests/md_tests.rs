@@ -1032,3 +1032,149 @@ fn template_spaced_placeholder_renders_like_bare() {
     });
     assert_eq!(out, "# Spaced\n\n");
 }
+
+#[test]
+fn markdown_link_and_image_destinations_preserve_urls_and_allow_cx_url() {
+    use proa_core::render::MdRenderSync;
+    use proa_core::{BasePath, PublicAssetUrls, WebContext};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let mut cx = WebContext::new();
+    cx.request_mut()
+        .set_base_path(BasePath::new("/apps/demo").unwrap());
+    cx.request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/apps/demo/_proa/assets/images/brand.0dd0d0d7.svg"),
+        )]))));
+
+    let label = "Brand_Logo.svg";
+    let evil = "javascript:alert(1)";
+    let with_parens = "/docs/rust_(lang)/v1.0";
+    md_sync! { r###"
+        ![{label}]({cx.url("public/images/brand.svg")})
+
+        [Docs]({cx.url(with_parens)})
+
+        [Blocked]({evil})
+        "###
+    }
+    .render_md(&mut cx)
+    .unwrap();
+
+    let out = cx.into_output().into_string();
+    assert_eq!(
+        out,
+        "![Brand\\_Logo\\.svg](/apps/demo/_proa/assets/images/brand.0dd0d0d7.svg)\n\n\
+         [Docs](/apps/demo/docs/rust_\\(lang\\)/v1.0)\n\n\
+         [Blocked]()\n\n"
+    );
+
+    // Inline templates also apply URL-destination escaping and support cx.url(...).
+    let mut inline_cx = WebContext::new();
+    inline_cx
+        .request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/_proa/assets/images/brand.0dd0d0d7.svg"),
+        )]))));
+    md_sync! { "![Brand]({inline_cx.url(\"public/images/brand.svg\")})" }
+        .render_md(&mut inline_cx)
+        .unwrap();
+    assert_eq!(
+        inline_cx.into_output().into_string(),
+        "![Brand](/_proa/assets/images/brand.0dd0d0d7.svg)"
+    );
+}
+
+#[tokio::test]
+async fn async_markdown_allows_cx_url_in_destinations() {
+    use proa_core::render::MdRender;
+    use proa_core::{PublicAssetUrls, WebContext};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let mut cx = WebContext::new();
+    cx.request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/_proa/assets/images/brand.0dd0d0d7.svg"),
+        )]))));
+    md! { r###"
+        ![Brand]({cx.url("public/images/brand.svg")})
+        "###
+    }
+    .render_md(&mut cx)
+    .resolve()
+    .await
+    .unwrap();
+    assert_eq!(
+        cx.into_output().into_string(),
+        "![Brand](/_proa/assets/images/brand.0dd0d0d7.svg)\n\n"
+    );
+}
+
+#[test]
+fn markdown_url_slots_encode_html_and_preserve_fallible_url_arguments() {
+    use proa_core::{MdRenderSync, WebContext, WriteError};
+
+    struct UrlResolver;
+    impl UrlResolver {
+        fn url(&self, path: &'static str) -> &'static str {
+            path
+        }
+    }
+
+    fn lookup() -> Result<&'static str, WriteError> {
+        Ok("/docs/a_b.md")
+    }
+
+    fn build_fragment(resolver: &UrlResolver) -> impl MdRenderSync + '_ {
+        md_sync! { "[Open]({resolver.url(lookup()?)})" }
+    }
+
+    let resolver = UrlResolver;
+    let mut cx = WebContext::new();
+    build_fragment(&resolver).render_md(&mut cx).unwrap();
+    assert_eq!(cx.into_output().into_string(), "[Open](/docs/a_b.md)");
+
+    let hostile = "/ok<script>alert`1`</script>";
+    let mut safe_cx = WebContext::new();
+    md_sync! { "[Open]({hostile}) and [Angle](<{hostile}>)" }
+        .render_md(&mut safe_cx)
+        .unwrap();
+    assert_eq!(
+        safe_cx.into_output().into_string(),
+        "[Open](/ok%3Cscript%3Ealert%601%60%3C/script%3E) and [Angle](</ok%3Cscript%3Ealert%601%60%3C/script%3E>)"
+    );
+}
+
+#[test]
+fn markdown_url_calls_with_temporary_arguments_stay_in_the_render_closure() {
+    use proa_core::{BasePath, MdRenderSync, WebContext};
+
+    // A temporary argument cannot be hoisted: the `AppUrl` borrows it, so the
+    // call must run inside the render closure where the temporary lives for
+    // the whole statement.
+    let base = BasePath::new("/apps").unwrap();
+    let mut cx = WebContext::new();
+    md_sync! { "[Intro]({base.url(String::from(\"/docs/intro_page\").as_str())})" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(
+        cx.into_output().into_string(),
+        "[Intro](/apps/docs/intro_page)"
+    );
+
+    // Field places are still hoisted, so the render context can resolve them.
+    struct Link {
+        path: &'static str,
+    }
+    let link = Link { path: "/docs/a_b" };
+    let mut cx = WebContext::new();
+    md_sync! { "[Docs]({cx.url(link.path)})" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(cx.into_output().into_string(), "[Docs](/docs/a_b)");
+}

@@ -2,6 +2,7 @@
   "tasks": [
     {
       "args": [
+        "run",
         "dev",
         "--open"
       ],

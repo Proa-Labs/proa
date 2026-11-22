@@ -98,14 +98,12 @@ pub(crate) fn run(args: UiArgs) -> Result<()> {
         UiCommand::View(args) => {
             let root = resolve_config_root(args.root)?;
             for component in args.components {
-                let report = ui::add(ui::AddOptions {
+                let report = ui::view(ui::ViewOptions {
                     root: root.clone(),
                     component,
                     registry: args.registry.clone(),
-                    dry_run: true,
-                    force: false,
                 })?;
-                ui::print_add_report(&report, args.json)?;
+                ui::print_view_report(&report, args.json)?;
             }
             Ok(())
         }
@@ -145,6 +143,10 @@ fn search(args: UiSearchArgs) -> Result<()> {
         .collect();
     if args.json {
         println!("{}", serde_json::to_string_pretty(&matches)?);
+    } else if matches.is_empty() {
+        println!(
+            "No bundled starter components match `{query}`. Browse the full @proa catalog at https://ui.proa.so or inspect one with `proa ui view <slug>`."
+        );
     } else {
         for (name, description) in matches {
             println!("{name:<18} {description}");

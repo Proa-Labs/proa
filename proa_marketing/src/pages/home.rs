@@ -432,28 +432,32 @@ struct Direction18HeroPreview {
     peer_label: &'static str,
     multiplier_label: &'static str,
     note: &'static str,
+    methodology_url: &'static str,
+    methodology_label: &'static str,
 }
 
 impl Direction18HeroPreview {
     const fn new() -> Self {
         Self {
             tabs_label: "Benchmark page previews",
-            proa_travel: "11.5 us",
-            proa_repo: "23.5 us",
-            proa_sentry: "155 us",
-            peer_travel: "598 us",
-            peer_repo: "5.56 ms",
-            peer_sentry: "25.4 ms",
-            speedup_travel: "52x",
-            speedup_repo: "237x",
-            speedup_sentry: "163x",
+            proa_travel: "8.9 us",
+            proa_repo: "100.8 us",
+            proa_sentry: "136.2 us",
+            peer_travel: "440 us",
+            peer_repo: "2.65 ms",
+            peer_sentry: "9.97 ms",
+            speedup_travel: "49.7x",
+            speedup_repo: "26.3x",
+            speedup_sentry: "73.2x",
             repo_label: "GitHub",
             sentry_label: "Sentry",
             travel_label: "Airbnb",
             proa_label: "Proa render p50",
-            peer_label: "React renderToString p50",
+            peer_label: "React on Node p50",
             multiplier_label: "faster",
-            note: "Warm production p50s measured on an 8-vCPU AMD EPYC-Milan VPS.",
+            methodology_url: "https://github.com/Proa-Labs/framework-benchmarks/blob/5acd2af1682ca2201011c38ae0d937e49c95291f/showcase/README.md#restructured-row-gcp-ci-capture-november-13-2026-utc",
+            methodology_label: "Methodology and samples",
+            note: "Fresh owned buffer allocation and rendering on GCP C4 (Intel Granite Rapids), Nov 13, 2026 UTC. Rows rendered each time; Proa allocator primed. Median of five process p50s; excludes String conversion, HTTP, and browser work.",
         }
     }
 }
@@ -809,7 +813,7 @@ impl BenchmarkHighlights {
         Self {
             tabs_label: "Benchmark charts",
             title: "The numbers behind the speed.",
-            environment: "Apple M4 Max · September 2026",
+            environment: "Proa refreshed November 11, 2026 · Peers retain October 21 captures · Apple M4 Max",
             scroll_hint: "Scroll horizontally to explore each chart.",
             open_label: "Open full-size SVG",
             link_label: "View benchmarks",
@@ -817,20 +821,20 @@ impl BenchmarkHighlights {
             render: BenchmarkChart {
                 title: "Render speed",
                 url: "/static/images/benchmarks/01-canonical-scoreboard.svg",
-                description: "Server-render latency across 17 renderers and three workloads. Proa leads the component frameworks; React takes 13.2 to 35.4 times as long.",
+                description: "P50 render latency across 17 renderers and three workloads. Proa uses a fresh owned RenderBuffer, with allocation included and String conversion excluded. Proa was refreshed November 11; peers retain October 21 captures on the same Apple M4 Max.",
                 height: "480",
             },
             http: BenchmarkChart {
                 title: "HTTP capacity",
                 url: "/static/images/benchmarks/21-canonical-pages-http.svg",
-                description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, and Go. Proa serves 16,100 product-grid responses per second with 9.4 MiB peak memory.",
-                height: "615",
+                description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, Go, and SvelteKit. The dated product-grid capture measured Proa at 20,863 complete responses per second with 9.6 MiB peak memory.",
+                height: "678",
             },
             load: BenchmarkChart {
                 title: "Suspense under load",
                 url: "/static/images/benchmarks/20-suspense-load.svg",
-                description: "Suspense streaming under increasing load: throughput, memory, and response latency for Proa, Marko, and React. Proa sustains about 5,000 responses per second before queueing rises at 6,000 offered requests per second.",
-                height: "743",
+                description: "Proa and SvelteKit streaming under increasing load on Apple M4 Max, including throughput, memory, latency, and failures. SvelteKit response end delivers promised data; Proa delivers resolved HTML. See the methodology for completed-browser comparisons.",
+                height: "786",
             },
         }
     }
@@ -1076,6 +1080,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
         let peer_label = self.peer_label;
         let multiplier_label = self.multiplier_label;
         let note = self.note;
+        let methodology_label = self.methodology_label;
         let value = signal("repo");
 
         let travel_tab = rsjs::node_ref::<rsjs::HtmlElement>();
@@ -1312,6 +1317,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                 </div>
                 <p class="mt-2 font-mono text-[11px] leading-relaxed text-[#8f877e] dark:text-zinc-500">
                     {note}
+                    " "
+                    <a href={self.methodology_url} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">
+                        {methodology_label}
+                    </a>
                 </p>
             </div>
         }
@@ -2513,6 +2522,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Direction18HeroPreview {
             | {self.travel_label} | {self.proa_travel} | {self.peer_travel} | {self.speedup_travel} |
 
             {self.note}
+
+            [{self.methodology_label}]({Url(self.methodology_url)})
             "###
         }.render_md(cx)
     }

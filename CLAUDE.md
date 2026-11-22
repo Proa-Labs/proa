@@ -1,6 +1,6 @@
 # Claude Code Instructions for the Proa workspace
 
-Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It renders 10-20x faster than traditional templating engines through static consolidation and zero-allocation patterns.
+Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It uses static consolidation and direct-buffer rendering; performance depends on the workload and output contract. See the dated measurements and methodology in [README.md](README.md#benchmarks).
 
 ## Agent reference
 
@@ -350,7 +350,7 @@ cargo proa lint --changed        # only files changed vs HEAD (also on fmt/check
 cargo proa fmt                   # canonical macro layout; render-preserving verify runs before every write
 cargo proa fmt --check           # no writes; prints a unified diff and exits non-zero on drift
 cargo proa check --source-only --allow-warnings # workspace CI gate; errors/drift fail. Without --source-only the linked RSJS Cargo check runs and needs one exact -p/--bin target
-cargo proa config validate       # proa.config.json: unknown keys, empty commands, bad asset kinds
+cargo proa config validate       # proa.config.rs: compile the typed config and check asset kinds
 cargo proa chunks proa_showcase/src # static-run / dynamic-slot report
 
 # Fonts: declared in code via google_font!/local_font!, vendored by build.rs (see docs/framework/fonts)

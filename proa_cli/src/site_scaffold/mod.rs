@@ -129,7 +129,7 @@ pub fn new_site(options: NewSiteOptions) -> Result<()> {
     }
     if options.start || options.open {
         let root_arg = root.to_string_lossy().into_owned();
-        let mut args = vec!["dev", "--root", root_arg.as_str()];
+        let mut args = vec!["run", "--root", root_arg.as_str(), "dev"];
         if options.open {
             args.push("--open");
         }
@@ -279,7 +279,7 @@ fn print_success(
         }
     );
     println!("  Health      /healthz · /readyz");
-    println!("\nNext:\n  cd {} && proa dev --open", root.display());
+    println!("\nNext:\n  cd {} && proa run dev --open", root.display());
     Ok(())
 }
 
@@ -312,7 +312,7 @@ fn operation_report<'a>(
             title,
             selection,
             files: plan.files.len(),
-            next: format!("cd {} && proa dev --open", plan.destination.display()),
+            next: format!("cd {} && proa run dev --open", plan.destination.display()),
         },
     }
 }
@@ -374,6 +374,17 @@ mod tests {
         }
         // Tailwind owns the generated public output; its input must include
         // the starter design so the first asset build retains that design.
+        let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+        assert!(!config.contains("build: proa::config::BuildConfig"));
+        assert!(!config.contains("paths: proa::config::ProjectPaths"));
+        let config = crate::config::load_project_config(&root).unwrap();
+        assert_eq!(config.paths.public.as_deref(), Some(Path::new("public")));
+        let [asset] = config.build.assets() else {
+            panic!("expected one inferred Tailwind asset");
+        };
+        assert_eq!(asset.kind, "tailwind");
+        assert_eq!(asset.input, Path::new("styles/input.css"));
+        assert_eq!(asset.output, Path::new("public/styles.css"));
         let input = std::fs::read_to_string(root.join("styles/input.css")).unwrap();
         assert!(input.contains("@import \"./starter.css\" layer(components);"));
         let starter = std::fs::read_to_string(root.join("styles/starter.css")).unwrap();
@@ -383,10 +394,29 @@ mod tests {
         );
         assert!(!root.join("scripts").exists());
         assert!(!root.join("src/islands").exists());
+        assert!(!root.join("rust-toolchain.toml").exists());
+        let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(cargo_toml.contains("rust-version = \"1.93\""));
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
-        syn::parse_file(&home).unwrap();
+        let parsed_home = syn::parse_file(&home).unwrap();
+        let mut saw_non_use_item = false;
+        for item in &parsed_home.items {
+            if matches!(item, syn::Item::Use(_)) {
+                assert!(
+                    !saw_non_use_item,
+                    "src/pages/home.rs should keep all `use` imports at the top of the file"
+                );
+            } else {
+                saw_non_use_item = true;
+            }
+        }
         assert!(home.contains("DataResolver::request_scope"));
         assert!(home.contains("MdRender<L> for HomePage"));
+        assert!(home.contains("# {HEADLINE}"));
+        assert!(!home.contains("Rust\\."));
+        assert!(!home.contains("multi\\-target"));
+        let routes = std::fs::read_to_string(root.join("src/routes.rs")).unwrap();
+        assert!(routes.contains("PROA_PUBLIC_ASSETS"));
     }
 
     #[test]
@@ -398,6 +428,9 @@ mod tests {
             value.template = template.to_string();
             new_site(value).unwrap();
             assert!(!root.join(".cargo/config.toml").exists(), "{template}");
+            assert!(!root.join("rust-toolchain.toml").exists(), "{template}");
+            let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+            assert!(!config.contains("template:"), "{template}");
             let formatting =
                 crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
             assert!(
@@ -415,8 +448,15 @@ mod tests {
                         < crate::diagnostic::Severity::Warning.rank()),
                 "{template}: {diagnostics:?}"
             );
-            let report = crate::scaffold::site_check(Some(root)).unwrap();
+            let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
             assert!(report.errors.is_empty(), "{template}: {:?}", report.errors);
+            let routes = crate::scaffold::site_routes(Some(root)).unwrap();
+            let markdown = routes.iter().find(|route| route.path == "/index.md");
+            match template {
+                "minimal" => assert!(markdown.is_none()),
+                "origin" => assert_eq!(markdown.unwrap().file, Path::new("src/lib.rs")),
+                _ => assert_eq!(markdown.unwrap().file, Path::new("src/pages/home.rs")),
+            }
         }
     }
 
@@ -469,6 +509,8 @@ mod tests {
         value.overrides.styling = Some(StylingChoice::Css);
         value.vscode = false;
         new_site(value).unwrap();
+        let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+        assert!(config.contains("assets: Some(vec![])"));
         assert!(!root.join("src/db.rs").exists());
         assert!(!root.join("src/components/badge").exists());
         assert!(!root.join("styles").exists());

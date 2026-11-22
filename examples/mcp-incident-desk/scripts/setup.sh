@@ -20,4 +20,4 @@ CERT
   openssl x509 -req -in .local/tls.csr -CA .local/ca.pem -CAkey .local/ca.key -CAcreateserial -out .local/tls.pem -days 30 -extfile .local/tls.ext >/dev/null 2>&1
 fi
 if [ ! -f .env ]; then cp .env.example .env; fi
-printf '%s\n' 'Local TLS ready. To trust this example CA in your login keychain, review and run:' 'security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" .local/ca.pem' 'Then run bash scripts/dev.sh from this directory.'
+printf '%s\n' 'Local TLS ready. To trust this example CA in your login keychain, review and run:' 'security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" .local/ca.pem' 'Then run cargo proa dev from this directory.'

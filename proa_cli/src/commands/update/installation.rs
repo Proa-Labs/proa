@@ -10,6 +10,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::util::external_path;
+
 #[derive(Debug)]
 pub(super) enum Installation {
     Standalone { root: PathBuf, bin_dir: PathBuf },
@@ -34,21 +36,6 @@ pub(super) fn private_tempdir(parent: &Path, prefix: &str) -> Result<tempfile::T
         builder.permissions(fs::Permissions::from_mode(0o700));
     }
     Ok(builder.tempdir_in(parent)?)
-}
-
-/// External installers, including PowerShell 5.1, do not consistently accept
-/// the verbatim prefixes returned by Rust's Windows filesystem APIs.
-pub(super) fn external_path(path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    if let Some(text) = path.to_str() {
-        if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{unc}"));
-        }
-        if let Some(plain) = text.strip_prefix(r"\\?\") {
-            return PathBuf::from(plain);
-        }
-    }
-    path.to_owned()
 }
 
 pub(super) fn names() -> [String; 2] {

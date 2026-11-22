@@ -78,7 +78,10 @@ impl<L: DataLoader> WebRenderSync<L> for Counter {
 ```
 
 The trait impl, method signature, context parameter, result type, and final
-`.render(cx)` call are ordinary authored Rust. `component` asks RSJS to analyze
+`.render(cx)` call are ordinary authored Rust. When a module imports both
+render traits, write the tail qualified instead:
+`WebRenderSync::render(html_sync! { ... }, cx)`, or
+`WebRender::render(html! { ... }, cx).resolve().await` in an async component. `component` asks RSJS to analyze
 that implementation. `client` grants permission to originate browser behavior;
 it does not force unused code to ship. Bare `#[rsjs]`, inherent impl shorthand,
 and `async fn render` sugar are rejected.
@@ -117,8 +120,9 @@ capability inherits that dependency's origin requirement.
 Ordinary non-reactive Rust expressions inside an analyzed template stay opaque
 SSR automatically. Calls such as `render_markdown(document)` and
 `UnsafeRaw(svg)` do not need a `server_only(...)` wrapper when their visible
-arguments contain no RSJS state, handler, or browser primitive. Dynamic
-attributes follow the same rule. Inbound fields are different: direct reads
+arguments contain no RSJS state, handler, or browser primitive. Use
+`src={cx.url("public/images/logo.svg")}` and `href={cx.url("/products")}`
+directly in island attributes. Both URLs resolve on the server. Direct reads
 such as `self.label` are latent `LiveRead` participation, and opaque calls that
 depend on an inbound value fail closed if a live caller would otherwise be
 silently snapshotted. A value implementing `ClientEncode` or coming from a
@@ -1504,8 +1508,7 @@ generated mechanically from the same IR.
 
 ## Common errors
 
-See [`footguns.md`](footguns.md) for the full gallery. The top three:
+See [`footguns.md`](footguns.md) for the full gallery.
 
-1. **`X is not a recognised IR primitive or linked #[rsjs::client] helper`** — A browser-reachable value crossed an opaque operation. Keep the operation server-only in the prelude, or annotate a portable helper with `#[rsjs::client]`.
-2. **`dynamic href attributes are not supported`** — Keep island URLs static or render vetted server-side values with `rsjs::server_attr(...)`.
-3. **`expected identifier, found keyword` inside `<svg>`** — Pre-existing bug, fixed: keyword tag names like `<use>` now parse. If you still see this, your `proa_dsl` is stale.
+1. **`X is not a recognised IR primitive or linked #[rsjs::client] helper`**. A browser-reachable value crossed an opaque operation. Keep the operation server-only in the prelude, or annotate a portable helper with `#[rsjs::client]`.
+2. **`expected identifier, found keyword` inside `<svg>`**. Keyword tag names like `<use>` parse with the current `proa_dsl`.

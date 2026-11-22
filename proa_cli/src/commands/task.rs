@@ -13,76 +13,66 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use clap::Args;
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::{config, util::resolve_config_root};
+use crate::config::{self, ScriptConfig};
 
-#[derive(Debug, Args)]
-pub(crate) struct TaskArgs {
-    /// Configured task name.
-    name: Option<String>,
-    #[arg(long)]
-    root: Option<PathBuf>,
-    /// List configured tasks and their lifecycle use.
-    #[arg(long)]
-    list: bool,
-    /// Bypass the successful-input cache.
-    #[arg(long)]
-    force: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TaskDefinition {
-    #[serde(default)]
-    description: String,
-    command: Vec<String>,
-    #[serde(default = "dot")]
-    cwd: PathBuf,
-    #[serde(default, alias = "dependencies")]
-    depends_on: Vec<String>,
-    #[serde(default)]
-    inputs: Vec<String>,
-    #[serde(default)]
-    outputs: Vec<PathBuf>,
-    #[serde(default)]
-    env: BTreeMap<String, String>,
-}
-
-fn dot() -> PathBuf {
-    PathBuf::from(".")
-}
-
-pub(crate) fn run(args: TaskArgs) -> Result<()> {
-    let root = resolve_config_root(args.root)?;
-    let project = config::load_project_config(&root)?;
-    let tasks: BTreeMap<String, TaskDefinition> = project
-        .tasks
-        .iter()
-        .map(|(name, value)| serde_json::from_value(value.clone()).map(|task| (name.clone(), task)))
-        .collect::<std::result::Result<_, _>>()
-        .context("parse configured tasks")?;
-    if args.list {
-        for (name, task) in &tasks {
-            let lifecycle = lifecycle_usage(&project, name);
-            println!("{name:<24} {:<28} {}", task.description, lifecycle);
-        }
-        return Ok(());
+pub(super) fn list(project: &config::ProjectConfig) {
+    let scripts = &project.scripts;
+    for (name, source) in super::script::shell_entries(scripts) {
+        println!("{name:<24} {source}");
     }
-    let name = args.name.context("provide a task name or use --list")?;
-    let order = dependency_order(&tasks, &name)?;
+    for (name, task) in &scripts.named {
+        if super::script::shell_entries(scripts).any(|(script, _)| script == name) {
+            continue;
+        }
+        let lifecycle = lifecycle_usage(project, name);
+        println!("{name:<24} {:<28} {}", task.description, lifecycle);
+    }
+}
+
+pub(super) fn run_named(
+    root: &Path,
+    project: &config::ProjectConfig,
+    name: &str,
+    force: bool,
+    arguments: &[OsString],
+) -> Result<()> {
+    let scripts = &project.scripts.named;
+    if !scripts.contains_key(name) {
+        bail!("{}", unknown_script(name));
+    }
+    let order = dependency_order(scripts, [name])?;
     for task_name in order {
         execute(
-            &root,
+            root,
             &task_name,
-            &tasks[&task_name],
-            args.force,
+            &scripts[&task_name],
+            force,
+            if task_name == name { arguments } else { &[] },
             &BTreeMap::new(),
         )?;
     }
     Ok(())
+}
+
+/// `proa run lint` is a natural guess for anyone used to package scripts,
+/// but only project scripts live under `proa run`. Name the command they
+/// meant. The list comes from the CLI definition, so a new subcommand is
+/// covered without touching this file.
+fn unknown_script(name: &str) -> String {
+    use clap::CommandFactory;
+
+    let builtin = crate::cli::Cli::command()
+        .get_subcommands()
+        .any(|command| !command.is_hide_set() && command.get_name() == name);
+    if builtin && name != "run" {
+        format!(
+            "unknown task `{name}`: `{name}` is a built-in command, so run `proa {name}` directly, or define a `{name}` task in `scripts.named` to make `proa run {name}` work"
+        )
+    } else {
+        format!("unknown task `{name}`")
+    }
 }
 
 /// Run lifecycle-owned task roots with one dependency traversal and an exact
@@ -95,41 +85,63 @@ pub(crate) fn run_lifecycle_tasks(
     names: &[String],
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
-    let tasks: BTreeMap<String, TaskDefinition> = project
-        .tasks
-        .iter()
-        .map(|(name, value)| serde_json::from_value(value.clone()).map(|task| (name.clone(), task)))
-        .collect::<std::result::Result<_, _>>()
-        .context("parse configured tasks")?;
-    let mut visiting = BTreeSet::new();
-    let mut visited = BTreeSet::new();
-    let mut order = Vec::new();
-    for name in names {
-        visit_dependency(name, &tasks, &mut visiting, &mut visited, &mut order)?;
-    }
-    for task_name in order {
-        execute(root, &task_name, &tasks[&task_name], false, environment)?;
+    let scripts = &project.scripts.named;
+    for task_name in dependency_order(scripts, names.iter().map(String::as_str))? {
+        execute(
+            root,
+            &task_name,
+            &scripts[&task_name],
+            false,
+            &[],
+            environment,
+        )?;
     }
     Ok(())
 }
 
+pub(crate) fn validate_lifecycle_tasks(
+    project: &config::ProjectConfig,
+    names: &[String],
+) -> Result<()> {
+    let _ = dependency_order(&project.scripts.named, names.iter().map(String::as_str))?;
+    Ok(())
+}
+
+pub(crate) fn lifecycle_output_paths<'a>(
+    project: &'a config::ProjectConfig,
+    names: &[String],
+) -> Result<Vec<&'a Path>> {
+    let scripts = &project.scripts.named;
+    let order = dependency_order(scripts, names.iter().map(String::as_str))?;
+    Ok(order
+        .iter()
+        .flat_map(|name| scripts[name].outputs.iter().map(PathBuf::as_path))
+        .collect())
+}
+
+fn dependency_order<'a>(
+    scripts: &BTreeMap<String, ScriptConfig>,
+    names: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<String>> {
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    let mut order = Vec::new();
+    for name in names {
+        visit_dependency(name, scripts, &mut visiting, &mut visited, &mut order)?;
+    }
+    Ok(order)
+}
+
 fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
-    let mut phases = Vec::new();
-    if project.dev.before.iter().any(|task| task == name) {
-        phases.push("dev");
-    }
-    if project.build.before.iter().any(|task| task == name) {
-        phases.push("build");
-    }
-    if project
-        .test
-        .as_ref()
-        .and_then(|test| test.get("before"))
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|tasks| tasks.iter().any(|task| task.as_str() == Some(name)))
-    {
-        phases.push("test");
-    }
+    let before = &project.scripts.before;
+    let phases: Vec<_> = [
+        ("dev", &before.dev),
+        ("build", &before.build),
+        ("test", &before.test),
+    ]
+    .into_iter()
+    .filter_map(|(phase, tasks)| tasks.iter().any(|task| task == name).then_some(phase))
+    .collect();
     if phases.is_empty() {
         "manual".to_string()
     } else {
@@ -137,21 +149,9 @@ fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
     }
 }
 
-fn dependency_order(tasks: &BTreeMap<String, TaskDefinition>, root: &str) -> Result<Vec<String>> {
-    let mut output = Vec::new();
-    visit_dependency(
-        root,
-        tasks,
-        &mut BTreeSet::new(),
-        &mut BTreeSet::new(),
-        &mut output,
-    )?;
-    Ok(output)
-}
-
 fn visit_dependency(
     name: &str,
-    tasks: &BTreeMap<String, TaskDefinition>,
+    tasks: &BTreeMap<String, ScriptConfig>,
     visiting: &mut BTreeSet<String>,
     visited: &mut BTreeSet<String>,
     output: &mut Vec<String>,
@@ -177,8 +177,9 @@ fn visit_dependency(
 fn execute(
     root: &Path,
     name: &str,
-    task: &TaskDefinition,
+    task: &ScriptConfig,
     force: bool,
+    arguments: &[OsString],
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<()> {
     let executable = task
@@ -186,7 +187,7 @@ fn execute(
         .first()
         .with_context(|| format!("task `{name}` has an empty command"))?;
     let cwd = root.join(&task.cwd);
-    let key = task_cache_key(root, task)?;
+    let key = task_cache_key(root, task, arguments)?;
     let cache = root
         .join("target/proa/tasks")
         .join(format!("{name}.sha256"));
@@ -197,9 +198,20 @@ fn execute(
         return Ok(());
     }
     println!("Task {name}");
-    let status = Command::new(executable)
+    let current = crate::util::current_executable()?;
+    let program = if executable == "proa" {
+        current.as_os_str()
+    } else {
+        std::ffi::OsStr::new(executable)
+    };
+    let status = Command::new(program)
         .args(&task.command[1..])
+        .args(arguments)
         .current_dir(&cwd)
+        .env(
+            "PROA_SCRIPT_EXECUTABLE",
+            crate::util::external_path(&current),
+        )
         .envs(environment)
         .envs(&task.env)
         .status()
@@ -216,11 +228,15 @@ fn execute(
     Ok(())
 }
 
-fn task_cache_key(root: &Path, task: &TaskDefinition) -> Result<String> {
+fn task_cache_key(root: &Path, task: &ScriptConfig, arguments: &[OsString]) -> Result<String> {
     let mut digest = Sha256::new();
     digest.update(env!("CARGO_PKG_VERSION"));
     for argument in &task.command {
         digest.update(argument.as_bytes());
+        digest.update([0]);
+    }
+    for argument in arguments {
+        digest.update(argument.as_encoded_bytes());
         digest.update([0]);
     }
     for pattern in &task.inputs {
@@ -242,24 +258,42 @@ fn task_cache_key(root: &Path, task: &TaskDefinition) -> Result<String> {
 mod tests {
     use super::*;
 
-    fn task(dependencies: &[&str]) -> TaskDefinition {
-        TaskDefinition {
-            description: String::new(),
+    fn task(dependencies: &[&str]) -> ScriptConfig {
+        ScriptConfig {
             command: vec!["true".into()],
-            cwd: dot(),
             depends_on: dependencies.iter().map(|value| (*value).into()).collect(),
-            inputs: Vec::new(),
-            outputs: Vec::new(),
-            env: BTreeMap::new(),
+            ..Default::default()
         }
     }
 
     #[test]
     fn detects_cycles_before_running() {
         let tasks = BTreeMap::from([("a".into(), task(&["b"])), ("b".into(), task(&["a"]))]);
-        assert!(dependency_order(&tasks, "a")
+        assert!(dependency_order(&tasks, ["a"])
             .unwrap_err()
             .to_string()
             .contains("cycle"));
+    }
+
+    #[test]
+    fn running_a_builtin_command_name_as_a_script_names_the_real_command() {
+        // Every visible subcommand is covered, not a hand-kept subset.
+        for builtin in ["lint", "fmt", "check", "test", "db", "deploy", "chunks"] {
+            let message = unknown_script(builtin);
+            assert!(message.contains(&format!("`proa {builtin}`")), "{message}");
+            assert!(message.contains("scripts.named"), "{message}");
+        }
+        for other in ["custom", "run", "install-self", "Lint"] {
+            assert_eq!(unknown_script(other), format!("unknown task `{other}`"));
+        }
+    }
+
+    #[test]
+    fn a_missing_dependency_is_not_told_to_run_a_command_instead() {
+        // `depends_on = ["lint"]` asks for a task. Running `proa lint` by
+        // hand would not satisfy it, so the advice stays out of this path.
+        let tasks = BTreeMap::from([("ci".into(), task(&["lint"]))]);
+        let error = dependency_order(&tasks, ["ci"]).unwrap_err().to_string();
+        assert_eq!(error, "unknown task `lint`");
     }
 }

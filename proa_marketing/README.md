@@ -97,6 +97,12 @@ top-1 or top-3 drops. Give a page identifiers it canonically documents with a
 body text. Regenerate the Orama bundle after bumping the `@orama/*`
 devDependencies with `pnpm run search:vendor`.
 
+The battery scores ranking against real pages. Query handling that does not
+depend on the corpus (call-style queries such as `cx.url()`, empty queries, the
+reported result count, snippet highlights) is covered by
+`node --test proa_marketing/tests-js/search-index.test.mjs`, which needs no
+docs build or server.
+
 The rsjs `SearchModal` island only owns the dialog (open, close, focus); see
 the ownership note at the top of `public/search.mjs`.
 

@@ -395,6 +395,14 @@ fn only_a_plain_port_and_a_hex_token_turn_injection_on() {
     assert_eq!(parse_reload_token("0123456789ABCDEF0123456789ABCDEF"), None);
     assert_eq!(parse_reload_token("0123456789abcdef0123456789abcde"), None);
     assert_eq!(parse_reload_token("\";alert(1);//abcdef0123456789ab"), None);
+
+    // Every dev-only behavior keyed on the session needs the pair, so a port
+    // left exported in a deployment environment switches nothing on.
+    assert!(is_session(Some("3001"), Some(TOKEN)));
+    assert!(!is_session(Some("3001"), None));
+    assert!(!is_session(None, Some(TOKEN)));
+    assert!(!is_session(Some("3001"), Some("not-a-token")));
+    assert!(!is_session(Some("0"), Some(TOKEN)));
 }
 
 #[tokio::test]

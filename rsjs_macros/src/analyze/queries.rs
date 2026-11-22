@@ -34,6 +34,21 @@ pub(super) fn request_config_expr(
                 &call.args[0],
                 "`cx.url(...)` request URL must be a string literal",
             )?;
+            if url.starts_with("public/") {
+                // Only the server holds the public asset catalog. The browser
+                // would request this path relative to the current page.
+                return Err(syn::Error::new(
+                    call.args[0].span(),
+                    format!(
+                        "`{context_ident}.url(\"{url}\")` names a managed public asset, but this \
+                         request URL is resolved in the browser, which cannot read the server's \
+                         asset catalog and would fetch `{url}` relative to the current page\n\
+                         help: resolve the URL during SSR and pass it through a signal: \
+                         `let url = signal({context_ident}.url(\"{url}\").try_to_string()?);`, \
+                         then request `url.get()` and include `url.get()` in the query key"
+                    ),
+                ));
+            }
             let descriptor = json!({ "url": url, "apply_base_path": true });
             let encoded = rsjs_transport::canonical_json_bytes(&descriptor).map_err(|err| {
                 syn::Error::new(
@@ -822,5 +837,18 @@ mod request_base_path_tests {
             descriptor,
             FrontendExpr::Literal(Value::String(_))
         ));
+    }
+
+    #[test]
+    fn cx_url_rejects_public_assets_in_browser_requests() {
+        let expr = syn::parse_quote! { cx.url("public/data.json") };
+        let message = request_config_expr(&expr, &syn::parse_quote!(cx), "GET", "invalid request")
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("managed public asset"), "{message}");
+        assert!(
+            message.contains("signal(cx.url(\"public/data.json\").try_to_string()?)"),
+            "{message}"
+        );
     }
 }
