@@ -16,7 +16,25 @@ use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::Router;
+use include_dir::{include_dir, Dir};
 use proa_core::PublicAssetUrls;
+
+/// The showcase's own static files travel inside the binary, so a host
+/// application deploys nothing extra for these routes. A copy on disk, as in
+/// a workspace checkout, is preferred when present.
+static PUBLIC: Dir = include_dir!("$CARGO_MANIFEST_DIR/public");
+static ESPN_IMAGES: Dir = include_dir!("$CARGO_MANIFEST_DIR/../proa_showcase/src/espn/data/images");
+
+fn embedded_file(subdir: &str, path: &str) -> Option<&'static [u8]> {
+    PUBLIC
+        .get_file(format!("{subdir}/{path}"))
+        .or_else(|| {
+            (subdir == "images")
+                .then(|| ESPN_IMAGES.get_file(path))
+                .flatten()
+        })
+        .map(|file| file.contents())
+}
 
 /// Canonical public showcase routes. Alias routes are intentionally omitted so
 /// sitemaps can point at one stable URL per page.
@@ -354,8 +372,10 @@ async fn serve_image(
         )
             .into_response();
     }
-    if let Some(file) = config.resolve_public_file("images", &path) {
-        return serve_resolved_file(Some(file), IMAGE_CACHE_CONTROL).await;
+    if config.resolve_public_file("images", &path).is_some()
+        || embedded_file("images", &path).is_some()
+    {
+        return serve_public_file(config, "images", path, IMAGE_CACHE_CONTROL).await;
     }
     let fallback = fallback_image_path(&path);
     if let Some(url) = fallback.and_then(|path| config.managed_image_url(path)) {
@@ -365,8 +385,12 @@ async fn serve_image(
         )
             .into_response();
     }
-    let file = fallback.and_then(|path| config.resolve_public_file("images", path));
-    serve_resolved_file(file, IMAGE_CACHE_CONTROL).await
+    match fallback {
+        Some(path) => {
+            serve_public_file(config, "images", path.to_owned(), IMAGE_CACHE_CONTROL).await
+        }
+        None => (StatusCode::NOT_FOUND, "Not found").into_response(),
+    }
 }
 
 async fn serve_public_file(
@@ -375,19 +399,16 @@ async fn serve_public_file(
     path: String,
     cache_control: &'static str,
 ) -> Response {
-    let file_path = config.resolve_public_file(subdir, &path);
-    serve_resolved_file(file_path, cache_control).await
-}
-
-async fn serve_resolved_file(file_path: Option<PathBuf>, cache_control: &'static str) -> Response {
-    let Some(file_path) = file_path else {
-        return (StatusCode::NOT_FOUND, "Not found").into_response();
+    let content_type = content_type_for_path(Path::new(&path));
+    let bytes = match config.resolve_public_file(subdir, &path) {
+        Some(file) => tokio::fs::read(&file)
+            .await
+            .ok()
+            .map(axum::body::Bytes::from),
+        None => embedded_file(subdir, &path).map(axum::body::Bytes::from_static),
     };
-
-    let content_type = content_type_for_path(&file_path);
-
-    match tokio::fs::read(&file_path).await {
-        Ok(bytes) => (
+    match bytes {
+        Some(bytes) => (
             StatusCode::OK,
             [
                 (header::CONTENT_TYPE, content_type),
@@ -396,7 +417,7 @@ async fn serve_resolved_file(file_path: Option<PathBuf>, cache_control: &'static
             bytes,
         )
             .into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "Not found").into_response(),
+        None => (StatusCode::NOT_FOUND, "Not found").into_response(),
     }
 }
 

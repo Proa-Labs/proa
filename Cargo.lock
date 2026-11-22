@@ -3809,6 +3809,7 @@ name = "proa_showcase_web"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "include_dir",
  "proa_core",
  "proa_showcase",
  "rsjs",

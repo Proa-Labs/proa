@@ -175,6 +175,43 @@ mod tests {
         );
     }
 
+    /// A deployed binary has no source tree beside it: the showcase routes
+    /// answer from the copies embedded in the binary, with nothing staged.
+    #[tokio::test]
+    async fn showcase_files_are_served_without_a_directory_on_disk() {
+        let app = proa_showcase_web::router_with_config(proa_showcase_web::ShowcaseWebConfig::new(
+            "/nonexistent/showcase/public",
+        ));
+        for (path, content_type) in [
+            ("/assets/airbnb-showcase.js", "application/javascript"),
+            ("/images/espn/dodger-stadium.jpg", "image/jpeg"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert!(
+                response.headers()["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with(content_type),
+                "{path}"
+            );
+        }
+        let missing = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/missing.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    }
+
     #[tokio::test]
     async fn generated_project_schema_urls_are_served() {
         for path in [

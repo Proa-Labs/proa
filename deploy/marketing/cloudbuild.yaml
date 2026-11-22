@@ -73,8 +73,6 @@ steps:
           --package proa_marketing --bin proa_marketing --locked --no-check \
           --artifact-out /release/artifacts/proa_marketing -- cargo build --profile release --timings \
           2>&1 | tee /release/report/build.log
-        cp -a proa_showcase_web/public /release/artifacts/showcase
-        cp -a proa_showcase/src/espn/data/images/. /release/artifacts/showcase/images/
         find /cache/target -name cargo-timing.html -exec cp --parents {} /release/report/ \;
         sha256sum /release/artifacts/proa_marketing > /release/report/binary.sha256
         cp -a /release/artifacts /workspace/release-artifacts
