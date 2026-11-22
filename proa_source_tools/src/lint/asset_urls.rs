@@ -263,6 +263,7 @@ fn package_scope(dir: &Path) -> Option<PathBuf> {
 #[derive(Debug, Clone)]
 struct PublicCatalog {
     disk_dir: String,
+    disk_root: PathBuf,
     files: BTreeSet<String>,
     generated_outputs: BTreeSet<String>,
 }
@@ -270,7 +271,7 @@ struct PublicCatalog {
 impl PublicCatalog {
     fn load(project_root: &Path) -> Option<Self> {
         let config_path = project_root.join("proa.config.rs");
-        let parsed = parse_public_config(&config_path)?;
+        let parsed = parse_public_config(project_root, &config_path)?;
         let relative = parsed.disk_dir.trim_matches('/');
         if relative.is_empty() || relative.split('/').any(|seg| seg == "..") {
             return None;
@@ -296,6 +297,7 @@ impl PublicCatalog {
         }
         Some(Self {
             disk_dir: relative.to_string(),
+            disk_root: dir,
             files,
             generated_outputs,
         })
@@ -314,7 +316,13 @@ impl PublicCatalog {
     }
 
     fn has_logical_file(&self, relative: &str) -> bool {
-        self.files.contains(relative) || self.generated_outputs.contains(relative)
+        // Check the indexed file set first, then fall back to a direct stat
+        // under `disk_root` so dot-prefixed assets (e.g. `.well-known/...`),
+        // paths deeper than MAX_DEPTH, or catalogs above MAX_FILES never
+        // trigger false missing-file warnings.
+        self.files.contains(relative)
+            || self.generated_outputs.contains(relative)
+            || self.disk_root.join(relative).is_file()
     }
 }
 
@@ -334,13 +342,13 @@ fn find_proa_config_root(dir: &Path) -> Option<PathBuf> {
 /// Read `paths.public` and declared generated asset outputs from `proa.config.rs`
 /// statically without executing it. Returns `None` when public assets are
 /// explicitly disabled (`public: None`).
-fn parse_public_config(config_path: &Path) -> Option<ParsedPublicConfig> {
+fn parse_public_config(project_root: &Path, config_path: &Path) -> Option<ParsedPublicConfig> {
     let source = std::fs::read_to_string(config_path).ok()?;
     let file = syn::parse_file(&source).ok()?;
 
     struct ConfigPublicFinder {
         found_public: Option<Option<String>>,
-        assets_explicitly_empty: bool,
+        assets_explicitly_set: bool,
         has_css_script: bool,
         explicit_outputs: Vec<String>,
     }
@@ -361,8 +369,8 @@ fn parse_public_config(config_path: &Path) -> Option<ParsedPublicConfig> {
                 Some("BuildConfig") => {
                     for field in &expr.fields {
                         if let syn::Member::Named(name) = &field.member {
-                            if name == "assets" && is_some_empty_vec(&field.expr) {
-                                self.assets_explicitly_empty = true;
+                            if name == "assets" && is_some_expr(&field.expr) {
+                                self.assets_explicitly_set = true;
                             }
                         }
                     }
@@ -398,7 +406,7 @@ fn parse_public_config(config_path: &Path) -> Option<ParsedPublicConfig> {
 
     let mut finder = ConfigPublicFinder {
         found_public: None,
-        assets_explicitly_empty: false,
+        assets_explicitly_set: false,
         has_css_script: false,
         explicit_outputs: Vec::new(),
     };
@@ -408,7 +416,11 @@ fn parse_public_config(config_path: &Path) -> Option<ParsedPublicConfig> {
         Some(Some(custom)) => custom,
         None => "public".to_string(),
     };
-    let infer_default_stylesheet = !finder.assets_explicitly_empty || finder.has_css_script;
+    // Match `proa_cli`: `public/styles.css` is inferred only when `scripts.css`
+    // is configured, or when `build.assets` is absent (`None`) AND
+    // `styles/input.css` exists on disk.
+    let infer_default_stylesheet = finder.has_css_script
+        || (!finder.assets_explicitly_set && project_root.join("styles/input.css").is_file());
     Some(ParsedPublicConfig {
         disk_dir,
         infer_default_stylesheet,
@@ -416,41 +428,15 @@ fn parse_public_config(config_path: &Path) -> Option<ParsedPublicConfig> {
     })
 }
 
-fn is_some_empty_vec(expr: &Expr) -> bool {
+fn is_some_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Paren(e) => is_some_empty_vec(&e.expr),
-        Expr::Group(e) => is_some_empty_vec(&e.expr),
-        Expr::Call(call) if call.args.len() == 1 => {
-            let is_some = matches!(
-                call.func.as_ref(),
-                Expr::Path(path)
-                    if path.path.segments.last().is_some_and(|seg| seg.ident == "Some")
-            );
-            if !is_some {
-                return false;
-            }
-            match &call.args[0] {
-                Expr::Macro(mac) => {
-                    mac.mac
-                        .path
-                        .segments
-                        .last()
-                        .is_some_and(|seg| seg.ident == "vec")
-                        && mac.mac.tokens.is_empty()
-                }
-                Expr::Call(inner) => {
-                    inner.args.is_empty()
-                        && matches!(
-                            inner.func.as_ref(),
-                            Expr::Path(path)
-                                if path.path.segments.len() >= 2
-                                    && path.path.segments[path.path.segments.len() - 2].ident == "Vec"
-                                    && path.path.segments.last().is_some_and(|seg| seg.ident == "new")
-                        )
-                }
-                _ => false,
-            }
-        }
+        Expr::Paren(e) => is_some_expr(&e.expr),
+        Expr::Group(e) => is_some_expr(&e.expr),
+        Expr::Call(call) if call.args.len() == 1 => matches!(
+            call.func.as_ref(),
+            Expr::Path(path)
+                if path.path.segments.last().is_some_and(|seg| seg.ident == "Some")
+        ),
         _ => false,
     }
 }
@@ -1378,8 +1364,8 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
             if let Some(slot) = self.resolve_expr_slot(&call.args[0]) {
                 self.schema.record_role(slot, FieldRole::LogicalOnly);
             }
-        } else if is_head_writer_url_method(call) {
-            if let Some(slot) = self.resolve_expr_slot(&call.args[0]) {
+        } else if let Some(arg_index) = head_writer_url_arg_index(call) {
+            if let Some(slot) = self.resolve_expr_slot(&call.args[arg_index]) {
                 self.schema
                     .record_role(slot, FieldRole::ResolvedOnly { srcset: false });
             }
@@ -2223,9 +2209,10 @@ impl MacroAssetChecker<'_> {
             }
             return;
         }
-        if (call.method == "secure_url" && call.args.len() == 1) || is_head_writer_url_method(call)
-        {
+        if call.method == "secure_url" && call.args.len() == 1 {
             self.url_expr(&call.args[0], false);
+        } else if let Some(arg_index) = head_writer_url_arg_index(call) {
+            self.url_expr(&call.args[arg_index], false);
         }
     }
 
@@ -2428,17 +2415,17 @@ impl<'ast> Visit<'ast> for MacroAssetChecker<'_> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn is_head_writer_url_method(call: &ExprMethodCall) -> bool {
-    if call.args.len() != 1 {
-        return false;
-    }
+fn head_writer_url_arg_index(call: &ExprMethodCall) -> Option<usize> {
     let method = call.method.to_string();
-    match method.as_str() {
-        "og_image" => true,
-        "icon" | "canonical" | "manifest" | "stylesheet" | "module" => {
-            is_head_writer_receiver(&call.receiver)
+    match (method.as_str(), call.args.len()) {
+        ("og_image", 1) => Some(0),
+        ("icon" | "canonical" | "manifest", 1) if is_head_writer_receiver(&call.receiver) => {
+            Some(0)
         }
-        _ => false,
+        // `HeadWriter::stylesheet(key, href)` and `HeadWriter::module(key, src)`
+        // take the key first and the URL second.
+        ("stylesheet" | "module", 2) if is_head_writer_receiver(&call.receiver) => Some(1),
+        _ => None,
     }
 }
 

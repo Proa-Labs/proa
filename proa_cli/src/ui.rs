@@ -79,6 +79,8 @@ pub struct ViewReport {
     pub files_unchanged: Vec<PathBuf>,
     pub files_to_overwrite_on_force: Vec<PathBuf>,
     pub files_conflicting_local: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub install_conflicts: Vec<String>,
     pub needs_force: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub next_steps: Vec<String>,
@@ -359,6 +361,90 @@ fn resolve_graph(
     })
 }
 
+fn build_next_lock(
+    existing_lock: &ComponentLockFile,
+    components: &BTreeMap<String, PreparedComponent>,
+    order: &[String],
+) -> ComponentLockFile {
+    let mut next_lock = existing_lock.clone();
+    for id in order {
+        let component = components
+            .get(id)
+            .expect("resolver order only contains resolved components");
+        next_lock.components.insert(
+            id.clone(),
+            InstalledComponent {
+                version: component.manifest.version.clone(),
+                registry: component.manifest.registry.clone(),
+                mode: "source".to_string(),
+                source_hash: component.source_hash.clone(),
+                local_hash_at_install: component.source_hash.clone(),
+                installed_files: component
+                    .files
+                    .iter()
+                    .map(|file| file.target_relative.clone())
+                    .collect(),
+                dependencies: component.dependency_ids.clone(),
+                rust_modules: component
+                    .rust_modules
+                    .iter()
+                    .map(|modules| InstalledRustModules {
+                        target: modules.target_relative.clone(),
+                        modules: modules.modules.clone(),
+                    })
+                    .collect(),
+                cargo_dependencies: component
+                    .cargo_dependencies
+                    .iter()
+                    .map(|dependency| InstalledCargoDependency {
+                        name: dependency.name.clone(),
+                        path: match &dependency.source {
+                            PreparedCargoDependencySource::Path(path) => Some(path.clone()),
+                            _ => None,
+                        },
+                        version: match &dependency.source {
+                            PreparedCargoDependencySource::Version { version, .. } => {
+                                Some(version.clone())
+                            }
+                            _ => None,
+                        },
+                        git: match &dependency.source {
+                            PreparedCargoDependencySource::Git(url) => Some(url.clone()),
+                            _ => None,
+                        },
+                        registry: match &dependency.source {
+                            PreparedCargoDependencySource::Version { registry, .. } => {
+                                registry.clone()
+                            }
+                            _ => None,
+                        },
+                        features: dependency.features.clone(),
+                        default_features: dependency.default_features,
+                    })
+                    .collect(),
+            },
+        );
+    }
+    next_lock
+}
+
+fn collect_other_locked_owners(
+    current_lock: &ComponentLockFile,
+    order: &[String],
+) -> BTreeMap<PathBuf, Vec<String>> {
+    let reinstalling: BTreeSet<&str> = order.iter().map(String::as_str).collect();
+    let mut owners: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    for (id, installed) in &current_lock.components {
+        if reinstalling.contains(id.as_str()) {
+            continue;
+        }
+        for path in &installed.installed_files {
+            owners.entry(path.clone()).or_default().push(id.clone());
+        }
+    }
+    owners
+}
+
 pub fn view(options: ViewOptions) -> Result<ViewReport> {
     let root = canonical_project_root(&options.root)?;
     let config = config::load_project_config(&root)?;
@@ -369,6 +455,8 @@ pub fn view(options: ViewOptions) -> Result<ViewReport> {
         options.registry.as_deref(),
     )?;
     let existing_lock = config::load_component_lock(&root)?;
+    let next_lock = build_next_lock(&existing_lock, &graph.components, &graph.order);
+    let other_locked_owners = collect_other_locked_owners(&existing_lock, &graph.order);
 
     let mut target_contents: BTreeMap<PathBuf, PreparedFile> = BTreeMap::new();
     let mut locked_graph_files: BTreeSet<PathBuf> = BTreeSet::new();
@@ -428,6 +516,7 @@ pub fn view(options: ViewOptions) -> Result<ViewReport> {
     let mut files_unchanged = Vec::new();
     let mut files_to_overwrite_on_force = Vec::new();
     let mut files_conflicting_local = Vec::new();
+    let mut install_conflicts = Vec::new();
     for file in target_contents.values() {
         ensure_no_symlink_path(&root, &file.target_relative)?;
         match fs::read(&file.target) {
@@ -435,8 +524,17 @@ pub fn view(options: ViewOptions) -> Result<ViewReport> {
                 files_unchanged.push(file.target_relative.clone());
             }
             Ok(_) if locked_graph_files.contains(&file.target_relative) => {
-                needs_force = true;
-                files_to_overwrite_on_force.push(file.target_relative.clone());
+                if let Some(other_owners) = other_locked_owners.get(&file.target_relative) {
+                    files_conflicting_local.push(file.target_relative.clone());
+                    install_conflicts.push(format!(
+                        "shared file `{}` is also owned by installed component(s) not in this reinstall: {}",
+                        file.target_relative.display(),
+                        other_owners.join(", ")
+                    ));
+                } else {
+                    needs_force = true;
+                    files_to_overwrite_on_force.push(file.target_relative.clone());
+                }
             }
             Ok(_) => {
                 files_conflicting_local.push(file.target_relative.clone());
@@ -449,6 +547,93 @@ pub fn view(options: ViewOptions) -> Result<ViewReport> {
                     .with_context(|| format!("read install target {}", file.target.display()))
             }
         }
+    }
+
+    // Also simulate managed Rust module and Cargo dependency updates without
+    // writing anything so `view` surfaces conflicts that `add` would hit.
+    match (
+        collect_locked_immutable_files(&existing_lock),
+        collect_locked_modules(&existing_lock),
+        collect_locked_modules(&next_lock),
+    ) {
+        (Ok(current_immutable_files), Ok(current_modules), Ok(next_modules)) => {
+            for (target_relative, modules) in &next_modules {
+                if target_contents.contains_key(target_relative) {
+                    install_conflicts.push(format!(
+                        "immutable artifact and managed Rust modules both target `{}`",
+                        target_relative.display()
+                    ));
+                    continue;
+                }
+                if current_immutable_files.contains(target_relative) {
+                    install_conflicts.push(format!(
+                        "managed Rust modules cannot update `{}` because an installed component owns it as an immutable artifact",
+                        target_relative.display()
+                    ));
+                    continue;
+                }
+                if let Err(error) =
+                    validate_relative_path(target_relative, "locked Rust module target")
+                        .and_then(|()| ensure_no_symlink_path(&root, target_relative))
+                {
+                    install_conflicts.push(error.to_string());
+                    continue;
+                }
+                let target = root.join(target_relative);
+                let before = match fs::read(&target) {
+                    Ok(bytes) => Some(bytes),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => {
+                        install_conflicts.push(format!(
+                            "read Rust module target {}: {error}",
+                            target.display()
+                        ));
+                        continue;
+                    }
+                };
+                let expected_current = current_modules
+                    .get(target_relative)
+                    .cloned()
+                    .unwrap_or_default();
+                if let Err(error) = update_managed_rust_modules(
+                    before.as_deref(),
+                    &expected_current,
+                    modules,
+                    target_relative,
+                ) {
+                    install_conflicts.push(error.to_string());
+                }
+            }
+        }
+        (Err(error), _, _) | (_, Err(error), _) | (_, _, Err(error)) => {
+            install_conflicts.push(error.to_string());
+        }
+    }
+
+    match collect_locked_cargo_dependencies(&next_lock) {
+        Ok(cargo_dependencies) if !cargo_dependencies.is_empty() => {
+            let cargo_relative = PathBuf::from("Cargo.toml");
+            if target_contents.contains_key(&cargo_relative) {
+                install_conflicts
+                    .push("component manifest cannot replace the project Cargo.toml".to_string());
+            } else {
+                let cargo_path = root.join(&cargo_relative);
+                match fs::read(&cargo_path) {
+                    Ok(before) => {
+                        if let Err(error) = update_cargo_dependencies(&before, &cargo_dependencies)
+                        {
+                            install_conflicts.push(error.to_string());
+                        }
+                    }
+                    Err(error) => install_conflicts.push(format!(
+                        "read project manifest {}: {error}",
+                        cargo_path.display()
+                    )),
+                }
+            }
+        }
+        Ok(_) => {}
+        Err(error) => install_conflicts.push(error.to_string()),
     }
 
     let top = graph
@@ -474,6 +659,7 @@ pub fn view(options: ViewOptions) -> Result<ViewReport> {
         files_unchanged,
         files_to_overwrite_on_force,
         files_conflicting_local,
+        install_conflicts,
         needs_force,
         next_steps,
     })
@@ -533,12 +719,18 @@ pub fn print_view_report(report: &ViewReport, json: bool) -> Result<()> {
             println!("    {}", file.display());
         }
     }
-    if report.files_conflicting_local.is_empty() {
+    if !report.install_conflicts.is_empty() {
+        println!("  {} install conflict(s):", report.install_conflicts.len());
+        for conflict in &report.install_conflicts {
+            println!("    {conflict}");
+        }
+    }
+    if report.files_conflicting_local.is_empty() && report.install_conflicts.is_empty() {
         let force_flag = if report.needs_force { " --force" } else { "" };
         println!("Install:\n  proa ui add {}{force_flag}", report.requested);
     } else {
         println!(
-            "Resolve the local file conflicts above before running `proa ui add {}`.",
+            "Resolve the conflicts above before running `proa ui add {}`.",
             report.requested
         );
     }
@@ -558,66 +750,7 @@ pub fn add(options: AddOptions) -> Result<AddReport> {
     let resolved_id = graph.resolved_id;
 
     let existing_lock = config::load_component_lock(&root)?;
-    let mut next_lock = existing_lock.clone();
-    for id in &graph.order {
-        let component = graph
-            .components
-            .get(id)
-            .expect("resolver order only contains resolved components");
-        next_lock.components.insert(
-            id.clone(),
-            InstalledComponent {
-                version: component.manifest.version.clone(),
-                registry: component.manifest.registry.clone(),
-                mode: "source".to_string(),
-                source_hash: component.source_hash.clone(),
-                local_hash_at_install: component.source_hash.clone(),
-                installed_files: component
-                    .files
-                    .iter()
-                    .map(|file| file.target_relative.clone())
-                    .collect(),
-                dependencies: component.dependency_ids.clone(),
-                rust_modules: component
-                    .rust_modules
-                    .iter()
-                    .map(|modules| InstalledRustModules {
-                        target: modules.target_relative.clone(),
-                        modules: modules.modules.clone(),
-                    })
-                    .collect(),
-                cargo_dependencies: component
-                    .cargo_dependencies
-                    .iter()
-                    .map(|dependency| InstalledCargoDependency {
-                        name: dependency.name.clone(),
-                        path: match &dependency.source {
-                            PreparedCargoDependencySource::Path(path) => Some(path.clone()),
-                            _ => None,
-                        },
-                        version: match &dependency.source {
-                            PreparedCargoDependencySource::Version { version, .. } => {
-                                Some(version.clone())
-                            }
-                            _ => None,
-                        },
-                        git: match &dependency.source {
-                            PreparedCargoDependencySource::Git(url) => Some(url.clone()),
-                            _ => None,
-                        },
-                        registry: match &dependency.source {
-                            PreparedCargoDependencySource::Version { registry, .. } => {
-                                registry.clone()
-                            }
-                            _ => None,
-                        },
-                        features: dependency.features.clone(),
-                        default_features: dependency.default_features,
-                    })
-                    .collect(),
-            },
-        );
-    }
+    let next_lock = build_next_lock(&existing_lock, &graph.components, &graph.order);
 
     let transaction = prepare_transaction(
         &root,
@@ -1664,6 +1797,7 @@ fn prepare_transaction(
 ) -> Result<PreparedTransaction> {
     let mut target_contents: BTreeMap<PathBuf, PreparedFile> = BTreeMap::new();
     let mut force_replaceable_files: BTreeSet<PathBuf> = BTreeSet::new();
+    let other_locked_owners = collect_other_locked_owners(current_lock, order);
 
     for id in order {
         let component = components
@@ -1724,6 +1858,13 @@ fn prepare_transaction(
                 files_unchanged.push(file.target_relative.clone());
             }
             Ok(existing) if force && force_replaceable_files.contains(&file.target_relative) => {
+                if let Some(other_owners) = other_locked_owners.get(&file.target_relative) {
+                    bail!(
+                        "refusing to overwrite shared file `{}` because it is also owned by installed component(s) not in this reinstall: {}; reinstall those components together or resolve the conflict",
+                        file.target_relative.display(),
+                        other_owners.join(", ")
+                    );
+                }
                 mutations.push(FileMutation {
                     target: file.target.clone(),
                     target_relative: file.target_relative.clone(),
@@ -1943,28 +2084,76 @@ fn update_managed_rust_modules(
 }
 
 fn managed_module_block_for(outside: &str, modules: &BTreeSet<String>) -> String {
+    let (existing_mods, existing_glob_uses) = top_level_rust_module_decls(outside);
     let mut block = String::from(MODULES_START);
     block.push('\n');
     for module in modules {
-        let pub_mod = format!("pub mod {module};");
-        let priv_mod = format!("mod {module};");
-        let pub_use = format!("pub use {module}::*;");
-        let has_mod = outside.lines().any(|line| {
-            let trimmed = line.trim();
-            trimmed == pub_mod || trimmed == priv_mod
-        });
-        let has_use = outside.lines().any(|line| line.trim() == pub_use);
-        if !has_mod {
-            block.push_str(&pub_mod);
-            block.push('\n');
+        if !existing_mods.contains(module) {
+            block.push_str("pub mod ");
+            block.push_str(module);
+            block.push_str(";\n");
         }
-        if !has_use {
-            block.push_str(&pub_use);
-            block.push('\n');
+        if !existing_glob_uses.contains(module) {
+            block.push_str("pub use ");
+            block.push_str(module);
+            block.push_str("::*;\n");
         }
     }
     block.push_str(MODULES_END);
     block
+}
+
+/// Inspect top-level Rust `mod` and `pub use <module>::*` items in `source`
+/// using `syn` so inline comments, visibility modifiers, block comments, and
+/// nested modules never confuse managed module deduplication.
+fn top_level_rust_module_decls(source: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut mods = BTreeSet::new();
+    let mut glob_uses = BTreeSet::new();
+    let Ok(parsed) = syn::parse_file(source) else {
+        return (mods, glob_uses);
+    };
+    for item in parsed.items {
+        match item {
+            syn::Item::Mod(item_mod) => {
+                mods.insert(item_mod.ident.to_string());
+            }
+            syn::Item::Use(item_use) if matches!(item_use.vis, syn::Visibility::Public(_)) => {
+                collect_top_level_glob_uses(&item_use.tree, None, &mut glob_uses);
+            }
+            _ => {}
+        }
+    }
+    (mods, glob_uses)
+}
+
+fn collect_top_level_glob_uses(
+    tree: &syn::UseTree,
+    prefix: Option<&str>,
+    out: &mut BTreeSet<String>,
+) {
+    match tree {
+        syn::UseTree::Path(path) => {
+            let ident = path.ident.to_string();
+            if prefix.is_none() {
+                if ident == "self" {
+                    collect_top_level_glob_uses(&path.tree, None, out);
+                } else {
+                    collect_top_level_glob_uses(&path.tree, Some(&ident), out);
+                }
+            }
+        }
+        syn::UseTree::Glob(_) => {
+            if let Some(module) = prefix {
+                out.insert(module.to_string());
+            }
+        }
+        syn::UseTree::Group(group) => {
+            for item in &group.items {
+                collect_top_level_glob_uses(item, prefix, out);
+            }
+        }
+        syn::UseTree::Name(_) | syn::UseTree::Rename(_) => {}
+    }
 }
 
 #[derive(Debug)]

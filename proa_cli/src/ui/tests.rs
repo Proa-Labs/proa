@@ -1171,3 +1171,171 @@ fn add_report_suggests_next_steps_for_unwired_public_assets_only() {
         second.next_steps
     );
 }
+
+#[test]
+fn force_refuses_to_overwrite_shared_file_owned_by_other_installed_component() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+
+    // Two installed components share `src/components/_proa/glue.rs`.
+    fs::create_dir_all(project.join("src/components/_proa")).unwrap();
+    fs::write(
+        project.join("src/components/_proa/glue.rs"),
+        b"pub const V: u8 = 1;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join(LOCK_FILE),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": "https://proa.so/schema/proa.lock.json",
+            "components": {
+                "@proa/alpha": {
+                    "version": "1.0.0",
+                    "registry": "@proa",
+                    "mode": "source",
+                    "sourceHash": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+                    "localHashAtInstall": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+                    "installedFiles": ["src/components/_proa/glue.rs"],
+                    "dependencies": [],
+                    "rustModules": [],
+                    "cargoDependencies": []
+                },
+                "@proa/beta": {
+                    "version": "1.0.0",
+                    "registry": "@proa",
+                    "mode": "source",
+                    "sourceHash": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+                    "localHashAtInstall": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+                    "installedFiles": ["src/components/_proa/glue.rs"],
+                    "dependencies": [],
+                    "rustModules": [],
+                    "cargoDependencies": []
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // New version of `@proa/alpha` changes the shared glue file.
+    write_manifest(
+        &public,
+        "alpha",
+        PUBLIC_REGISTRY,
+        "free",
+        "MIT OR Apache-2.0",
+        "@components/_proa/glue.rs",
+        b"pub const V: u8 = 2;\n",
+        &[],
+    );
+
+    // `view` surfaces the shared ownership conflict instead of suggesting `--force`.
+    let viewed = view(ViewOptions {
+        root: project.clone(),
+        component: "alpha".into(),
+        registry: None,
+    })
+    .unwrap();
+    assert!(
+        viewed
+            .install_conflicts
+            .iter()
+            .any(|msg| msg.contains("@proa/beta")),
+        "{:?}",
+        viewed.install_conflicts
+    );
+    assert!(viewed.files_to_overwrite_on_force.is_empty());
+
+    // `add --force` refuses to overwrite shared glue owned by `@proa/beta`.
+    let err = add(AddOptions {
+        root: project.clone(),
+        component: "alpha".into(),
+        registry: None,
+        dry_run: false,
+        force: true,
+    })
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("@proa/beta"), "{err}");
+    assert_eq!(
+        fs::read_to_string(project.join("src/components/_proa/glue.rs")).unwrap(),
+        "pub const V: u8 = 1;\n"
+    );
+}
+
+#[test]
+fn module_deduplication_uses_rust_ast_and_view_surfaces_edited_module_blocks() {
+    let outside = r#"
+pub mod button; // local component with trailing comment
+/* pub mod dialog; */
+mod inner {
+    pub mod dialog;
+}
+"#;
+    let modules = BTreeSet::from(["button".to_string(), "dialog".to_string()]);
+    let block = managed_module_block_for(outside, &modules);
+    assert!(!block.contains("pub mod button;"), "{block}");
+    assert!(block.contains("pub use button::*;"), "{block}");
+    assert!(block.contains("pub mod dialog;"), "{block}");
+    assert!(block.contains("pub use dialog::*;"), "{block}");
+
+    // Verify `view` reports an edited managed Rust module block as an install conflict.
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+
+    fs::create_dir_all(public.join("files")).unwrap();
+    let bytes = b"pub struct Accordion;\n";
+    fs::write(public.join("files/accordion.rs"), bytes).unwrap();
+    fs::write(
+        public.join("accordion.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "$schema": COMPONENT_MANIFEST_SCHEMA,
+            "schemaVersion": COMPONENT_MANIFEST_VERSION,
+            "name": "accordion",
+            "version": "1.0.0",
+            "registry": PUBLIC_REGISTRY,
+            "tier": "free",
+            "license": "MIT OR Apache-2.0",
+            "rustModules": [{ "target": "@components/mod.rs", "modules": ["accordion"] }],
+            "files": [{
+                "source": "files/accordion.rs",
+                "target": "@components/accordion/accordion.rs",
+                "sha256": sha256_bytes(bytes),
+            }],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        project.join("src/components/mod.rs"),
+        "// proa-ui:modules:start\npub mod custom;\n",
+    )
+    .unwrap();
+
+    let viewed = view(ViewOptions {
+        root: project,
+        component: "accordion".into(),
+        registry: None,
+    })
+    .unwrap();
+    assert!(
+        viewed
+            .install_conflicts
+            .iter()
+            .any(|msg| msg.contains("incomplete or out-of-order markers")),
+        "{:?}",
+        viewed.install_conflicts
+    );
+}

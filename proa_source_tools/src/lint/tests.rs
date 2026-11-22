@@ -6322,6 +6322,8 @@ fn asset_url_lint_catches_head_writer_setters_and_missing_public_files() {
     let root = temp.path();
     std::fs::create_dir_all(root.join("src/pages")).unwrap();
     std::fs::create_dir_all(root.join("public/images")).unwrap();
+    std::fs::create_dir_all(root.join("public/.well-known")).unwrap();
+    std::fs::create_dir_all(root.join("styles")).unwrap();
     std::fs::write(
         root.join("Cargo.toml"),
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
@@ -6336,11 +6338,18 @@ pub async fn config() -> Result<Config> {
 "#,
     )
     .unwrap();
+    std::fs::write(root.join("styles/input.css"), "@import \"tailwindcss\";\n").unwrap();
     std::fs::write(root.join("public/favicon.svg"), "<svg/>").unwrap();
     std::fs::write(root.join("public/images/og.png"), b"png").unwrap();
+    std::fs::write(
+        root.join("public/.well-known/security.txt"),
+        "Contact: hi\n",
+    )
+    .unwrap();
 
-    // Note: `public/styles.css` is intentionally NOT on disk yet to verify
-    // declared/inferred generated outputs do not false-positive.
+    // Note: `public/styles.css` is intentionally NOT on disk yet; because
+    // `styles/input.css` exists and `build.assets` is default (`None`), the CLI
+    // infers `public/styles.css` and the lint must not false-positive.
     std::fs::write(
         root.join("src/pages/home.rs"),
         r#"pub struct HomePage;
@@ -6352,12 +6361,14 @@ impl WebRenderSync for HomePage {
         let _ = cx.head_mut().og_image("/images/og.png");
         let _ = cx.head_mut().og_image("public/images/og.png");
         let _ = cx.head_mut().icon("/favicon.svg");
-        let _ = cx.head_mut().stylesheet("/favicon.svg");
-        // Valid resolved calls + inferred generated Tailwind output + unrelated `.icon(...)`
+        let _ = cx.head_mut().stylesheet("app", "/favicon.svg");
+        let _ = cx.head_mut().module("main", "public/images/og.png");
+        // Valid resolved calls + dot-prefixed asset + inferred Tailwind output + unrelated `.icon(...)`
         let og = cx.url("public/images/og.png");
         let _ = cx.head_mut().og_image(og);
         let css = cx.url("public/styles.css");
-        let _ = cx.head_mut().stylesheet(css);
+        let _ = cx.head_mut().stylesheet("app", css);
+        let _ = cx.url("public/.well-known/security.txt");
         let _ = HeadMedia::from_url(cx.url("public/images/og.png"));
         let _ = my_builder.icon("/favicon.svg");
         // Missing files under public/
@@ -6391,10 +6402,22 @@ impl WebRenderSync for HomePage {
             (7, "asset/public-url"),           // cx.head_mut().og_image("/images/og.png")
             (8, "asset/public-url"),           // cx.head_mut().og_image("public/images/og.png")
             (9, "asset/public-url"),           // cx.head_mut().icon("/favicon.svg")
-            (10, "asset/public-url"),          // cx.head_mut().stylesheet("/favicon.svg")
-            (19, "asset/missing-public-file"), // cx.url("public/images/typo.png")
-            (20, "asset/missing-public-file"), // cx.url("public/images/absent.png?v=1#top")
+            (10, "asset/public-url"),          // cx.head_mut().stylesheet("app", "/favicon.svg")
+            (11, "asset/public-url"), // cx.head_mut().module("main", "public/images/og.png")
+            (21, "asset/missing-public-file"), // cx.url("public/images/typo.png")
+            (22, "asset/missing-public-file"), // cx.url("public/images/absent.png?v=1#top")
         ],
         "unexpected asset diagnostics: {diagnostics:#?}"
+    );
+
+    // Removing `styles/input.css` disables Tailwind inference, so missing `public/styles.css` now warns.
+    std::fs::remove_file(root.join("styles/input.css")).unwrap();
+    let without_input =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    assert!(
+        without_input
+            .iter()
+            .any(|d| d.line == 15 && d.code == "asset/missing-public-file"),
+        "expected missing-public-file for public/styles.css without styles/input.css: {without_input:#?}"
     );
 }
