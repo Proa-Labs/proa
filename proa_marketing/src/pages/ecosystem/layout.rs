@@ -13,7 +13,7 @@ use crate::{
         landing_shell::{LandingHeader, MarketingNavActive},
         search::SearchModal,
     },
-    layout::{DocumentMetadata, PageMeta, RsjsRuntimeTags, SiteIcons, STYLESHEET_HREF, THEME_BOOT},
+    layout::{DocumentMetadata, PageMeta, RsjsRuntimeTags, SiteIcons, STYLESHEET_PATH, THEME_BOOT},
 };
 
 pub(crate) struct EcosystemStandaloneDocument<C> {
@@ -156,7 +156,7 @@ where
                         <meta name="viewport" content="width=device-width, initial-scale=1" />
                         {proa_core::to_async(DocumentMetadata::new(self.meta))}
                         {proa_core::to_async(SiteIcons)}
-                        <link rel="stylesheet" href={STYLESHEET_HREF} />
+                        <link rel="stylesheet" href={cx.url(STYLESHEET_PATH)} />
                         <script>{StaticRaw(THEME_BOOT)}</script>
                     </head>
                     <body class="min-h-screen bg-[#f7f4ee] text-[#18181b] font-sans antialiased dark:bg-[#0b0b0d] dark:text-zinc-100">

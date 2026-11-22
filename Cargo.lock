@@ -255,7 +255,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tower 0.5.2",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -3436,7 +3436,7 @@ dependencies = [
  "proa_stream",
  "serde_json",
  "tokio",
- "tower 0.5.2",
+ "tower",
 ]
 
 [[package]]
@@ -3673,7 +3673,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
- "tower 0.5.2",
+ "tower",
  "tower-http 0.6.11",
  "tracing",
  "url",
@@ -3761,8 +3761,7 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror",
  "tokio",
- "tower 0.4.13",
- "tower 0.5.2",
+ "tower",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -3894,7 +3893,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tower 0.5.2",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "wellformed",
@@ -4272,7 +4271,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
- "tower 0.5.2",
+ "tower",
  "tower-http 0.6.11",
  "tower-service",
  "url",
@@ -4319,7 +4318,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
- "tower 0.5.2",
+ "tower",
  "tower-http 0.6.11",
  "tower-service",
  "url",
@@ -5637,17 +5636,6 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
 name = "tower"
-version = "0.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
-dependencies = [
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tower"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
@@ -5673,15 +5661,9 @@ dependencies = [
  "bitflags 2.10.0",
  "bytes",
  "futures-core",
- "futures-util",
  "http",
  "http-body",
  "http-body-util",
- "http-range-header",
- "httpdate",
- "mime",
- "mime_guess",
- "percent-encoding",
  "pin-project-lite",
  "tokio",
  "tokio-util",
@@ -5711,7 +5693,7 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
- "tower 0.5.2",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",

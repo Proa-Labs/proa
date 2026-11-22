@@ -4,6 +4,11 @@
 use std::{env, path::PathBuf, sync::LazyLock};
 
 use anyhow::Context;
+use axum::{
+    extract::Path,
+    http::{header::CACHE_CONTROL, StatusCode},
+    response::{IntoResponse, Redirect, Response},
+};
 use proa_assets::{build::OutputStore, OUTPUT_ENV};
 use proa_core::{BasePath, RequestContext};
 use proa_framework_axum::PublicAssets;
@@ -19,7 +24,7 @@ static ASSETS: LazyLock<anyhow::Result<PublicAssets>> = LazyLock::new(|| {
             .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target"));
         let directory = target.join("marketing-public-assets");
         OutputStore::open(&directory)?
-            .publish(source_directory())
+            .publish(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"))
             .context("publish marketing public assets")?;
         directory
     };
@@ -43,8 +48,9 @@ pub(super) fn request() -> RequestContext {
     request
 }
 
-pub(super) fn source_directory() -> PathBuf {
-    env::var_os("STATIC_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"))
+pub(super) async fn legacy_url(Path(path): Path<String>) -> Response {
+    let Some(url) = get().url(&path) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    ([(CACHE_CONTROL, "no-cache")], Redirect::temporary(url)).into_response()
 }

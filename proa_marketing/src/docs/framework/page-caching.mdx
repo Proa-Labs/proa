@@ -58,7 +58,7 @@ The first request without a cached copy reaches Proa. The CDN stores the rendere
 
 The policy uses a one-year TTL. To keep pages until your next deployment, your deployment must invalidate the CDN cache. Eviction or TTL expiry can trigger an earlier render.
 
-![Visitors receive cached HTML from the CDN; misses reach Proa, and deployment invalidation removes old cached responses.](/static/images/docs/page-cache-flow.svg)
+![Visitors receive cached HTML from the CDN; misses reach Proa, and deployment invalidation removes old cached responses.](/_proa/assets/images/docs/page-cache-flow.svg)
 
 For content that changes between deployments, add ISR to the route.
 

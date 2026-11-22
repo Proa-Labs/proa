@@ -13,9 +13,10 @@ use std::path::{Path, PathBuf};
 
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::{header, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::Router;
+use proa_core::PublicAssetUrls;
 
 /// Canonical public showcase routes. Alias routes are intentionally omitted so
 /// sitemaps can point at one stable URL per page.
@@ -37,12 +38,14 @@ const IMAGE_CACHE_CONTROL: &str = "public, max-age=86400";
 #[derive(Clone, Debug)]
 pub struct ShowcaseWebConfig {
     public_roots: Vec<PathBuf>,
+    managed_images: Option<PublicAssetUrls>,
 }
 
 impl ShowcaseWebConfig {
     pub fn new(public_root: impl Into<PathBuf>) -> Self {
         Self {
             public_roots: vec![public_root.into()],
+            managed_images: None,
         }
     }
 
@@ -65,7 +68,18 @@ impl ShowcaseWebConfig {
         );
         Self {
             public_roots: roots,
+            managed_images: None,
         }
+    }
+
+    /// Use the host site's asset catalog for showcase images present in it.
+    pub fn with_managed_images(mut self, urls: PublicAssetUrls) -> Self {
+        self.managed_images = Some(urls);
+        self
+    }
+
+    fn managed_image_url(&self, path: &str) -> Option<&str> {
+        self.managed_images.as_ref()?.get(&format!("images/{path}"))
     }
 
     pub fn public_roots(&self) -> &[PathBuf] {
@@ -333,11 +347,26 @@ async fn serve_image(
     State(config): State<ShowcaseWebConfig>,
     AxumPath(path): AxumPath<String>,
 ) -> Response {
-    let file_path = config.resolve_public_file("images", &path).or_else(|| {
-        fallback_image_path(&path).and_then(|path| config.resolve_public_file("images", path))
-    });
-
-    serve_resolved_file(file_path, IMAGE_CACHE_CONTROL).await
+    if let Some(url) = config.managed_image_url(&path) {
+        return (
+            [(header::CACHE_CONTROL, "no-cache")],
+            Redirect::temporary(url),
+        )
+            .into_response();
+    }
+    if let Some(file) = config.resolve_public_file("images", &path) {
+        return serve_resolved_file(Some(file), IMAGE_CACHE_CONTROL).await;
+    }
+    let fallback = fallback_image_path(&path);
+    if let Some(url) = fallback.and_then(|path| config.managed_image_url(path)) {
+        return (
+            [(header::CACHE_CONTROL, "no-cache")],
+            Redirect::temporary(url),
+        )
+            .into_response();
+    }
+    let file = fallback.and_then(|path| config.resolve_public_file("images", path));
+    serve_resolved_file(file, IMAGE_CACHE_CONTROL).await
 }
 
 async fn serve_public_file(

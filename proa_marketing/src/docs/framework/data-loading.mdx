@@ -140,7 +140,7 @@ pub async fn product_handler() -> impl axum::response::IntoResponse {
 
 ## Why Keyed Loading
 
-![](/static/images/docs/data-loader-request-dedupe.svg "Three components share one origin load through a stable key and request-scoped DataResolver")
+![](/_proa/assets/images/docs/data-loader-request-dedupe.svg "Three components share one origin load through a stable key and request-scoped DataResolver")
 
 **Prefer keyed loading through `WebContext`.** It keeps data requirements beside the components that own them while preventing repeated database or API work. Loading in the handler remains useful when one fetch has one clear owner and rendering cannot begin without it.
 

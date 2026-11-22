@@ -192,8 +192,7 @@ pub(crate) const THEME_BOOT: &str = r#"
 })();
 "#;
 
-pub(crate) const STYLESHEET_HREF: &str =
-    concat!("/static/styles.css?v=", env!("MARKETING_ASSET_VERSION"));
+pub(crate) const STYLESHEET_PATH: &str = "public/styles.css";
 const SOCIAL_IMAGE_ALT: &str =
     "Proa: a person and a robot in a boat with an orange sail, traveling through streams of HTML and Markdown.";
 const SOCIAL_IMAGE_PATH: &str = "public/og.jpg";
@@ -214,17 +213,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteIcons {
         )
     }
 }
-pub(crate) const DOCS_SCRIPT_SRC: &str =
-    concat!("/static/docs.js?v=", env!("MARKETING_ASSET_VERSION"));
-/// Orama-backed search for the modal on every shell. A module script, so it
-/// is deferred and its `?v=` carries through to the modules it imports.
-pub(crate) const SEARCH_SCRIPT_SRC: &str =
-    concat!("/static/search.mjs?v=", env!("MARKETING_ASSET_VERSION"));
-const AGENT_TOOLS_SCRIPT_SRC: &str = concat!(
-    "/static/agent-tools.mjs?v=",
-    env!("MARKETING_ASSET_VERSION")
-);
-
 /// Emit the rsjs runtime and island module tags for every hydrated island
 /// this response has rendered so far.
 ///
@@ -354,7 +342,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteMetadata {
                             <script type="application/ld+json">{raw_text_ok(data)}</script>
                         }
                     }}
-                <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
+                <script type="module" src={cx.url("public/agent-tools.mjs")}></script>
                 {google_analytics()}
             },
             cx,
@@ -397,12 +385,12 @@ where
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             {self.metadata}
             {SiteIcons}
-            <link rel="stylesheet" href={STYLESHEET_HREF} />
-            <script type="module" src={SEARCH_SCRIPT_SRC}></script>
+            <link rel="stylesheet" href={cx.url(STYLESHEET_PATH)} />
+            <script type="module" src={cx.url("public/search.mjs")}></script>
             {if self.shell.is_docs() {
                 WebRenderSync::render(
                     html_sync! {
-                        <script src={DOCS_SCRIPT_SRC} defer></script>
+                        <script src={cx.url("public/docs.js")} defer></script>
                     },
                     cx,
                 )?;
@@ -520,7 +508,8 @@ mod tests {
         ] {
             assert!(html.contains(r#"<script type="module" src="/rsjs-runtime.js""#));
             assert!(html.contains(&format!(
-                r#"<script type="module" src="{SEARCH_SCRIPT_SRC}""#
+                r#"<script type="module" src="{}""#,
+                static_assets::get().url("search.mjs").unwrap()
             )));
             for asset in &search_assets {
                 assert!(html.contains(&format!(

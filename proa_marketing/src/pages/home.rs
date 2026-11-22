@@ -2042,7 +2042,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
             >
                 <link
                     rel="stylesheet"
-                    href={concat!("/static/proa-ui-rail.css?v=", env!("MARKETING_ASSET_VERSION"))}
+                    href={cx.url("public/proa-ui-rail.css")}
                 />
                 <div class={SECTION_CONTAINER}>
                     <div class={SECTION_HEADER}>

@@ -240,7 +240,7 @@ CHECKS = (
     Check("/healthz", validate_text(b"ok")),
     Check("/readyz", validate_text(b"ready")),
     Check("/", validate_html),
-    Check("/static/styles.css", validate_css),
+    Check("/_proa/assets/styles.css", validate_css),
     Check("/showcase/airbnb/proa", validate_showcase_html),
     Check("/assets/airbnb-showcase.js", validate_showcase_javascript),
     Check("/images/airbnb/bedroom.jpg", validate_showcase_image),

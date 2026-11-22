@@ -22,6 +22,10 @@ try {
   await page.locator("#benchmark-panel-render").waitFor({ state: "visible" });
   assert.equal(await chartLink.getAttribute("href"),
     await page.locator("#benchmark-panel-render img").getAttribute("src"));
+  await page.locator("[data-search-open]:visible").first().click();
+  await page.locator("#search-input").fill("streaming");
+  await page.locator("[data-search-hit]").first().waitFor({ state: "visible" });
+
   await page.goto(`${base}/showcase/espn/proa`, { waitUntil: "networkidle" });
   const box = page.getByRole("button", { name: "Box Score", exact: true });
   await box.click();

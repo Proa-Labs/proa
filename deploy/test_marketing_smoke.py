@@ -24,7 +24,7 @@ RESPONSES = {
     "/healthz": ("text/plain; charset=utf-8", b"ok"),
     "/readyz": ("text/plain; charset=utf-8", b"ready"),
     "/": ("text/html; charset=utf-8", b"<!doctype html><html><title>Proa</title></html>"),
-    "/static/styles.css": ("text/css; charset=utf-8", b".proa{}" * 200),
+    "/_proa/assets/styles.css": ("text/css; charset=utf-8", b".proa{}" * 200),
     "/showcase/airbnb/proa": (
         "text/html; charset=utf-8",
         b'<!doctype html><html><div class="air-parity-shell">Airbnb</div></html>',

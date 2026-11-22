@@ -9,13 +9,11 @@ use std::env;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
-use axum::http::header::{HeaderValue, CACHE_CONTROL, CONTENT_TYPE, LINK, X_CONTENT_TYPE_OPTIONS};
+use axum::http::header::{HeaderValue, LINK};
 use axum::routing::{get, post};
 use axum::Router;
-use tower::ServiceBuilder;
 use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 use tower_http::compression::CompressionLayer;
-use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -139,9 +137,12 @@ fn app() -> Router {
         // as a router rather than as two bare handlers.
         .merge(endpoints::downloads::router())
         .merge(proa_demo::playground::marketing_router())
-        .merge(proa_showcase_web::router())
+        .merge(proa_showcase_web::router_with_config(
+            proa_showcase_web::ShowcaseWebConfig::default()
+                .with_managed_images(static_assets::get().render_urls()),
+        ))
         .merge(static_assets::get().router())
-        .nest_service("/static", static_service())
+        .route("/static/*path", get(static_assets::legacy_url))
         .fallback(endpoints::not_found::handler)
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
         .layer(TraceLayer::new_for_http())
@@ -153,37 +154,6 @@ fn app() -> Router {
 /// and makes the payload larger, so those are excluded by content type.
 fn compression_predicate() -> impl Predicate {
     DefaultPredicate::new().and(NotForContentType::const_new("application/octet-stream"))
-}
-
-fn static_service() -> Router {
-    let static_dir = static_assets::source_directory();
-
-    Router::new().nest_service(
-        "/",
-        ServiceBuilder::new()
-            .layer(SetResponseHeaderLayer::if_not_present(
-                CACHE_CONTROL,
-                legacy_static_cache_control,
-            ))
-            .layer(SetResponseHeaderLayer::if_not_present(
-                X_CONTENT_TYPE_OPTIONS,
-                HeaderValue::from_static("nosniff"),
-            ))
-            .service(ServeDir::new(static_dir)),
-    )
-}
-
-// Stable image URLs are still used by older links and precompiled exports.
-fn legacy_static_cache_control<B>(response: &axum::http::Response<B>) -> Option<HeaderValue> {
-    let is_image = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .is_some_and(|value| value.as_bytes().starts_with(b"image/"));
-    Some(HeaderValue::from_static(if is_image {
-        "no-cache"
-    } else {
-        "public, max-age=31536000, immutable"
-    }))
 }
 
 #[cfg(test)]

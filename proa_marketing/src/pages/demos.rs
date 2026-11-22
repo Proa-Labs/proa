@@ -20,7 +20,7 @@ use proa_macros::html_sync;
 use serde::Deserialize;
 
 use crate::components::demos::quantity_stepper::QuantityStepper;
-use crate::layout::{render_chained_html, RsjsRuntimeTags, STYLESHEET_HREF, THEME_BOOT};
+use crate::layout::{render_chained_html, RsjsRuntimeTags, STYLESHEET_PATH, THEME_BOOT};
 
 /// Price of the tutorial's example product, in whole dollars.
 const ATLAS_JACKET_USD: i64 = 248;
@@ -105,7 +105,7 @@ where
                     <meta name="viewport" content="width=device-width, initial-scale=1" />
                     <meta name="robots" content="noindex" />
                     <title>{raw_text_ok(self.title)}</title>
-                    <link rel="stylesheet" href={STYLESHEET_HREF} />
+                    <link rel="stylesheet" href={cx.url(STYLESHEET_PATH)} />
                     <script>{StaticRaw(THEME_BOOT)}</script>
                 </head>
                 <body class="demo-frame-body">

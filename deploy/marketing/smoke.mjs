@@ -74,8 +74,21 @@ for (const asset of fingerprintedImages) {
   assert.match(response.headers.get("cache-control") || "", /\bimmutable\b/, asset);
   assert.ok((await response.arrayBuffer()).byteLength > 0, `${asset}: empty image`);
 }
-const oldImage = await request("/static/images/benchmarks/01-canonical-scoreboard.svg");
-assert.equal(oldImage.headers.get("cache-control"), "no-cache", "stable image URLs must revalidate");
+for (const path of ["/styles.css", "/search.mjs", "/search-index.mjs", "/vendor/orama.mjs"]) {
+  const asset = await request(`/_proa/assets${path}`);
+  assert.equal(asset.headers.get("cache-control"), "no-cache", path);
+  assert.ok(asset.headers.has("etag"), `${path}: missing catalog validator`);
+}
+for (const path of ["/static/images/benchmarks/01-canonical-scoreboard.svg", "/images/airbnb/bedroom.jpg"]) {
+  const alias = await fetch(new URL(path, base), { redirect: "manual", signal: AbortSignal.timeout(30_000) });
+  assert.equal(alias.status, 307, path);
+  assert.equal(alias.headers.get("cache-control"), "no-cache", path);
+  const image = await request(alias.headers.get("location"));
+  assert.match(image.headers.get("content-type") || "", /^image\//, path);
+  assert.match(image.headers.get("cache-control") || "", /\bimmutable\b/, path);
+}
+const espnImage = await request("/images/espn/dodger-stadium.jpg");
+assert.match(espnImage.headers.get("content-type") || "", /^image\//);
 
 for (const engine of ["", "-node", "-bun"]) {
   const deadline = Date.now() + 30_000;

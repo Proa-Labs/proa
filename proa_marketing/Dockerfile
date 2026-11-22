@@ -74,7 +74,7 @@ RUN --mount=type=cache,id=s/8a6d0a70-bfd2-4e6e-bf87-048c563a7044-/workspace/sour
     && python3 /incoming/scripts/sync_build_context.py /incoming /workspace/source \
     && cd /workspace/source \
     && rm -rf /out \
-    && install -d /out/static /out/showcase \
+    && install -d /out/showcase \
     && CARGO_TARGET_DIR=/workspace/target bash -o pipefail -c '\
         cargo run --release --locked -p proa-cli --bin proa -- \
         build \
@@ -86,9 +86,8 @@ RUN --mount=type=cache,id=s/8a6d0a70-bfd2-4e6e-bf87-048c563a7044-/workspace/sour
         --no-check \
         --artifact-out /out/proa_marketing | tee /tmp/marketing-build.log' \
     && python3 deploy/marketing/stage_public_assets.py /tmp/marketing-build.log /out/public-assets \
-    && cp -a proa_marketing/public/. /out/static/ \
-    && cp -a proa_showcase/src/espn/data/images/. /out/static/images/ \
-    && cp -a proa_showcase_web/public/. /out/showcase/
+    && cp -a proa_showcase_web/public/. /out/showcase/ \
+    && cp -a proa_showcase/src/espn/data/images/. /out/showcase/images/
 
 # CI supplies the output of the exact same linked build. BuildKit omits the
 # Rust builder above when BUILD_ARTIFACTS=prebuilt; Railway pulls the resulting
@@ -188,7 +187,6 @@ COPY --chmod=755 proa_marketing/docker-entrypoint.sh /usr/local/bin/docker-entry
 # Application artifacts change on every release. Keep them after the stable
 # runtimes and companions.
 COPY --from=artifacts /out/proa_marketing /usr/local/bin/proa_marketing
-COPY --from=artifacts /out/static /app/static
 # The catalog publisher creates the manifest with owner-only permissions.
 COPY --from=artifacts --chown=proa:proa /out/public-assets /app/public-assets
 COPY --from=artifacts /out/showcase /app/showcase
@@ -196,7 +194,6 @@ COPY --from=artifacts /out/showcase /app/showcase
 ENV HOST=0.0.0.0 \
     RUST_LOG=info \
     PROA_PUBLIC_ASSETS=/app/public-assets \
-    STATIC_DIR=/app/static \
     SHOWCASE_PUBLIC_DIR=/app/showcase \
     PROA_CONSOLE_LOAD_TESTS=0
 
