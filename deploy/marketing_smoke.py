@@ -30,6 +30,8 @@ class SmokeError(RuntimeError):
 class Check:
     path: str
     validate: Callable[[bytes, str], None]
+    # The path may answer with one redirect into the asset catalog.
+    catalog_alias: bool = False
 
 
 class RejectRedirects(urllib.request.HTTPRedirectHandler):
@@ -40,6 +42,7 @@ class RejectRedirects(urllib.request.HTTPRedirectHandler):
 
 
 HTTP_OPENER = urllib.request.build_opener(RejectRedirects)
+CATALOG_PREFIX = "/_proa/assets/"
 
 
 def parse_args() -> argparse.Namespace:
@@ -243,7 +246,7 @@ CHECKS = (
     Check("/_proa/assets/styles.css", validate_css),
     Check("/showcase/airbnb/proa", validate_showcase_html),
     Check("/assets/airbnb-showcase.js", validate_showcase_javascript),
-    Check("/images/airbnb/bedroom.jpg", validate_showcase_image),
+    Check("/images/airbnb/bedroom.jpg", validate_showcase_image, catalog_alias=True),
     Check("/.well-known/proa-site.json", validate_service_metadata),
     Check("/openapi.json", validate_openapi),
     Check("/llms.txt", validate_agent_index),
@@ -266,7 +269,21 @@ def fetch(
         url,
         headers={"Accept": "*/*", "User-Agent": "proa-marketing-smoke/1"},
     )
-    with HTTP_OPENER.open(request, timeout=timeout) as response:
+    try:
+        response = HTTP_OPENER.open(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        if not (check.catalog_alias and error.code in {302, 307, 308}):
+            raise
+        # Follow it by path only, so the target is fetched from the host under
+        # test whatever the Location header names.
+        location = urllib.parse.urlsplit(error.headers.get("Location", ""))
+        if location.scheme or location.netloc or not location.path.startswith(CATALOG_PREFIX):
+            raise SmokeError(
+                f"{check.path} redirected outside the asset catalog: "
+                f"{error.headers.get('Location')!r}"
+            ) from error
+        return fetch(base_url, Check(location.path, check.validate), timeout)
+    with response:
         body = response.read(MAX_RESPONSE_BYTES + 1)
         if len(body) > MAX_RESPONSE_BYTES:
             raise SmokeError(f"{check.path} response exceeded {MAX_RESPONSE_BYTES} bytes")
