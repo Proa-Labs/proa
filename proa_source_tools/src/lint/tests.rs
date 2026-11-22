@@ -6420,4 +6420,37 @@ impl WebRenderSync for HomePage {
             .any(|d| d.line == 15 && d.code == "asset/missing-public-file"),
         "expected missing-public-file for public/styles.css without styles/input.css: {without_input:#?}"
     );
+
+    // Explicit `build.assets: Some(vec![AssetConfig { output: ... }])` inside `vec!`
+    // exempts the declared output (`public/styles.css`) even before the build runs,
+    // while another unbuilt output (`public/other.css`) still warns.
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{AssetConfig, BuildConfig, Config, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        build: BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "tailwind",
+                command: vec![],
+                input: "styles/main.css",
+                output: "public/styles.css",
+                config: None,
+            }]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let with_declared =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    assert!(
+        !with_declared
+            .iter()
+            .any(|d| d.line == 15 && d.code == "asset/missing-public-file"),
+        "declared `vec![AssetConfig {{ output: \"public/styles.css\" }}]` must not warn: {with_declared:#?}"
+    );
 }

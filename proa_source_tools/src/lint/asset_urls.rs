@@ -402,6 +402,23 @@ fn parse_public_config(project_root: &Path, config_path: &Path) -> Option<Parsed
             }
             visit::visit_expr_struct(self, expr);
         }
+
+        fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+            if mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|seg| seg.ident == "vec")
+            {
+                let parser = syn::punctuated::Punctuated::<Expr, syn::Token![,]>::parse_terminated;
+                if let Ok(items) = syn::parse::Parser::parse2(parser, mac.tokens.clone()) {
+                    for expr in &items {
+                        self.visit_expr(expr);
+                    }
+                }
+            }
+            visit::visit_macro(self, mac);
+        }
     }
 
     let mut finder = ConfigPublicFinder {
