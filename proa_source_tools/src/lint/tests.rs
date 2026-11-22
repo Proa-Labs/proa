@@ -14,7 +14,7 @@ impl WebRenderSync for Product {
             <img src={"./public/cover.png"} alt="Cover" />
             <source srcset="https://cdn.example/logo.png 1x, public/large.png 2x" />
             <img src={cx.url("/public/logo.png")} alt="Bad prefix" />
-            <img src="/shop/_proa/assets/img/logo.a1b2c3d4.svg" alt="Hard-coded" />
+            <img src="/shop/_proa/immutable/img/logo.a1b2c3d4e5f60718.svg" alt="Hard-coded" />
             <img src={cx.url("public/ok.png")} alt="Resolved" />
             <img srcset="data:image/png,public/fake.png 1x, https://cdn.example/image.png 2x" alt="Remote" />
             <a href="/products">"Products"</a>
@@ -5423,7 +5423,7 @@ impl<L: DataLoader> WebRenderSync<L> for Hero {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let logo = cx.url("/public/logo.svg");
         let banner = cx.url("./public/banner.png");
-        let generated = cx.url("/_proa/assets/logo.1234abcd.svg");
+        let generated = cx.url("/_proa/immutable/logo.1234abcd5e6f7a8b.svg");
         let valid = cx.url("public/ok.svg");
         html_sync! {
             <header>
@@ -6172,7 +6172,7 @@ fn asset_url_lint_ignores_asset_text_in_markdown_query_strings() {
 pub struct Links;
 impl MdRenderSync for Links {
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        md_sync! { "[Open](/search?next=/_proa/assets/{name}) ![Raw](/_proa/assets/{file})", name = "logo.svg", file = "x.svg" }
+        md_sync! { "[Open](/search?next=/_proa/mutable/{name}) ![Raw](/_proa/mutable/{file})", name = "logo.svg", file = "x.svg" }
             .render_md(cx)
     }
 }
@@ -6187,7 +6187,7 @@ impl MdRenderSync for Links {
         hits,
         vec![(
             5,
-            line.rfind("/_proa/assets/").unwrap() + 1,
+            line.rfind("/_proa/mutable/").unwrap() + 1,
             "asset/generated-url"
         )]
     );

@@ -8,7 +8,8 @@
 //! Instead of relying solely on a fixed list of field names, this pass infers
 //! which struct fields and constructor parameters flow into URL sinks without
 //! passing through `.url(...)` (and which ones *do* pass through `.url(...)`),
-//! then flags raw `public/…`, hardcoded `/_proa/assets/…`, and root-relative
+//! then flags raw `public/…`, hardcoded `/_proa/immutable/…` and
+//! `/_proa/mutable/…`, and root-relative
 //! paths matching files in a project's configured `public/` catalog.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -2853,6 +2854,13 @@ fn diagnostic_for_asset_url(kind: &AssetUrl, srcset: bool) -> (&'static str, &'s
     }
 }
 
+/// Whether a path holds one of the two directories the asset catalog
+/// publishes into. A file's place there changes with its bytes, so writing
+/// one out by hand goes stale on the next edit.
+fn names_published_file(path: &str) -> bool {
+    path.contains("/_proa/immutable/") || path.contains("/_proa/mutable/")
+}
+
 fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
     let value = value.trim();
     let path = value.split(['?', '#']).next()?;
@@ -2861,7 +2869,7 @@ fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
             .is_some_and(|rest| !rest.is_empty())
     }) {
         Some(AssetUrl::Logical)
-    } else if path.starts_with('/') && !path.starts_with("//") && path.contains("/_proa/assets/") {
+    } else if path.starts_with('/') && !path.starts_with("//") && names_published_file(path) {
         Some(AssetUrl::Generated)
     } else if let Some(logical_path) =
         catalog.and_then(|cat| cat.logical_path_for_root_relative(path))
@@ -2873,10 +2881,10 @@ fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
 }
 
 /// Asset kind already proven by the static text before a slot, as in
-/// `public/{name}.svg` or `/_proa/assets/{file}`. Matching a catalog file
+/// `public/{name}.svg` or `/_proa/mutable/{file}`. Matching a catalog file
 /// needs the whole path, so only logical and generated prefixes count.
 fn asset_url_prefix(prefix: &str) -> Option<AssetUrl> {
-    // Like `asset_url`, only the path counts: `/search?next=/_proa/assets/{x}`
+    // Like `asset_url`, only the path counts: `/search?next=/_proa/mutable/{x}`
     // links to `/search`.
     let prefix = prefix.trim_start().split(['?', '#']).next().unwrap_or("");
     if ["public/", "./public/", "/public/"]
@@ -2884,10 +2892,7 @@ fn asset_url_prefix(prefix: &str) -> Option<AssetUrl> {
         .any(|logical| prefix.starts_with(logical))
     {
         Some(AssetUrl::Logical)
-    } else if prefix.starts_with('/')
-        && !prefix.starts_with("//")
-        && prefix.contains("/_proa/assets/")
-    {
+    } else if prefix.starts_with('/') && !prefix.starts_with("//") && names_published_file(prefix) {
         Some(AssetUrl::Generated)
     } else {
         None

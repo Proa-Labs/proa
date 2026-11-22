@@ -90,7 +90,7 @@ fn public_asset_urls_render_without_intermediate_allocations() {
     cx.request_mut()
         .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
             "img/logo.png".into(),
-            "/shop/_proa/assets/img/logo.a1b2c3d4.png".into(),
+            "/shop/_proa/immutable/img/logo.a1b2c3d4.png".into(),
         )]))));
 
     start_counting();
@@ -106,7 +106,7 @@ fn public_asset_urls_render_without_intermediate_allocations() {
     drop(cx);
     assert_eq!(
         cursor.as_slice(),
-        br#"<img src="/shop/_proa/assets/img/logo.a1b2c3d4.png" alt="Logo">"#
+        br#"<img src="/shop/_proa/immutable/img/logo.a1b2c3d4.png" alt="Logo">"#
     );
 }
 
