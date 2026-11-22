@@ -186,7 +186,8 @@ Railway sends the `Host` header `healthcheck.railway.app`. If you add host filte
 docker build -t my-site .
 docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site
 curl -fsS http://127.0.0.1:3000/healthz
-curl -fsS http://127.0.0.1:3000/_proa/assets/styles.css -o /dev/null
+curl -fsS http://127.0.0.1:3000/readyz
+curl -fsS http://127.0.0.1:3000/ -o /dev/null
 ```
 
 ## When it fails

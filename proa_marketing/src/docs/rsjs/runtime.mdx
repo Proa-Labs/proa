@@ -7,12 +7,19 @@ Proa ships RSJS runtime code only for the owners a response actually rendered. T
 
 ## Loading the runtime layers
 
-RSJS has two shared runtime layers. The paths below are the origin-root defaults:
+RSJS has two shared runtime layers. The paths below are what
+`with_rsjs_assets()` serves at the origin root; `<hash>` is 16 hex characters
+of the file's content hash:
 
 | Asset | Loaded when | Purpose |
 |-------|-------------|---------|
-| `/rsjs-runtime.js` | The response contains at least one hydrated owner | Hydrates signals, handlers, bindings, refs, conditionals, lists, and typed SharedState. |
-| `/rsjs-runtime-query.js` | Reachable browser work uses a query or mutation | Adds the page-scoped query cache, observer policies, refetching, mutation state, invalidation, and progress hooks. |
+| `/_proa/immutable/rsjs/runtime.<hash>.js` | The response contains at least one hydrated owner | Hydrates signals, handlers, bindings, refs, conditionals, lists, and typed SharedState. |
+| `/_proa/immutable/rsjs/query.<hash>.js` | Reachable browser work uses a query or mutation | Adds the page-scoped query cache, observer policies, refetching, mutation state, invalidation, and progress hooks. |
+
+Generated source refers to the runtimes by the logical specifiers
+`/rsjs-runtime.js` and `/rsjs-runtime-query.js`. The server rewrites those to
+relative imports of the hashed files when it publishes the modules, so the
+logical paths are not served.
 
 Proa emits the query runtime eagerly only when an immediate or interaction owner
 needs it. A visible, idle, or media owner that is the page's only query consumer
@@ -28,7 +35,7 @@ from your page code.
 
 ## Serving linked assets with Axum
 
-Install the asset routes when building your application:
+Serve the linked assets when building your application:
 
 ```rust filename="src/app.rs"
 use proa::axum::FrameworkBuilder;
@@ -40,17 +47,23 @@ let app = FrameworkBuilder::new()
 ```
 
 The finalizer emits tags; `with_rsjs_assets()` serves the linked JavaScript those
-tags request. It works at the origin root and follows
+tags request, at content-hashed names under `/_proa/immutable/rsjs/` cached
+for a year. Modules import each other by relative path and contain no base
+path. It works at the origin root and follows
 [`with_base_path(...)`](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
-when configured. Use it in place of custom handlers at the same asset paths.
+when configured. Use it in place of custom runtime and island handlers.
 
 See [Static assets](/docs/framework/static-assets#serving-linked-island-assets)
 for the installed routes and custom-router alternative, and
 [URL prefix deployments](/docs/framework/deployment#serving-behind-a-url-path-prefix)
 for the proxy configuration example.
 
-The linked core and query runtimes export `app_url(path)` for handwritten
-browser code. Query/mutation request URLs use normal browser resolution
+The linked core and query runtimes export `app_url(path)`. When the base path
+is not empty, the page carries
+`<script type="application/json" id="__proa">{"basePath":"/shop"}</script>`
+ahead of the runtime tags and `app_url` reads it. Handwritten browser code
+cannot import the runtime from a fixed path when the framework serves it, so
+it reads the same element instead. Query/mutation request URLs use normal browser resolution
 unless the request descriptor sets `apply_base_path: true`. In Rust, pass
 `cx.url("/api/items")` or set `FetchRequest.apply_base_path: true` to opt in.
 Opted-in requests follow the configured mount. Already-mounted browser URLs
@@ -126,10 +139,14 @@ strategy. An immediate signal owner can produce a shape like this:
   {"signals":["0"]}
 </script>
 
-<script type="module" src="/rsjs-runtime.js"></script>
-<link rel="modulepreload" href="/rsjs/island/counter_....js">
-<script type="module" src="/rsjs/island/counter_....js"></script>
+<script type="module" src="/_proa/immutable/rsjs/runtime.9a8b7c6d5e4f3a2b.js" integrity="sha384-..."></script>
+<link rel="modulepreload" href="/_proa/immutable/rsjs/island/counter_....4e5f6a7b8c9d0e1f.js" integrity="sha384-...">
+<script type="module" src="/_proa/immutable/rsjs/island/counter_....4e5f6a7b8c9d0e1f.js" integrity="sha384-..."></script>
 ```
+
+Every script and `modulepreload` tag carries an `integrity` attribute, the CSP
+nonce when a nonce policy is installed, and `crossorigin` when
+`PROA_ASSET_PREFIX` moves the modules to another host.
 
 An owner using `query_with_initial(...)` also has adjacent effective-key
 metadata. Its server value lives in an inert page-level seed table that Proa
@@ -269,7 +286,7 @@ When a linked page still misbehaves, work through the checklist below.
 
 | Symptom | Check |
 |---------|-------|
-| Button renders but does nothing | The response recorded the owner and emitted `/rsjs-runtime.js` plus `/rsjs/island/<asset-id>.js`. |
+| Button renders but does nothing | The response recorded the owner and emitted `/_proa/immutable/rsjs/runtime.<hash>.js` plus `/_proa/immutable/rsjs/island/<asset-id>.<hash>.js`, and neither request fails. |
 | Signal starts with the wrong value | The adjacent `data-rsjs-island` seed matches the server-rendered text or attribute. |
 | Query starts without server data | The page emitted `rsjs-query-seed-table` before activation, and the adjacent effective key matches it. |
 | SharedState acquisition fails | The page emitted `rsjs-shared-state-seed-table`, and the provider `type_key` and schema ABI match. |

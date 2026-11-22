@@ -14,8 +14,10 @@ escape the mount and islands fail to hydrate.
 | Response rewriting middleware | Can retrofit existing markup | Must parse arbitrary/chunked HTML correctly; cannot fix JS imports on its own; may buffer streaming responses |
 
 The implementation uses explicit startup configuration. It reuses RSJS's
-existing URL resolver and import rewriter without buffering page responses
-or changing routing. Managed CSS/JS is parsed at the asset boundary.
+existing URL resolver without buffering page responses or changing routing.
+Files published by the public asset catalog and the framework's RSJS modules
+contain no base path and are served byte for byte under every mount. CSS/JS
+from an application-defined `/static` router is parsed at the asset boundary.
 
 ## Architecture
 
@@ -23,8 +25,9 @@ or changing routing. Managed CSS/JS is parsed at the asset boundary.
    and lives in transport-independent request metadata.
 2. The Axum builder/layer and handler URL helper share the setting with
    framework-owned URLs and buffered/local/Send streaming RSJS finalization.
-3. Opt-in linked RSJS serving rewrites generated runtime imports once at
-   startup, keeping sibling dependencies relative and incoming paths local.
+3. Opt-in linked RSJS serving publishes the runtimes and generated modules at
+   content-hashed names under `/_proa/immutable/rsjs/`. Modules import each
+   other by relative path and contain no base path; incoming paths stay local.
 4. The basic Axum site, including its docs/blog shell, the application scaffold,
    and ORIGIN read the startup setting. ORIGIN uses the shared linked RSJS router.
 5. Font heads compose preload URLs and stream the generated CSS's known face
@@ -33,10 +36,15 @@ or changing routing. Managed CSS/JS is parsed at the asset boundary.
    separate from the collection's build-time route. Article URL attributes
    stream through `BasePathHtml` without allocating a replacement document;
    search JSON URLs and its content hash are composed at the artifact boundary.
-6. Core/query runtimes share a configured browser base and export `app_url`.
+6. Core/query runtimes export `app_url`. When the base path is not empty,
+   pages with islands carry
+   `<script type="application/json" id="__proa">{"basePath":"/shop"}</script>`
+   ahead of the runtime tags, and `app_url` reads the base from it.
    Query/mutation descriptors use it only when they explicitly opt into the
    application mount, including runtime-computed request descriptors.
-7. Managed CSS/JS assets use CSS/Oxc parsers for recognized URL syntax, with
+7. CSS/JS assets from an application-defined `/static` router
+   (`with_static_service` or `base_path_assets`) use CSS/Oxc parsers for
+   recognized URL syntax, with
    semantic binding checks to preserve locally shadowed browser APIs. Results
    are content-cached within a fixed budget; transformed validators and HEAD
    lengths describe the actual representation.
@@ -68,8 +76,12 @@ compatibility, custom adapter emission, and render allocation behavior.
 - The captured request metadata carries the prefix into streaming boundaries;
   response finalization never depends on a live Axum task-local context.
 - RSJS assets are opt-in so applications with existing routes do not collide.
-  Custom asset handlers must apply the import rewriter themselves.
-- Managed assets compose CSS URL tokens and native JS URL arguments/imports.
+  Custom asset handlers that serve their own copies at the canonical paths
+  must apply the import rewriter themselves.
+- Public catalog files are never rewritten for a base path. Stylesheets refer
+  to other public files by relative path, and hand-written public JS reads the
+  base path from the page's `__proa` element.
+- `/static` router assets compose CSS URL tokens and native JS URL arguments/imports.
   They preserve ordinary strings, external URLs, and local API bindings.
   Browser composition accepts already-mounted URLs without double-prefixing.
   The server URL helper continues to require unprefixed application paths.

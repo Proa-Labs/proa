@@ -541,14 +541,16 @@ node ref, browser helper, or reachable `#[rsjs::client]` helper call.
 
 **Most likely:** the per-island JS isn't reaching the browser. Check:
 
-1. The page response includes `<script type="module" src="/rsjs-runtime.js">`
+1. The page response includes a runtime tag such as
+   `<script type="module" src="/_proa/immutable/rsjs/runtime.<16 hex>.js">`
    or a deferred bootstrap script for the island's hydration strategy.
+   (A custom adapter that serves the canonical paths emits `/rsjs-runtime.js`.)
    `proa_framework_axum` adds this automatically from the response's
    `RsjsRenderArtifacts`; a custom adapter must use
    `Manifest::page_runtime_plan(...)` at its response boundary.
-2. There's a `<script type="module" src="/rsjs/island/<asset_id>.js">` for *your specific island* (asset_id matches the SSR `<rsjs-island data-rsjs-island-root="...">`).
+2. There's a `<script type="module" src="/_proa/immutable/rsjs/island/<asset_id>.<16 hex>.js">` for *your specific island* (asset_id matches the SSR `<rsjs-island data-rsjs-island-root="...">`; `/rsjs/island/<asset_id>.js` on a custom adapter).
 3. The browser console isn't reporting a 404 on either of those URLs.
-4. If the page is loaded from a `blob:` URL or a different origin than the asset server, the asset server needs CORS headers (`Access-Control-Allow-Origin: *` for dev).
+4. If the page is loaded from a `blob:` URL or a different origin than the asset server (including a `PROA_ASSET_PREFIX` host), the asset server needs CORS headers (`Access-Control-Allow-Origin: *` for dev).
 
 ### Initial render shows the wrong conditional branch
 
