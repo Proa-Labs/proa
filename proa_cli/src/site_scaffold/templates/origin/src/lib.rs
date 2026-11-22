@@ -142,6 +142,7 @@ pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBu
         .nest_service(
             "/static",
             proa::axum::base_path_assets(
+                // proa-perf-ok: direct launches without a catalog read the source tree
                 Router::new().fallback_service(ServeDir::new(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/public"
@@ -157,6 +158,7 @@ pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBu
     } else {
         router.nest_service(
             "/_proa/immutable/fonts",
+            // proa-perf-ok: direct launches without a catalog read the source tree
             ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/public/fonts")),
         )
     };
