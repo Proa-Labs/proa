@@ -62,7 +62,7 @@ for (const [path, image] of [
 ]) {
   if (!renderedPages.has(path)) renderedPages.set(path, await (await request(path)).text());
   const html = renderedPages.get(path);
-  const imagePaths = [...html.matchAll(/\/_proa\/assets\/[^\s"'<>?,]+\.[a-f0-9]{8,}\.(?:svg|webp|jpg|png|ico)/g)]
+  const imagePaths = [...html.matchAll(/\/_proa\/immutable\/[^\s"'<>?,]+\.[a-f0-9]{16}\.(?:svg|webp|jpg|png|ico)/g)]
     .map((match) => match[0]);
   assert.ok(imagePaths.some((asset) => asset.split("/").at(-1).startsWith(`${image}.`)),
     `${path}: missing fingerprinted ${image}`);
@@ -74,10 +74,20 @@ for (const asset of fingerprintedImages) {
   assert.match(response.headers.get("cache-control") || "", /\bimmutable\b/, asset);
   assert.ok((await response.arrayBuffer()).byteLength > 0, `${asset}: empty image`);
 }
-for (const path of ["/styles.css", "/search.mjs", "/search-index.mjs", "/vendor/orama.mjs"]) {
-  const asset = await request(`/_proa/assets${path}`);
-  assert.equal(asset.headers.get("cache-control"), "no-cache", path);
+// Files that keep their names are revalidated on every load.
+for (const path of ["/search.mjs", "/search-index.mjs", "/vendor/orama.mjs"]) {
+  const asset = await request(`/_proa/mutable${path}`);
+  assert.equal(asset.headers.get("cache-control"), "public, no-cache", path);
   assert.ok(asset.headers.has("etag"), `${path}: missing catalog validator`);
+}
+// The stylesheet is named after its bytes and cached like an image.
+{
+  const home = renderedPages.get("/") ?? await (await request("/")).text();
+  const stylesheet = home.match(/\/_proa\/immutable\/styles\.[a-f0-9]{16}\.css/);
+  assert.ok(stylesheet, "home page links no hashed stylesheet");
+  const asset = await request(stylesheet[0]);
+  assert.match(asset.headers.get("content-type") || "", /^text\/css/);
+  assert.match(asset.headers.get("cache-control") || "", /\bimmutable\b/);
 }
 for (const path of ["/static/images/benchmarks/01-canonical-scoreboard.svg", "/images/airbnb/bedroom.jpg"]) {
   const alias = await fetch(new URL(path, base), { redirect: "manual", signal: AbortSignal.timeout(30_000) });

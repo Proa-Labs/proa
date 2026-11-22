@@ -91,11 +91,44 @@
     (document.body || document.documentElement).appendChild(overlay);
   }
 
+  /* A published stylesheet is named after its bytes, so an edit gives it a
+     new URL. Its name without the hash is what identifies it across edits. */
+  function stableName(url) {
+    return url.pathname.replace(/\.[0-9a-f]{16}(\.[^./]+)$/, "$1");
+  }
+
   /* Swap stylesheets without navigating, so scroll position, form values, and
-     open dialogs all survive a style-only edit. Each link is replaced by a
-     cache-busted copy and only removed once the copy has loaded, which avoids
-     a flash of unstyled content. */
+     open dialogs all survive a style-only edit. The page is fetched again to
+     learn the stylesheets' current URLs. Each link is replaced by a copy
+     pointing there (or by a cache-busted copy when its URL did not change)
+     and only removed once the copy has loaded, which avoids a flash of
+     unstyled content. */
   function reloadStylesheets() {
+    fetch(window.location.href, { headers: { Accept: "text/html" }, cache: "no-store" })
+      .then(function (response) {
+        return response.text();
+      })
+      .then(function (html) {
+        var current = {};
+        var fresh = new DOMParser()
+          .parseFromString(html, "text/html")
+          .querySelectorAll('link[rel~="stylesheet"][href]');
+        for (var i = 0; i < fresh.length; i++) {
+          try {
+            var url = new URL(fresh[i].getAttribute("href"), window.location.href);
+            current[stableName(url)] = url;
+          } catch (error) {
+            /* An unparsable link cannot replace anything. */
+          }
+        }
+        swapStylesheets(current);
+      })
+      .catch(function () {
+        window.location.reload();
+      });
+  }
+
+  function swapStylesheets(current) {
     var links = document.querySelectorAll('link[rel~="stylesheet"][href]');
     var stamp = Date.now();
     for (var i = 0; i < links.length; i++) {
@@ -107,7 +140,16 @@
         continue;
       }
       if (url.origin !== window.location.origin) continue;
-      url.searchParams.set("proa_dev", String(stamp));
+      var renamed = current[stableName(url)];
+      if (renamed && renamed.pathname !== url.pathname) {
+        url = renamed;
+      } else if (/\/_proa\/immutable\//.test(url.pathname) && !renamed) {
+        /* The page no longer links this stylesheet at all. */
+        window.location.reload();
+        return;
+      } else {
+        url.searchParams.set("proa_dev", String(stamp));
+      }
 
       var next = link.cloneNode();
       next.href = url.href;

@@ -42,7 +42,7 @@ class RejectRedirects(urllib.request.HTTPRedirectHandler):
 
 
 HTTP_OPENER = urllib.request.build_opener(RejectRedirects)
-CATALOG_PREFIX = "/_proa/assets/"
+CATALOG_PREFIX = "/_proa/"
 
 
 def parse_args() -> argparse.Namespace:
@@ -243,7 +243,9 @@ CHECKS = (
     Check("/healthz", validate_text(b"ok")),
     Check("/readyz", validate_text(b"ready")),
     Check("/", validate_html),
-    Check("/_proa/assets/styles.css", validate_css),
+    # The stylesheet is named after its bytes, so it is reached through the
+    # site's stable address for it.
+    Check("/static/styles.css", validate_css, catalog_alias=True),
     Check("/showcase/airbnb/proa", validate_showcase_html),
     Check("/assets/airbnb-showcase.js", validate_showcase_javascript),
     Check("/images/airbnb/bedroom.jpg", validate_showcase_image, catalog_alias=True),
