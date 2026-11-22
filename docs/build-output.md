@@ -341,6 +341,36 @@ COPY --from=build /out/ /app/
 CMD ["/app/app"]
 ```
 
+This layout follows the same idea as Nuxt's `.output` directory (built by Nitro): the build writes one directory that holds the server and the static files it serves, the server finds those files relative to itself, and deploying is copying that directory and starting the entry point.
+
+```text
+Nuxt: nuxt build                        Proa: proa build --artifact-out /out/app
+
+.output/                                /out/
+  nitro.json        build metadata
+  server/                                 app                  server (one native executable)
+    index.mjs       entry point
+    chunks/         server code
+    node_modules/   traced dependencies
+  public/           static files          app.assets/          static files
+    favicon.ico                             manifest.json      logical path -> object
+    _nuxt/                                  objects/
+      entry.3f9a1c2b.js                       favicon.eb90bbcb.svg
+      styles.8d0e4a71.css                     styles.6ca57fe9.css
+
+node .output/server/index.mjs           /out/app
+```
+
+| | Nuxt `.output` | Proa |
+| --- | --- | --- |
+| Server | `server/`: entry module, chunks, traced `node_modules`; needs Node | one executable |
+| Static files | `public/`, found relative to the server entry | `<executable>.assets/`, found beside the running executable |
+| Location | fixed `.output/` in the project | wherever the executable is exported: `--artifact-out <path>`, default `<target-dir>/release/<bin>` |
+| Fingerprinting | bundler output under `public/_nuxt/`; other public files keep their names | every public file is stored as a hashed object, and `manifest.json` maps logical paths to them |
+| Deploy | copy `.output/`, run `node server/index.mjs` | copy the executable and its `.assets` directory, run the executable |
+
+The differences come from the server being a single native binary. There is no server directory to wrap it in, so the static files are a sibling named after the executable instead of a `public/` folder inside a shared root. The output path stays a flag because hosts that cache `target/` (Railway) need the result written outside it.
+
 Catalog files are world-readable and its directories traversable whatever the
 build's umask, so a non-root runtime user can load it from a read-only image.
 A build that publishes nothing, because of `--no-assets` or `paths.public:
