@@ -186,10 +186,11 @@ COPY --from=companions /companions /app/companions
 COPY --chmod=755 proa_marketing/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Application artifacts change on every release. Keep them after the stable
-# runtimes and companions; root-owned assets are readable by the service user.
+# runtimes and companions.
 COPY --from=artifacts /out/proa_marketing /usr/local/bin/proa_marketing
 COPY --from=artifacts /out/static /app/static
-COPY --from=artifacts /out/public-assets /app/public-assets
+# The catalog publisher creates the manifest with owner-only permissions.
+COPY --from=artifacts --chown=proa:proa /out/public-assets /app/public-assets
 COPY --from=artifacts /out/showcase /app/showcase
 
 ENV HOST=0.0.0.0 \
