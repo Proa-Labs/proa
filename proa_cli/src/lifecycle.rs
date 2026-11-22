@@ -1150,7 +1150,14 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         .context("linked RSJS build failed")?;
     print_linked_cache_reuse(LinkedCargoAction::Build, &output);
     print_linked_cargo_output(LinkedCargoAction::Build, &prepared.request, &output);
-    public_assets::publish(&root, public_source, &prepared.public_output_directory)?;
+    // An explicit export carries its own catalog beside the executable, so
+    // only a build without one publishes into the target directory. Cargo's
+    // own output directory never gets a bundle: a plain `cargo run` would
+    // pick it up after the public files had moved on.
+    let published_public_assets = match artifact_destination {
+        Some(_) => None,
+        None => public_assets::publish(&root, public_source, &prepared.public_output_directory)?,
+    };
     let target_dir = &prepared.request.descriptor.source_exclusion_directory;
     let target_triple = prepared.target_triple.as_deref();
     let default_release_destination = (artifact_destination.is_none()
@@ -1169,9 +1176,17 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     if let Some(destination) = export_destination {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
-        // The catalog goes first: its manifest is replaced atomically, so a
-        // failure here leaves the previous executable with files it can serve.
-        let bundled_public_assets = public_assets::bundle(&root, public_source, destination)?;
+        let bundled_public_assets = if artifact_destination.is_some() {
+            if destination.is_dir() {
+                bail!(
+                    "artifact output must name a file, but `{}` is a directory",
+                    destination.display()
+                );
+            }
+            public_assets::bundle(&root, public_source, destination)?
+        } else {
+            None
+        };
         copy_executable_atomically(&source, destination).with_context(|| {
             format!(
                 "failed to export linked executable `{}` to `{}`",
@@ -1190,8 +1205,13 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             &prepared.profile,
             target_triple,
             destination,
-            bundled_public_assets.as_deref(),
+            bundled_public_assets
+                .as_deref()
+                .or(published_public_assets.as_deref()),
         )?;
+        if artifact_destination.is_some() && bundled_public_assets.is_none() {
+            public_assets::remove_stale_bundle(destination)?;
+        }
     }
     Ok(())
 }

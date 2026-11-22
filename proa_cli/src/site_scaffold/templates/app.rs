@@ -715,7 +715,7 @@ pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, Fram
         __MARKDOWN_ROUTE__
         // proa:explicit-routes:end
         .with_state(state);
-    let router = if std::env::var_os("PROA_PUBLIC_ASSETS").is_none() {
+    let router = if !proa::axum::PublicAssets::configured() {
         // Fallback when running bare `cargo test` without `proa` publishing `public/`.
         router.nest_service("/static", static_assets::service(base_path.clone()))
     } else {

@@ -56,8 +56,9 @@ pub(crate) struct BuildArgs {
     /// Without it, a release build of an executable is copied to
     /// `<target-dir>/release/<bin>` (`<target-dir>/<triple>/release/<bin>` with
     /// `--target`), where `proa start` finds it.
-    /// The public asset catalog is written beside the executable as `<PATH>.assets`,
-    /// and the server loads it from there: the two together are the deployable output.
+    /// With this flag the public asset catalog is written beside the executable as
+    /// `<PATH>.assets`, and the server loads it from there: the two together are the
+    /// deployable output.
     /// Relative paths are resolved from the Proa project root. For warm rebuilds, prefer
     /// the Cargo target directory or a path outside the selected package source tree.
     #[arg(long, value_name = "PATH")]

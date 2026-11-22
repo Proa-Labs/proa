@@ -23,8 +23,8 @@ use crate::{
 
 pub use plan::{PlannedFile, SitePlan};
 
-pub(crate) fn deployment_dockerfile(has_database: bool) -> String {
-    templates::current_deployment_dockerfile(has_database)
+pub(crate) fn deployment_dockerfile(has_database: bool, serves_vendored_fonts: bool) -> String {
+    templates::current_deployment_dockerfile(has_database, serves_vendored_fonts)
 }
 
 #[derive(Debug, Clone)]
@@ -420,7 +420,7 @@ mod tests {
         assert!(!home.contains("Rust\\."));
         assert!(!home.contains("multi\\-target"));
         let routes = std::fs::read_to_string(root.join("src/routes.rs")).unwrap();
-        assert!(routes.contains("PROA_PUBLIC_ASSETS"));
+        assert!(routes.contains("PublicAssets::configured()"));
     }
 
     #[test]

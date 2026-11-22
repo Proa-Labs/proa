@@ -50,6 +50,23 @@ struct History {
 }
 
 impl OutputStore {
+    /// Whether `open` would take `directory` as an output: it is absent,
+    /// already one, or holds nothing but the lock of an interrupted writer.
+    /// A symlink is never accepted, so removal cannot reach through one.
+    pub fn accepts(directory: &Path) -> bool {
+        match fs::symlink_metadata(directory) {
+            Err(error) => error.kind() == io::ErrorKind::NotFound,
+            Ok(metadata) if !metadata.is_dir() => false,
+            Ok(_) => {
+                validate_owner(directory).is_ok()
+                    || fs::read_dir(directory).is_ok_and(|mut entries| {
+                        entries
+                            .all(|entry| entry.is_ok_and(|entry| entry.file_name() == WRITER_FILE))
+                    })
+            }
+        }
+    }
+
     pub fn open(directory: impl AsRef<Path>) -> Result<Self> {
         let directory = directory.as_ref();
         at(directory, fs::create_dir_all(directory))?;
@@ -86,15 +103,8 @@ impl OutputStore {
             at(&marker, file.write_all(OWNER_BYTES))?;
             at(&marker, file.sync_all())?;
         }
-        #[cfg(unix)]
-        {
-            // A marker written under a restrictive umask stays owner-only.
-            use std::os::unix::fs::PermissionsExt;
-            let file = at(&marker, File::open(&marker))?;
-            if at(&marker, file.metadata())?.permissions().mode() & 0o444 != 0o444 {
-                set_readable_file_permissions(&marker, &file)?;
-            }
-        }
+        // A marker written under a restrictive umask stays owner-only.
+        set_readable_file_permissions(&marker, &at(&marker, File::open(&marker))?)?;
         let readers = open_lock(&root.join(READERS_FILE))?;
         set_readable_file_permissions(&root.join(READERS_FILE), &readers)?;
         let live_readers = open_lock(&root.join(LIVE_READERS_FILE))?;
@@ -308,8 +318,7 @@ impl OutputStore {
         let root = self.root.clone();
         // Retire the pointer while readers are still locked out: a catalog
         // loads only by reading it under the shared lock, so none can come up
-        // on files that are about to go. The locks are released before the
-        // rest is deleted because Windows cannot delete an open file.
+        // on files that are about to go.
         let manifest = root.join(MANIFEST_FILE);
         match fs::remove_file(&manifest) {
             Ok(()) => {}
@@ -321,9 +330,15 @@ impl OutputStore {
                 })
             }
         }
+        // Unix deletes with both locks held, so no other writer can begin
+        // publishing into the directory while it goes. Windows cannot delete
+        // an open file and has to release them first.
+        #[cfg(unix)]
+        at(&root, fs::remove_dir_all(&root))?;
         let _ = readers.unlock();
         drop(readers);
         drop(self);
+        #[cfg(not(unix))]
         at(&root, fs::remove_dir_all(&root))?;
         Ok(true)
     }
@@ -599,10 +614,15 @@ fn set_readable_file_permissions(path: &Path, file: &File) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        at(
-            path,
-            file.set_permissions(fs::Permissions::from_mode(0o644)),
-        )?;
+        // Leave a file that is already readable alone: changing its mode
+        // needs ownership, and a shared catalog may be group-writable.
+        let mode = at(path, file.metadata())?.permissions().mode();
+        if mode & 0o644 != 0o644 {
+            at(
+                path,
+                file.set_permissions(fs::Permissions::from_mode(mode | 0o644)),
+            )?;
+        }
     }
     #[cfg(not(unix))]
     {

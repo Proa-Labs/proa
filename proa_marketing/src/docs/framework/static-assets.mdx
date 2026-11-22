@@ -8,7 +8,7 @@ Proa supports both managed public assets published by the CLI under `/_proa/asse
 
 ## Managed public assets
 
-By default, `proa build`, `proa dev`, `proa run`, and `proa test` publish `public/` into a verified asset catalog. `proa dev`, `proa run`, and `proa test` pass its path to the app through `PROA_PUBLIC_ASSETS`; `proa build` writes it beside the exported executable, where the app finds it on its own. `FrameworkBuilder::try_build()` loads that catalog automatically and mounts its routes under `/_proa/assets`.
+By default, `proa build`, `proa dev`, `proa run`, and `proa test` publish `public/` into a verified asset catalog. `proa dev`, `proa run`, and `proa test` pass its path to the app through `PROA_PUBLIC_ASSETS`; `proa build --artifact-out <path>` writes it beside the exported executable, where the app finds it on its own. `FrameworkBuilder::try_build()` loads that catalog automatically and mounts its routes under `/_proa/assets`.
 
 Reference files in templates by their logical `public/...` path with `cx.url(...)`:
 

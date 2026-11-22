@@ -429,7 +429,7 @@ pub fn populate(
     if agents_md {
         plan.write("AGENTS.md", super::agents())?;
     }
-    super::add_deploy(plan, package, selection.deploy, false)?;
+    super::add_deploy(plan, package, selection.deploy, false, true)?;
     Ok(())
 }
 

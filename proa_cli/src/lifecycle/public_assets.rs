@@ -181,28 +181,17 @@ pub(super) fn publish(
 /// without configuration. The executable and this directory are the complete
 /// deployable output: copying both anywhere is enough to run the application.
 ///
-/// A build with nothing to publish removes a catalog left by an earlier
-/// export to the same path, so the executable never starts with stale files.
+/// This runs before the executable is replaced. The manifest swap is atomic,
+/// so a failure leaves the previous executable with the catalog it had.
 pub(super) fn bundle(
     root: &Path,
     directory: Option<&Path>,
     executable: &Path,
 ) -> Result<Option<PathBuf>> {
-    let output = proa_assets::bundled_output(executable).with_context(|| {
-        format!(
-            "exported executable `{}` has no file name",
-            executable.display()
-        )
-    })?;
-    let owned = proa_assets::is_output(&output);
+    let output = bundled_output(executable)?;
     // Refuse before the output store opens it, which would leave a lock file
     // inside a directory that belongs to something else.
-    let foreign = !owned
-        && match fs::read_dir(&output) {
-            Ok(mut entries) => entries.next().is_some(),
-            Err(error) => error.kind() != io::ErrorKind::NotFound,
-        };
-    if foreign {
+    if !OutputStore::accepts(&output) {
         bail!(
             "`{}` is in the way: Proa bundles the public asset catalog beside the exported executable `{}`. Move it, or export the executable to a different path",
             output.display(),
@@ -222,20 +211,52 @@ pub(super) fn bundle(
             );
         }
     }
-    let bundled = publish_to(root, directory, &output, "bundled", "in")
-        .with_context(|| format!("bundle public assets beside `{}`", executable.display()))?;
-    if bundled.is_none() && owned {
-        let removed = OutputStore::open(&output)
-            .and_then(OutputStore::remove)
-            .with_context(|| format!("remove stale public asset catalog {}", output.display()))?;
-        if !removed {
-            bail!(
-                "`{}` is still being read by a running server, and this build publishes no public assets to replace it. Stop that server, or export the executable to a different path",
-                output.display()
-            );
-        }
+    let existed = proa_assets::is_output(&output);
+    let bundled = publish_to(root, directory, &output, "bundled", "in");
+    if bundled.is_err() && !existed {
+        // Nothing was here before, so nothing may stay: a directory without
+        // a manifest would stop the previous executable from starting. A
+        // concurrent writer keeps the store busy and is left alone.
+        let _ = OutputStore::open(&output).and_then(OutputStore::remove);
     }
-    Ok(bundled)
+    bundled.with_context(|| format!("bundle public assets beside `{}`", executable.display()))
+}
+
+/// After an export that bundled nothing, remove the catalog an earlier build
+/// left beside the same path, so the new executable never starts with stale
+/// files. This runs once the executable is in place: a failed export keeps
+/// the catalog its previous executable still needs.
+pub(super) fn remove_stale_bundle(executable: &Path) -> Result<()> {
+    let output = bundled_output(executable)?;
+    if fs::symlink_metadata(&output).is_err() {
+        return Ok(());
+    }
+    if !proa_assets::is_output(&output) {
+        // An empty leftover would read as a damaged bundle at startup.
+        if OutputStore::accepts(&output) {
+            let _ = OutputStore::open(&output).and_then(OutputStore::remove);
+        }
+        return Ok(());
+    }
+    let removed = OutputStore::open(&output)
+        .and_then(OutputStore::remove)
+        .with_context(|| format!("remove stale public asset catalog {}", output.display()))?;
+    if !removed {
+        bail!(
+            "`{}` is still being read by a running server, and this build publishes no public assets to replace it. Stop that server and build again, or export the executable to a different path",
+            output.display()
+        );
+    }
+    Ok(())
+}
+
+fn bundled_output(executable: &Path) -> Result<PathBuf> {
+    proa_assets::bundled_output(executable).with_context(|| {
+        format!(
+            "exported executable `{}` has no file name",
+            executable.display()
+        )
+    })
 }
 
 /// Whether one directory contains the other. `output` may not exist yet, so

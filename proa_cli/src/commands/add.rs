@@ -162,7 +162,15 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
             };
             project.deploy.get_or_insert_with(Default::default).provider = provider_name.into();
             let package = crate::util::cargo_package_name(&root).unwrap_or_else(|| "app".into());
-            files.extend(deployment_files(provider, &package, has_database));
+            // Fonts vendored by `proa_fonts` are served from disk at `/fonts`.
+            let serves_vendored_fonts =
+                root.join("proa-fonts.lock").is_file() && root.join("public/fonts").is_dir();
+            files.extend(deployment_files(
+                provider,
+                &package,
+                has_database,
+                serves_vendored_fonts,
+            ));
             (
                 match provider {
                     Deployment::Docker => "deploy:docker",
@@ -357,11 +365,12 @@ fn deployment_files(
     provider: Deployment,
     package: &str,
     has_database: bool,
+    serves_vendored_fonts: bool,
 ) -> Vec<(PathBuf, String)> {
     let mut files = vec![
         (
             PathBuf::from("Dockerfile"),
-            crate::site_scaffold::deployment_dockerfile(has_database),
+            crate::site_scaffold::deployment_dockerfile(has_database, serves_vendored_fonts),
         ),
         (
             PathBuf::from(".dockerignore"),

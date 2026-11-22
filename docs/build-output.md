@@ -319,18 +319,21 @@ removed by the next writer. Collision reservations survive object cleanup.
 Post-publication cleanup or durability errors are reported as warnings because
 the new pointer is already active. Cleanup never adopts unrelated directories.
 
-For deployment, `proa build` writes the complete output side by side: the
-executable and, beside it, the catalog in a directory named after the
-executable with `.assets` appended.
+For deployment, `proa build --artifact-out <path>` writes the complete output
+side by side: the executable and, beside it, the catalog in a directory named
+after the executable with `.assets` appended.
 
 ```text
-<target-dir>/release/
+/out/
   app                          linked executable
   app.assets/                  its public asset catalog
 ```
 
-`--artifact-out <path>` moves the pair: `--artifact-out /out/app` writes
-`/out/app` and `/out/app.assets/`. A server started without
+Only an explicit `--artifact-out` bundles. A build without it keeps publishing
+into the target directory, and `proa start` passes that catalog to the
+executable under `<target-dir>/release/`. Cargo's own output directory never
+holds a bundle, so a plain `cargo run --release` cannot pick up a catalog that
+an earlier `proa build` left behind. A server started without
 `PROA_PUBLIC_ASSETS` loads the catalog beside its own executable, so copying
 both to any directory is the whole deployment. No environment variable, extra
 flag, or copy script is involved.
@@ -365,7 +368,7 @@ node .output/server/index.mjs           /out/app
 | --- | --- | --- |
 | Server | `server/`: entry module, chunks, traced `node_modules`; needs Node | one executable |
 | Static files | `public/`, found relative to the server entry | `<executable>.assets/`, found beside the running executable |
-| Location | fixed `.output/` in the project | wherever the executable is exported: `--artifact-out <path>`, default `<target-dir>/release/<bin>` |
+| Location | fixed `.output/` in the project | wherever `--artifact-out <path>` puts the executable |
 | Fingerprinting | bundler output under `public/_nuxt/`; other public files keep their names | every public file is stored as a hashed object, and `manifest.json` maps logical paths to them |
 | Deploy | copy `.output/`, run `node server/index.mjs` | copy the executable and its `.assets` directory, run the executable |
 
@@ -373,10 +376,11 @@ The differences come from the server being a single native binary. There is no s
 
 Catalog files are world-readable and its directories traversable whatever the
 build's umask, so a non-root runtime user can load it from a read-only image.
-A build that publishes nothing, because of `--no-assets` or `paths.public:
-None`, removes a catalog left beside the same executable path by an earlier
-build, unless a running server is still reading it, in which case the build
-fails and leaves it in place. A directory at that path that Proa did not
+The catalog is written before the executable is replaced, so a failed export
+leaves the previous pair working. A build that publishes nothing, because of
+`--no-assets` or `paths.public: None`, removes a catalog left beside the same
+executable path by an earlier build once the new executable is in place. If a
+running server is still reading that catalog, the build fails and leaves it. A directory at that path that Proa did not
 create fails the build untouched, and so does an export path inside the public
 directory. Do not manually modify immutable objects.
 
@@ -388,7 +392,7 @@ directory. Do not manually modify immutable objects.
 proa start --root . --bin ./app
 ```
 
-If `PROA_PUBLIC_ASSETS` is set or a directory exists at the bundled path, and
+If `PROA_PUBLIC_ASSETS` is set or a non-empty directory exists at the bundled path, and
 that catalog is missing or invalid, `FrameworkBuilder::try_build` reports a
 startup error. A partially copied bundle therefore fails startup instead of
 serving pages without their assets. Apps can also use

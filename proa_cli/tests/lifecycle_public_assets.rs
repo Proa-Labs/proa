@@ -1280,6 +1280,40 @@ fn build_bundles_the_public_catalog_beside_the_exported_executable() {
     assert!(!root.join("public/app.assets").exists());
     assert!(!inside.exists());
 
+    // A directory is not an executable path: nothing is bundled beside it.
+    let directory = temp.path().join("release-dir");
+    fs::create_dir(&directory).unwrap();
+    let not_a_file = cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            directory.to_str().unwrap(),
+        ],
+    );
+    assert!(!not_a_file.status.success());
+    assert!(!temp.path().join("release-dir.assets").exists());
+
+    // An empty leftover directory is adopted, and one holding only the lock
+    // of an interrupted build is not mistaken for someone else's.
+    let interrupted_bin = temp.path().join("interrupted/app");
+    let interrupted = temp.path().join("interrupted/app.assets");
+    fs::create_dir_all(&interrupted).unwrap();
+    fs::write(interrupted.join(".writer.lock"), "").unwrap();
+    success(&cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            interrupted_bin.to_str().unwrap(),
+        ],
+    ));
+    drop(AssetCatalog::load(&interrupted).unwrap());
+
     // A build that publishes nothing leaves the catalog alone while a server
     // is still reading it.
     let reader = AssetCatalog::load(&bundled).unwrap();
