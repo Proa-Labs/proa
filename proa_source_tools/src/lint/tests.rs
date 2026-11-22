@@ -6454,3 +6454,51 @@ pub async fn config() -> Result<Config> {
         "declared `vec![AssetConfig {{ output: \"public/styles.css\" }}]` must not warn: {with_declared:#?}"
     );
 }
+
+#[test]
+fn static_mounts_outside_the_build_output_are_reported() {
+    let source = r#"
+use include_dir::{include_dir, Dir};
+use tower_http::services::{ServeDir, ServeFile};
+
+static PUBLIC: Dir = include_dir!("$CARGO_MANIFEST_DIR/public");
+static MIGRATIONS: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+
+pub fn router() -> Router {
+    Router::new()
+        .nest_service("/static", ServeDir::new("public"))
+        .route_service("/logo.svg", tower_http::services::ServeFile::new_with_mime("public/logo.svg", &mime))
+        .nest_service("/uploads", ServeDir::new(uploads_directory())) // proa-perf-ok: uploads exist only at run time
+        .route("/health", get(health))
+}
+
+#[cfg(test)]
+mod tests {
+    fn fixture() -> ServeDir {
+        ServeDir::new("fixtures")
+    }
+}
+"#;
+    let hits: Vec<_> = lint_file(Path::new("src/router.rs"), source)
+        .into_iter()
+        .filter(|d| d.code == "asset/unmanaged-static")
+        .map(|d| (d.line, d.message))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            (
+                5,
+                "`include_dir!` serves files the build output does not contain".to_string()
+            ),
+            (
+                10,
+                "`ServeDir` serves files the build output does not contain".to_string()
+            ),
+            (
+                11,
+                "`ServeFile` serves files the build output does not contain".to_string()
+            ),
+        ]
+    );
+}

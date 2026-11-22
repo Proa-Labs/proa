@@ -140,6 +140,10 @@ impl SuppressionComments {
                     // for pages whose data arrives per request; an annotated
                     // reason opts a scope out.
                     | "render/owned-view-model"
+                    // Uploads and proxied directories exist only at run time,
+                    // so no build could bundle them; an annotated reason
+                    // records that the mount is deliberate.
+                    | "asset/unmanaged-static"
             ))
             && (self.lines.contains(&line)
                 || line

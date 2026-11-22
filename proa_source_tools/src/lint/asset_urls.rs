@@ -1725,6 +1725,26 @@ impl<'a> FileAssetChecker<'a> {
     }
 }
 
+impl FileAssetChecker<'_> {
+    /// Files served this way are not in the build output: `proa build` does
+    /// not copy them, hash them, or list them for a static host, so a
+    /// deployment has to carry them by hand.
+    fn unmanaged_static(&mut self, span: proc_macro2::Span, what: &str) {
+        let position = span.start();
+        push_source_diag_with_severity(
+            self.path,
+            self.diagnostics,
+            self.suppressions.get(),
+            position.line,
+            position.column + 1,
+            Severity::Warning,
+            "asset/unmanaged-static",
+            &format!("`{what}` serves files the build output does not contain"),
+            "move the files into `public/` and link them with `cx.url(\"public/…\")`, so `proa build` bundles them and a static host can serve them; for files that only exist at run time, such as uploads, keep this and end the line with `// proa-perf-ok: <reason>`",
+        );
+    }
+}
+
 impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     fn visit_block(&mut self, block: &'ast Block) {
         let prev_locals = self.local_str_bindings.clone();
@@ -1889,6 +1909,16 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         if line_in_ranges(call.span().start().line, self.ignored_ranges) {
             return;
         }
+        if let Expr::Path(callee) = &*call.func {
+            let mut segments = callee.path.segments.iter().rev();
+            let constructor = segments.next().map(|segment| segment.ident.to_string());
+            let service = segments.next().map(|segment| segment.ident.to_string());
+            if matches!(service.as_deref(), Some("ServeDir" | "ServeFile"))
+                && constructor.is_some_and(|name| name.starts_with("new"))
+            {
+                self.unmanaged_static(callee.span(), service.as_deref().unwrap_or_default());
+            }
+        }
         self.as_macro_checker().check_call_args(call);
         visit::visit_expr_call(self, call);
     }
@@ -1908,6 +1938,18 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         let pos = last.ident.span().start();
         if line_in_ranges(pos.line, self.ignored_ranges) {
             return;
+        }
+        // Embedding a directory is how a crate ships browser files without a
+        // build step. Only a directory named like one is reported: the same
+        // macro also embeds templates and migrations.
+        if last.ident == "include_dir" {
+            let directory = mac.tokens.to_string();
+            if ["public", "static", "assets"]
+                .iter()
+                .any(|name| directory.contains(&format!("/{name}")))
+            {
+                self.unmanaged_static(last.ident.span(), "include_dir!");
+            }
         }
         let owned = self.templates.owned.get(&(pos.line, pos.column)).copied();
         let Some(dialect) = self.templates.dialect(mac, owned) else {
