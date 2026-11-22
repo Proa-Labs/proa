@@ -42,7 +42,7 @@ pub struct RsjsAssetsError {
 
 /// The setting `cargo proa` compiled this executable with.
 fn minify() -> bool {
-    matches!(option_env!("PROA_RSJS_minify()"), Some("1"))
+    matches!(option_env!("PROA_RSJS_MINIFY"), Some("1"))
 }
 
 /// Every linked module's source, by canonical path.
