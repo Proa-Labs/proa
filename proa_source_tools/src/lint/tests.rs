@@ -6315,3 +6315,142 @@ pub fn handler() -> (Card, Badge) {
         vec![(32, "asset/public-url")]
     );
 }
+
+#[test]
+fn asset_url_lint_catches_head_writer_setters_and_missing_public_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("src/pages")).unwrap();
+    std::fs::create_dir_all(root.join("public/images")).unwrap();
+    std::fs::create_dir_all(root.join("public/.well-known")).unwrap();
+    std::fs::create_dir_all(root.join("styles")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config::default())
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("styles/input.css"), "@import \"tailwindcss\";\n").unwrap();
+    std::fs::write(root.join("public/favicon.svg"), "<svg/>").unwrap();
+    std::fs::write(root.join("public/images/og.png"), b"png").unwrap();
+    std::fs::write(
+        root.join("public/.well-known/security.txt"),
+        "Contact: hi\n",
+    )
+    .unwrap();
+
+    // Note: `public/styles.css` is intentionally NOT on disk yet; because
+    // `styles/input.css` exists and `build.assets` is default (`None`), the CLI
+    // infers `public/styles.css` and the lint must not false-positive.
+    std::fs::write(
+        root.join("src/pages/home.rs"),
+        r#"pub struct HomePage;
+impl WebRenderSync for HomePage {
+    fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let _ = HeadIcon::new("/favicon.svg");
+        let _ = HeadMedia::from_url("public/images/og.png");
+        let _ = HeadIcon::from_url("/favicon.svg");
+        let _ = cx.head_mut().og_image("/images/og.png");
+        let _ = cx.head_mut().og_image("public/images/og.png");
+        let _ = cx.head_mut().icon("/favicon.svg");
+        let _ = cx.head_mut().stylesheet("app", "/favicon.svg");
+        let _ = cx.head_mut().module("main", "public/images/og.png");
+        // Valid resolved calls + dot-prefixed asset + inferred Tailwind output + unrelated `.icon(...)`
+        let og = cx.url("public/images/og.png");
+        let _ = cx.head_mut().og_image(og);
+        let css = cx.url("public/styles.css");
+        let _ = cx.head_mut().stylesheet("app", css);
+        let _ = cx.url("public/.well-known/security.txt");
+        let _ = HeadMedia::from_url(cx.url("public/images/og.png"));
+        let _ = my_builder.icon("/favicon.svg");
+        // Missing files under public/
+        let _ = cx.url("public/images/typo.png");
+        let _ = cx.url("public/images/absent.png?v=1#top");
+        Ok(())
+    }
+
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <main>"ok"</main> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let diagnostics =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    let mut hits: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    hits.sort();
+    assert_eq!(
+        hits,
+        vec![
+            (4, "asset/public-url"),           // HeadIcon::new("/favicon.svg")
+            (5, "asset/public-url"),           // HeadMedia::from_url("public/images/og.png")
+            (6, "asset/public-url"),           // HeadIcon::from_url("/favicon.svg")
+            (7, "asset/public-url"),           // cx.head_mut().og_image("/images/og.png")
+            (8, "asset/public-url"),           // cx.head_mut().og_image("public/images/og.png")
+            (9, "asset/public-url"),           // cx.head_mut().icon("/favicon.svg")
+            (10, "asset/public-url"),          // cx.head_mut().stylesheet("app", "/favicon.svg")
+            (11, "asset/public-url"), // cx.head_mut().module("main", "public/images/og.png")
+            (21, "asset/missing-public-file"), // cx.url("public/images/typo.png")
+            (22, "asset/missing-public-file"), // cx.url("public/images/absent.png?v=1#top")
+        ],
+        "unexpected asset diagnostics: {diagnostics:#?}"
+    );
+
+    // Removing `styles/input.css` disables Tailwind inference, so missing `public/styles.css` now warns.
+    std::fs::remove_file(root.join("styles/input.css")).unwrap();
+    let without_input =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    assert!(
+        without_input
+            .iter()
+            .any(|d| d.line == 15 && d.code == "asset/missing-public-file"),
+        "expected missing-public-file for public/styles.css without styles/input.css: {without_input:#?}"
+    );
+
+    // Explicit `build.assets: Some(vec![AssetConfig { output: ... }])` inside `vec!`
+    // exempts the declared output (`public/styles.css`) even before the build runs,
+    // while another unbuilt output (`public/other.css`) still warns.
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{AssetConfig, BuildConfig, Config, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        build: BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "tailwind",
+                command: vec![],
+                input: "styles/main.css",
+                output: "public/styles.css",
+                config: None,
+            }]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let with_declared =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    assert!(
+        !with_declared
+            .iter()
+            .any(|d| d.line == 15 && d.code == "asset/missing-public-file"),
+        "declared `vec![AssetConfig {{ output: \"public/styles.css\" }}]` must not warn: {with_declared:#?}"
+    );
+}

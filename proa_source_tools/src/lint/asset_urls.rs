@@ -121,8 +121,9 @@ struct UrlSchema {
 fn builtin_param_role(type_name: Option<&str>, func: &str, index: usize) -> Option<FieldRole> {
     matches!(
         (type_name, func, index),
-        (Some("HeadMedia"), "new" | "secure_url", 0)
-            | (Some("HeadIcon" | "HeadAlternate"), "new", 0)
+        (Some("HeadMedia"), "new" | "from_url" | "secure_url", 0)
+            | (Some("HeadIcon"), "new" | "from_url", 0)
+            | (Some("HeadAlternate"), "new", 0)
     )
     .then_some(FieldRole::ResolvedOnly { srcset: false })
 }
@@ -261,14 +262,17 @@ fn package_scope(dir: &Path) -> Option<PathBuf> {
 
 #[derive(Debug, Clone)]
 struct PublicCatalog {
+    disk_dir: String,
+    disk_root: PathBuf,
     files: BTreeSet<String>,
+    generated_outputs: BTreeSet<String>,
 }
 
 impl PublicCatalog {
     fn load(project_root: &Path) -> Option<Self> {
         let config_path = project_root.join("proa.config.rs");
-        let configured = parse_public_dir_from_config(&config_path)?;
-        let relative = configured.trim_matches('/');
+        let parsed = parse_public_config(project_root, &config_path)?;
+        let relative = parsed.disk_dir.trim_matches('/');
         if relative.is_empty() || relative.split('/').any(|seg| seg == "..") {
             return None;
         }
@@ -278,7 +282,25 @@ impl PublicCatalog {
         }
         let mut files = BTreeSet::new();
         collect_public_files(&dir, &dir, 0, &mut files);
-        (!files.is_empty()).then_some(Self { files })
+        let mut generated_outputs = BTreeSet::new();
+        if parsed.infer_default_stylesheet {
+            generated_outputs.insert("styles.css".to_string());
+        }
+        let prefix = format!("{relative}/");
+        for output in parsed.explicit_outputs {
+            let trimmed = output.trim_start_matches("./").trim_start_matches('/');
+            if let Some(rel) = trimmed.strip_prefix(&prefix) {
+                if !rel.is_empty() {
+                    generated_outputs.insert(rel.to_string());
+                }
+            }
+        }
+        Some(Self {
+            disk_dir: relative.to_string(),
+            disk_root: dir,
+            files,
+            generated_outputs,
+        })
     }
 
     /// `cx.url(...)` always uses the logical `public/` prefix regardless of
@@ -292,6 +314,22 @@ impl PublicCatalog {
             .contains(stripped)
             .then(|| format!("public/{stripped}"))
     }
+
+    fn has_logical_file(&self, relative: &str) -> bool {
+        // Check the indexed file set first, then fall back to a direct stat
+        // under `disk_root` so dot-prefixed assets (e.g. `.well-known/...`),
+        // paths deeper than MAX_DEPTH, or catalogs above MAX_FILES never
+        // trigger false missing-file warnings.
+        self.files.contains(relative)
+            || self.generated_outputs.contains(relative)
+            || self.disk_root.join(relative).is_file()
+    }
+}
+
+struct ParsedPublicConfig {
+    disk_dir: String,
+    infer_default_stylesheet: bool,
+    explicit_outputs: Vec<String>,
 }
 
 /// The nearest ancestor of `dir` with a `proa.config.rs`.
@@ -301,46 +339,122 @@ fn find_proa_config_root(dir: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// Read `paths.public` from `proa.config.rs` statically without executing it.
-/// Returns `None` when public assets are explicitly disabled (`public: None`),
-/// otherwise `Some("public")` by default or `Some("<dir>")` when configured.
-fn parse_public_dir_from_config(config_path: &Path) -> Option<String> {
+/// Read `paths.public` and declared generated asset outputs from `proa.config.rs`
+/// statically without executing it. Returns `None` when public assets are
+/// explicitly disabled (`public: None`).
+fn parse_public_config(project_root: &Path, config_path: &Path) -> Option<ParsedPublicConfig> {
     let source = std::fs::read_to_string(config_path).ok()?;
     let file = syn::parse_file(&source).ok()?;
 
     struct ConfigPublicFinder {
-        found: Option<Option<String>>,
+        found_public: Option<Option<String>>,
+        assets_explicitly_set: bool,
+        has_css_script: bool,
+        explicit_outputs: Vec<String>,
     }
     impl<'ast> Visit<'ast> for ConfigPublicFinder {
         fn visit_expr_struct(&mut self, expr: &'ast syn::ExprStruct) {
-            if self.found.is_some() {
-                return;
-            }
-            let is_paths_config = expr
-                .path
-                .segments
-                .last()
-                .is_some_and(|seg| seg.ident == "ProjectPaths" || seg.ident == "PathsConfig");
-            if is_paths_config {
-                for field in &expr.fields {
-                    if let syn::Member::Named(name) = &field.member {
-                        if name == "public" {
-                            self.found = Some(extract_option_str_literal(&field.expr));
-                            return;
+            let ident = expr.path.segments.last().map(|seg| seg.ident.to_string());
+            match ident.as_deref() {
+                Some("ProjectPaths" | "PathsConfig") if self.found_public.is_none() => {
+                    for field in &expr.fields {
+                        if let syn::Member::Named(name) = &field.member {
+                            if name == "public" {
+                                self.found_public = Some(extract_option_str_literal(&field.expr));
+                                break;
+                            }
                         }
                     }
                 }
+                Some("BuildConfig") => {
+                    for field in &expr.fields {
+                        if let syn::Member::Named(name) = &field.member {
+                            if name == "assets" && is_some_expr(&field.expr) {
+                                self.assets_explicitly_set = true;
+                            }
+                        }
+                    }
+                }
+                Some("ScriptsConfig") => {
+                    for field in &expr.fields {
+                        if let syn::Member::Named(name) = &field.member {
+                            if name == "css"
+                                && extract_str_literal(&field.expr)
+                                    .is_some_and(|value| !value.trim().is_empty())
+                            {
+                                self.has_css_script = true;
+                            }
+                        }
+                    }
+                }
+                Some("AssetConfig") => {
+                    for field in &expr.fields {
+                        if let syn::Member::Named(name) = &field.member {
+                            if name == "output" {
+                                if let Some(output) = extract_str_literal(&field.expr) {
+                                    self.explicit_outputs.push(output);
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
             visit::visit_expr_struct(self, expr);
         }
+
+        fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+            if mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|seg| seg.ident == "vec")
+            {
+                let parser = syn::punctuated::Punctuated::<Expr, syn::Token![,]>::parse_terminated;
+                if let Ok(items) = syn::parse::Parser::parse2(parser, mac.tokens.clone()) {
+                    for expr in &items {
+                        self.visit_expr(expr);
+                    }
+                }
+            }
+            visit::visit_macro(self, mac);
+        }
     }
 
-    let mut finder = ConfigPublicFinder { found: None };
+    let mut finder = ConfigPublicFinder {
+        found_public: None,
+        assets_explicitly_set: false,
+        has_css_script: false,
+        explicit_outputs: Vec::new(),
+    };
     finder.visit_file(&file);
-    match finder.found {
-        Some(None) => None,
-        Some(Some(custom)) => Some(custom),
-        None => Some("public".to_string()),
+    let disk_dir = match finder.found_public {
+        Some(None) => return None,
+        Some(Some(custom)) => custom,
+        None => "public".to_string(),
+    };
+    // Match `proa_cli`: `public/styles.css` is inferred only when `scripts.css`
+    // is configured, or when `build.assets` is absent (`None`) AND
+    // `styles/input.css` exists on disk.
+    let infer_default_stylesheet = finder.has_css_script
+        || (!finder.assets_explicitly_set && project_root.join("styles/input.css").is_file());
+    Some(ParsedPublicConfig {
+        disk_dir,
+        infer_default_stylesheet,
+        explicit_outputs: finder.explicit_outputs,
+    })
+}
+
+fn is_some_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Paren(e) => is_some_expr(&e.expr),
+        Expr::Group(e) => is_some_expr(&e.expr),
+        Expr::Call(call) if call.args.len() == 1 => matches!(
+            call.func.as_ref(),
+            Expr::Path(path)
+                if path.path.segments.last().is_some_and(|seg| seg.ident == "Some")
+        ),
+        _ => false,
     }
 }
 
@@ -1267,6 +1381,11 @@ impl<'ast> Visit<'ast> for RoleInferer<'_> {
             if let Some(slot) = self.resolve_expr_slot(&call.args[0]) {
                 self.schema.record_role(slot, FieldRole::LogicalOnly);
             }
+        } else if let Some(arg_index) = head_writer_url_arg_index(call) {
+            if let Some(slot) = self.resolve_expr_slot(&call.args[arg_index]) {
+                self.schema
+                    .record_role(slot, FieldRole::ResolvedOnly { srcset: false });
+            }
         }
         visit::visit_expr_method_call(self, call);
     }
@@ -2078,7 +2197,9 @@ impl MacroAssetChecker<'_> {
     fn check_method_call(&mut self, call: &ExprMethodCall) {
         if call.method == "url" && call.args.len() == 1 {
             if let Some((span, text)) = self.resolve_string_arg(&call.args[0]) {
-                if text.starts_with("/public/") || text.starts_with("./public/") {
+                let trimmed = text.trim();
+                let path = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
+                if path.starts_with("/public/") || path.starts_with("./public/") {
                     self.warn(
                         span,
                         "asset/logical-path",
@@ -2087,12 +2208,28 @@ impl MacroAssetChecker<'_> {
                     );
                 } else if matches!(asset_url(&text, None), Some(AssetUrl::Generated)) {
                     self.check_str(span, &text, false);
+                } else if let (Some(catalog), Some(rel)) =
+                    (self.catalog, path.strip_prefix("public/"))
+                {
+                    if !rel.is_empty() && !rel.contains("..") && !catalog.has_logical_file(rel) {
+                        let message = format!(
+                            "public asset `{path}` does not exist under `{}`",
+                            catalog.disk_dir
+                        );
+                        let help = format!(
+                            "create `{}/{rel}` or fix the path passed to `cx.url(...)`",
+                            catalog.disk_dir
+                        );
+                        self.warn(span, "asset/missing-public-file", &message, &help);
+                    }
                 }
             }
             return;
         }
         if call.method == "secure_url" && call.args.len() == 1 {
             self.url_expr(&call.args[0], false);
+        } else if let Some(arg_index) = head_writer_url_arg_index(call) {
+            self.url_expr(&call.args[arg_index], false);
         }
     }
 
@@ -2294,6 +2431,54 @@ impl<'ast> Visit<'ast> for MacroAssetChecker<'_> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn head_writer_url_arg_index(call: &ExprMethodCall) -> Option<usize> {
+    let method = call.method.to_string();
+    match (method.as_str(), call.args.len()) {
+        ("og_image", 1) => Some(0),
+        ("icon" | "canonical" | "manifest", 1) if is_head_writer_receiver(&call.receiver) => {
+            Some(0)
+        }
+        // `HeadWriter::stylesheet(key, href)` and `HeadWriter::module(key, src)`
+        // take the key first and the URL second.
+        ("stylesheet" | "module", 2) if is_head_writer_receiver(&call.receiver) => Some(1),
+        _ => None,
+    }
+}
+
+fn is_head_writer_receiver(expr: &Expr) -> bool {
+    match expr {
+        Expr::Paren(e) => is_head_writer_receiver(&e.expr),
+        Expr::Group(e) => is_head_writer_receiver(&e.expr),
+        Expr::Reference(e) => is_head_writer_receiver(&e.expr),
+        Expr::Try(e) => is_head_writer_receiver(&e.expr),
+        Expr::MethodCall(call) => {
+            let name = call.method.to_string();
+            if name == "head_mut" && call.args.is_empty() {
+                return true;
+            }
+            matches!(
+                name.as_str(),
+                "title"
+                    | "description"
+                    | "og_image"
+                    | "icon"
+                    | "canonical"
+                    | "manifest"
+                    | "stylesheet"
+                    | "module"
+                    | "open_graph"
+                    | "twitter"
+                    | "robots"
+                    | "meta"
+                    | "link"
+                    | "viewport"
+                    | "theme_color"
+            ) && is_head_writer_receiver(&call.receiver)
+        }
+        _ => false,
+    }
+}
 
 fn is_meta_url_element(element: &Element) -> bool {
     if !element.name.as_markup_str().eq_ignore_ascii_case("meta") {
