@@ -164,7 +164,11 @@ fn collision_reservations_survive_object_cleanup() {
     let digest = sha256(b"new");
     let object = fingerprinted_path("logo.svg", &digest);
     let mut history = writer.history().unwrap();
-    let other_digest = format!("{}{}", &digest[..8], "0".repeat(56));
+    let other_digest = format!(
+        "{}{}",
+        &digest[..FINGERPRINT_LENGTH],
+        "0".repeat(64 - FINGERPRINT_LENGTH)
+    );
     history.assignments.insert(object.clone(), other_digest);
     fs::write(
         f.output.join(HISTORY_FILE),
@@ -181,49 +185,36 @@ fn collision_reservations_survive_object_cleanup() {
 }
 
 #[test]
-fn history_keeps_only_public_fingerprint_reservations() {
+fn only_immutable_names_are_reserved_and_an_older_history_is_not_carried_over() {
     let f = Fixture::new();
-    f.write("icon.svg", b"old image");
-    f.write("style.css", b"old css");
-    f.write("main.mjs", b"old js");
+    f.write("icon.svg", b"image");
+    f.write("style.css", b"css");
+    f.write("main.mjs", b"js");
     let first = f.publish().manifest;
     let mut writer = OutputStore::open(&f.output).unwrap();
-    let mut legacy = writer.history().unwrap();
-    for logical in ["style.css", "main.mjs"] {
-        let asset = &first.assets[logical];
-        legacy
-            .assignments
-            .insert(asset.object.clone(), asset.sha256.clone());
-    }
+    let reserved = |manifest: &AssetManifest| -> BTreeMap<String, String> {
+        ["icon.svg", "style.css"]
+            .into_iter()
+            .map(|logical| {
+                let entry = &manifest.assets[logical];
+                (entry.public_path.clone(), entry.sha256.clone())
+            })
+            .collect()
+    };
+    assert_eq!(writer.history().unwrap().assignments, reserved(&first));
+
+    // Names issued under another scheme cannot collide with this one.
+    let legacy = History {
+        version: MANIFEST_VERSION - 1,
+        assignments: BTreeMap::from([("icon.0a1b2c3d.svg".into(), sha256(b"legacy"))]),
+    };
     fs::write(
         f.output.join(HISTORY_FILE),
         serde_json::to_vec(&legacy).unwrap(),
     )
     .unwrap();
-
-    f.write("icon.svg", b"new image");
-    f.write("style.css", b"new css");
-    f.write("main.mjs", b"new js");
     let second = writer.publish(&f.source).unwrap().manifest;
-    assert_eq!(
-        writer.history().unwrap().assignments,
-        [&first, &second]
-            .into_iter()
-            .map(|manifest| {
-                let icon = &manifest.assets["icon.svg"];
-                (icon.public_path.clone(), icon.sha256.clone())
-            })
-            .collect()
-    );
-    for logical in ["style.css", "main.mjs"] {
-        assert_eq!(second.assets[logical].public_path, logical);
-        assert_ne!(first.assets[logical].object, second.assets[logical].object);
-        assert!(!f
-            .output
-            .join("objects")
-            .join(&first.assets[logical].object)
-            .exists());
-    }
+    assert_eq!(writer.history().unwrap().assignments, reserved(&second));
 }
 
 #[test]
@@ -290,23 +281,139 @@ fn only_owned_output_is_cleaned_and_writers_are_exclusive() {
 }
 
 #[test]
-fn fingerprinted_fonts_keep_names_and_url_bearing_formats_revalidate() {
+fn fingerprinted_names_are_kept_and_formats_with_unmanaged_urls_keep_theirs() {
     let f = Fixture::new();
-    let font = format!("fonts/inter.{}.woff2", &sha256(b"font")[..8]);
+    let font = format!(
+        "fonts/inter.{}.woff2",
+        &sha256(b"font")[..FINGERPRINT_LENGTH]
+    );
     f.write(&font, b"font");
     f.write("scripts/main.js", b"import './dependency.js';");
-    f.write(
-        "styles/app.css",
-        b"a { background: url('../images/a.png'); }",
-    );
+    f.write("data/feed.json", b"{}");
     let manifest = f.publish().manifest;
     assert_eq!(manifest.assets[&font].public_path, font);
-    assert_eq!(manifest.assets[&font].cache_policy, CachePolicy::Immutable);
-    for name in ["scripts/main.js", "styles/app.css"] {
-        assert_eq!(manifest.assets[name].public_path, name);
-        assert_eq!(manifest.assets[name].cache_policy, CachePolicy::Revalidate);
-        assert_ne!(manifest.assets[name].object, name);
+    assert_eq!(
+        manifest.assets[&font].url_path(),
+        format!("immutable/{font}")
+    );
+    for name in ["scripts/main.js", "data/feed.json"] {
+        let entry = &manifest.assets[name];
+        assert_eq!(entry.public_path, name);
+        assert_eq!(entry.url_path(), format!("mutable/{name}"));
+        assert_eq!(entry.cache_policy, CachePolicy::Revalidate);
+        assert_ne!(entry.object, name);
     }
+}
+
+#[test]
+fn stylesheets_are_hashed_after_their_references_point_at_published_files() {
+    let f = Fixture::new();
+    f.write("images/a.png", b"image");
+    f.write("data.json", b"{}");
+    f.write("styles/base.css", b"b { background: url(../images/a.png) }");
+    f.write(
+        "styles/app.css",
+        br#"@import "base.css";
+a { background: url('../images/a.png?v=1#x'); mask: url(../data.json) }
+c { background: url(https://cdn.example/x.png), url(data:image/png;base64,AA), url(#id) }"#,
+    );
+    let report = f.publish();
+    assert_eq!(report.diagnostics, []);
+    let manifest = report.manifest;
+    let published = |logical: &str| {
+        let catalog = AssetCatalog::load(&f.output).unwrap();
+        fs::read_to_string(catalog.object_path(logical).unwrap()).unwrap()
+    };
+    let image = &manifest.assets["images/a.png"].public_path;
+    let base = &manifest.assets["styles/base.css"];
+    let app = &manifest.assets["styles/app.css"];
+    assert_eq!(
+        published("styles/base.css"),
+        format!("b {{ background: url(\"../{image}\") }}")
+    );
+    assert_eq!(
+        published("styles/app.css"),
+        format!(
+            r#"@import "{}";
+a {{ background: url("../{image}?v=1#x"); mask: url("../../mutable/data.json") }}
+c {{ background: url(https://cdn.example/x.png), url(data:image/png;base64,AA), url(#id) }}"#,
+            base.public_path.strip_prefix("styles/").unwrap()
+        )
+    );
+    for entry in [base, app] {
+        assert_eq!(entry.cache_policy, CachePolicy::Immutable);
+        assert_eq!(
+            entry.sha256,
+            sha256(&fs::read(f.output.join("objects").join(&entry.object)).unwrap())
+        );
+        assert_eq!(
+            entry.integrity,
+            integrity(&fs::read(f.output.join("objects").join(&entry.object)).unwrap())
+        );
+    }
+
+    // A changed image renames it, which changes the bytes and so the name of
+    // every stylesheet that reaches it, directly or through an import.
+    f.write("images/a.png", b"other image");
+    let next = f.publish().manifest;
+    for logical in ["styles/base.css", "styles/app.css"] {
+        assert_ne!(
+            manifest.assets[logical].public_path,
+            next.assets[logical].public_path
+        );
+    }
+    // The sources are never touched.
+    assert_eq!(
+        fs::read(f.source.join("styles/base.css")).unwrap(),
+        b"b { background: url(../images/a.png) }"
+    );
+}
+
+#[test]
+fn references_that_cannot_follow_the_published_file_are_reported() {
+    let f = Fixture::new();
+    f.write(
+        "app.css",
+        b"a { background: url(missing.png), url(/static/x.png), url(../outside.png) }",
+    );
+    f.write("broken.css", &[0xff, 0xfe]);
+    let report = f.publish();
+    let problems: Vec<_> = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.file.as_str(), diagnostic.problem.clone()))
+        .collect();
+    assert_eq!(
+        problems,
+        [
+            ("app.css", Problem::Missing("missing.png".into())),
+            ("app.css", Problem::RootRelative("/static/x.png".into())),
+            ("app.css", Problem::Missing("../outside.png".into())),
+            ("broken.css", Problem::Unreadable),
+        ]
+    );
+    // Both are still published, unchanged.
+    let catalog = AssetCatalog::load(&f.output).unwrap();
+    assert_eq!(
+        fs::read(catalog.object_path("app.css").unwrap()).unwrap(),
+        fs::read(f.source.join("app.css")).unwrap()
+    );
+    assert_eq!(
+        report.manifest.assets["broken.css"].cache_policy,
+        CachePolicy::Immutable
+    );
+}
+
+#[test]
+fn stylesheets_that_import_each_other_in_a_circle_are_refused() {
+    let f = Fixture::new();
+    f.write("a.css", b"@import 'b.css';");
+    f.write("b.css", b"@import 'a.css';");
+    assert!(matches!(
+        OutputStore::open(&f.output).unwrap().publish(&f.source),
+        Err(AssetError::ImportCycle(_))
+    ));
+    assert!(!f.output.join(MANIFEST_FILE).exists());
 }
 
 #[test]
@@ -330,7 +437,7 @@ fn read_only_sources_can_be_published_and_cleaned() {
 }
 
 #[test]
-fn manifest_rejects_traversal_unsupported_schema_and_alias_collisions() {
+fn manifest_rejects_traversal_and_unsupported_schema() {
     let f = Fixture::new();
     f.write("logo.png", b"bytes");
     let mut manifest = f.publish().manifest;
@@ -346,12 +453,13 @@ fn manifest_rejects_traversal_unsupported_schema_and_alias_collisions() {
         Err(AssetError::InvalidPath(_))
     ));
 
-    let valid = f.publish().manifest;
-    f.write(&valid.assets["logo.png"].object, b"different");
-    assert!(matches!(
-        OutputStore::open(&f.output).unwrap().publish(&f.source),
-        Err(AssetError::Collision { .. })
-    ));
+    manifest = f.publish().manifest;
+    let mut other = manifest.assets["logo.png"].clone();
+    other.sha256 = sha256(b"different");
+    other.object = fingerprinted_path("logo.png", &other.sha256);
+    other.public_path = manifest.assets["logo.png"].public_path.clone();
+    manifest.assets.insert("other.png".into(), other);
+    assert!(manifest.validate().is_err());
 }
 
 #[cfg(unix)]

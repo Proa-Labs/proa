@@ -16,10 +16,165 @@ pub struct CleanupReport {
     pub live_readers: bool,
 }
 
+/// A reference in a public file that publication could not point at its
+/// published target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diagnostic {
+    /// Logical path of the file that holds the reference.
+    pub file: String,
+    pub problem: Problem,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// A relative URL that names no public file.
+    Missing(String),
+    /// A URL from the origin root, such as `url(/images/a.png)`. It is not a
+    /// path into the catalog, and it breaks under a base path or once the
+    /// file is served from another host.
+    RootRelative(String),
+    /// The stylesheet could not be read as CSS, so nothing in it was changed.
+    Unreadable,
+}
+
+impl std::fmt::Display for Diagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let file = &self.file;
+        match &self.problem {
+            Problem::Missing(url) => write!(
+                f,
+                "`{file}` refers to `{url}`, which is not a file in the public directory"
+            ),
+            Problem::RootRelative(url) => write!(
+                f,
+                "`{file}` refers to `{url}` from the origin root; use a path relative to the stylesheet so it follows the published file"
+            ),
+            Problem::Unreadable => write!(
+                f,
+                "`{file}` could not be read as CSS, so its references were not rewritten"
+            ),
+        }
+    }
+}
+
+/// One publication's walk over the snapshot. A stylesheet's bytes hold the
+/// published names of the files it refers to, so those are settled first.
+struct Pass<'a> {
+    files: &'a [String],
+    stage: &'a Path,
+    history: &'a mut History,
+    entries: Vec<Option<AssetEntry>>,
+    visiting: Vec<bool>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl Pass<'_> {
+    fn entry(&mut self, index: usize) -> Result<AssetEntry> {
+        if let Some(entry) = &self.entries[index] {
+            return Ok(entry.clone());
+        }
+        let logical = &self.files[index];
+        if std::mem::replace(&mut self.visiting[index], true) {
+            return Err(AssetError::ImportCycle(logical.clone()));
+        }
+        let snapshot = self.stage.join(index.to_string());
+        if is_stylesheet(logical) {
+            self.rewrite_stylesheet(index, &snapshot)?;
+        }
+        let hashed = hash_file(&snapshot)?;
+        let object = fingerprinted_path(logical, &hashed.sha256);
+        let cache_policy = cache_policy(logical);
+        let public_path = match cache_policy {
+            CachePolicy::Immutable => {
+                reserve(self.history, &object, &hashed.sha256)?;
+                object.clone()
+            }
+            CachePolicy::Revalidate => logical.clone(),
+        };
+        let entry = AssetEntry {
+            object,
+            public_path,
+            sha256: hashed.sha256,
+            integrity: hashed.integrity,
+            byte_length: hashed.byte_length,
+            content_type: mime_guess::from_path(logical)
+                .first_or_octet_stream()
+                .essence_str()
+                .into(),
+            cache_policy,
+        };
+        self.visiting[index] = false;
+        self.entries[index] = Some(entry.clone());
+        Ok(entry)
+    }
+
+    fn rewrite_stylesheet(&mut self, index: usize, snapshot: &Path) -> Result<()> {
+        let logical = &self.files[index];
+        let parsed = at(snapshot, fs::read(snapshot)).map(|bytes| {
+            String::from_utf8(bytes)
+                .ok()
+                .and_then(|text| Some((stylesheet::references(&text).ok()?, text)))
+        })?;
+        let Some((references, text)) = parsed else {
+            self.diagnostics.push(Diagnostic {
+                file: logical.clone(),
+                problem: Problem::Unreadable,
+            });
+            return Ok(());
+        };
+        // The stylesheet keeps its directory when it is renamed, so its own
+        // published location is known before its bytes are.
+        let from = format!("{}/{logical}", CachePolicy::Immutable.directory());
+        let mut urls = Vec::with_capacity(references.len());
+        for reference in &references {
+            let (problem, url) = match stylesheet::target(logical, &reference.url) {
+                stylesheet::Target::External => (None, None),
+                stylesheet::Target::RootRelative => {
+                    (Some(Problem::RootRelative(reference.url.clone())), None)
+                }
+                stylesheet::Target::Outside => {
+                    (Some(Problem::Missing(reference.url.clone())), None)
+                }
+                stylesheet::Target::Public {
+                    logical: target,
+                    suffix,
+                } => match self.files.binary_search(&target) {
+                    Ok(target) => {
+                        let entry = self.entry(target)?;
+                        let path = stylesheet::relative(&from, &entry.url_path());
+                        (None, Some(format!("{path}{suffix}")))
+                    }
+                    Err(_) => (Some(Problem::Missing(reference.url.clone())), None),
+                },
+            };
+            if let Some(problem) = problem {
+                self.diagnostics.push(Diagnostic {
+                    file: logical.clone(),
+                    problem,
+                });
+            }
+            urls.push(url);
+        }
+        let mut urls = urls.into_iter();
+        let rewritten = stylesheet::rewrite(&text, &references, |_| urls.next().flatten());
+        if rewritten != text {
+            at(snapshot, fs::write(snapshot, rewritten))?;
+        }
+        Ok(())
+    }
+}
+
+fn is_stylesheet(logical: &str) -> bool {
+    extension(logical) == "css"
+}
+
 #[derive(Debug)]
 pub struct PublishReport {
     pub output_directory: PathBuf,
     pub manifest: AssetManifest,
+    /// Stylesheet references that were left as written. The catalog is
+    /// published either way; these say what will not load in a browser.
+    pub diagnostics: Vec<Diagnostic>,
     /// Maintenance failures do not turn an already activated catalog into a
     /// failed publication. Callers report these and retry cleanup later.
     pub cleanup: Result<CleanupReport>,
@@ -179,55 +334,35 @@ impl OutputStore {
                 .prefix("attempt-")
                 .tempdir_in(&staging_root),
         )?;
-        let mut manifest = AssetManifest::default();
         let mut history = self.history()?;
-        // Older builds reserved private object names too. An object whose
-        // extension requires revalidation could never be an immutable URL.
-        history
-            .assignments
-            .retain(|path, _| cache_policy(path) == CachePolicy::Immutable);
+        let mut sources = Vec::with_capacity(files.len());
         for (index, logical) in files.iter().enumerate() {
             let input = confined_file(&source, logical)?;
             let snapshot = stage.path().join(index.to_string());
             at(&snapshot, fs::copy(&input, &snapshot))?;
-            #[cfg(windows)]
-            {
-                // CopyFile preserves the read-only attribute. The owned
-                // snapshot must remain writable for FlushFileBuffers and GC.
-                let mut permissions = at(&snapshot, fs::metadata(&snapshot))?.permissions();
-                permissions.set_readonly(false);
-                at(&snapshot, fs::set_permissions(&snapshot, permissions))?;
-            }
-            let (digest, byte_length) = hash_file(&snapshot)?;
-            let object = fingerprinted_path(logical, &digest);
-            // A new logical alias cannot take over an earlier immutable URL.
-            if let Some(previous) = history.assignments.get(logical) {
-                if previous != &digest {
-                    return Err(collision(logical, previous, &digest));
-                }
-            }
-            let cache_policy = cache_policy(logical);
-            let public_path = match cache_policy {
-                CachePolicy::Immutable => {
-                    reserve(&mut history, &object, &digest)?;
-                    object.clone()
-                }
-                CachePolicy::Revalidate => logical.clone(),
-            };
-            manifest.assets.insert(
-                logical.clone(),
-                AssetEntry {
-                    object,
-                    public_path,
-                    sha256: digest,
-                    byte_length,
-                    content_type: mime_guess::from_path(logical)
-                        .first_or_octet_stream()
-                        .essence_str()
-                        .into(),
-                    cache_policy,
-                },
-            );
+            // The owned snapshot must be writable: a stylesheet is rewritten
+            // in place, and Windows also needs it for FlushFileBuffers and GC.
+            // A copy carries a read-only source's mode with it.
+            make_owner_writable(&snapshot)?;
+            sources.push(hash_file(&snapshot)?);
+        }
+        let mut pass = Pass {
+            files: &files,
+            stage: stage.path(),
+            history: &mut history,
+            entries: vec![None; files.len()],
+            visiting: vec![false; files.len()],
+            diagnostics: Vec::new(),
+        };
+        for index in 0..files.len() {
+            pass.entry(index)?;
+        }
+        let diagnostics = std::mem::take(&mut pass.diagnostics);
+        let mut manifest = AssetManifest::default();
+        for (logical, entry) in files.iter().zip(pass.entries) {
+            manifest
+                .assets
+                .insert(logical.clone(), entry.expect("every file was published"));
         }
         manifest.validate()?;
         // Checking bytes, rather than only metadata, also handles editor writes
@@ -235,8 +370,9 @@ impl OutputStore {
         if collect_files(&source)? != files {
             return Err(AssetError::SourceChanged(source.display().to_string()));
         }
-        for (logical, entry) in &manifest.assets {
-            if !entry.matches_contents(&confined_file(&source, logical)?)? {
+        for (logical, snapshot) in files.iter().zip(&sources) {
+            let current = hash_file(&confined_file(&source, logical)?)?;
+            if current.sha256 != snapshot.sha256 || current.byte_length != snapshot.byte_length {
                 return Err(AssetError::SourceChanged(logical.clone()));
             }
         }
@@ -316,6 +452,7 @@ impl OutputStore {
         Ok(PublishReport {
             output_directory: self.root.clone(),
             manifest,
+            diagnostics,
             cleanup,
             durability_error,
         })
@@ -446,9 +583,13 @@ impl OutputStore {
         plain_file(&path)?;
         let history: History = serde_json::from_slice(&at(&path, fs::read(&path))?)?;
         if history.version != MANIFEST_VERSION {
-            return Err(AssetError::InvalidManifest(
-                "unsupported fingerprint history version".into(),
-            ));
+            // An output written by another release named its files under a
+            // different scheme. None of those names can be handed out again,
+            // so there is nothing to carry over.
+            return Ok(History {
+                version: MANIFEST_VERSION,
+                assignments: BTreeMap::new(),
+            });
         }
         for (path, digest) in &history.assignments {
             validate_relative(path)?;
@@ -492,28 +633,22 @@ fn collision(path: &str, previous: &str, current: &str) -> AssetError {
     }
 }
 
-fn cache_policy(path: &str) -> CachePolicy {
-    let extension = path
-        .rsplit('/')
+fn extension(path: &str) -> String {
+    path.rsplit('/')
         .next()
         .and_then(|name| name.rsplit_once('.'))
         .filter(|(stem, _)| !stem.is_empty())
         .map(|(_, ext)| ext.to_ascii_lowercase())
-        .unwrap_or_default();
-    // These formats can contain dependency URLs. Keep their existing relative
-    // addressing until a supported rewrite/bundling pass owns those edges.
+        .unwrap_or_default()
+}
+
+fn cache_policy(path: &str) -> CachePolicy {
+    // These formats can refer to other files by URL, and nothing rewrites
+    // those references yet, so they keep their names and their relative
+    // addressing to each other. Stylesheets are rewritten, and are hashed.
     if matches!(
-        extension.as_str(),
-        "js" | "mjs"
-            | "cjs"
-            | "css"
-            | "html"
-            | "htm"
-            | "json"
-            | "webmanifest"
-            | "map"
-            | "txt"
-            | "xml"
+        extension(path).as_str(),
+        "js" | "mjs" | "cjs" | "html" | "htm" | "json" | "webmanifest" | "map" | "txt" | "xml"
     ) {
         CachePolicy::Revalidate
     } else {
@@ -690,6 +825,21 @@ fn widened(path: &Path, result: io::Result<()>) -> Result<()> {
         Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Ok(()),
         result => at(path, result),
     }
+}
+
+fn make_owner_writable(path: &Path) -> Result<()> {
+    let mut permissions = at(path, fs::metadata(path))?.permissions();
+    if permissions.readonly() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            permissions.set_mode(permissions.mode() | 0o200);
+        }
+        #[cfg(not(unix))]
+        permissions.set_readonly(false);
+        at(path, fs::set_permissions(path, permissions))?;
+    }
+    Ok(())
 }
 
 fn sync_directory(path: &Path) -> Result<()> {

@@ -17,18 +17,31 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha384};
 use thiserror::Error;
 
 #[cfg(feature = "build")]
 pub mod build;
+#[cfg(feature = "build")]
+mod stylesheet;
 
-pub const MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION: u32 = 2;
 pub const MANIFEST_FILE: &str = "manifest.json";
 /// Runtime-only input: never pass this variable to rustc or build scripts.
 pub const OUTPUT_ENV: &str = "PROA_PUBLIC_ASSETS";
-pub const PUBLIC_ROUTE: &str = "/_proa/assets";
+/// Every catalog URL starts here. The path below it is the file's place in
+/// an exported bundle, so a bucket holding that tree serves the same URLs.
+pub const PUBLIC_ROUTE: &str = "/_proa";
+/// Content-hashed files: a name is never reused for different bytes.
+pub const IMMUTABLE_DIRECTORY: &str = "immutable";
+/// Files that keep their logical name and are revalidated on every load.
+pub const MUTABLE_DIRECTORY: &str = "mutable";
+/// Hex characters of the SHA-256 carried in an immutable file name. A bucket
+/// that keeps every deploy's files forever needs more margin than a local
+/// output does, and 64 bits leaves collisions out of reach.
+pub const FINGERPRINT_LENGTH: usize = 16;
 /// Appended to an exported executable's file name to name its catalog.
 pub const BUNDLED_SUFFIX: &str = ".assets";
 const OWNER_FILE: &str = ".proa-assets";
@@ -52,6 +65,8 @@ pub enum AssetError {
     OverlappingDirectories,
     #[error("another writer is publishing asset output `{0}`")]
     WriterBusy(PathBuf),
+    #[error("stylesheet `{0}` imports itself through its own imports")]
+    ImportCycle(String),
     #[error("asset `{0}` changed during publication; retry the build")]
     SourceChanged(String),
     #[error("asset fingerprint collision at `{path}`: {previous} versus {current}")]
@@ -73,23 +88,51 @@ pub enum CachePolicy {
     Revalidate,
 }
 
+impl CachePolicy {
+    /// The directory under [`PUBLIC_ROUTE`] that holds files of this policy.
+    /// One path rule per directory is the whole cache configuration of a CDN.
+    pub const fn directory(self) -> &'static str {
+        match self {
+            Self::Immutable => IMMUTABLE_DIRECTORY,
+            Self::Revalidate => MUTABLE_DIRECTORY,
+        }
+    }
+
+    pub const fn cache_control(self) -> &'static str {
+        match self {
+            Self::Immutable => "public, max-age=31536000, immutable",
+            Self::Revalidate => "public, no-cache",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AssetEntry {
-    /// Path relative to `objects/`, always tied to the copied bytes.
+    /// Path relative to `objects/`, always tied to the delivered bytes.
     pub object: String,
-    /// Preferred browser path relative to the public mount.
+    /// Browser path relative to the directory of its cache policy.
     pub public_path: String,
+    /// SHA-256 of the delivered bytes. For a stylesheet these are the bytes
+    /// after its references were pointed at their published targets.
     pub sha256: String,
+    /// Subresource Integrity value for the delivered bytes: `sha384-<base64>`.
+    pub integrity: String,
     pub byte_length: u64,
     pub content_type: String,
     pub cache_policy: CachePolicy,
 }
 
 impl AssetEntry {
+    /// Path below [`PUBLIC_ROUTE`]: `immutable/images/logo.<hash>.svg` or
+    /// `mutable/data.json`. This is both the URL and the bundle location.
+    pub fn url_path(&self) -> String {
+        format!("{}/{}", self.cache_policy.directory(), self.public_path)
+    }
+
     fn matches_contents(&self, path: &Path) -> Result<bool> {
-        let (digest, length) = hash_file(path)?;
-        Ok(digest == self.sha256 && length == self.byte_length)
+        let hashed = hash_file(path)?;
+        Ok(hashed.sha256 == self.sha256 && hashed.byte_length == self.byte_length)
     }
 }
 
@@ -126,12 +169,13 @@ impl AssetManifest {
                 self.version
             )));
         }
-        let mut urls = BTreeMap::<&str, &str>::new();
+        let mut urls = BTreeMap::<String, &str>::new();
         for (logical, entry) in &self.assets {
             validate_relative(logical)?;
             validate_relative(&entry.object)?;
             validate_relative(&entry.public_path)?;
             validate_digest(&entry.sha256)?;
+            validate_integrity(&entry.integrity)?;
             if entry.object != fingerprinted_path(logical, &entry.sha256) {
                 return Err(AssetError::InvalidManifest(format!(
                     "object name does not match digest for `{logical}`"
@@ -153,17 +197,16 @@ impl AssetManifest {
                     "invalid media type for `{logical}`"
                 )));
             }
-            // Logical aliases preserve relative references in files that are
-            // not relocated yet. They cannot shadow another immutable object.
-            for path in [logical.as_str(), entry.public_path.as_str()] {
-                if let Some(previous) = urls.insert(path, &entry.sha256) {
-                    if previous != entry.sha256 {
-                        return Err(AssetError::Collision {
-                            path: path.into(),
-                            previous: previous.into(),
-                            current: entry.sha256.clone(),
-                        });
-                    }
+            // A file has exactly one URL. Two logical paths may share it only
+            // when their bytes are the same.
+            let path = entry.url_path();
+            if let Some(previous) = urls.insert(path.clone(), &entry.sha256) {
+                if previous != entry.sha256 {
+                    return Err(AssetError::Collision {
+                        path,
+                        previous: previous.into(),
+                        current: entry.sha256.clone(),
+                    });
                 }
             }
         }
@@ -291,23 +334,59 @@ pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", base16ct::HexDisplay(&Sha256::digest(bytes)))
 }
 
-fn hash_file(path: &Path) -> Result<(String, u64)> {
+/// The Subresource Integrity value browsers check a fetched file against.
+pub fn integrity(bytes: &[u8]) -> String {
+    integrity_value(&Sha384::digest(bytes))
+}
+
+fn integrity_value(digest: &[u8]) -> String {
+    format!("sha384-{}", BASE64_STANDARD.encode(digest))
+}
+
+struct Hashed {
+    sha256: String,
+    /// Recorded by the writer; a reader verifies the SHA-256 alone.
+    #[cfg_attr(not(feature = "build"), allow(dead_code))]
+    integrity: String,
+    byte_length: u64,
+}
+
+fn hash_file(path: &Path) -> Result<Hashed> {
     let mut file = at(path, File::open(path))?;
-    let mut hash = Sha256::new();
+    let mut sha256 = Sha256::new();
+    let mut sha384 = Sha384::new();
     let mut buffer = [0_u8; 64 * 1024];
-    let mut length = 0;
+    let mut byte_length = 0;
     loop {
         let n = at(path, file.read(&mut buffer))?;
         if n == 0 {
             break;
         }
-        hash.update(&buffer[..n]);
-        length += n as u64;
+        sha256.update(&buffer[..n]);
+        sha384.update(&buffer[..n]);
+        byte_length += n as u64;
     }
-    Ok((
-        format!("{:x}", base16ct::HexDisplay(&hash.finalize())),
-        length,
-    ))
+    Ok(Hashed {
+        sha256: format!("{:x}", base16ct::HexDisplay(&sha256.finalize())),
+        integrity: integrity_value(&sha384.finalize()),
+        byte_length,
+    })
+}
+
+fn validate_integrity(value: &str) -> Result<()> {
+    // 48 digest bytes are always 64 base64 characters, with no padding.
+    let valid = value.strip_prefix("sha384-").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+    });
+    if !valid {
+        return Err(AssetError::InvalidManifest(
+            "integrity must be a base64 SHA-384 value".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_digest(value: &str) -> Result<()> {
@@ -344,7 +423,7 @@ fn fingerprinted_path(logical: &str, digest: &str) -> String {
         .rsplit_once('.')
         .filter(|(s, _)| !s.is_empty())
         .map_or((name, ""), |(s, e)| (s, e));
-    let short = &digest[..8];
+    let short = &digest[..FINGERPRINT_LENGTH];
     // Preserve already-fingerprinted font/other outputs only when the suffix
     // matches their actual bytes, rather than trusting a filename pattern.
     if stem

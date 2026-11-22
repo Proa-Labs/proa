@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use axum::body::to_bytes;
+use axum::{body::to_bytes, http::Method};
+use bytes::Bytes;
 use proa_assets::build::OutputStore;
 
 struct Fixture {
@@ -202,8 +203,18 @@ async fn files_keep_digest_validators_head_and_range_semantics() {
         .await
         .unwrap()
         .is_empty());
-    let alias = get_asset(&assets, "/_proa/assets/movie.mp4").await;
-    assert_eq!(alias.headers()[header::CACHE_CONTROL], "no-cache");
+    // A hashed file has one URL. Its logical name is not a second one.
+    for alias in [
+        "/_proa/immutable/movie.mp4",
+        "/_proa/mutable/movie.mp4",
+        "/_proa/assets/movie.mp4",
+    ] {
+        assert_eq!(
+            get_asset(&assets, alias).await.status(),
+            StatusCode::NOT_FOUND,
+            "{alias}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -225,13 +236,15 @@ async fn only_manifest_routes_are_public_and_names_are_encoded_once() {
         "../manifest.json",
         "%2e%2e/manifest.json",
     ] {
-        assert_eq!(
-            get_asset(&assets, &format!("/_proa/assets/{private}"))
-                .await
-                .status(),
-            StatusCode::NOT_FOUND,
-            "{private}"
-        );
+        for directory in ["immutable/", "mutable/", ""] {
+            assert_eq!(
+                get_asset(&assets, &format!("/_proa/{directory}{private}"))
+                    .await
+                    .status(),
+                StatusCode::NOT_FOUND,
+                "{directory}{private}"
+            );
+        }
     }
 }
 
@@ -308,48 +321,54 @@ async fn custom_router_and_buffered_render_share_catalog_urls_with_suffixes() {
 }
 
 #[tokio::test]
-async fn stable_js_and_css_rewrite_once_and_validate_the_delivered_bytes() {
+async fn files_are_served_as_built_under_any_base_path() {
     let f = Fixture::new();
     // Parser fixtures, not application-authored browser behavior.
-    f.write("main.js", b"import './dependency.js'; fetch('/api/data');");
-    f.write("styles.css", b"a { background: url('/images/a.png'); }");
+    let script = b"import './dependency.js'; fetch('/api/data');";
+    f.write("main.js", script);
+    f.write("images/a.png", b"image");
+    f.write("styles.css", b"a { background: url('images/a.png'); }");
     let root = f.load("");
     let mounted = f.load("/apps/demo");
+    // The key covers the URLs a page holds, which carry the base path.
     assert_ne!(root.cache_key(), mounted.cache_key());
     assert_eq!(
         mounted.url("main.js"),
-        Some("/apps/demo/_proa/assets/main.js")
+        Some("/apps/demo/_proa/mutable/main.js")
     );
-    for (path, rewritten) in [
-        ("main.js", "/apps/demo/api/data"),
-        ("styles.css", "/apps/demo/images/a.png"),
-    ] {
-        let url = format!("/_proa/assets/{path}");
-        let original = get_asset(&root, &url).await;
-        let original_etag = original.headers()[header::ETAG].clone();
-        let response = get_asset(&mounted, &url).await;
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
-        let etag = response.headers()[header::ETAG].clone();
-        assert_ne!(etag, original_etag);
-        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
-        assert!(std::str::from_utf8(&bytes).unwrap().contains(rewritten));
-        assert_eq!(etag, format!("\"{}\"", proa_assets::sha256(&bytes)));
-        let head = mounted
-            .router()
-            .oneshot(
-                Request::builder()
-                    .method(Method::HEAD)
-                    .uri(&url)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+    for logical in ["main.js", "styles.css"] {
+        let url = root.url(logical).unwrap();
         assert_eq!(
-            head.headers()[header::CONTENT_LENGTH],
-            bytes.len().to_string()
+            mounted.url(logical).unwrap().strip_prefix("/apps/demo"),
+            Some(url)
         );
-        assert!(to_bytes(head.into_body(), 1024).await.unwrap().is_empty());
+        let original = get_asset(&root, url).await;
+        let response = get_asset(&mounted, url).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let etag = response.headers()[header::ETAG].clone();
+        assert_eq!(etag, original.headers()[header::ETAG]);
+        let cache = response.headers()[header::CACHE_CONTROL].clone();
+        let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            bytes,
+            to_bytes(original.into_body(), 1024).await.unwrap(),
+            "{logical}"
+        );
+        assert_eq!(etag, format!("\"{}\"", proa_assets::sha256(&bytes)));
+        if logical == "main.js" {
+            assert_eq!(cache, "public, no-cache");
+            assert_eq!(bytes.as_ref(), script);
+        } else {
+            // The stylesheet is hashed, and reaches the image by a path
+            // relative to itself, so no host or mount appears in its bytes.
+            assert_eq!(cache, "public, max-age=31536000, immutable");
+            let image = root.url("images/a.png").unwrap();
+            let image = image.strip_prefix("/_proa/immutable/").unwrap();
+            assert_eq!(
+                std::str::from_utf8(&bytes).unwrap(),
+                format!("a {{ background: url(\"{image}\"); }}")
+            );
+        }
     }
 }
 
@@ -420,7 +439,7 @@ async fn request_urls_and_shared_page_cache_follow_the_active_catalog() {
     let old_url = old.url("image.png").unwrap();
     let new_url = new.url("image.png").unwrap();
     assert_ne!(old_url, new_url);
-    assert!(old_url.starts_with("/shop/_proa/assets/"));
+    assert!(old_url.starts_with("/shop/_proa/immutable/"));
     let before = page(&old_app, "MISS").await;
     assert_eq!(page(&old_app, "HIT").await, before);
     let after = page(&new_app, "MISS").await;
@@ -520,7 +539,7 @@ async fn body(assets: &PublicAssets, url: &str) -> (StatusCode, Bytes) {
 async fn live_catalog_follows_republication_and_pins_each_request_to_one_generation() {
     let live = LiveFixture::new();
     live.f.write("favicon.svg", b"<svg>A</svg>");
-    live.f.write("styles.css", b"a{color:red}");
+    live.f.write("data.json", b"{\"a\":1}");
     live.f.write("old-name.png", b"png");
     live.publish();
 
@@ -535,13 +554,13 @@ async fn live_catalog_follows_republication_and_pins_each_request_to_one_generat
         body(&assets, &first_url).await,
         (StatusCode::OK, Bytes::from_static(b"<svg>A</svg>"))
     );
-    let css = body(&assets, "/_proa/assets/styles.css").await;
-    assert_eq!(css.1, "a{color:red}");
+    let data = body(&assets, "/_proa/mutable/data.json").await;
+    assert_eq!(data.1, "{\"a\":1}");
 
     // A same-length edit keeps the manifest size and can keep its timestamp.
     // A stable-URL file changes bytes only. A rename drops one logical path.
     live.f.write("favicon.svg", b"<svg>B</svg>");
-    live.f.write("styles.css", b"a{color:tan}");
+    live.f.write("data.json", b"{\"a\":2}");
     live.remove("old-name.png");
     live.f.write("new-name.png", b"png");
     live.publish();
@@ -569,8 +588,8 @@ async fn live_catalog_follows_republication_and_pins_each_request_to_one_generat
     // The active router exposes only the active manifest.
     assert_eq!(body(&assets, &first_url).await.0, StatusCode::NOT_FOUND);
     assert_eq!(
-        body(&assets, "/_proa/assets/styles.css").await.1,
-        "a{color:tan}"
+        body(&assets, "/_proa/mutable/data.json").await.1,
+        "{\"a\":2}"
     );
     assert_eq!(after.url("old-name.png"), None);
     assert!(after.url("new-name.png").is_some());
@@ -667,7 +686,7 @@ async fn concurrent_requests_during_publication_all_land_on_a_complete_catalog()
                     // Every handle is internally consistent: its URL exists in
                     // its own route table.
                     let url = current.url("logo.svg").expect("active logical path");
-                    let route = url.strip_prefix("/_proa/assets/").unwrap();
+                    let route = url.strip_prefix("/_proa/").unwrap();
                     assert!(current.catalog.routes.contains_key(route));
                     seen += 1;
                 }
@@ -865,7 +884,7 @@ async fn managed_head_resolves_catalog_urls_once_under_a_deployment_mount() {
         let card = assets.url("og/card.png").unwrap();
         let icon = assets.url("favicon.svg").unwrap();
         assert!(
-            card.starts_with(&format!("{mount}/_proa/assets/")),
+            card.starts_with(&format!("{mount}/_proa/immutable/")),
             "{card}"
         );
         assert!(html.contains(&format!(r#"src="{card}""#)), "{html}");

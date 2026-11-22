@@ -114,10 +114,14 @@ impl HeadUrlPolicy {
     /// only shows up once a site is deployed under a subpath. Both sides are
     /// compared after URL normalization so an escaped mount still matches.
     fn mounted_public_asset(&self, value: &str, relative: &str) -> Option<Url> {
-        // Mirrors `proa_assets::PUBLIC_ROUTE`, which this crate cannot name.
-        const PUBLIC_ASSETS: &str = "_proa/assets/";
+        // Mirrors the two directories under `proa_assets::PUBLIC_ROUTE`,
+        // which this crate cannot name.
+        const PUBLIC_ASSETS: [&str; 2] = ["_proa/immutable/", "_proa/mutable/"];
         let mount = self.base.path();
-        if mount == "/" || !value.starts_with('/') || !value.contains(PUBLIC_ASSETS) {
+        if mount == "/"
+            || !value.starts_with('/')
+            || !PUBLIC_ASSETS.iter().any(|prefix| value.contains(prefix))
+        {
             return None;
         }
         let mut origin = self.base.clone();
@@ -125,7 +129,7 @@ impl HeadUrlPolicy {
         let url = origin.join(relative).ok()?;
         url.path()
             .strip_prefix(mount)
-            .is_some_and(|rest| rest.starts_with(PUBLIC_ASSETS))
+            .is_some_and(|rest| PUBLIC_ASSETS.iter().any(|prefix| rest.starts_with(prefix)))
             .then_some(url)
     }
 }
@@ -852,20 +856,26 @@ mod url_policy_tests {
         let resolve = |value: &str| policy.resolve(value, false);
 
         assert_eq!(
-            resolve("/apps/demo/_proa/assets/og.1234abcd.png?v=2#x").unwrap(),
-            "https://shop.example/apps/demo/_proa/assets/og.1234abcd.png?v=2#x"
+            resolve("/apps/demo/_proa/immutable/og.1234abcd.png?v=2#x").unwrap(),
+            "https://shop.example/apps/demo/_proa/immutable/og.1234abcd.png?v=2#x"
         );
         // Every other application path is unprefixed by contract, including
         // one that merely resembles the mount or mentions the asset route.
         for (path, expected) in [
             ("/products", "/apps/demo/products"),
             ("/apps/demo/products", "/apps/demo/apps/demo/products"),
-            ("/_proa/assets/og.png", "/apps/demo/_proa/assets/og.png"),
             (
-                "/docs/_proa/assets/og.png",
-                "/apps/demo/docs/_proa/assets/og.png",
+                "/_proa/immutable/og.png",
+                "/apps/demo/_proa/immutable/og.png",
             ),
-            ("_proa/assets/og.png", "/apps/demo/_proa/assets/og.png"),
+            (
+                "/docs/_proa/immutable/og.png",
+                "/apps/demo/docs/_proa/immutable/og.png",
+            ),
+            (
+                "_proa/immutable/og.png",
+                "/apps/demo/_proa/immutable/og.png",
+            ),
         ] {
             assert_eq!(
                 resolve(path).unwrap(),
@@ -877,10 +887,10 @@ mod url_policy_tests {
         // as a mounted asset cannot use the exception to leave the mount: it
         // is treated like any other application path, or refused.
         assert_eq!(
-            resolve("/apps/demo/_proa/assets/../../../admin").unwrap(),
+            resolve("/apps/demo/_proa/immutable/../../../admin").unwrap(),
             "https://shop.example/apps/demo/apps/admin"
         );
-        assert!(resolve("/apps/demo/_proa/assets/../../../../../../../etc").is_err());
+        assert!(resolve("/apps/demo/_proa/immutable/../../../../../../../etc").is_err());
     }
 
     #[test]
@@ -890,9 +900,9 @@ mod url_policy_tests {
         let policy = HeadUrlPolicy::new("https://shop.example", "/apps/{team}").unwrap();
         assert_eq!(
             policy
-                .resolve("/apps/{team}/_proa/assets/og.png", false)
+                .resolve("/apps/{team}/_proa/immutable/og.png", false)
                 .unwrap(),
-            "https://shop.example/apps/%7Bteam%7D/_proa/assets/og.png"
+            "https://shop.example/apps/%7Bteam%7D/_proa/immutable/og.png"
         );
     }
 
@@ -900,8 +910,8 @@ mod url_policy_tests {
     fn the_origin_root_needs_no_special_case() {
         let policy = HeadUrlPolicy::new("https://shop.example", "/").unwrap();
         assert_eq!(
-            policy.resolve("/_proa/assets/og.png", false).unwrap(),
-            "https://shop.example/_proa/assets/og.png"
+            policy.resolve("/_proa/immutable/og.png", false).unwrap(),
+            "https://shop.example/_proa/immutable/og.png"
         );
     }
 }
