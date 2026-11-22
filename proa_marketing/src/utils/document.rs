@@ -25,6 +25,7 @@ impl serde::Serialize for SiteUrl<'_> {
 /// Render an owned document for this response; child components stay typed.
 pub fn render_markdown(root: impl MdRenderSync) -> String {
     let mut cx = WebContext::new();
+    cx.set_request(crate::static_assets::request());
     root.render_md(&mut cx)
         .expect("render Markdown into an owned buffer");
     cx.into_output().into_string()

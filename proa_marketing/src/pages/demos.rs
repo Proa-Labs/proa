@@ -31,19 +31,19 @@ const ATLAS_JACKET_USD: i64 = 248;
 /// `images/synthetic/product-shoe.svg`.
 const ATLAS_JACKET_SHOTS: &[(&str, &str)] = &[
     (
-        "/static/images/synthetic/atlas-jacket-front.svg",
+        "public/images/synthetic/atlas-jacket-front.svg",
         "Atlas Jacket, front",
     ),
     (
-        "/static/images/synthetic/atlas-jacket-back.svg",
+        "public/images/synthetic/atlas-jacket-back.svg",
         "Atlas Jacket, back",
     ),
     (
-        "/static/images/synthetic/atlas-jacket-hood.svg",
+        "public/images/synthetic/atlas-jacket-hood.svg",
         "Atlas Jacket, hood raised",
     ),
     (
-        "/static/images/synthetic/atlas-jacket-cuff.svg",
+        "public/images/synthetic/atlas-jacket-cuff.svg",
         "Atlas Jacket, zip and cuff detail",
     ),
 ];
@@ -148,7 +148,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Gallery {
                             html_sync! {
                                 <img
                                     class="demo-gallery-shot"
-                                    src={*src}
+                                    src={cx.url(src)}
                                     alt={*alt}
                                     width="600"
                                     height="600"
@@ -163,7 +163,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Gallery {
                     {for (index, (src, _)) in ATLAS_JACKET_SHOTS.iter().enumerate() {
                         html_sync! {
                             <label class="demo-gallery-thumb" for={gallery_input_id(index)}>
-                                <img src={*src} alt="" width="72" height="72" loading="lazy" />
+                                <img src={cx.url(src)} alt="" width="72" height="72" loading="lazy" />
                             </label>
                         }
                     }}

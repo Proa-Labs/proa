@@ -49,6 +49,34 @@ for (const asset of assets) {
   assert.doesNotMatch(response.headers.get("content-type") || "", /text\/html/, `${asset}: HTML fallback`);
 }
 
+const fingerprintedImages = new Set();
+const renderedPages = new Map();
+for (const [path, image] of [
+  ["/", "airbnb-preview-exterior-720"],
+  ["/", "01-canonical-scoreboard"],
+  ["/", "og"],
+  ["/team", "andrew-hariri"],
+  ["/ecosystem/apps", "ecosystem-travel"],
+  ["/docs/framework/routing", "nested-layouts"],
+  ["/demos/quantity-stepper", "atlas-jacket-front"],
+]) {
+  if (!renderedPages.has(path)) renderedPages.set(path, await (await request(path)).text());
+  const html = renderedPages.get(path);
+  const imagePaths = [...html.matchAll(/\/_proa\/assets\/[^\s"'<>?,]+\.[a-f0-9]{8,}\.(?:svg|webp|jpg|png|ico)/g)]
+    .map((match) => match[0]);
+  assert.ok(imagePaths.some((asset) => asset.split("/").at(-1).startsWith(`${image}.`)),
+    `${path}: missing fingerprinted ${image}`);
+  for (const asset of imagePaths) fingerprintedImages.add(asset);
+}
+for (const asset of fingerprintedImages) {
+  const response = await request(asset);
+  assert.match(response.headers.get("content-type") || "", /^image\//, asset);
+  assert.match(response.headers.get("cache-control") || "", /\bimmutable\b/, asset);
+  assert.ok((await response.arrayBuffer()).byteLength > 0, `${asset}: empty image`);
+}
+const oldImage = await request("/static/images/benchmarks/01-canonical-scoreboard.svg");
+assert.equal(oldImage.headers.get("cache-control"), "no-cache", "stable image URLs must revalidate");
+
 for (const engine of ["", "-node", "-bun"]) {
   const deadline = Date.now() + 30_000;
   let failure;
@@ -68,4 +96,4 @@ for (const engine of ["", "-node", "-bun"]) {
   } while (Date.now() < deadline);
   if (failure) throw failure;
 }
-console.log(`Release image passed: health, four routes, ${assets.size} assets, Proa/Node/Bun rendering.`);
+console.log(`Release image passed: health, HTML routes, ${assets.size} scripts/styles, ${fingerprintedImages.size} fingerprinted images, Proa/Node/Bun rendering.`);

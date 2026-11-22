@@ -7,10 +7,9 @@ use crate::data::routes;
 
 use std::env;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use axum::http::header::{HeaderValue, CACHE_CONTROL, LINK, X_CONTENT_TYPE_OPTIONS};
+use axum::http::header::{HeaderValue, CACHE_CONTROL, CONTENT_TYPE, LINK, X_CONTENT_TYPE_OPTIONS};
 use axum::routing::{get, post};
 use axum::Router;
 use tower::ServiceBuilder;
@@ -40,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    static_assets::load()?;
     let app = app();
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -140,6 +140,7 @@ fn app() -> Router {
         .merge(endpoints::downloads::router())
         .merge(proa_demo::playground::marketing_router())
         .merge(proa_showcase_web::router())
+        .merge(static_assets::get().router())
         .nest_service("/static", static_service())
         .fallback(endpoints::not_found::handler)
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
@@ -155,16 +156,14 @@ fn compression_predicate() -> impl Predicate {
 }
 
 fn static_service() -> Router {
-    let static_dir = env::var_os("STATIC_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"));
+    let static_dir = static_assets::source_directory();
 
     Router::new().nest_service(
         "/",
         ServiceBuilder::new()
             .layer(SetResponseHeaderLayer::if_not_present(
                 CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=31536000, immutable"),
+                legacy_static_cache_control,
             ))
             .layer(SetResponseHeaderLayer::if_not_present(
                 X_CONTENT_TYPE_OPTIONS,
@@ -172,6 +171,19 @@ fn static_service() -> Router {
             ))
             .service(ServeDir::new(static_dir)),
     )
+}
+
+// Stable image URLs are still used by older links and precompiled exports.
+fn legacy_static_cache_control<B>(response: &axum::http::Response<B>) -> Option<HeaderValue> {
+    let is_image = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"image/"));
+    Some(HeaderValue::from_static(if is_image {
+        "no-cache"
+    } else {
+        "public, max-age=31536000, immutable"
+    }))
 }
 
 #[cfg(test)]

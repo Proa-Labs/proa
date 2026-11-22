@@ -11,8 +11,9 @@ use axum::{
     http::{header, HeaderMap, HeaderValue},
     response::{IntoResponse, Response},
 };
+use proa_core::shared::attr_value::AttrValue;
 use proa_core::{
-    DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
+    AppUrl, DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
 use proa_macros::{html_sync, md_sync, omit};
 use rsjs::signal;
@@ -783,7 +784,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkChart {
         html_sync! {
             <div class="min-w-[800px]">
                 <img
-                    src={self.url}
+                    src={cx.url(self.url)}
                     alt={self.description}
                     width="980"
                     height={self.height}
@@ -801,7 +802,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkChart {
         md_sync! { r###"
             ### {self.title}
 
-            ![{self.description}]({Url(self.url)})
+            ![{self.description}]({cx.url(self.url)})
             "###
         }
         .render_md(cx)
@@ -820,19 +821,19 @@ impl BenchmarkHighlights {
             benchmarks_url: site::BENCHMARKS_URL,
             render: BenchmarkChart {
                 title: "Render speed",
-                url: "/static/images/benchmarks/01-canonical-scoreboard.svg",
+                url: "public/images/benchmarks/01-canonical-scoreboard.svg",
                 description: "P50 render latency across 17 renderers and three workloads. Proa uses a fresh owned RenderBuffer, with allocation included and String conversion excluded. Proa was refreshed November 11; peers retain October 21 captures on the same Apple M4 Max.",
                 height: "480",
             },
             http: BenchmarkChart {
                 title: "HTTP capacity",
-                url: "/static/images/benchmarks/21-canonical-pages-http.svg",
+                url: "public/images/benchmarks/21-canonical-pages-http.svg",
                 description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, Go, and SvelteKit. The dated product-grid capture measured Proa at 20,863 complete responses per second with 9.6 MiB peak memory.",
                 height: "678",
             },
             load: BenchmarkChart {
                 title: "Suspense under load",
-                url: "/static/images/benchmarks/20-suspense-load.svg",
+                url: "public/images/benchmarks/20-suspense-load.svg",
                 description: "Proa and SvelteKit streaming under increasing load on Apple M4 Max, including throughput, memory, latency, and failures. SvelteKit response end delivers promised data; Proa delivers resolved HTML. See the methodology for completed-browser comparisons.",
                 height: "786",
             },
@@ -849,6 +850,28 @@ pub(crate) fn benchmark_charts() -> (&'static str, [BenchmarkChart; 3]) {
     )
 }
 
+struct FullSizeChartLink {
+    label: &'static str,
+    path: &'static str,
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FullSizeChartLink {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <a
+                href={cx.url(self.path)}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={CTA_SECONDARY}
+            >
+                {self.label}
+                {ArrowUpRightIcon}
+            </a>
+        }
+        .render(cx)
+    }
+}
+
 /// Original benchmark SVGs, served locally and switched by one tab signal.
 #[rsjs(component, client)]
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
@@ -859,7 +882,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
         let load_title = self.load.title;
         let environment = self.environment;
         let scroll_hint = self.scroll_hint;
-        let open_label = self.open_label;
         let link_label = self.link_label;
         let selected = signal("render");
         // The chart markup is static; only panel visibility and the full-size
@@ -870,7 +892,18 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
         let render_tab = rsjs::node_ref::<rsjs::HtmlElement>();
         let http_tab = rsjs::node_ref::<rsjs::HtmlElement>();
         let load_tab = rsjs::node_ref::<rsjs::HtmlElement>();
-        let full_size_icon = ArrowUpRightIcon;
+        let render_link = rsjs::server_only(FullSizeChartLink {
+            label: self.open_label,
+            path: self.render.url,
+        });
+        let http_link = rsjs::server_only(FullSizeChartLink {
+            label: self.open_label,
+            path: self.http.url,
+        });
+        let load_link = rsjs::server_only(FullSizeChartLink {
+            label: self.open_label,
+            path: self.load.url,
+        });
         let methodology_icon = ArrowUpRightIcon;
 
         html_sync! {
@@ -1034,15 +1067,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                             <span class="block lg:hidden">{scroll_hint}</span>
                         </p>
                         <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
-                            <a
-                                href={if selected.get() == "http" { self.http.url } else if selected.get() == "load" { self.load.url } else { self.render.url }}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class={CTA_SECONDARY}
-                            >
-                                {open_label}
-                                {full_size_icon}
-                            </a>
+                            <div hidden={selected.get() != "render"}>{render_link}</div>
+                            <div hidden={selected.get() != "http"}>{http_link}</div>
+                            <div hidden={selected.get() != "load"}>{load_link}</div>
                             <a
                                 href={self.benchmarks_url}
                                 target="_blank"
@@ -1328,8 +1355,39 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
     }
 }
 
+struct ImageSrcSet<'a> {
+    narrow: (&'a AppUrl<'static>, u16),
+    wide: (&'a AppUrl<'static>, u16),
+}
+
+impl AttrValue for ImageSrcSet<'_> {
+    fn should_render(&self) -> bool {
+        true
+    }
+
+    fn render_attr_value<B: WriteBuf, L: DataLoader>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), WriteError> {
+        self.narrow.0.render_attr_value(cx)?;
+        cx.out.extend_static_str(" ")?;
+        self.narrow.1.render_attr_value(cx)?;
+        cx.out.extend_static_str("w, ")?;
+        self.wide.0.render_attr_value(cx)?;
+        cx.out.extend_static_str(" ")?;
+        self.wide.1.render_attr_value(cx)?;
+        cx.out.extend_static_str("w")
+    }
+}
+
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let exterior_small = cx.url("public/images/airbnb-preview-exterior-420.webp");
+        let exterior_large = cx.url("public/images/airbnb-preview-exterior-720.webp");
+        let deck_small = cx.url("public/images/airbnb-preview-deck-210.webp");
+        let deck_large = cx.url("public/images/airbnb-preview-deck-420.webp");
+        let bedroom_small = cx.url("public/images/airbnb-preview-bedroom-210.webp");
+        let bedroom_large = cx.url("public/images/airbnb-preview-bedroom-420.webp");
         html_sync! {
             <div class="rounded-[14px] border border-black/10 bg-white p-4 text-zinc-950 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-50">
                 <div
@@ -1338,8 +1396,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
                 >
                     <div class="row-span-2 overflow-hidden rounded-[10px] bg-[#f3ede6]">
                         <img
-                            src="/static/images/airbnb-preview-exterior-420.webp"
-                            srcset="/static/images/airbnb-preview-exterior-420.webp 420w, /static/images/airbnb-preview-exterior-720.webp 720w"
+                            src={exterior_small}
+                            srcset={ImageSrcSet { narrow: (&exterior_small, 420), wide: (&exterior_large, 720) }}
                             sizes="(max-width: 640px) 58vw, 420px"
                             alt="Beachfront home exterior below coastal hills"
                             width="420"
@@ -1352,8 +1410,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
                     </div>
                     <div class="overflow-hidden rounded-[10px] bg-[#eef0f2]">
                         <img
-                            src="/static/images/airbnb-preview-deck-210.webp"
-                            srcset="/static/images/airbnb-preview-deck-210.webp 210w, /static/images/airbnb-preview-deck-420.webp 420w"
+                            src={deck_small}
+                            srcset={ImageSrcSet { narrow: (&deck_small, 210), wide: (&deck_large, 420) }}
                             sizes="(max-width: 640px) 29vw, 210px"
                             alt="Oceanfront deck with outdoor fire feature"
                             width="210"
@@ -1365,8 +1423,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
                     </div>
                     <div class="overflow-hidden rounded-[10px] bg-[#f1efe8]">
                         <img
-                            src="/static/images/airbnb-preview-bedroom-210.webp"
-                            srcset="/static/images/airbnb-preview-bedroom-210.webp 210w, /static/images/airbnb-preview-bedroom-420.webp 420w"
+                            src={bedroom_small}
+                            srcset={ImageSrcSet { narrow: (&bedroom_small, 210), wide: (&bedroom_large, 420) }}
                             sizes="(max-width: 640px) 29vw, 210px"
                             alt="Ocean-view living room with fireplace"
                             width="210"

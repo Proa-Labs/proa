@@ -182,7 +182,7 @@ if [[ "${PROA_MARKETING_WATCH_RUN:-}" == "1" ]]; then
   # only the linked pipeline resolves them into real helper exports. A plain
   # cargo build serves those placeholders to the browser, where hydration dies
   # with `ReferenceError: __rsjs_unlinked_helper_edge_N is not defined`.
-  exec cargo proa run --root "$ROOT" -p proa_marketing
+  exec cargo proa run --root "$ROOT/proa_marketing" -p proa_marketing
 fi
 
 if ! cargo watch --version >/dev/null 2>&1; then
@@ -203,6 +203,7 @@ proa_watch_run cargo watch \
   -w proa_marketing/src \
   -w proa_marketing/build.rs \
   -w proa_marketing/Cargo.toml \
+  -w proa_marketing/proa.config.rs \
   -w proa_marketing/styles \
   -w proa_marketing/public \
   -w proa_docs/proa_docs/src \

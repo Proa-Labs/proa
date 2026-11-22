@@ -315,7 +315,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReferenceShowcases {
                                     playsinline="playsinline"
                                     controls="controls"
                                     preload="metadata"
-                                    poster="/static/images/synthetic/ecosystem-travel.svg"
+                                    poster={cx.url("public/images/synthetic/ecosystem-travel.svg")}
                                     class="aspect-video w-full bg-[#0b0b0d] object-cover"
                                 >
                                     <source src={REFERENCE_SHOWCASE_VIDEO_URL} type="video/mp4" />
@@ -412,7 +412,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AppVisualPreview<'_> {
             AppVisual::Screenshot { src, alt } => html_sync! {
                 <div class="h-[180px] overflow-hidden bg-[#f7f4ee] dark:bg-[#111215]">
                     <img
-                        src={src}
+                        src={cx.url(src)}
                         alt={alt}
                         width="1440"
                         height="900"

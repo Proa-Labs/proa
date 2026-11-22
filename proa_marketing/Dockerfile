@@ -75,17 +75,17 @@ RUN --mount=type=cache,id=s/8a6d0a70-bfd2-4e6e-bf87-048c563a7044-/workspace/sour
     && cd /workspace/source \
     && rm -rf /out \
     && install -d /out/static /out/showcase \
-    && CARGO_TARGET_DIR=/workspace/target \
+    && CARGO_TARGET_DIR=/workspace/target bash -o pipefail -c '\
         cargo run --release --locked -p proa-cli --bin proa -- \
         build \
-        --root /workspace/source \
+        --root /workspace/source/proa_marketing \
         --profile release \
         --package proa_marketing \
         --bin proa_marketing \
         --locked \
         --no-check \
-        --no-assets \
-        --artifact-out /out/proa_marketing \
+        --artifact-out /out/proa_marketing | tee /tmp/marketing-build.log' \
+    && python3 deploy/marketing/stage_public_assets.py /tmp/marketing-build.log /out/public-assets \
     && cp -a proa_marketing/public/. /out/static/ \
     && cp -a proa_showcase/src/espn/data/images/. /out/static/images/ \
     && cp -a proa_showcase_web/public/. /out/showcase/
@@ -189,10 +189,12 @@ COPY --chmod=755 proa_marketing/docker-entrypoint.sh /usr/local/bin/docker-entry
 # runtimes and companions; root-owned assets are readable by the service user.
 COPY --from=artifacts /out/proa_marketing /usr/local/bin/proa_marketing
 COPY --from=artifacts /out/static /app/static
+COPY --from=artifacts /out/public-assets /app/public-assets
 COPY --from=artifacts /out/showcase /app/showcase
 
 ENV HOST=0.0.0.0 \
     RUST_LOG=info \
+    PROA_PUBLIC_ASSETS=/app/public-assets \
     STATIC_DIR=/app/static \
     SHOWCASE_PUBLIC_DIR=/app/showcase \
     PROA_CONSOLE_LOAD_TESTS=0

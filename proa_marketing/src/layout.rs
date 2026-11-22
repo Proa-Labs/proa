@@ -10,13 +10,13 @@ use proa_core::shared::attr_value::display_attr;
 use proa_core::text::text;
 use proa_core::{
     raw_text_ok, render_in_context_async, DataLoader, HeadConfig, HeadMedia, HeadUrlPolicy,
-    NoLoader, OpenGraph, RenderBuffer, RenderOutcome, StaticRaw, Twitter, TwitterCard, WebContext,
-    WebRender, WebRenderSync, WriteBuf, WriteError,
+    NoLoader, OpenGraph, RenderBuffer, RenderOutcome, StaticRaw, TryIntoHeadUrl, Twitter,
+    TwitterCard, WebContext, WebRender, WebRenderSync, WriteBuf, WriteError,
 };
 use proa_framework_core::{FrameworkBody, FrameworkRequestContext, RouteResponse};
 use proa_macros::{html, html_sync};
 
-use crate::{analytics::google_analytics, utils::site_url::public_site_url};
+use crate::{analytics::google_analytics, static_assets, utils::site_url::public_site_url};
 
 use crate::components::{
     landing_shell::{LandingFooter, LandingHeader, MarketingNavActive},
@@ -67,15 +67,19 @@ where
     static HEAD: std::sync::OnceLock<HeadConfig> = std::sync::OnceLock::new();
     let head = HEAD.get_or_init(|| {
         let origin = public_site_url();
+        let image_url = static_assets::request()
+            .url(SOCIAL_IMAGE_PATH)
+            .try_to_string()
+            .expect("published social image");
         HeadConfig::default()
             .with_urls(HeadUrlPolicy::new(origin, "/").expect("valid public site origin"))
             .with_defaults(|head| {
-                let mut image = HeadMedia::new(SOCIAL_IMAGE_SRC)
+                let mut image = HeadMedia::new(image_url.clone())
                     .mime_type("image/jpeg")
                     .alt(SOCIAL_IMAGE_ALT)
                     .dimensions(1536, 1024);
                 if origin.starts_with("https://") {
-                    image = image.secure_url(SOCIAL_IMAGE_SRC);
+                    image = image.secure_url(image_url);
                 }
                 head.open_graph(
                     OpenGraph::new()
@@ -101,7 +105,10 @@ where
             content,
         })
         .with_head(head.clone())
-        .into_framework_response(&FrameworkRequestContext::default()),
+        .into_framework_response(&FrameworkRequestContext {
+            request: static_assets::request(),
+            ..FrameworkRequestContext::default()
+        }),
     )
     .expect("render managed marketing page");
     let FrameworkBody::Full(body) = response.body else {
@@ -126,6 +133,7 @@ where
 {
     let out = futures::executor::block_on(async {
         let mut cx = WebContext::new();
+        cx.set_request(static_assets::request());
         render_in_context_async(&mut cx, root).await.unwrap();
         cx.into_output()
     });
@@ -188,12 +196,24 @@ pub(crate) const STYLESHEET_HREF: &str =
     concat!("/static/styles.css?v=", env!("MARKETING_ASSET_VERSION"));
 const SOCIAL_IMAGE_ALT: &str =
     "Proa: a person and a robot in a boat with an orange sail, traveling through streams of HTML and Markdown.";
-const SOCIAL_IMAGE_SRC: &str = concat!("/static/og.jpg?v=", env!("MARKETING_ASSET_VERSION"));
+const SOCIAL_IMAGE_PATH: &str = "public/og.jpg";
 /// iOS fills transparent touch icons with black, so this PNG is opaque.
-pub(crate) const APPLE_TOUCH_ICON_HREF: &str = concat!(
-    "/static/apple-touch-icon.png?v=",
-    env!("MARKETING_ASSET_VERSION")
-);
+const APPLE_TOUCH_ICON_PATH: &str = "public/apple-touch-icon.png";
+
+pub(crate) struct SiteIcons;
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteIcons {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        WebRenderSync::render(
+            html_sync! {
+                <link rel="icon" href={cx.url("public/favicon.ico")} />
+                <link rel="icon" type="image/svg+xml" href={cx.url("public/favicon.svg")} />
+                <link rel="apple-touch-icon" sizes="180x180" href={cx.url(APPLE_TOUCH_ICON_PATH)} />
+            },
+            cx,
+        )
+    }
+}
 pub(crate) const DOCS_SCRIPT_SRC: &str =
     concat!("/static/docs.js?v=", env!("MARKETING_ASSET_VERSION"));
 /// Orama-backed search for the modal on every shell. A module script, so it
@@ -248,6 +268,8 @@ impl DocumentMetadata {
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let origin = self.origin;
+        let image = cx.url(SOCIAL_IMAGE_PATH);
+        let image = (&image).try_into_head_url()?;
         WebRenderSync::render(
             html_sync! {
                 <title>{raw_text_ok(text(self.meta.title))}</title>
@@ -274,11 +296,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                 <meta
                     name="og:image"
                     property="og:image"
-                    content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))}
+                    content={display_attr(format_args!("{origin}{image}"))}
                 />
                 {if origin.starts_with("https://") {
                     html_sync! {
-                        <meta name="og:image:secure_url" property="og:image:secure_url" content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))} />
+                        <meta name="og:image:secure_url" property="og:image:secure_url" content={display_attr(format_args!("{origin}{image}"))} />
                     }
                 }}
                 <meta name="og:image:type" property="og:image:type" content="image/jpeg" />
@@ -291,7 +313,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                 <meta name="twitter:description" content={self.meta.description} />
                 <meta
                     name="twitter:image"
-                    content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))}
+                    content={display_attr(format_args!("{origin}{image}"))}
                 />
                 <meta name="twitter:image:alt" content={SOCIAL_IMAGE_ALT} />
             },
@@ -319,7 +341,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteMetadata {
                 {if self.path == routes::HOME {
                         html_sync! {
                             <link rel="alternate" type="text/markdown" href={routes::HOME_MARKDOWN} />
-                            <script type="application/ld+json">{raw_text_ok(structured_data::document())}</script>
+                            <script type="application/ld+json">{raw_text_ok(structured_data::document(cx.request())?)}</script>
                         }
                     }}
                 {if self.path == routes::TEAM {
@@ -374,9 +396,7 @@ where
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             {self.metadata}
-            <link rel="icon" href="/static/favicon.ico" />
-            <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-            <link rel="apple-touch-icon" sizes="180x180" href={APPLE_TOUCH_ICON_HREF} />
+            {SiteIcons}
             <link rel="stylesheet" href={STYLESHEET_HREF} />
             <script type="module" src={SEARCH_SCRIPT_SRC}></script>
             {if self.shell.is_docs() {
