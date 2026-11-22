@@ -17,8 +17,16 @@ const RED = "var(--red, #FF3B30)";
 const AMBER = "var(--brand, #DD7627)";
 const BONE = "var(--ink, #E5E1D6)";
 const MID = "var(--ink3, #8C887E)";
-// The static mount composes this origin-root URL with the app's base path.
-const APP_ROOT = new URL("/", location.href);
+// This file is served as written under every mount, so the app's base path
+// comes from the page, where the RSJS runtime reads it too.
+function basePath() {
+  try {
+    return JSON.parse(document.getElementById("__proa")?.textContent || "{}").basePath || "";
+  } catch {
+    return "";
+  }
+}
+const APP_ROOT = new URL(basePath() + "/", location.href);
 
 // Replay pool: every range is documentation space, every operator unnamed.
 const REPLAY_EVENTS = [

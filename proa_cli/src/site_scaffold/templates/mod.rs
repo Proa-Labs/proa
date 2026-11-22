@@ -160,7 +160,7 @@ pub fn populate(
     if agents_md {
         plan.write("AGENTS.md", agents())?;
     }
-    add_deploy(plan, package, selection.deploy, has_database, false)?;
+    add_deploy(plan, package, selection.deploy, has_database)?;
     Ok(())
 }
 
@@ -692,15 +692,11 @@ fn add_deploy(
     package: &str,
     deploy: DeployChoice,
     has_database: bool,
-    serves_vendored_fonts: bool,
 ) -> Result<()> {
     if deploy == DeployChoice::None {
         return Ok(());
     }
-    plan.write(
-        "Dockerfile",
-        current_deployment_dockerfile(has_database, serves_vendored_fonts),
-    )?;
+    plan.write("Dockerfile", current_deployment_dockerfile(has_database))?;
     plan.write(".dockerignore", "target\n.git\n.env\ndata/*.db*\n")?;
     let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies resolve from crates.io without credentials:\n\n```bash\ndocker build .\n```\n\nUse `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
     if has_database {
@@ -743,18 +739,8 @@ fn add_deploy(
 }
 
 /// The Dockerfile `proa new site` and `proa add <deployment>` both write.
-///
-/// Vendored fonts are the one part of `public/` an application serves from
-/// disk itself (at `/fonts`, outside the catalog), so an application that has
-/// them carries that directory into the image as well.
-pub(super) fn current_deployment_dockerfile(
-    has_database: bool,
-    serves_vendored_fonts: bool,
-) -> String {
+pub(super) fn current_deployment_dockerfile(has_database: bool) -> String {
     let mut copies = String::new();
-    if serves_vendored_fonts {
-        copies.push_str("COPY --from=build /app/public/fonts ./public/fonts\n");
-    }
     if has_database {
         copies.push_str("COPY --from=build /app/migrations ./migrations\n");
     }
@@ -931,11 +917,8 @@ mod tests {
         assert!(dockerfile.contains("CMD [\"/app/app\"]"));
         assert!(!dockerfile.contains("PROA_PUBLIC_ASSETS"));
         assert!(!dockerfile.contains("COPY --from=build /app/public ./public"));
-        // Vendored fonts are served from disk, so only an application that
-        // has them copies that one directory.
+        // Vendored fonts are in the catalog with every other public file.
         assert!(!dockerfile.contains("/app/public/fonts"));
-        assert!(current_deployment_dockerfile(false, true)
-            .contains("COPY --from=build /app/public/fonts ./public/fonts\n"));
         assert!(!dockerfile.contains("cargo build --release"));
         assert!(!dockerfile.contains("/app/target/release/"));
         assert!(!dockerfile.contains("install.sh"));

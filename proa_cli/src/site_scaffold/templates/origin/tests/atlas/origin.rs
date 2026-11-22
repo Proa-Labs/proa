@@ -36,13 +36,13 @@ async fn mounted_documents_and_assets_keep_their_public_prefix() {
         }
         assert!(html.contains(&format!("action=\"{mount}/\"")));
         assert!(html.contains(&format!("href=\"{mount}/?q=")));
-        assert!(html.contains(&format!("src:url({mount}/fonts/")));
+        assert!(html.contains(&format!("src:url({mount}/_proa/immutable/fonts/")));
         assert!(html.contains(&format!("{mount}/?q=github.com")));
         for root in [
             "href=\"/static/",
             "src=\"/static/",
-            "href=\"/fonts/",
-            "src:url(/fonts/",
+            "href=\"/_proa/",
+            "src:url(/_proa/",
             "href=\"/site/",
         ] {
             assert!(!html.contains(root), "unprefixed URL: {root}");
@@ -50,13 +50,13 @@ async fn mounted_documents_and_assets_keep_their_public_prefix() {
 
         let app = atlas::app_with_base_path(base_path.clone());
         let font = html
-            .split(&format!("href=\"{mount}/fonts/"))
+            .split(&format!("href=\"{mount}/_proa/immutable/fonts/"))
             .nth(1)
             .unwrap()
             .split('"')
             .next()
             .unwrap();
-        let font = format!("/fonts/{font}");
+        let font = format!("/_proa/immutable/fonts/{font}");
         for path in [
             "/static/favicon.svg",
             "/static/styles.css",

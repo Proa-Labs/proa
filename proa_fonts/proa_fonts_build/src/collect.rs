@@ -66,8 +66,10 @@ pub struct CollectOptions {
     /// Directory the generated `proa_fonts.rs` is written to (usually
     /// `OUT_DIR`). Empty to skip module generation (the CLI `sync` path).
     pub out_dir: PathBuf,
-    /// Directory vended, content-hashed files are written to (served as
-    /// `/fonts`). Resolved against `crate_root` when relative.
+    /// Directory vended, content-hashed files are written to. Resolved
+    /// against `crate_root` when relative. The default sits inside the public
+    /// directory, so the asset catalog publishes the files with everything
+    /// else and keeps the names they already carry.
     pub fonts_out_dir: PathBuf,
     /// Root-absolute URL prefix referenced by the generated CSS.
     pub url_prefix: String,
@@ -78,7 +80,7 @@ pub struct CollectOptions {
 impl CollectOptions {
     /// The standard `build.rs` configuration: crate root and `OUT_DIR` from
     /// the Cargo build environment, vendored files under `public/fonts`
-    /// served at `/fonts`, and the lock beside `Cargo.toml`.
+    /// served by the asset catalog, and the lock beside `Cargo.toml`.
     pub fn from_build_env() -> Result<Self, BuildError> {
         let crate_root: PathBuf = std::env::var_os("CARGO_MANIFEST_DIR")
             .ok_or(BuildError::Environment("CARGO_MANIFEST_DIR"))?
@@ -90,7 +92,7 @@ impl CollectOptions {
             crate_root,
             out_dir,
             fonts_out_dir: PathBuf::from("public/fonts"),
-            url_prefix: "/fonts".to_string(),
+            url_prefix: crate::CATALOG_URL_PREFIX.to_string(),
             lock_path: None,
         })
     }
@@ -301,7 +303,22 @@ fn vendor(
             .and_then(|entry| regenerate_from_lock(opts, &fonts_dir, req, entry));
 
         let (font, refreshed, repaired) = match satisfied {
-            Some(font) => (font, false, false),
+            Some((font, false)) => (font, false, false),
+            // The verified bytes are on disk under names an earlier release
+            // gave them. Vend them again under the current names; the old
+            // files are removed below with every other orphan.
+            Some((font, true)) => {
+                if mode == VendorMode::Verify {
+                    return Err(BuildError::Stale(format!(
+                        "font `{}` is vendored under file names from an earlier release",
+                        req.family
+                    )));
+                }
+                for face in &font.faces {
+                    pending_files.push((face.filename.clone(), face.bytes.clone()));
+                }
+                (font, true, false)
+            }
             None => {
                 let repaired = previous
                     .fonts
@@ -424,12 +441,16 @@ fn display_key(canonical: &str) -> String {
 /// the regenerated font, or `None` when anything is missing, altered, or
 /// recorded without v2 face metadata. For local sources the declared source
 /// files must also still match the vendored bytes.
+///
+/// The flag is `true` when the bytes match but the pipeline now names the
+/// files differently than the lock does. No source needs to be fetched or
+/// read again for that: the files only have to be written under their names.
 fn regenerate_from_lock(
     opts: &CollectOptions,
     fonts_dir: &Path,
     req: &FontRequest,
     entry: &LockEntry,
-) -> Option<GeneratedFont> {
+) -> Option<(GeneratedFont, bool)> {
     if req.source == RequestSource::Local {
         if req.files.len() != entry.files.len() {
             return None;
@@ -470,11 +491,10 @@ fn regenerate_from_lock(
 
     let font = generate_font(&font_spec(opts, req, faces)).ok()?;
 
-    // The regenerated filenames must be exactly the locked ones; a mismatch
-    // means the pipeline changed and the entry is stale.
     let regenerated: Vec<&str> = font.faces.iter().map(|f| f.filename.as_str()).collect();
     let locked: Vec<&str> = entry.files.iter().map(|f| f.filename.as_str()).collect();
-    (regenerated == locked).then_some(font)
+    let renamed = regenerated != locked;
+    Some((font, renamed))
 }
 
 fn font_spec(opts: &CollectOptions, req: &FontRequest, faces: Vec<FaceInput>) -> FontSpec {

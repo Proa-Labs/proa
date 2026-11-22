@@ -90,14 +90,13 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-            # A published stylesheet's name carries a hash of its bytes, so the
-            # page is the only place its URL can be read from. ORIGIN links the
-            # copy on its own static mount.
+            # The stylesheet's name carries a hash of its bytes, so the page is
+            # the only place its URL can be read from.
             with urllib.request.urlopen(base + "/", timeout=60) as response:
-                pattern = (rb'href="(/static/styles\.css)' if template == "origin"
-                           else rb'href="(/_proa/immutable/styles\.[0-9a-f]{16}\.css)"')
-                stylesheet = re.search(pattern, response.read())
-                assert stylesheet, "the page links no stylesheet"
+                stylesheet = re.search(
+                    rb'href="(/_proa/immutable/styles\.[0-9a-f]{16}\.css)"', response.read()
+                )
+                assert stylesheet, "the page links no hashed stylesheet"
             paths = ["/", "/healthz", "/readyz", stylesheet.group(1).decode()]
             if template != "origin":
                 paths += ["/generated"]
