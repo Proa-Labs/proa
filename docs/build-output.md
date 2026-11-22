@@ -329,9 +329,10 @@ after the executable with `.assets` appended.
   app.assets/                  its public asset catalog
 ```
 
-Only an explicit `--artifact-out` bundles. A build without it keeps publishing
-into the target directory, and `proa start` passes that catalog to the
-executable under `<target-dir>/release/`. Cargo's own output directory never
+Only an explicit `--artifact-out` bundles, and it publishes only there. A build
+without it keeps publishing into the target directory, and `proa start` passes
+that catalog to the executable under `<target-dir>/release/`. A path that
+cannot hold the bundle is refused before anything compiles. Cargo's own output directory never
 holds a bundle, so a plain `cargo run --release` cannot pick up a catalog that
 an earlier `proa build` left behind. A server started without
 `PROA_PUBLIC_ASSETS` loads the catalog beside its own executable, so copying
@@ -393,7 +394,7 @@ directory. Do not manually modify immutable objects.
 proa start --root . --bin ./app
 ```
 
-If `PROA_PUBLIC_ASSETS` is set or a non-empty directory exists at the bundled path, and
+If `PROA_PUBLIC_ASSETS` is set or a Proa catalog directory exists at the bundled path, and
 that catalog is missing or invalid, `FrameworkBuilder::try_build` reports a
 startup error. A partially copied bundle therefore fails startup instead of
 serving pages without their assets. Apps can also use

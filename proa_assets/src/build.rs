@@ -113,7 +113,6 @@ impl OutputStore {
         let directory = directory.as_ref();
         at(directory, fs::create_dir_all(directory))?;
         let root = at(directory, directory.canonicalize())?;
-        set_traversable_directory_permissions(&root)?;
         let writer_path = root.join(WRITER_FILE);
         let writer = open_lock(&writer_path)?;
         match writer.try_lock() {
@@ -145,7 +144,10 @@ impl OutputStore {
             at(&marker, file.write_all(OWNER_BYTES))?;
             at(&marker, file.sync_all())?;
         }
-        // A marker written under a restrictive umask stays owner-only.
+        // Only now is the directory known to be an output, so only now may
+        // its mode change. A marker written under a restrictive umask stays
+        // owner-only.
+        set_traversable_directory_permissions(&root)?;
         set_readable_file_permissions(&marker, &at(&marker, File::open(&marker))?)?;
         let readers = open_lock(&root.join(READERS_FILE))?;
         set_readable_file_permissions(&root.join(READERS_FILE), &readers)?;
@@ -646,7 +648,7 @@ fn set_readable_file_permissions(path: &Path, file: &File) -> Result<()> {
         // needs ownership, and a shared catalog may be group-writable.
         let mode = at(path, file.metadata())?.permissions().mode();
         if mode & 0o644 != 0o644 {
-            at(
+            widened(
                 path,
                 file.set_permissions(fs::Permissions::from_mode(mode | 0o644)),
             )?;
@@ -667,7 +669,7 @@ fn set_traversable_directory_permissions(path: &Path) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         let mode = at(path, fs::metadata(path))?.permissions().mode();
         if mode & 0o755 != 0o755 {
-            at(
+            widened(
                 path,
                 fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o755)),
             )?;
@@ -678,6 +680,16 @@ fn set_traversable_directory_permissions(path: &Path) -> Result<()> {
         let _ = path;
     }
     Ok(())
+}
+
+/// Only a file's owner may change its mode. A catalog shared with another
+/// user was already usable by this one, so that refusal is not a failure.
+#[cfg(unix)]
+fn widened(path: &Path, result: io::Result<()>) -> Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Ok(()),
+        result => at(path, result),
+    }
 }
 
 fn sync_directory(path: &Path) -> Result<()> {

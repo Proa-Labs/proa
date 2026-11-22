@@ -890,9 +890,13 @@ fn a_catalog_bundled_beside_the_executable_is_found_without_configuration() {
     assert_eq!(bundled_catalog(&executable), None);
 
     let output = f.temp.path().join("dist/app.assets");
-    // An empty directory, such as a pre-created mount point, is not a bundle.
+    // A directory Proa did not write, such as the application's own data
+    // directory or a pre-created mount point, is not a bundle.
     std::fs::create_dir_all(&output).unwrap();
     assert_eq!(bundled_catalog(&executable), None);
+    std::fs::write(output.join("data.json"), "{}").unwrap();
+    assert_eq!(bundled_catalog(&executable), None);
+    std::fs::remove_file(output.join("data.json")).unwrap();
     OutputStore::open(&output)
         .unwrap()
         .publish(f.temp.path().join("public"))

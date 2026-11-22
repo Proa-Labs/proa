@@ -177,7 +177,10 @@ pub(super) fn publish(
     directory: Option<&Path>,
     output: &Path,
 ) -> Result<Option<PathBuf>> {
-    publish_to(root, directory, output, "published", "to")
+    let Some(source) = public_source(root, directory) else {
+        return Ok(None);
+    };
+    publish_with(&mut OutputStore::open(output)?, &source, "published", "to").map(Some)
 }
 
 /// The catalog side of an export, prepared before the executable is replaced.
@@ -210,29 +213,12 @@ impl Bundle {
 /// failure leaves the previous executable with the catalog it had. Removal
 /// of a stale catalog is only claimed here; [`Bundle::finish`] performs it.
 pub(super) fn bundle(root: &Path, directory: Option<&Path>, executable: &Path) -> Result<Bundle> {
+    // Asset commands ran since the first check and may have changed the paths.
+    check_bundle_destination(root, directory, executable)?;
     let output = bundled_output(executable)?;
-    // Refuse before the output store opens it, which would leave a lock file
-    // inside a directory that belongs to something else.
-    if !OutputStore::accepts(&output) {
-        bail!(
-            "`{}` is in the way: Proa bundles the public asset catalog beside the exported executable `{}`. Move it, or export the executable to a different path",
-            output.display(),
-            executable.display()
-        );
-    }
     let Some(source) = public_source(root, directory) else {
-        return claim_stale_bundle(&output);
+        return clear_bundle(executable);
     };
-    // Checked before the store opens, which would otherwise leave catalog
-    // files inside the public source for the next build to publish.
-    if overlaps(&source, &output) {
-        bail!(
-            "`{}` overlaps the public directory `{}`: export the executable `{}` outside it",
-            output.display(),
-            source.display(),
-            executable.display()
-        );
-    }
     let context = || format!("bundle public assets beside `{}`", executable.display());
     let existed = proa_assets::is_output(&output);
     let mut store = OutputStore::open(&output).with_context(context)?;
@@ -253,26 +239,61 @@ pub(super) fn bundle(root: &Path, directory: Option<&Path>, executable: &Path) -
     }
 }
 
-/// With nothing to publish, claim whatever an earlier export left at the
-/// bundle path. A catalog a running server is reading refuses the export
-/// here, before the executable changes.
-fn claim_stale_bundle(output: &Path) -> Result<Bundle> {
+/// Refuse an export whose bundle path cannot be used, from paths alone. The
+/// build calls this before compiling, so a bad `--artifact-out` costs nothing.
+pub(super) fn check_bundle_destination(
+    root: &Path,
+    directory: Option<&Path>,
+    executable: &Path,
+) -> Result<()> {
+    if executable.is_dir() {
+        bail!(
+            "artifact output must name a file, but `{}` is a directory",
+            executable.display()
+        );
+    }
+    let output = bundled_output(executable)?;
+    // Opening the output store here would leave a lock file inside a
+    // directory that belongs to something else.
+    if !OutputStore::accepts(&output) {
+        bail!(
+            "`{}` is in the way: Proa bundles the public asset catalog beside the exported executable `{}`. Move it, or export the executable to a different path",
+            output.display(),
+            executable.display()
+        );
+    }
+    // Catalog files inside the public source would be published by the next
+    // build.
+    if let Some(source) = public_source(root, directory) {
+        if overlaps(&source, &output) {
+            bail!(
+                "`{}` overlaps the public directory `{}`: export the executable `{}` outside it",
+                output.display(),
+                source.display(),
+                executable.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// With nothing bundled, claim the catalog an earlier export left beside
+/// this executable path. A catalog a running server is reading refuses the
+/// export here, before the executable changes. A directory Proa did not
+/// write is not a catalog and is left alone.
+pub(super) fn clear_bundle(executable: &Path) -> Result<Bundle> {
+    let output = bundled_output(executable)?;
+    let output = output.as_path();
     let mut bundle = Bundle {
         directory: None,
         stale: None,
     };
-    if fs::symlink_metadata(output).is_err() {
+    let is_symlink = fs::symlink_metadata(output).is_ok_and(|metadata| metadata.is_symlink());
+    if is_symlink || !proa_assets::is_output(output) {
         return Ok(bundle);
     }
     let context = || format!("remove stale public asset catalog {}", output.display());
-    let catalog = proa_assets::is_output(output);
     let store = OutputStore::open(output).with_context(context)?;
-    if !catalog {
-        // An empty leftover has nothing to protect, and would read as a
-        // damaged bundle at startup.
-        store.remove().with_context(context)?;
-        return Ok(bundle);
-    }
     bundle.stale = store.reserve_removal().with_context(context)?;
     if bundle.stale.is_none() {
         bail!(
@@ -315,19 +336,6 @@ fn overlaps(source: &Path, output: &Path) -> bool {
         .rev()
         .fold(base, |path, name| path.join(name));
     output.starts_with(&source) || source.starts_with(&output)
-}
-
-fn publish_to(
-    root: &Path,
-    directory: Option<&Path>,
-    output: &Path,
-    verb: &str,
-    preposition: &str,
-) -> Result<Option<PathBuf>> {
-    let Some(source) = public_source(root, directory) else {
-        return Ok(None);
-    };
-    publish_with(&mut OutputStore::open(output)?, &source, verb, preposition).map(Some)
 }
 
 /// The public directory to publish, when there is one.

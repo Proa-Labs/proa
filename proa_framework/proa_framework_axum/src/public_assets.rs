@@ -190,10 +190,10 @@ enum Source {
 /// The bundled catalog of the running executable, when one was published.
 ///
 /// Symlinks are resolved first, so a link in a `bin` directory still finds
-/// the catalog beside the real file. Any directory with content at that path
-/// is taken to be the bundle, so a partial copy fails loading instead of
-/// starting a server without its assets; only an absent or empty one means
-/// "no catalog".
+/// the catalog beside the real file. A directory there that carries Proa's
+/// ownership marker is the bundle, so one that lost its manifest fails loading
+/// instead of starting a server without its assets. Anything else at that
+/// path, such as an application's own data directory, is not a catalog.
 fn bundled_with_current_executable() -> Option<PathBuf> {
     let executable = std::env::current_exe().ok()?;
     let executable = executable.canonicalize().unwrap_or(executable);
@@ -202,9 +202,7 @@ fn bundled_with_current_executable() -> Option<PathBuf> {
 
 fn bundled_catalog(executable: &Path) -> Option<PathBuf> {
     let output = proa_assets::bundled_output(executable)?;
-    std::fs::read_dir(&output)
-        .is_ok_and(|mut entries| entries.next().is_some())
-        .then_some(output)
+    proa_assets::is_output(&output).then_some(output)
 }
 
 impl PublicAssets {
@@ -251,6 +249,13 @@ impl PublicAssets {
         })
     }
 
+    /// Whether this process has a managed catalog to load: one named by
+    /// `PROA_PUBLIC_ASSETS`, or one bundled beside the executable. A router
+    /// uses this to mount its own static fallback only when there is none.
+    pub fn configured() -> bool {
+        std::env::var_os(OUTPUT_ENV).is_some() || bundled_with_current_executable().is_some()
+    }
+
     /// The catalog this process was built or started with.
     ///
     /// `PROA_PUBLIC_ASSETS` names it when set, which is how `proa dev`,
@@ -264,13 +269,6 @@ impl PublicAssets {
     /// follows in-place republication. That takes the same two variables as
     /// the reload client, so a stray `PROA_DEV_RELOAD_PORT` in a deployment
     /// environment cannot switch it on.
-    /// Whether this process has a managed catalog to load: one named by
-    /// `PROA_PUBLIC_ASSETS`, or one bundled beside the executable. A router
-    /// uses this to mount its own static fallback only when there is none.
-    pub fn configured() -> bool {
-        std::env::var_os(OUTPUT_ENV).is_some() || bundled_with_current_executable().is_some()
-    }
-
     pub fn from_env(base_path: &BasePath) -> Result<Option<Self>, PublicAssetError> {
         let Some(path) = std::env::var_os(OUTPUT_ENV)
             .map(PathBuf::from)

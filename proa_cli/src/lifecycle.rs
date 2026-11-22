@@ -1125,6 +1125,7 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         .as_deref()
         .map(|destination| resolve_artifact_output(&root, destination));
     if let Some(destination) = artifact_destination.as_deref() {
+        public_assets::check_bundle_destination(&root, public_source, destination)?;
         warn_if_artifact_output_enters_source_closure(
             destination,
             &prepared.package_source_root,
@@ -1176,16 +1177,12 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     if let Some(destination) = export_destination {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
+        // The default export never bundles, but an explicit export to the
+        // same path may have: that catalog must not outlive its executable.
         let bundle = if artifact_destination.is_some() {
-            if destination.is_dir() {
-                bail!(
-                    "artifact output must name a file, but `{}` is a directory",
-                    destination.display()
-                );
-            }
-            Some(public_assets::bundle(&root, public_source, destination)?)
+            public_assets::bundle(&root, public_source, destination)?
         } else {
-            None
+            public_assets::clear_bundle(destination)?
         };
         copy_executable_atomically(&source, destination).with_context(|| {
             format!(
@@ -1194,6 +1191,9 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
                 destination.display()
             )
         })?;
+        let bundled_public_assets = bundle.directory.clone();
+        // Before anything else can fail: the new executable is in place.
+        bundle.finish()?;
         println!(
             "exported linked RSJS executable to {}",
             destination.display()
@@ -1205,14 +1205,10 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             &prepared.profile,
             target_triple,
             destination,
-            bundle
-                .as_ref()
-                .and_then(|bundle| bundle.directory.as_deref())
+            bundled_public_assets
+                .as_deref()
                 .or(published_public_assets.as_deref()),
         )?;
-        if let Some(bundle) = bundle {
-            bundle.finish()?;
-        }
     }
     Ok(())
 }

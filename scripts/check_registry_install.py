@@ -90,7 +90,7 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-            paths = ["/", "/healthz", "/readyz", "/static/styles.css"]
+            paths = ["/", "/healthz", "/readyz", "/_proa/assets/styles.css"]
             if template != "origin":
                 paths += ["/generated"]
                 if template != "minimal":
