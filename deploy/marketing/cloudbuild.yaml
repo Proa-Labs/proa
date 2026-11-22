@@ -73,7 +73,6 @@ steps:
           --package proa_marketing --bin proa_marketing --locked --no-check \
           --artifact-out /release/artifacts/proa_marketing -- cargo build --profile release --timings \
           2>&1 | tee /release/report/build.log
-        python3 deploy/marketing/stage_public_assets.py /release/report/build.log /release/artifacts/public-assets
         cp -a proa_showcase_web/public /release/artifacts/showcase
         cp -a proa_showcase/src/espn/data/images/. /release/artifacts/showcase/images/
         find /cache/target -name cargo-timing.html -exec cp --parents {} /release/report/ \;

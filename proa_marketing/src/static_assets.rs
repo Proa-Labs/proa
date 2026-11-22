@@ -9,26 +9,29 @@ use axum::{
     http::{header::CACHE_CONTROL, StatusCode},
     response::{IntoResponse, Redirect, Response},
 };
-use proa_assets::{build::OutputStore, OUTPUT_ENV};
+use proa_assets::build::OutputStore;
 use proa_core::{BasePath, RequestContext};
 use proa_framework_axum::PublicAssets;
 
 static ASSETS: LazyLock<anyhow::Result<PublicAssets>> = LazyLock::new(|| {
-    let directory = if let Some(directory) = env::var_os(OUTPUT_ENV) {
-        PathBuf::from(directory)
-    } else {
-        // Workspace-root invocations and plain Cargo tests can start without a
-        // CLI-published catalog. Publish from the same files the app serves.
-        let target = env::var_os("CARGO_TARGET_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target"));
-        let directory = target.join("marketing-public-assets");
-        OutputStore::open(&directory)?
-            .publish(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"))
-            .context("publish marketing public assets")?;
-        directory
-    };
-    PublicAssets::load(&directory, &BasePath::default())
+    let base_path = BasePath::default();
+    // The CLI names the catalog it published, and a release build carries one
+    // beside the executable. The site holds one fixed generation either way.
+    if let Some(assets) =
+        PublicAssets::from_env(&base_path).context("load marketing public assets")?
+    {
+        return Ok(assets.current());
+    }
+    // Workspace-root invocations and plain Cargo tests can start without a
+    // CLI-published catalog. Publish from the same files the app serves.
+    let target = env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target"));
+    let directory = target.join("marketing-public-assets");
+    OutputStore::open(&directory)?
+        .publish(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"))
+        .context("publish marketing public assets")?;
+    PublicAssets::load(&directory, &base_path)
         .with_context(|| format!("load marketing public assets from {}", directory.display()))
 });
 

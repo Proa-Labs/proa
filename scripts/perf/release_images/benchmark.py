@@ -66,12 +66,6 @@ def build(incoming, cache, output, report, units, lto, label):
          "--artifact-out", str(output / "proa_marketing"), "--", "cargo", "build",
          "--profile", "release", "--timings"],
         cwd=source, env=env, report=report, label=f"{label}-linked")
-    assets = output / "public-assets"
-    if assets.is_dir():
-        shutil.rmtree(assets)
-    run(["python3", str(source / "deploy/marketing/stage_public_assets.py"),
-         str(report / f"{label}-linked.log"), str(assets)],
-        cwd=source, env=env, report=report, label=f"{label}-public-assets")
     shutil.copytree(source / "proa_showcase_web/public", output / "showcase", dirs_exist_ok=True)
     shutil.copytree(source / "proa_showcase/src/espn/data/images", output / "showcase/images", dirs_exist_ok=True)
     for index, timing in enumerate(target.rglob("cargo-timing.html")):
@@ -99,7 +93,6 @@ def runtime(binary, artifacts, report):
     env = os.environ | {
         "PORT": "5050", "HOST": "127.0.0.1", "PROA_COMPANIONS": "0", "RUST_LOG": "error",
         "SHOWCASE_PUBLIC_DIR": str(artifacts / "showcase"),
-        "PROA_PUBLIC_ASSETS": str(artifacts / "public-assets"),
     }
     with (report / "server.log").open("w") as log:
         process = subprocess.Popen([str(binary)], env=env, cwd=artifacts, stdout=log, stderr=log)

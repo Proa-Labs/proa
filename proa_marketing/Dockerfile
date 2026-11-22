@@ -75,7 +75,7 @@ RUN --mount=type=cache,id=s/8a6d0a70-bfd2-4e6e-bf87-048c563a7044-/workspace/sour
     && cd /workspace/source \
     && rm -rf /out \
     && install -d /out/showcase \
-    && CARGO_TARGET_DIR=/workspace/target bash -o pipefail -c '\
+    && CARGO_TARGET_DIR=/workspace/target \
         cargo run --release --locked -p proa-cli --bin proa -- \
         build \
         --root /workspace/source/proa_marketing \
@@ -84,8 +84,7 @@ RUN --mount=type=cache,id=s/8a6d0a70-bfd2-4e6e-bf87-048c563a7044-/workspace/sour
         --bin proa_marketing \
         --locked \
         --no-check \
-        --artifact-out /out/proa_marketing | tee /tmp/marketing-build.log' \
-    && python3 deploy/marketing/stage_public_assets.py /tmp/marketing-build.log /out/public-assets \
+        --artifact-out /out/proa_marketing \
     && cp -a proa_showcase_web/public/. /out/showcase/ \
     && cp -a proa_showcase/src/espn/data/images/. /out/showcase/images/
 
@@ -186,14 +185,14 @@ COPY --chmod=755 proa_marketing/docker-entrypoint.sh /usr/local/bin/docker-entry
 
 # Application artifacts change on every release. Keep them after the stable
 # runtimes and companions.
-COPY --from=artifacts /out/proa_marketing /usr/local/bin/proa_marketing
-# The catalog publisher creates the manifest with owner-only permissions.
-COPY --from=artifacts --chown=proa:proa /out/public-assets /app/public-assets
+# The build writes the public asset catalog beside the executable, and the
+# server loads it from there. Keep the two together.
+COPY --from=artifacts /out/proa_marketing /app/proa_marketing
+COPY --from=artifacts /out/proa_marketing.assets /app/proa_marketing.assets
 COPY --from=artifacts /out/showcase /app/showcase
 
 ENV HOST=0.0.0.0 \
     RUST_LOG=info \
-    PROA_PUBLIC_ASSETS=/app/public-assets \
     SHOWCASE_PUBLIC_DIR=/app/showcase \
     PROA_CONSOLE_LOAD_TESTS=0
 
