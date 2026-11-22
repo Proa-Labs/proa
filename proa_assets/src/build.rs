@@ -83,10 +83,13 @@ impl OutputStore {
             }
             let mut file = at(&marker, File::create_new(&marker))?;
             at(&marker, file.write_all(OWNER_BYTES))?;
+            set_readable_file_permissions(&marker, &file)?;
             at(&marker, file.sync_all())?;
         }
-        open_lock(&root.join(READERS_FILE))?;
-        open_lock(&root.join(LIVE_READERS_FILE))?;
+        let readers = open_lock(&root.join(READERS_FILE))?;
+        set_readable_file_permissions(&root.join(READERS_FILE), &readers)?;
+        let live_readers = open_lock(&root.join(LIVE_READERS_FILE))?;
+        set_readable_file_permissions(&root.join(LIVE_READERS_FILE), &live_readers)?;
         ensure_directory(&root, "objects")?;
         ensure_directory(&root, "staging")?;
         let store = Self {
@@ -190,6 +193,14 @@ impl OutputStore {
                     if !entry.matches_contents(&destination)? {
                         return Err(AssetError::Integrity(object.clone()));
                     }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        if metadata.permissions().mode() & 0o444 != 0o444 {
+                            let file = at(&destination, File::open(&destination))?;
+                            set_readable_file_permissions(&destination, &file)?;
+                        }
+                    }
                 }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
                     let snapshot = stage.path().join(index.to_string());
@@ -202,6 +213,7 @@ impl OutputStore {
                             .write(cfg!(windows))
                             .open(&snapshot),
                     )?;
+                    set_readable_file_permissions(&snapshot, &file)?;
                     at(&snapshot, file.sync_all())?;
                     drop(file);
                     at(&destination, fs::rename(&snapshot, &destination))?;
@@ -520,6 +532,7 @@ fn write_json(root: &Path, staging: &Path, name: &str, value: &impl Serialize) -
     let mut temporary = at(staging, tempfile::NamedTempFile::new_in(staging))?;
     serde_json::to_writer(temporary.as_file_mut(), value)?;
     at(root, temporary.write_all(b"\n"))?;
+    set_readable_file_permissions(&destination, temporary.as_file())?;
     at(root, temporary.as_file().sync_all())?;
     temporary
         .persist(&destination)
@@ -527,6 +540,25 @@ fn write_json(root: &Path, staging: &Path, name: &str, value: &impl Serialize) -
             path: destination,
             source: error.error,
         })?;
+    Ok(())
+}
+
+/// Ensure published catalog files are world-readable (`0o644`) on Unix.
+/// `NamedTempFile` defaults to `0o600`, which would block non-root container
+/// runtime users from reading `manifest.json` after a multi-stage Docker build.
+fn set_readable_file_permissions(path: &Path, file: &File) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        at(
+            path,
+            file.set_permissions(fs::Permissions::from_mode(0o644)),
+        )?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, file);
+    }
     Ok(())
 }
 

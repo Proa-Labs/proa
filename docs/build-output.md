@@ -317,10 +317,14 @@ removed by the next writer. Collision reservations survive object cleanup.
 Post-publication cleanup or durability errors are reported as warnings because
 the new pointer is already active. Cleanup never adopts unrelated directories.
 
-For deployment, copy the complete output directory with the binary and set
+For deployment, export the verified public asset catalog alongside the binary
+with `proa build --artifact-out <bin> --public-assets-out <dir>` and set
 `PROA_PUBLIC_ASSETS` to its deployment location. `--artifact-out` exports only
-the executable. The catalog can be loaded from a read-only deployment; the
-reader lock file must be included. Do not manually modify immutable objects.
+the executable; `--public-assets-out` publishes the complete catalog directory
+(including `.proa-assets`, `.readers.lock`, `manifest.json`, and `objects/`),
+with world-readable file permissions so non-root runtime containers can load it
+from a read-only deployment without re-owning files. Do not manually modify
+immutable objects.
 
 To start a packaged app with the CLI, pass the copied catalog alongside the
 exported executable.

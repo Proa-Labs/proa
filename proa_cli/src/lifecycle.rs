@@ -105,6 +105,7 @@ pub struct BuildOptions {
     pub no_check: bool,
     pub no_assets: bool,
     pub artifact_out: Option<PathBuf>,
+    pub public_assets_out: Option<PathBuf>,
     pub command: Vec<String>,
 }
 
@@ -1120,6 +1121,17 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         &rsjs_minify_environment(config.build.minify_rsjs),
     )?;
     let public_source = public_assets::configured_path(&config, !options.no_assets)?;
+    if options.public_assets_out.is_some() {
+        if options.no_assets {
+            bail!("--public-assets-out cannot be combined with --no-assets");
+        }
+        if public_source.is_none() {
+            bail!(
+                "--public-assets-out requires configured public assets (`paths.public` is disabled in {})",
+                crate::config::CONFIG_FILE
+            );
+        }
+    }
     let artifact_destination = options
         .artifact_out
         .as_deref()
@@ -1130,6 +1142,23 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             &prepared.package_source_root,
             &prepared.request.descriptor.source_exclusion_directory,
         );
+    }
+    let public_assets_destination = options
+        .public_assets_out
+        .as_deref()
+        .map(|destination| resolve_artifact_output(&root, destination));
+    if let Some(destination) = public_assets_destination.as_deref() {
+        warn_if_artifact_output_enters_source_closure(
+            destination,
+            &prepared.package_source_root,
+            &prepared.request.descriptor.source_exclusion_directory,
+        );
+        validate_public_assets_export_destination(
+            &root,
+            public_source.expect("checked public_source"),
+            destination,
+            artifact_destination.as_deref(),
+        )?;
     }
 
     task::run_lifecycle_tasks(
@@ -1152,6 +1181,33 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     print_linked_cargo_output(LinkedCargoAction::Build, &prepared.request, &output);
     let published_public_assets =
         public_assets::publish(&root, public_source, &prepared.public_output_directory)?;
+    let exported_public_assets = if let Some(destination) = public_assets_destination.as_deref() {
+        let public_dir = public_source.expect("checked public_source");
+        let Some(published) = published_public_assets.as_deref() else {
+            bail!(
+                "--public-assets-out was requested, but configured public directory `{}` does not exist",
+                public_dir.display()
+            );
+        };
+        let same_directory = fs::canonicalize(destination)
+            .ok()
+            .zip(fs::canonicalize(published).ok())
+            .is_some_and(|(a, b)| a == b);
+        let exported = if same_directory {
+            published.to_path_buf()
+        } else {
+            public_assets::export(&root, public_dir, destination)?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--public-assets-out was requested, but configured public directory `{}` does not exist",
+                    public_dir.display()
+                )
+            })?
+        };
+        println!("exported public asset catalog to {}", exported.display());
+        Some(exported)
+    } else {
+        None
+    };
     let target_dir = &prepared.request.descriptor.source_exclusion_directory;
     let target_triple = prepared.target_triple.as_deref();
     let default_release_destination = (artifact_destination.is_none()
@@ -1181,6 +1237,13 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             "exported linked RSJS executable to {}",
             destination.display()
         );
+        let manifest_public_assets = if artifact_destination.is_some() {
+            exported_public_assets
+                .as_deref()
+                .or(published_public_assets.as_deref())
+        } else {
+            published_public_assets.as_deref()
+        };
         public_assets::record_start_manifest(
             target_dir,
             &prepared.request.root.package_id,
@@ -1188,8 +1251,86 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             &prepared.profile,
             target_triple,
             destination,
-            published_public_assets.as_deref(),
+            manifest_public_assets,
         )?;
+    }
+    Ok(())
+}
+
+fn canonicalize_deepest_ancestor(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut missing = Vec::new();
+    let mut current = absolute.as_path();
+    loop {
+        if let Ok(canonical) = fs::canonicalize(current) {
+            let mut resolved = canonical;
+            for component in missing.into_iter().rev() {
+                resolved.push(component);
+            }
+            return resolved;
+        }
+        let Some(name) = current.file_name() else {
+            return absolute;
+        };
+        missing.push(name.to_os_string());
+        let Some(parent) = current.parent() else {
+            return absolute;
+        };
+        current = parent;
+    }
+}
+
+fn validate_public_assets_export_destination(
+    root: &Path,
+    public_source: &Path,
+    destination: &Path,
+    artifact_destination: Option<&Path>,
+) -> Result<()> {
+    let source = root.join(public_source);
+    let abs_source = canonicalize_deepest_ancestor(&source);
+    let abs_dest = canonicalize_deepest_ancestor(destination);
+    if abs_source.starts_with(&abs_dest) || abs_dest.starts_with(&abs_source) {
+        bail!(
+            "--public-assets-out `{}` overlaps configured public directory `{}`",
+            destination.display(),
+            public_source.display()
+        );
+    }
+    if let Some(artifact) = artifact_destination {
+        let abs_artifact = canonicalize_deepest_ancestor(artifact);
+        if abs_artifact.starts_with(&abs_dest) || abs_dest.starts_with(&abs_artifact) {
+            bail!(
+                "--public-assets-out `{}` overlaps --artifact-out `{}`",
+                destination.display(),
+                artifact.display()
+            );
+        }
+    }
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if !metadata.file_type().is_dir() => {
+            bail!(
+                "--public-assets-out `{}` already exists and is not a directory",
+                destination.display()
+            );
+        }
+        Ok(_) => {
+            if !destination.join(".proa-assets").is_file()
+                && fs::read_dir(destination)
+                    .with_context(|| format!("read {}", destination.display()))?
+                    .next()
+                    .is_some()
+            {
+                bail!(
+                    "--public-assets-out `{}` is not an empty directory or an existing Proa public asset catalog",
+                    destination.display()
+                );
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect --public-assets-out {}", destination.display()));
+        }
     }
     Ok(())
 }

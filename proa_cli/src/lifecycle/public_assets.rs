@@ -174,6 +174,19 @@ pub(super) fn publish(
     directory: Option<&Path>,
     output: &Path,
 ) -> Result<Option<PathBuf>> {
+    publish_with_label(root, directory, output, false)
+}
+
+pub(super) fn export(root: &Path, directory: &Path, output: &Path) -> Result<Option<PathBuf>> {
+    publish_with_label(root, Some(directory), output, true)
+}
+
+fn publish_with_label(
+    root: &Path,
+    directory: Option<&Path>,
+    output: &Path,
+    quiet: bool,
+) -> Result<Option<PathBuf>> {
     let Some(directory) = directory else {
         return Ok(None);
     };
@@ -194,11 +207,13 @@ pub(super) fn publish(
     if let Some(error) = report.durability_error {
         eprintln!("warning: public manifest activated, but directory sync failed: {error}");
     }
-    super::dev_ui::detail!(
-        "published {} public assets to {}",
-        report.manifest.assets.len(),
-        report.output_directory.display()
-    );
+    if !quiet {
+        super::dev_ui::detail!(
+            "published {} public assets to {}",
+            report.manifest.assets.len(),
+            report.output_directory.display()
+        );
+    }
     Ok(Some(report.output_directory))
 }
 

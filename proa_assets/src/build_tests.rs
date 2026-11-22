@@ -393,3 +393,51 @@ fn extensionless_files_named_after_extensions_stay_immutable() {
         assert_ne!(entry.public_path, logical, "{logical}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn published_catalog_files_are_world_readable_for_non_root_runtimes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let f = Fixture::new();
+    f.write("images/hero.png", b"png-bytes");
+    // Even if a source asset was owner-only (0600), the published object must be readable.
+    fs::set_permissions(
+        f.source.join("images/hero.png"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let report = f.publish();
+    let object_path = f
+        .output
+        .join("objects")
+        .join(&report.manifest.assets["images/hero.png"].object);
+
+    for path in [
+        f.output.join(MANIFEST_FILE),
+        f.output.join(OWNER_FILE),
+        f.output.join(READERS_FILE),
+        f.output.join(LIVE_READERS_FILE),
+        object_path.clone(),
+    ] {
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode & 0o444,
+            0o444,
+            "{} must be readable by non-root users (mode {:o})",
+            path.display(),
+            mode
+        );
+    }
+
+    // Re-publishing into an existing catalog also heals restrictive permissions on retained objects.
+    fs::set_permissions(&object_path, fs::Permissions::from_mode(0o600)).unwrap();
+    f.publish();
+    let healed_mode = fs::metadata(&object_path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        healed_mode & 0o444,
+        0o444,
+        "retained object must be healed to world-readable on re-publish (mode {:o})",
+        healed_mode
+    );
+}

@@ -755,7 +755,7 @@ fn cli_download_base(version: &str) -> String {
     }
 }
 
-fn deployment_dockerfile(migration_copy: &str, cli_version: &str) -> String {
+pub(super) fn deployment_dockerfile(migration_copy: &str, cli_version: &str) -> String {
     let cli_download_base = cli_download_base(cli_version);
     format!(
         r#"FROM rust:1.93-bookworm AS rust-toolchain
@@ -790,16 +790,16 @@ RUN set -eux; \
 COPY . .
 RUN set -eu; \
     if [ -f Cargo.lock ]; then \
-        proa build --locked --artifact-out /tmp/proa-app; \
+        proa build --locked --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets; \
     else \
-        proa build --artifact-out /tmp/proa-app; \
+        proa build --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets; \
     fi
 FROM ubuntu:24.04
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 && rm -rf /var/lib/apt/lists/*
 COPY --from=build /tmp/proa-app /usr/local/bin/app
-COPY --from=build /app/public ./public
-{migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000
+COPY --from=build /tmp/proa-public-assets /app/public-assets
+{migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000 PROA_PUBLIC_ASSETS=/app/public-assets
 EXPOSE 3000
 CMD ["/usr/local/bin/app"]
 "#
@@ -883,9 +883,16 @@ mod tests {
             "base=\"https://proa.so/downloads/cli/main/{version}\""
         )));
         assert!(dockerfile.contains("sha256sum --check --strict"));
-        assert!(dockerfile.contains("proa build --locked --artifact-out /tmp/proa-app"));
-        assert!(dockerfile.contains("proa build --artifact-out /tmp/proa-app"));
+        assert!(dockerfile.contains(
+            "proa build --locked --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets"
+        ));
+        assert!(dockerfile.contains(
+            "proa build --artifact-out /tmp/proa-app --public-assets-out /tmp/proa-public-assets"
+        ));
         assert!(dockerfile.contains("COPY --from=build /tmp/proa-app /usr/local/bin/app"));
+        assert!(dockerfile.contains("COPY --from=build /tmp/proa-public-assets /app/public-assets"));
+        assert!(dockerfile.contains("PROA_PUBLIC_ASSETS=/app/public-assets"));
+        assert!(!dockerfile.contains("COPY --from=build /app/public ./public"));
         assert!(!dockerfile.contains("cargo build --release"));
         assert!(!dockerfile.contains("/app/target/release/"));
         assert!(!dockerfile.contains("install.sh"));

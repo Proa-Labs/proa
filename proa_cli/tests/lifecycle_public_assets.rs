@@ -1181,3 +1181,130 @@ exec "$REAL_CARGO" "$@"
         "CARGO_TERM_* settings must not invalidate the persisted stamp cache"
     );
 }
+
+#[test]
+fn build_exports_public_asset_catalog_to_explicit_destination_and_validates_flags() {
+    let temp = fixture();
+    let root = temp.path();
+    let exported_bin = temp.path().join("release-export/app");
+    let exported_assets = temp.path().join("release-export/public-assets");
+
+    let first = success(&cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            exported_bin.to_str().unwrap(),
+            "--public-assets-out",
+            exported_assets.to_str().unwrap(),
+        ],
+    ));
+    assert!(
+        first.contains(&format!(
+            "exported public asset catalog to {}",
+            exported_assets.canonicalize().unwrap().display()
+        )) || first.contains(&format!(
+            "exported public asset catalog to {}",
+            exported_assets.display()
+        )),
+        "{first}"
+    );
+    // Export does not print a duplicate `published ...` line.
+    assert_eq!(
+        first
+            .lines()
+            .filter(|line| line.starts_with("published ") && line.contains(" public assets to "))
+            .count(),
+        1,
+        "{first}"
+    );
+
+    let catalog = AssetCatalog::load(&exported_assets).unwrap();
+    let first_url = catalog.manifest().assets["logo.svg"].public_path.clone();
+    assert_eq!(
+        fs::read(catalog.object_path("logo.svg").unwrap()).unwrap(),
+        b"first"
+    );
+    drop(catalog);
+
+    // Updating a public asset and rebuilding into the same destination updates the catalog in place.
+    fs::write(root.join("public/logo.svg"), b"second").unwrap();
+    let second = success(&cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            exported_bin.to_str().unwrap(),
+            "--public-assets-out",
+            exported_assets.to_str().unwrap(),
+        ],
+    ));
+    assert!(
+        second.contains("exported public asset catalog to "),
+        "{second}"
+    );
+    let updated_catalog = AssetCatalog::load(&exported_assets).unwrap();
+    let second_url = updated_catalog.manifest().assets["logo.svg"]
+        .public_path
+        .clone();
+    assert_ne!(first_url, second_url);
+    assert_eq!(
+        fs::read(updated_catalog.object_path("logo.svg").unwrap()).unwrap(),
+        b"second"
+    );
+
+    // Running the exported binary with PROA_PUBLIC_ASSETS pointing at the exported catalog succeeds.
+    let run = Command::new(&exported_bin)
+        .env(OUTPUT_ENV, &exported_assets)
+        .arg("--probe")
+        .output()
+        .unwrap();
+    let run_stdout = success(&run);
+    let manifest = main_manifest(&run_stdout);
+    assert_eq!(manifest.assets["logo.svg"].public_path, second_url);
+
+    // `--public-assets-out` with `--no-assets` fails early before running Cargo.
+    let no_assets = cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--no-assets",
+            "--public-assets-out",
+            exported_assets.to_str().unwrap(),
+        ],
+    );
+    assert!(!no_assets.status.success());
+    let stderr = String::from_utf8_lossy(&no_assets.stderr);
+    assert!(
+        stderr.contains("--public-assets-out cannot be combined with --no-assets"),
+        "{stderr}"
+    );
+
+    // Refusing a non-empty foreign directory does not touch or leave `.writer.lock` inside it.
+    let foreign = temp.path().join("foreign-dir");
+    fs::create_dir(&foreign).unwrap();
+    fs::write(foreign.join("existing.txt"), "keep").unwrap();
+    let foreign_out = cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--public-assets-out",
+            foreign.to_str().unwrap(),
+        ],
+    );
+    assert!(!foreign_out.status.success());
+    assert!(
+        String::from_utf8_lossy(&foreign_out.stderr).contains("not an empty directory"),
+        "{}",
+        String::from_utf8_lossy(&foreign_out.stderr)
+    );
+    assert!(!foreign.join(".writer.lock").exists());
+}

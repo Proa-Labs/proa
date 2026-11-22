@@ -56,11 +56,16 @@ pub(crate) struct BuildArgs {
     /// Without it, a release build of an executable is copied to
     /// `<target-dir>/release/<bin>` (`<target-dir>/<triple>/release/<bin>` with
     /// `--target`), where `proa start` finds it with its public catalog.
-    /// The public catalog remains in the directory reported by the build.
     /// Relative paths are resolved from the Proa project root. For warm rebuilds, prefer
     /// the Cargo target directory or a path outside the selected package source tree.
     #[arg(long, value_name = "PATH")]
     artifact_out: Option<PathBuf>,
+    /// Publish the verified public asset catalog directly to this directory after a
+    /// successful linked build (for Docker or release packaging alongside `--artifact-out`).
+    /// Point `PROA_PUBLIC_ASSETS` at this directory in production. Relative paths are
+    /// resolved from the Proa project root.
+    #[arg(long, value_name = "DIR")]
+    public_assets_out: Option<PathBuf>,
     /// Enter the linked build with an exact Cargo build command.
     /// Example: -- cargo build --release -p app --bin app.
     #[arg(last = true)]
@@ -83,6 +88,7 @@ pub(crate) fn run(args: BuildArgs) -> Result<()> {
         no_check: args.no_check,
         no_assets: args.no_assets,
         artifact_out: args.artifact_out,
+        public_assets_out: args.public_assets_out,
         command: args.command,
     };
     lifecycle::build(options)
@@ -106,6 +112,8 @@ mod tests {
             "/tmp/demo",
             "--artifact-out",
             "dist/server",
+            "--public-assets-out",
+            "dist/public-assets",
             "--package",
             "demo",
             "--bin",
@@ -118,6 +126,10 @@ mod tests {
         };
         assert_eq!(args.root, Some(PathBuf::from("/tmp/demo")));
         assert_eq!(args.artifact_out, Some(PathBuf::from("dist/server")));
+        assert_eq!(
+            args.public_assets_out,
+            Some(PathBuf::from("dist/public-assets"))
+        );
         assert_eq!(args.package.as_deref(), Some("demo"));
         assert_eq!(args.bin.as_deref(), Some("server"));
     }
