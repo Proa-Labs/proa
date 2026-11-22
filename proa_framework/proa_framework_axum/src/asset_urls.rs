@@ -352,9 +352,11 @@ pub(crate) fn rewrite_js(source: &str, base: &BasePath) -> Result<String, String
         helper.push('_');
     }
     let mut visitor = JsUrls {
-        base,
+        base: Some(base),
+        modules: None,
         scoping: semantic.semantic.scoping(),
         edits: Vec::new(),
+        imports: Vec::new(),
         helper,
         dynamic: false,
     };
@@ -367,10 +369,91 @@ pub(crate) fn rewrite_js(source: &str, base: &BasePath) -> Result<String, String
     Ok(out)
 }
 
+/// A module whose URLs are settled later, so its bytes hold no deployment
+/// setting. See [`portable_js`].
+pub(crate) struct PortableJs {
+    edits: Vec<Edit>,
+    /// Import specifiers that name another module of the same set, by the
+    /// index `modules` gave them. Their text depends on that module's final
+    /// name, which is not known until it has been hashed.
+    pub(crate) imports: Vec<(Span, usize)>,
+    /// Name of the function every application URL is passed through at run
+    /// time, when the module has any.
+    pub(crate) helper: Option<String>,
+}
+
+impl PortableJs {
+    /// Write the module with `specifier(index)` in place of each import of
+    /// another module of the set.
+    pub(crate) fn render(&self, source: &str, specifier: impl Fn(usize) -> String) -> String {
+        let mut edits: Vec<Edit> = self
+            .edits
+            .iter()
+            .map(|edit| Edit {
+                span: edit.span,
+                text: edit.text.clone(),
+            })
+            .collect();
+        edits.extend(self.imports.iter().map(|(span, module)| Edit {
+            span: *span,
+            text: serde_json::to_string(&specifier(*module)).expect("serialize import specifier"),
+        }));
+        apply_edits(source, edits)
+    }
+}
+
+/// Prepare a generated module to be served unchanged in every deployment.
+///
+/// The base path is a runtime setting, so it cannot be written into a file
+/// whose name is a hash of its bytes. Each URL operation that
+/// [`rewrite_js`] would prefix is routed through a helper function here, and
+/// the caller defines that helper in terms of the base path the page carries.
+/// `modules` maps an import specifier to the module of the same set it names.
+pub(crate) fn portable_js(
+    source: &str,
+    modules: &dyn Fn(&str) -> Option<usize>,
+) -> Result<PortableJs, String> {
+    let allocator = Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, SourceType::mjs()).parse();
+    if !parsed.errors.is_empty() {
+        return Err("invalid JavaScript module".to_string());
+    }
+    let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program);
+    if !semantic.errors.is_empty() {
+        return Err("invalid JavaScript bindings".to_string());
+    }
+    let mut helper = format!(
+        "__proa_url_{:x}",
+        HexDisplay(&Sha256::digest(source.as_bytes()))
+    );
+    while source.contains(&helper) {
+        helper.push('_');
+    }
+    let mut visitor = JsUrls {
+        base: None,
+        modules: Some(modules),
+        scoping: semantic.semantic.scoping(),
+        edits: Vec::new(),
+        imports: Vec::new(),
+        helper,
+        dynamic: false,
+    };
+    visitor.visit_program(&parsed.program);
+    Ok(PortableJs {
+        edits: visitor.edits,
+        imports: visitor.imports,
+        helper: visitor.dynamic.then_some(visitor.helper),
+    })
+}
+
 struct JsUrls<'s> {
-    base: &'s BasePath,
+    /// Write this base path into the source. `None` defers every URL to the
+    /// helper, for a module that must not contain one.
+    base: Option<&'s BasePath>,
+    modules: Option<&'s dyn Fn(&str) -> Option<usize>>,
     scoping: &'s oxc_semantic::Scoping,
     edits: Vec<Edit>,
+    imports: Vec<(Span, usize)>,
     helper: String,
     dynamic: bool,
 }
@@ -411,8 +494,24 @@ impl JsUrls<'_> {
             _ => false,
         }
     }
+    /// Record an import of another module of the set.
+    fn import(&mut self, literal: &StringLiteral<'_>) -> bool {
+        let module = self.modules.and_then(|modules| modules(&literal.value));
+        if let Some(module) = module {
+            self.imports.push((literal.span, module));
+        }
+        module.is_some()
+    }
+    /// A static import or export source. It has to stay a literal, so a
+    /// portable module can only follow it to another module of its set.
     fn literal(&mut self, literal: &StringLiteral<'_>) {
-        if let Some(url) = application_url(self.base, &literal.value) {
+        if self.import(literal) {
+            return;
+        }
+        if let Some(url) = self
+            .base
+            .and_then(|base| application_url(base, &literal.value))
+        {
             self.edits.push(Edit {
                 span: literal.span,
                 text: serde_json::to_string(&url).expect("serialize URL literal"),
@@ -421,8 +520,17 @@ impl JsUrls<'_> {
     }
     fn url(&mut self, expression: &Expression<'_>) {
         if let Expression::StringLiteral(literal) = expression.get_inner_expression() {
-            self.literal(literal);
-            return;
+            if self.base.is_some() {
+                self.literal(literal);
+                return;
+            }
+            // Only a path from the origin root can gain a base path.
+            if self.import(literal)
+                || !literal.value.starts_with('/')
+                || literal.value.starts_with("//")
+            {
+                return;
+            }
         }
         let span = expression.span();
         self.edits.push(Edit {

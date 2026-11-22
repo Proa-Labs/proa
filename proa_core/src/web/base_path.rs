@@ -118,6 +118,60 @@ impl PublicAssetUrls {
     }
 }
 
+/// Files the framework itself puts in front of a browser, such as the RSJS
+/// runtime and island modules, published under content-hashed names.
+///
+/// Keys are the logical names the framework knows a file by. Each value is
+/// the file's path from the origin root, with no leading slash and no
+/// deployment prefix: one build output is the same under every mount and on
+/// any asset host, so the prefix is added when a URL is written.
+#[derive(Clone, Debug, Default)]
+pub struct FrameworkAssets(Arc<FrameworkAssetIndex>);
+
+#[derive(Debug, Default)]
+struct FrameworkAssetIndex {
+    by_logical: BTreeMap<String, FrameworkAsset>,
+    integrity_by_path: BTreeMap<Arc<str>, Arc<str>>,
+}
+
+/// One published framework file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrameworkAsset {
+    /// Path from the origin root, such as `_proa/immutable/rsjs/runtime.<hash>.js`.
+    pub path: Arc<str>,
+    /// Subresource Integrity value for the file's bytes.
+    pub integrity: Arc<str>,
+}
+
+impl FrameworkAssets {
+    pub fn new(assets: BTreeMap<String, FrameworkAsset>) -> Self {
+        let integrity_by_path = assets
+            .values()
+            .map(|asset| (asset.path.clone(), asset.integrity.clone()))
+            .collect();
+        Self(Arc::new(FrameworkAssetIndex {
+            by_logical: assets,
+            integrity_by_path,
+        }))
+    }
+
+    pub fn get(&self, logical: &str) -> Option<&FrameworkAsset> {
+        self.0.by_logical.get(logical)
+    }
+
+    /// The integrity value of the file published at `path`.
+    pub fn integrity(&self, path: &str) -> Option<&str> {
+        self.0.integrity_by_path.get(path).map(AsRef::as_ref)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &FrameworkAsset)> {
+        self.0
+            .by_logical
+            .iter()
+            .map(|(logical, asset)| (logical.as_str(), asset))
+    }
+}
+
 /// A URL composed without allocating an intermediate string.
 ///
 /// Use directly in `href={...}`, `src={...}` or `action={...}`.

@@ -1562,7 +1562,7 @@ pub use manifest::{
     write_manifest_json, CanonicalRsjsAssetUrls, ClientClassManifestEntry, ClientModuleAsset,
     ClientModuleManifestEntry, ComponentFragmentAsset, ComponentFragmentManifestEntry,
     DeferredIslandAsset, IslandHydrationStrategy, IslandManifestEntry, IslandModuleAsset, Manifest,
-    PageRuntimeEmissionState, PageRuntimePlan, PageRuntimePlanError, RsjsAssetRef,
+    PageRuntimeEmissionState, PageRuntimeHtml, PageRuntimePlan, PageRuntimePlanError, RsjsAssetRef,
     RsjsAssetUrlResolver, RuntimeAssetPlanError, RuntimeAssets, RuntimeFeatureSet,
     CLIENT_CLASS_REGISTRY, CLIENT_MODULE_REGISTRY, COMPONENT_FRAGMENT_REGISTRY, ISLAND_REGISTRY,
 };

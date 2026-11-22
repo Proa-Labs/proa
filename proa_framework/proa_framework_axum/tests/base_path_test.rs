@@ -173,18 +173,35 @@ async fn nested_page_urls_redirects_and_framework_links_follow_startup_prefix() 
         let prefix = prefix.trim_end_matches('/');
         let (status, _, html) = fetch(&app, "/docs/start").await;
         assert_eq!(status, StatusCode::OK);
-        for url in [
-            "/docs/start?x=1&amp;y=2",
-            "/submit",
-            "/rsjs-runtime.js",
-            "/rsjs-runtime-query.js",
-            "/rsjs/island/base_path_counter.js",
-            "/rsjs/island/component_base_path_fragment.js",
-        ] {
+        for url in ["/docs/start?x=1&amp;y=2", "/submit"] {
             assert!(
                 html.contains(&format!("\"{prefix}{url}\"")),
                 "missing {url} in {html}"
             );
+        }
+        // Each module is linked by its published name, under the mount.
+        let modules = published_modules(&html);
+        for module in [
+            "runtime",
+            "query",
+            "island/base_path_counter",
+            "island/component_base_path_fragment",
+        ] {
+            let start = format!("{prefix}/_proa/immutable/rsjs/{module}.");
+            assert!(
+                modules.iter().any(|url| url.starts_with(&start)),
+                "missing {module} in {html}"
+            );
+        }
+        assert!(!html.contains("/rsjs-runtime.js"));
+        // The modules are the same files under every mount, so the page is
+        // where the runtime learns the base path.
+        assert_eq!(
+            html.contains(r#"<script type="application/json" id="__proa">"#),
+            !prefix.is_empty()
+        );
+        if !prefix.is_empty() {
+            assert!(html.contains(&format!(r#"{{"basePath":"{prefix}"}}"#)));
         }
         assert!(html.contains(r#"src="https://cdn.example/image.png""#));
         let (_, headers, _) = fetch(&app, "/redirect").await;
@@ -199,52 +216,62 @@ async fn nested_page_urls_redirects_and_framework_links_follow_startup_prefix() 
     }
 }
 
+/// URLs of the RSJS modules a page links, in document order.
+fn published_modules(html: &str) -> Vec<String> {
+    html.split('"')
+        .filter(|value| value.contains("/_proa/immutable/rsjs/"))
+        .map(str::to_owned)
+        .collect()
+}
+
 #[tokio::test]
-async fn serves_all_linked_asset_kinds_with_public_runtime_imports() {
+async fn linked_modules_are_one_set_of_files_under_every_mount() {
+    let root_app = app("");
     let mounted_app = app("/apps/demo");
-    for file in [
-        "base_path_counter.js".to_string(),
-        "component_base_path_fragment.js".to_string(),
-        rsjs::client_class_filename(CLASS.module_path),
-    ] {
-        let (status, headers, source) = fetch(&mounted_app, &format!("/rsjs/island/{file}")).await;
-        assert_eq!(status, StatusCode::OK);
+    let (_, _, root_html) = fetch(&root_app, "/docs/start").await;
+    let (_, _, mounted_html) = fetch(&mounted_app, "/docs/start").await;
+    let root = published_modules(&root_html);
+    let mounted = published_modules(&mounted_html);
+    assert!(!root.is_empty());
+    assert_eq!(
+        mounted
+            .iter()
+            .map(|url| url.strip_prefix("/apps/demo").unwrap())
+            .collect::<Vec<_>>(),
+        root
+    );
+    for url in &root {
+        let (status, headers, source) = fetch(&root_app, url).await;
+        assert_eq!(status, StatusCode::OK, "{url}");
         assert_eq!(
             headers[header::CONTENT_TYPE],
             "application/javascript; charset=utf-8"
         );
-        assert!(source.contains(r#"from "/apps/demo/rsjs-runtime.js""#));
-        assert!(source.contains(r#"from "/apps/demo/rsjs-runtime-query.js""#));
-        assert!(source.contains(r#"from "./component_base_path_fragment.js""#));
-        assert!(!source.contains(r#"from "/rsjs-runtime"#));
+        assert_eq!(
+            headers[header::CACHE_CONTROL],
+            "public, max-age=31536000, immutable"
+        );
+        // The mounted app serves the same bytes: no mount is written in them.
+        assert_eq!(fetch(&mounted_app, url).await.2, source, "{url}");
+        assert!(!source.contains("/apps/demo"), "{url}");
+        if url.contains("/island/") {
+            assert!(!source.contains(r#"from "/rsjs-runtime"#), "{url}");
+            assert!(source.contains(r#"from "../runtime."#), "{source}");
+            assert!(source.contains(r#"from "../query."#), "{source}");
+            assert!(source.contains(r#"from "./component_base_path_fragment."#));
+        }
     }
-    assert_eq!(
-        fetch(
-            &mounted_app,
-            &format!(
-                "/rsjs/island/{}",
-                rsjs::client_module_filename(MODULE.module_path)
-            )
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    for path in ["/rsjs-runtime.js", "/rsjs-runtime-query.js"] {
-        let (status, _, source) = fetch(&mounted_app, path).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(source.contains(r#"const PROA_BASE_PATH = "/apps/demo";"#));
+    for gone in [
+        "/rsjs-runtime.js",
+        "/rsjs/island/base_path_counter.js",
+        "/_proa/immutable/rsjs/island/missing.js",
+    ] {
+        assert_eq!(
+            fetch(&mounted_app, gone).await.0,
+            StatusCode::NOT_FOUND,
+            "{gone}"
+        );
     }
-    assert_eq!(
-        fetch(&mounted_app, "/rsjs/island/missing.js").await.0,
-        StatusCode::NOT_FOUND
-    );
-    // Separate apps can share a process without leaking each other's prefix.
-    let other = app("/preview/123");
-    assert!(fetch(&other, "/rsjs/island/base_path_counter.js")
-        .await
-        .2
-        .contains(r#"from "/preview/123/rsjs-runtime.js""#));
 }
 
 struct LatePage(Arc<tokio::sync::Notify>);
@@ -363,17 +390,19 @@ async fn public_mount_requests_reach_assets_after_proxy_prefix_stripping() {
     let (status, _, html) = fetch(&app, "/apps/demo/docs/start").await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"href="/apps/demo/docs/start?x=1&amp;y=2""#));
-    for path in [
-        "/apps/demo/static/styles.css",
-        "/apps/demo/rsjs-runtime.js",
-        "/apps/demo/rsjs-runtime-query.js",
-        "/apps/demo/rsjs/island/base_path_counter.js",
-        "/apps/demo/rsjs/island/component_base_path_fragment.js",
-    ] {
+    let modules = published_modules(&html);
+    assert!(modules.len() >= 4, "{html}");
+    for path in modules
+        .iter()
+        .map(String::as_str)
+        .chain(["/apps/demo/static/styles.css"])
+    {
         assert_eq!(fetch(&app, path).await.0, StatusCode::OK, "{path}");
     }
     assert_eq!(
-        fetch(&app, "/rsjs-runtime.js").await.0,
+        fetch(&app, modules[0].strip_prefix("/apps/demo").unwrap())
+            .await
+            .0,
         StatusCode::NOT_FOUND
     );
 }

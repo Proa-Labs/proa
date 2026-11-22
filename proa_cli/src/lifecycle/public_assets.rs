@@ -365,6 +365,9 @@ fn publish_with(
     if let Some(error) = report.durability_error {
         eprintln!("warning: public manifest activated, but directory sync failed: {error}");
     }
+    for diagnostic in &report.diagnostics {
+        eprintln!("warning: {diagnostic}");
+    }
     super::dev_ui::detail!(
         "{verb} {} public assets {preposition} {}",
         report.manifest.assets.len(),

@@ -537,6 +537,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     let route_params = Some(ctx.current_route_params().clone());
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
     request.set_public_asset_urls(ctx.public_asset_urls());
+    request.set_framework_assets(ctx.framework_assets());
     if let Some(method) = ctx.current_method().cloned() {
         request.set_method(method);
     }

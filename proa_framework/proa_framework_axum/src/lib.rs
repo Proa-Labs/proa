@@ -47,7 +47,7 @@ pub use route::{
     ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
     StaticPathsFn,
 };
-pub use rsjs_assets::{rsjs_assets_router, try_rsjs_assets_router, RsjsAssetsError};
+pub use rsjs_assets::{RsjsAssets, RsjsAssetsError, RsjsFile};
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
 pub use server::{serve, serve_with_shutdown, ShutdownOutcome, DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT};
 pub use static_service::EmbeddedStaticService;
@@ -332,9 +332,8 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Serve linked RSJS assets, rewriting runtime imports once at startup.
-    /// Do not also register custom routes at `/rsjs-runtime.js`,
-    /// `/rsjs-runtime-query.js`, or `/rsjs/island/:file`.
+    /// Serve the linked RSJS modules under content-hashed names below
+    /// `/_proa/immutable/rsjs/`, and link those names from every page.
     pub fn with_rsjs_assets(mut self) -> Self {
         self.rsjs_assets = true;
         self
@@ -345,7 +344,7 @@ impl FrameworkBuilder {
     /// This enables `cx.url("public/...")` in components.
     /// Handlers can also extract `axum::Extension<PublicAssets>`.
     /// Load it with the same `BasePath` used by this builder.
-    /// The catalog owns routes under `/_proa/assets`.
+    /// The catalog owns routes under `/_proa/immutable` and `/_proa/mutable`.
     pub fn with_public_assets(mut self, assets: PublicAssets) -> Self {
         self.public_assets = Some(assets);
         self
@@ -555,8 +554,9 @@ impl FrameworkBuilder {
             Some(assets) => Some(assets),
             None => PublicAssets::from_env(&base_path)?,
         };
-        if rsjs_assets {
-            app = app.merge(try_rsjs_assets_router(&base_path)?);
+        let rsjs_assets = rsjs_assets.then(RsjsAssets::prepare).transpose()?;
+        if let Some(assets) = &rsjs_assets {
+            app = app.merge(assets.router());
         }
 
         if let Some(static_router) = static_router {
@@ -575,6 +575,9 @@ impl FrameworkBuilder {
         if let Some(assets) = public_assets {
             app = app.merge(assets.router());
             layer = layer.with_public_assets(assets);
+        }
+        if let Some(assets) = &rsjs_assets {
+            layer = layer.with_rsjs_assets(assets);
         }
         let layer = layer
             .with_base_path(base_path)

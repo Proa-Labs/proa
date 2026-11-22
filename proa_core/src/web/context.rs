@@ -56,6 +56,7 @@ pub struct RequestContext {
     original_pathname: Option<String>,
     base_path: super::BasePath,
     public_assets: Option<super::PublicAssetUrls>,
+    framework_assets: Option<super::FrameworkAssets>,
 }
 
 fn empty_headers() -> &'static HeaderMap {
@@ -85,6 +86,18 @@ impl RequestContext {
     /// Attach the public URL map prepared by the host.
     pub fn set_public_asset_urls(&mut self, urls: Option<super::PublicAssetUrls>) {
         self.public_assets = urls;
+    }
+
+    /// Attach the framework's own published files, when the host serves them
+    /// under content-hashed names.
+    pub fn set_framework_assets(&mut self, assets: Option<super::FrameworkAssets>) {
+        self.framework_assets = assets;
+    }
+
+    /// The framework's own published files. `None` means the host serves them
+    /// at their fixed logical URLs.
+    pub fn framework_assets(&self) -> Option<&super::FrameworkAssets> {
+        self.framework_assets.as_ref()
     }
 
     /// Whether the host installed a managed public asset catalog for this request.

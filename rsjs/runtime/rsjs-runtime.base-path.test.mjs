@@ -55,4 +55,23 @@ for (const prefix of ['', '/apps/demo', '/user/alice%40example/proxy/3000']) {
         assert.equal(requests.at(-1).init.body, '{"value":42}');
     }
 }
+
+// The framework serves the file as written and names the base path in the
+// page, so the same bytes work under any mount.
+for (const [config, expected] of [
+    ['{"basePath":"/apps/demo"}', '/apps/demo/api/items'],
+    ['{}', '/api/items'],
+    ['not json', '/api/items'],
+    [null, '/api/items'],
+]) {
+    globalThis.document = {
+        querySelectorAll: () => [],
+        getElementById: (id) => (id === '__proa' && config !== null ? { textContent: config } : null),
+    };
+    const source = await readFile(new URL('./rsjs-runtime.js', import.meta.url), 'utf8');
+    // A comment makes each import a fresh module instance.
+    const core = await import(`data:text/javascript;base64,${Buffer.from(`${source}\n// ${config}`).toString('base64')}`);
+    assert.equal(core.app_url('/api/items'), expected, String(config));
+    assert.equal(core.app_url('https://api.test/items'), 'https://api.test/items');
+}
 console.log('runtime base-path tests passed');
