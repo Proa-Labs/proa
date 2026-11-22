@@ -895,9 +895,18 @@ fn a_catalog_bundled_beside_the_executable_is_found_without_configuration() {
         .publish(f.temp.path().join("public"))
         .unwrap();
     assert_eq!(bundled_catalog(&executable), Some(output.clone()));
-    let assets = PublicAssets::load(output, &BasePath::new("").unwrap()).unwrap();
+    let assets = PublicAssets::load(&output, &BasePath::new("").unwrap()).unwrap();
     assert!(assets.url("img/logo.png").is_some());
+    drop(assets);
 
     // Another executable in the same directory has no claim on it.
     assert_eq!(bundled_catalog(&f.temp.path().join("dist/other")), None);
+
+    // A bundle that lost its manifest in transit is still found, so loading
+    // it fails startup instead of serving without assets.
+    let base_path = BasePath::new("").unwrap();
+    drop(PublicAssets::load(&output, &base_path).unwrap());
+    std::fs::remove_file(output.join("manifest.json")).unwrap();
+    assert_eq!(bundled_catalog(&executable), Some(output.clone()));
+    assert!(PublicAssets::load(&output, &base_path).is_err());
 }

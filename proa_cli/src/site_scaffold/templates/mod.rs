@@ -768,24 +768,41 @@ COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl git libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PROA_CLI_VERSION="{cli_version}"
+# Proa publishes a prebuilt CLI for x86-64 only. An ARM64 build compiles the
+# same published version from crates.io, so the image matches its builder.
 RUN set -eux; \
     install_dir="/usr/local/bin"; \
     temp_dir="$(mktemp -d)"; \
-    target="x86_64-unknown-linux-gnu"; \
-    archive="proa-cli-$PROA_CLI_VERSION-$target.tar.gz"; \
-    sums="proa-cli-$PROA_CLI_VERSION-SHA256SUMS"; \
-    base="{cli_download_base}"; \
-    curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$archive" "$base/$archive"; \
-    curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$sums" "$base/$sums"; \
-    awk -v archive="$archive" '($2 == archive || $2 == "*" archive) && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {{ print tolower($1) "  " archive; found = 1 }} END {{ exit found ? 0 : 1 }}' "$temp_dir/$sums" > "$temp_dir/selected-SHA256SUMS"; \
-    (cd "$temp_dir" && sha256sum --check --strict selected-SHA256SUMS); \
-    tar -xzf "$temp_dir/$archive" -C "$temp_dir"; \
-    release_dir="$temp_dir/proa-cli-$PROA_CLI_VERSION-$target"; \
-    install -m 0755 "$release_dir/proa" "$install_dir/proa"; \
+    case "$(uname -m)" in \
+        x86_64) \
+            target="x86_64-unknown-linux-gnu"; \
+            archive="proa-cli-$PROA_CLI_VERSION-$target.tar.gz"; \
+            sums="proa-cli-$PROA_CLI_VERSION-SHA256SUMS"; \
+            base="{cli_download_base}"; \
+            curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$archive" "$base/$archive"; \
+            curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$sums" "$base/$sums"; \
+            awk -v archive="$archive" '($2 == archive || $2 == "*" archive) && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {{ print tolower($1) "  " archive; found = 1 }} END {{ exit found ? 0 : 1 }}' "$temp_dir/$sums" > "$temp_dir/selected-SHA256SUMS"; \
+            (cd "$temp_dir" && sha256sum --check --strict selected-SHA256SUMS); \
+            tar -xzf "$temp_dir/$archive" -C "$temp_dir"; \
+            release_dir="$temp_dir/proa-cli-$PROA_CLI_VERSION-$target"; \
+            install -m 0755 "$release_dir/proa" "$install_dir/proa"; \
+            tailwind_asset="tailwindcss-linux-x64"; \
+            tailwind_sha256="dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a"; \
+            ;; \
+        aarch64) \
+            case "$PROA_CLI_VERSION" in \
+                *-main.*) echo "Proa main snapshots have no ARM64 CLI. Build this image with --platform linux/amd64, or use a published Proa version." >&2; exit 1 ;; \
+            esac; \
+            cargo install --locked proa-cli --registry crates-io --version "=$PROA_CLI_VERSION" --root "$temp_dir/cargo"; \
+            install -m 0755 "$temp_dir/cargo/bin/proa" "$install_dir/proa"; \
+            tailwind_asset="tailwindcss-linux-arm64"; \
+            tailwind_sha256="55fd0b241214eff3de1e8ee4f22796662f2d2e7a49bcfca7477cfd0bac398195"; \
+            ;; \
+        *) echo "Proa has no CLI for $(uname -m)." >&2; exit 1 ;; \
+    esac; \
     tailwind_version="4.3.3"; \
-    tailwind_asset="tailwindcss-linux-x64"; \
     curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$tailwind_asset" "https://github.com/tailwindlabs/tailwindcss/releases/download/v$tailwind_version/$tailwind_asset"; \
-    printf '%s  %s\n' "dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a" "$tailwind_asset" > "$temp_dir/tailwind-SHA256SUMS"; \
+    printf '%s  %s\n' "$tailwind_sha256" "$tailwind_asset" > "$temp_dir/tailwind-SHA256SUMS"; \
     (cd "$temp_dir" && sha256sum --check --strict tailwind-SHA256SUMS); \
     install -m 0755 "$temp_dir/$tailwind_asset" "$install_dir/tailwindcss"; \
     rm -rf "$temp_dir"
@@ -885,6 +902,12 @@ mod tests {
             "base=\"https://proa.so/downloads/cli/main/{version}\""
         )));
         assert!(dockerfile.contains("sha256sum --check --strict"));
+        // The builder's own architecture decides how the CLI is obtained.
+        assert!(dockerfile.contains("case \"$(uname -m)\" in"));
+        assert!(dockerfile.contains(
+            "cargo install --locked proa-cli --registry crates-io --version \"=$PROA_CLI_VERSION\""
+        ));
+        assert!(dockerfile.contains("tailwindcss-linux-arm64"));
         assert!(dockerfile.contains("proa build --locked --artifact-out /out/app;"));
         assert!(dockerfile.contains("proa build --artifact-out /out/app;"));
         // One copy carries the executable and the catalog bundled beside it,

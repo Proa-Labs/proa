@@ -9,7 +9,7 @@ Read [what self-managed Docker costs you](/docs/framework/deployment) first. Tak
 
 ## Build the image
 
-Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
+Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. That Dockerfile downloads the prebuilt CLI on x86-64 and compiles the same published version from crates.io on ARM64, so it builds natively on either. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7

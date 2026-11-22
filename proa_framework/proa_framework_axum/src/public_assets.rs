@@ -190,8 +190,9 @@ enum Source {
 /// The bundled catalog of the running executable, when one was published.
 ///
 /// Symlinks are resolved first, so a link in a `bin` directory still finds
-/// the catalog beside the real file. A present but damaged catalog is
-/// returned and then fails loading; only an absent one means "no catalog".
+/// the catalog beside the real file. Any directory at that path is taken to
+/// be the bundle, so a partial copy fails loading instead of starting a
+/// server without its assets; only an absent one means "no catalog".
 fn bundled_with_current_executable() -> Option<PathBuf> {
     let executable = std::env::current_exe().ok()?;
     let executable = executable.canonicalize().unwrap_or(executable);
@@ -200,7 +201,7 @@ fn bundled_with_current_executable() -> Option<PathBuf> {
 
 fn bundled_catalog(executable: &Path) -> Option<PathBuf> {
     let output = proa_assets::bundled_output(executable)?;
-    output.join(MANIFEST_FILE).is_file().then_some(output)
+    output.is_dir().then_some(output)
 }
 
 impl PublicAssets {

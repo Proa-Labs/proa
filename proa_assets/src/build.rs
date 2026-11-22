@@ -289,6 +289,31 @@ impl OutputStore {
         }
     }
 
+    /// Delete the whole output unless a catalog is reading it, and report
+    /// whether it went. A server resolves its files by path on every request,
+    /// so removing them under a live reader turns its routes into 404s.
+    pub fn remove(self) -> Result<bool> {
+        let lock_path = self.root.join(READERS_FILE);
+        let readers = open_lock(&lock_path)?;
+        match readers.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => return Ok(false),
+            Err(TryLockError::Error(source)) => {
+                return Err(AssetError::Io {
+                    path: lock_path,
+                    source,
+                })
+            }
+        }
+        let root = self.root.clone();
+        // Windows cannot delete a file that is still open.
+        let _ = readers.unlock();
+        drop(readers);
+        drop(self);
+        at(&root, fs::remove_dir_all(&root))?;
+        Ok(true)
+    }
+
     /// Remove stale local objects only when no server/catalog is reading them.
     /// Call again after the dev supervisor has stopped the old child.
     pub fn cleanup(&mut self) -> Result<CleanupReport> {

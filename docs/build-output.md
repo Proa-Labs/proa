@@ -375,8 +375,10 @@ Catalog files are world-readable and its directories traversable whatever the
 build's umask, so a non-root runtime user can load it from a read-only image.
 A build that publishes nothing, because of `--no-assets` or `paths.public:
 None`, removes a catalog left beside the same executable path by an earlier
-build. A directory at that path that Proa did not create fails the build
-untouched. Do not manually modify immutable objects.
+build, unless a running server is still reading it, in which case the build
+fails and leaves it in place. A directory at that path that Proa did not
+create fails the build untouched, and so does an export path inside the public
+directory. Do not manually modify immutable objects.
 
 `PROA_PUBLIC_ASSETS` still overrides the location. `proa dev`, `proa run`, and
 `proa test` set it to the catalog they publish under the target directory, and
@@ -386,9 +388,10 @@ untouched. Do not manually modify immutable objects.
 proa start --root . --bin ./app
 ```
 
-If `PROA_PUBLIC_ASSETS` is set or a bundled catalog is present, and that
-catalog is missing or invalid, `FrameworkBuilder::try_build` reports a startup
-error. Apps can also use
+If `PROA_PUBLIC_ASSETS` is set or a directory exists at the bundled path, and
+that catalog is missing or invalid, `FrameworkBuilder::try_build` reports a
+startup error. A partially copied bundle therefore fails startup instead of
+serving pages without their assets. Apps can also use
 `with_public_assets` to supply an explicit catalog or check required logical
 paths at startup. The catalog has no binary hash binding.
 

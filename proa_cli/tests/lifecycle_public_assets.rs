@@ -1261,8 +1261,37 @@ fn build_bundles_the_public_catalog_beside_the_exported_executable() {
     assert_eq!(fs::read_dir(&blocked).unwrap().count(), 1);
     assert!(!blocked_bin.exists());
 
-    // A build that publishes nothing removes the catalog an earlier export
-    // left there, so the executable cannot start with stale files.
+    // An export inside the public directory is refused before anything is
+    // written there for a later build to publish.
+    let inside = root.join("public/app");
+    let overlapping = cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            inside.to_str().unwrap(),
+        ],
+    );
+    assert!(!overlapping.status.success());
+    let stderr = String::from_utf8_lossy(&overlapping.stderr);
+    assert!(stderr.contains("overlaps the public directory"), "{stderr}");
+    assert!(!root.join("public/app.assets").exists());
+    assert!(!inside.exists());
+
+    // A build that publishes nothing leaves the catalog alone while a server
+    // is still reading it.
+    let reader = AssetCatalog::load(&bundled).unwrap();
+    let in_use = build(&["--no-assets"]);
+    assert!(!in_use.status.success());
+    let stderr = String::from_utf8_lossy(&in_use.stderr);
+    assert!(stderr.contains("still being read"), "{stderr}");
+    assert!(reader.object_path("logo.svg").unwrap().is_file());
+    drop(reader);
+
+    // Otherwise it removes the catalog an earlier export left there, so the
+    // executable cannot start with stale files.
     success(&build(&["--no-assets"]));
     assert!(exported_bin.is_file());
     assert!(!bundled.exists());

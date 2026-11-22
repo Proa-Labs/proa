@@ -209,13 +209,58 @@ pub(super) fn bundle(
             executable.display()
         );
     }
+    // Checked before the store opens, which would otherwise leave catalog
+    // files inside the public source for the next build to publish.
+    if let Some(directory) = directory {
+        let source = root.join(directory);
+        if overlaps(&source, &output) {
+            bail!(
+                "`{}` overlaps the public directory `{}`: export the executable `{}` outside it",
+                output.display(),
+                source.display(),
+                executable.display()
+            );
+        }
+    }
     let bundled = publish_to(root, directory, &output, "bundled", "in")
         .with_context(|| format!("bundle public assets beside `{}`", executable.display()))?;
     if bundled.is_none() && owned {
-        fs::remove_dir_all(&output)
+        let removed = OutputStore::open(&output)
+            .and_then(OutputStore::remove)
             .with_context(|| format!("remove stale public asset catalog {}", output.display()))?;
+        if !removed {
+            bail!(
+                "`{}` is still being read by a running server, and this build publishes no public assets to replace it. Stop that server, or export the executable to a different path",
+                output.display()
+            );
+        }
     }
     Ok(bundled)
+}
+
+/// Whether one directory contains the other. `output` may not exist yet, so
+/// its deepest existing ancestor is resolved and the rest appended.
+fn overlaps(source: &Path, output: &Path) -> bool {
+    let (Ok(source), Ok(output)) = (source.canonicalize(), std::path::absolute(output)) else {
+        return false;
+    };
+    let mut missing = Vec::new();
+    let mut existing = output.as_path();
+    let base = loop {
+        if let Ok(base) = existing.canonicalize() {
+            break base;
+        }
+        let (Some(name), Some(parent)) = (existing.file_name(), existing.parent()) else {
+            return false;
+        };
+        missing.push(name);
+        existing = parent;
+    };
+    let output = missing
+        .iter()
+        .rev()
+        .fold(base, |path, name| path.join(name));
+    output.starts_with(&source) || source.starts_with(&output)
 }
 
 fn publish_to(

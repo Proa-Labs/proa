@@ -473,3 +473,16 @@ fn bundled_output_is_a_sibling_named_after_the_executable() {
     );
     assert_eq!(bundled_output(Path::new("/")), None);
 }
+
+#[test]
+fn removal_waits_for_the_last_reader() {
+    let f = Fixture::new();
+    f.write("a.txt", b"a");
+    f.publish();
+    let reader = AssetCatalog::load(&f.output).unwrap();
+    assert!(!OutputStore::open(&f.output).unwrap().remove().unwrap());
+    assert!(reader.object_path("a.txt").unwrap().is_file());
+    drop(reader);
+    assert!(OutputStore::open(&f.output).unwrap().remove().unwrap());
+    assert!(!f.output.exists());
+}
