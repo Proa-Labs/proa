@@ -340,7 +340,8 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Supply a catalog explicitly instead of loading `PROA_PUBLIC_ASSETS`.
+    /// Supply a catalog explicitly instead of loading the one from
+    /// `PROA_PUBLIC_ASSETS` or beside the executable.
     /// This enables `cx.url("public/...")` in components.
     /// Handlers can also extract `axum::Extension<PublicAssets>`.
     /// Load it with the same `BasePath` used by this builder.
@@ -519,8 +520,9 @@ impl FrameworkBuilder {
 
     /// Build the router with its final base path and startup settings.
     ///
-    /// If `PROA_PUBLIC_ASSETS` is set, load and mount that catalog unless one
-    /// was supplied explicitly. Invalid catalogs and discovery settings return
+    /// Load and mount the public asset catalog unless one was supplied
+    /// explicitly: the one `PROA_PUBLIC_ASSETS` names, or else the one
+    /// `proa build` bundled beside this executable. Invalid catalogs and discovery settings return
     /// an error. Axum's existing duplicate-route restrictions still apply.
     pub fn try_build(self) -> Result<Router, FrameworkBuildError> {
         let FrameworkBuilder {

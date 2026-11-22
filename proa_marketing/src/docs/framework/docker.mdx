@@ -3,13 +3,13 @@ title: Docker
 description: Run the Proa image yourself, and own everything a platform would have done.
 ---
 
-Proa produces one release binary and a `public/` directory. This page packages both into an image and runs it on hardware you control.
+Proa produces one release binary with its public asset catalog beside it. This page packages that output into an image and runs it on hardware you control.
 
 Read [what self-managed Docker costs you](/docs/framework/deployment) first. Take this path when you are running Proa beside an existing app, deploying into Kubernetes, Nomad, or ECS, or working somewhere a managed platform is not an option. For a plain public site, [Railway](/docs/framework/railway) or [Coolify](/docs/framework/coolify) does all of this for you.
 
 ## Build the image
 
-Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
+Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. That Dockerfile downloads the prebuilt CLI on x86-64 and compiles the same published version from crates.io on ARM64, so it builds natively on either. When the project vendors fonts with `proa_fonts`, it also copies `public/fonts`, the one directory the app serves from disk. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
@@ -33,7 +33,7 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    proa build --locked --artifact-out /tmp/proa-app
+    proa build --locked --artifact-out /out/my-site
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
@@ -41,15 +41,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /tmp/proa-app /usr/local/bin/my-site
-COPY --from=build /app/public ./public
+COPY --from=build /out/ /app/
 
 ENV PROA_HOST=0.0.0.0
 ENV PORT=3000
 ENV RUST_LOG=info
 
 EXPOSE 3000
-CMD ["my-site"]
+CMD ["/app/my-site"]
 ```
 
 The first image build compiles your project's pinned CLI from crates.io, which takes several
@@ -57,7 +56,7 @@ minutes. Docker caches that installation layer separately from your application
 source. The installer handles only Tailwind and verifies its standalone binary's
 checksum. This source-build path also works with the Bookworm base images.
 
-`proa build` runs the configured asset build and the linked RSJS pipeline, then copies the attested binary to `--artifact-out`. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT` and serves `public/` relative to its working directory, which is why the runtime stage sets `WORKDIR /app` and copies `public/` beside it.
+`proa build` runs the configured asset build and the linked RSJS pipeline, then writes the attested binary to `--artifact-out` and its fingerprinted public asset catalog beside it, here `/out/my-site` and `/out/my-site.assets/`. That directory is the whole deployable output, so one `COPY` carries it into the runtime stage. The server loads the catalog next to its own executable and serves it under `/_proa/assets`; there is no path to configure. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT`.
 
 ```bash
 docker build -t my-site:$(git rev-parse --short HEAD) .

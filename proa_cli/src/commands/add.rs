@@ -162,7 +162,15 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
             };
             project.deploy.get_or_insert_with(Default::default).provider = provider_name.into();
             let package = crate::util::cargo_package_name(&root).unwrap_or_else(|| "app".into());
-            files.extend(deployment_files(provider, &package, has_database));
+            // Fonts vendored by `proa_fonts` are served from disk at `/fonts`.
+            let serves_vendored_fonts =
+                root.join("proa-fonts.lock").is_file() && root.join("public/fonts").is_dir();
+            files.extend(deployment_files(
+                provider,
+                &package,
+                has_database,
+                serves_vendored_fonts,
+            ));
             (
                 match provider {
                     Deployment::Docker => "deploy:docker",
@@ -357,15 +365,17 @@ fn deployment_files(
     provider: Deployment,
     package: &str,
     has_database: bool,
+    serves_vendored_fonts: bool,
 ) -> Vec<(PathBuf, String)> {
-    let migration_copy = if has_database {
-        "COPY --from=build /app/migrations ./migrations\n"
-    } else {
-        ""
-    };
     let mut files = vec![
-        (PathBuf::from("Dockerfile"), format!("FROM rust:1.93-bookworm AS build\nWORKDIR /app\nCOPY . .\nRUN --mount=type=secret,id=proa_token cargo build --release --locked\nFROM debian:bookworm-slim\nWORKDIR /app\nCOPY --from=build /app/target/release/{package} /usr/local/bin/app\nCOPY --from=build /app/public ./public\n{migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000\nEXPOSE 3000\nCMD [\"/usr/local/bin/app\"]\n")),
-        (PathBuf::from(".dockerignore"), "target\n.git\ndata/*.db*\n.env\n".to_string()),
+        (
+            PathBuf::from("Dockerfile"),
+            crate::site_scaffold::deployment_dockerfile(has_database, serves_vendored_fonts),
+        ),
+        (
+            PathBuf::from(".dockerignore"),
+            "target\n.git\ndata/*.db*\n.env\n".to_string(),
+        ),
     ];
     if matches!(provider, Deployment::Railway) {
         files.push((PathBuf::from("railway.json"), "{\n  \"$schema\": \"https://railway.com/railway.schema.json\",\n  \"build\": { \"builder\": \"DOCKERFILE\" },\n  \"deploy\": { \"healthcheckPath\": \"/readyz\", \"healthcheckTimeout\": 120, \"restartPolicyType\": \"ON_FAILURE\" }\n}\n".to_string()));

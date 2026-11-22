@@ -1125,6 +1125,7 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         .as_deref()
         .map(|destination| resolve_artifact_output(&root, destination));
     if let Some(destination) = artifact_destination.as_deref() {
+        public_assets::check_bundle_destination(&root, public_source, destination)?;
         warn_if_artifact_output_enters_source_closure(
             destination,
             &prepared.package_source_root,
@@ -1150,8 +1151,14 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         .context("linked RSJS build failed")?;
     print_linked_cache_reuse(LinkedCargoAction::Build, &output);
     print_linked_cargo_output(LinkedCargoAction::Build, &prepared.request, &output);
-    let published_public_assets =
-        public_assets::publish(&root, public_source, &prepared.public_output_directory)?;
+    // An explicit export carries its own catalog beside the executable, so
+    // only a build without one publishes into the target directory. Cargo's
+    // own output directory never gets a bundle: a plain `cargo run` would
+    // pick it up after the public files had moved on.
+    let published_public_assets = match artifact_destination {
+        Some(_) => None,
+        None => public_assets::publish(&root, public_source, &prepared.public_output_directory)?,
+    };
     let target_dir = &prepared.request.descriptor.source_exclusion_directory;
     let target_triple = prepared.target_triple.as_deref();
     let default_release_destination = (artifact_destination.is_none()
@@ -1170,6 +1177,13 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     if let Some(destination) = export_destination {
         let source =
             select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Build)?;
+        // The default export never bundles, but an explicit export to the
+        // same path may have: that catalog must not outlive its executable.
+        let bundle = if artifact_destination.is_some() {
+            public_assets::bundle(&root, public_source, destination)?
+        } else {
+            public_assets::clear_bundle(destination)?
+        };
         copy_executable_atomically(&source, destination).with_context(|| {
             format!(
                 "failed to export linked executable `{}` to `{}`",
@@ -1177,6 +1191,9 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
                 destination.display()
             )
         })?;
+        let bundled_public_assets = bundle.directory.clone();
+        // Before anything else can fail: the new executable is in place.
+        bundle.finish()?;
         println!(
             "exported linked RSJS executable to {}",
             destination.display()
@@ -1188,7 +1205,9 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
             &prepared.profile,
             target_triple,
             destination,
-            published_public_assets.as_deref(),
+            bundled_public_assets
+                .as_deref()
+                .or(published_public_assets.as_deref()),
         )?;
     }
     Ok(())
