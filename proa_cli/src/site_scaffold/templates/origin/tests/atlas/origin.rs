@@ -61,8 +61,6 @@ async fn mounted_documents_and_assets_keep_their_public_prefix() {
             "/static/favicon.svg",
             "/static/styles.css",
             "/static/origin.js",
-            "/rsjs-runtime.js",
-            "/rsjs-runtime-query.js",
             font.as_str(),
         ] {
             let public = base_path.url(path).to_string();
@@ -79,28 +77,32 @@ async fn mounted_documents_and_assets_keep_their_public_prefix() {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK, "{public}");
         }
-        let island = rsjs::manifest().islands.first().unwrap().asset_id;
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri(format!("/rsjs/island/{island}.js"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let source = String::from_utf8(
-            response
-                .into_body()
-                .collect()
+        // The app serves the RSJS modules under content-hashed names. Their
+        // bytes hold no mount: each one imports the runtime by relative path.
+        let modules = proa::axum::RsjsAssets::prepare().unwrap();
+        assert!(modules.files().len() > 2);
+        for module in modules.files() {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/{}", module.path))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
                 .await
-                .unwrap()
-                .to_bytes()
-                .to_vec(),
-        )
-        .unwrap();
-        assert!(source.contains(&format!("{mount}/rsjs-runtime.js")));
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{}", module.path);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "public, max-age=31536000, immutable"
+            );
+            let source = std::str::from_utf8(&module.bytes).unwrap();
+            assert!(!source.contains(mount), "{}", module.path);
+            if module.path.contains("/rsjs/island/") {
+                assert!(source.contains("../runtime."), "{}", module.path);
+            }
+        }
     }
 }
 

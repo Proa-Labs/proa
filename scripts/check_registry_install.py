@@ -90,13 +90,14 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-            # The stylesheet's name carries a hash of its bytes, so the page is
-            # the only place its URL can be read from.
+            # A published stylesheet's name carries a hash of its bytes, so the
+            # page is the only place its URL can be read from. ORIGIN links the
+            # copy on its own static mount.
             with urllib.request.urlopen(base + "/", timeout=60) as response:
-                stylesheet = re.search(
-                    rb'href="(/_proa/immutable/styles\.[0-9a-f]{16}\.css)"', response.read()
-                )
-                assert stylesheet, "the page links no hashed stylesheet"
+                pattern = (rb'href="(/static/styles\.css)' if template == "origin"
+                           else rb'href="(/_proa/immutable/styles\.[0-9a-f]{16}\.css)"')
+                stylesheet = re.search(pattern, response.read())
+                assert stylesheet, "the page links no stylesheet"
             paths = ["/", "/healthz", "/readyz", stylesheet.group(1).decode()]
             if template != "origin":
                 paths += ["/generated"]
@@ -105,7 +106,7 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
             if template != "minimal":
                 paths += ["/index.md"]
             if template == "origin":
-                paths += ["/rsjs-runtime.js", "/rsjs-runtime-query.js", "/static/origin.js"]
+                paths += ["/static/origin.js"]
             for path in paths:
                 with urllib.request.urlopen(base + path, timeout=60) as response:
                     body = response.read()

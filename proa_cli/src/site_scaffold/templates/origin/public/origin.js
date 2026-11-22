@@ -12,15 +12,13 @@
 // REPLAY and the replayed events are deliberately fictional: unnamed
 // operators and RFC 5737 / RFC 3849 documentation ranges only.
 
-import { app_url } from "/rsjs-runtime.js";
-
 const CYAN = "var(--cyan, #3DE1E8)";
 const RED = "var(--red, #FF3B30)";
 const AMBER = "var(--brand, #DD7627)";
 const BONE = "var(--ink, #E5E1D6)";
 const MID = "var(--ink3, #8C887E)";
-// Resolve app requests against the runtime's mount for either asset location.
-const APP_ROOT = new URL(app_url("/"), import.meta.url);
+// The static mount composes this origin-root URL with the app's base path.
+const APP_ROOT = new URL("/", location.href);
 
 // Replay pool: every range is documentation space, every operator unnamed.
 const REPLAY_EVENTS = [
