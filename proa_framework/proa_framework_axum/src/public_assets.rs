@@ -310,6 +310,11 @@ impl PublicAssets {
         }
     }
 
+    /// The catalog this handle was loaded from.
+    pub(crate) fn catalog(&self) -> &AssetCatalog {
+        &self.catalog.catalog
+    }
+
     pub(crate) fn base_path(&self) -> &BasePath {
         &self.catalog.base_path
     }
@@ -447,7 +452,7 @@ async fn serve(
     State(assets): State<PublicAssets>,
     directory: &str,
     path: &str,
-    mut request: Request<Body>,
+    request: Request<Body>,
 ) -> Response<Body> {
     let assets = assets.current();
     match assets.catalog.routes.get(&format!("{directory}/{path}")) {

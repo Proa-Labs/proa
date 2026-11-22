@@ -1180,7 +1180,9 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         // The default export never bundles, but an explicit export to the
         // same path may have: that catalog must not outlive its executable.
         let bundle = if artifact_destination.is_some() {
-            public_assets::bundle(&root, public_source, destination)?
+            let framework =
+                public_assets::export_framework_assets(&source, target_triple.is_some())?;
+            public_assets::bundle(&root, public_source, destination, framework.as_ref())?
         } else {
             public_assets::clear_bundle(destination)?
         };

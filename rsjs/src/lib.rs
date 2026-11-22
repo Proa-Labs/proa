@@ -136,6 +136,7 @@ pub mod web {
 }
 
 /// Embedded browser runtime sources for framework and asset-pipeline adapters.
+pub mod export;
 pub mod runtime_assets;
 
 /// `#[rsjs::client]` — mark a free function as a reusable client-side

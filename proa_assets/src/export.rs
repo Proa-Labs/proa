@@ -50,6 +50,16 @@ pub fn export(
     source: Option<&Path>,
     framework: &[FrameworkFile<'_>],
 ) -> Result<Export> {
+    export_with_framework_source(destination, source, framework, None)
+}
+
+/// [`export`], recording which linked sources `framework` was made from.
+pub fn export_with_framework_source(
+    destination: &Path,
+    source: Option<&Path>,
+    framework: &[FrameworkFile<'_>],
+    framework_source: Option<&str>,
+) -> Result<Export> {
     let parent = destination
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -123,6 +133,7 @@ pub fn export(
             },
         );
     }
+    manifest.framework_source = framework_source.map(str::to_owned);
     manifest.layout = Layout::Bundle;
     manifest.validate()?;
     write_json(&bundle, work.path(), MANIFEST_FILE, &manifest)?;

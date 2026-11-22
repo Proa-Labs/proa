@@ -892,7 +892,10 @@ fn sync_directory(path: &Path) -> Result<()> {
 
 #[path = "export.rs"]
 mod export;
-pub use export::{export, remove_bundle, reserve_bundle_removal, Export, FrameworkFile};
+pub use export::{
+    export, export_with_framework_source, remove_bundle, reserve_bundle_removal, Export,
+    FrameworkFile,
+};
 
 #[cfg(test)]
 #[path = "build_tests.rs"]

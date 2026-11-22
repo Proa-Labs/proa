@@ -40,44 +40,18 @@ pub struct RsjsAssetsError {
     reason: String,
 }
 
-/// Directory of the published modules, below the immutable directory.
-const DIRECTORY: &str = "rsjs";
-
-/// The RSJS modules linked into this executable, ready to serve.
-///
-/// Merge [`router`](Self::router) into a custom router and hand the same
-/// value to [`RouteContextLayer::with_rsjs_assets`](crate::RouteContextLayer::with_rsjs_assets),
-/// so pages link the names this router serves. `FrameworkBuilder::with_rsjs_assets`
-/// does both.
-#[derive(Clone)]
-pub struct RsjsAssets {
-    files: Arc<Vec<RsjsFile>>,
-    published: FrameworkAssets,
+/// The setting `cargo proa` compiled this executable with.
+fn minify() -> bool {
+    matches!(option_env!("PROA_RSJS_minify()"), Some("1"))
 }
 
-/// One published module.
-pub struct RsjsFile {
-    /// Path from the origin root, with no leading slash, such as
-    /// `_proa/immutable/rsjs/runtime.<hash>.js`.
-    pub path: String,
-    pub bytes: Bytes,
-    pub sha256: String,
-    /// Subresource Integrity value for `bytes`.
-    pub integrity: String,
-}
+/// Every linked module's source, by canonical path.
+struct Sources(BTreeMap<String, Cow<'static, str>>);
 
-impl RsjsAssets {
-    /// Prepare the linked modules using the minification setting selected by
-    /// `cargo proa`.
-    pub fn prepare() -> Result<Self, RsjsAssetsError> {
-        Self::build(
-            &rsjs::manifest(),
-            matches!(option_env!("PROA_RSJS_MINIFY"), Some("1")),
-        )
-    }
-
-    fn build(manifest: &rsjs::Manifest, minify: bool) -> Result<Self, RsjsAssetsError> {
+impl Sources {
+    fn linked(manifest: &rsjs::Manifest) -> Result<Self, RsjsAssetsError> {
         let mut sources = BTreeMap::new();
+
         let mut add = |logical: String, source: Cow<'static, str>| {
             if sources.insert(logical.clone(), source).is_some() {
                 return Err(RsjsAssetsError {
@@ -131,6 +105,121 @@ impl RsjsAssets {
                 Cow::Borrowed(entry.js_source),
             )?;
         }
+
+        Ok(Self(sources))
+    }
+
+    /// Identifies what would be published from these sources. A bundle
+    /// records it, so an executable recognizes the modules exported from it.
+    fn digest(&self, minify: bool) -> String {
+        let mut input = Vec::new();
+        input.extend_from_slice(if minify { b"minified\0" } else { b"verbatim\0" });
+        for (name, source) in &self.0 {
+            input.extend_from_slice(name.as_bytes());
+            input.push(0);
+            input.extend_from_slice(source.as_bytes());
+            input.push(0);
+        }
+        proa_assets::sha256(&input)
+    }
+}
+
+/// Directory of the published modules, below the immutable directory.
+const DIRECTORY: &str = "rsjs";
+
+/// The RSJS modules linked into this executable, ready to serve.
+///
+/// Merge [`router`](Self::router) into a custom router and hand the same
+/// value to [`RouteContextLayer::with_rsjs_assets`](crate::RouteContextLayer::with_rsjs_assets),
+/// so pages link the names this router serves. `FrameworkBuilder::with_rsjs_assets`
+/// does both.
+#[derive(Clone)]
+pub struct RsjsAssets {
+    files: Arc<Vec<RsjsFile>>,
+    published: FrameworkAssets,
+    /// The files were read from the bundle beside the executable, so they
+    /// are also wherever that bundle's `public/` directory was uploaded.
+    bundled: bool,
+}
+
+/// One published module.
+pub struct RsjsFile {
+    /// Path from the origin root, with no leading slash, such as
+    /// `_proa/immutable/rsjs/runtime.<hash>.js`.
+    pub path: String,
+    pub bytes: Bytes,
+    pub sha256: String,
+    /// Subresource Integrity value for `bytes`.
+    pub integrity: String,
+}
+
+impl RsjsAssets {
+    /// Prepare the linked modules using the minification setting selected by
+    /// `cargo proa`.
+    pub fn prepare() -> Result<Self, RsjsAssetsError> {
+        Self::build(&rsjs::manifest(), minify())
+    }
+
+    /// The modules `proa build` stored in `bundle`, when they were exported
+    /// from this executable. They are read as they are: nothing is parsed,
+    /// minified, or hashed at startup. Any other bundle, and a store, gives
+    /// the same result as [`prepare`](Self::prepare).
+    pub fn load(bundle: Option<&crate::PublicAssets>) -> Result<Self, RsjsAssetsError> {
+        let manifest = rsjs::manifest();
+        let sources = Sources::linked(&manifest)?;
+        if let Some(assets) =
+            bundle.and_then(|bundle| Self::from_bundle(bundle.catalog(), &sources.digest(minify())))
+        {
+            return Ok(assets);
+        }
+        Self::publish(sources, minify())
+    }
+
+    fn from_bundle(catalog: &proa_assets::AssetCatalog, source: &str) -> Option<Self> {
+        let manifest = catalog.manifest();
+        if manifest.framework.is_empty() {
+            return None;
+        }
+        if manifest.framework_source.as_deref() != Some(source) {
+            tracing::warn!(
+                "the bundled RSJS modules were exported from another build; preparing this executable's own"
+            );
+            return None;
+        }
+        let route = PUBLIC_ROUTE.trim_start_matches('/');
+        let mut files = Vec::with_capacity(manifest.framework.len());
+        let mut published = BTreeMap::new();
+        for (name, entry) in &manifest.framework {
+            // The catalog verified these bytes against the manifest.
+            let bytes = std::fs::read(catalog.framework_path(name)?).ok()?;
+            let path = format!("{route}/{}", entry.path);
+            published.insert(
+                name.clone(),
+                FrameworkAsset {
+                    path: Arc::from(path.as_str()),
+                    integrity: Arc::from(entry.integrity.as_str()),
+                },
+            );
+            files.push(RsjsFile {
+                path,
+                bytes: Bytes::from(bytes),
+                sha256: entry.sha256.clone(),
+                integrity: entry.integrity.clone(),
+            });
+        }
+        Some(Self {
+            files: Arc::new(files),
+            published: FrameworkAssets::new(published),
+            bundled: true,
+        })
+    }
+
+    fn build(manifest: &rsjs::Manifest, minify: bool) -> Result<Self, RsjsAssetsError> {
+        Self::publish(Sources::linked(manifest)?, minify)
+    }
+
+    fn publish(sources: Sources, minify: bool) -> Result<Self, RsjsAssetsError> {
+        let sources = sources.0;
 
         let logical: Vec<&str> = sources.keys().map(String::as_str).collect();
         let runtime = logical
@@ -272,6 +361,7 @@ impl RsjsAssets {
         Ok(Self {
             files: Arc::new(files),
             published: FrameworkAssets::new(published),
+            bundled: false,
         })
     }
 
@@ -280,6 +370,11 @@ impl RsjsAssets {
     /// these names.
     pub fn published(&self) -> &FrameworkAssets {
         &self.published
+    }
+
+    /// Whether the modules came from the bundle beside the executable.
+    pub fn bundled(&self) -> bool {
+        self.bundled
     }
 
     /// Every published module, for a host that stores them elsewhere.
@@ -300,6 +395,36 @@ impl RsjsAssets {
         }
         router
     }
+}
+
+/// Answer the build tool's request for this executable's modules: write each
+/// one at its published path, so the build can store them with the public
+/// files. See [`rsjs::export`].
+#[rsjs::linkme::distributed_slice(rsjs::export::EXPORTERS)]
+#[linkme(crate = rsjs::linkme)]
+static EXPORT_MODULES: rsjs::export::Exporter = export_modules;
+
+fn export_modules(directory: &std::path::Path) -> Result<rsjs::export::Exported, String> {
+    let sources = Sources::linked(&rsjs::manifest()).map_err(|error| error.to_string())?;
+    let source = sources.digest(minify());
+    let assets = RsjsAssets::publish(sources, minify()).map_err(|error| error.to_string())?;
+    let mut index = Vec::with_capacity(assets.files.len());
+    for (name, published) in assets.published.iter() {
+        let file = assets
+            .files
+            .iter()
+            .find(|file| *file.path == *published.path)
+            .expect("every published name has a file");
+        let destination = directory.join(&file.path);
+        let io = |error: std::io::Error| format!("{}: {error}", destination.display());
+        std::fs::create_dir_all(destination.parent().expect("module directory")).map_err(io)?;
+        std::fs::write(&destination, &file.bytes).map_err(io)?;
+        index.push((name.to_owned(), file.path.clone()));
+    }
+    Ok(rsjs::export::Exported {
+        source,
+        files: index,
+    })
 }
 
 struct Module<'a> {

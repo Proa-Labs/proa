@@ -194,6 +194,10 @@ pub struct AssetManifest {
     /// the executable the bundle sits beside.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub framework: BTreeMap<String, FrameworkEntry>,
+    /// Identifies the linked sources `framework` was made from. An
+    /// executable uses these files only when it reports the same value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework_source: Option<String>,
 }
 
 impl Default for AssetManifest {
@@ -204,6 +208,7 @@ impl Default for AssetManifest {
             assets: BTreeMap::new(),
             root: BTreeMap::new(),
             framework: BTreeMap::new(),
+            framework_source: None,
         }
     }
 }

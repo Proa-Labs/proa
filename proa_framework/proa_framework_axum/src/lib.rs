@@ -554,7 +554,9 @@ impl FrameworkBuilder {
             Some(assets) => Some(assets),
             None => PublicAssets::from_env(&base_path)?,
         };
-        let rsjs_assets = rsjs_assets.then(RsjsAssets::prepare).transpose()?;
+        let rsjs_assets = rsjs_assets
+            .then(|| RsjsAssets::load(public_assets.as_ref()))
+            .transpose()?;
         if let Some(assets) = &rsjs_assets {
             app = app.merge(assets.router());
         }
