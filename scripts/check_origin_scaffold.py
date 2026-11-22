@@ -10,9 +10,13 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
+import time
 import tomllib
+import urllib.error
+import urllib.request
 
 from check_registry_install import generate_additions
 
@@ -54,6 +58,74 @@ def workspace_manifest(source, packages, workspace_dependencies):
     return source + "\n[workspace]\n"
 
 
+def bundle_acceptance(cli, project, work, environment):
+    """Build the deployable output and prove a static host could serve it.
+
+    Every URL under `/_proa/` that the running server answers must be a file
+    at that same path in the bundle, with the same bytes. That is the whole
+    contract of the output directory.
+    """
+    out = work / "out"
+    run([cli, "build", "--locked", "--artifact-out", out / "app"], project, environment)
+    bundle = out / "app.assets"
+    public = bundle / "public"
+    assert sorted(path.name for path in bundle.iterdir()) == [
+        ".proa-assets", "manifest.json", "public"], sorted(bundle.iterdir())
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    assert manifest["layout"] == "bundle", manifest["layout"]
+    # The modules were exported from the executable without running `main`.
+    modules = manifest["framework"]
+    assert "rsjs-runtime.js" in modules and any(
+        name.startswith("rsjs/island/") for name in modules), sorted(modules)
+    fonts = sorted((public / "_proa/immutable/fonts").glob("*.woff2"))
+    assert fonts and all(re.search(r"\.[0-9a-f]{16}\.woff2$", font.name) for font in fonts), fonts
+    assert (public / "favicon.ico").is_file() or not (project / "public/favicon.ico").exists()
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    base = f"http://127.0.0.1:{port}"
+    # Started from an empty directory, with no variable naming the bundle.
+    empty = work / "empty"
+    empty.mkdir()
+    server_environment = {
+        key: value for key, value in environment.items() if key != "PROA_PUBLIC_ASSETS"
+    } | {"PROA_HOST": "127.0.0.1", "PORT": str(port)}
+    with (work / "bundle-server.log").open("w") as log:
+        server = subprocess.Popen([out / "app"], cwd=empty, env=server_environment,
+                                  stdout=log, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + 30
+            while True:
+                assert server.poll() is None, (work / "bundle-server.log").read_text()
+                try:
+                    urllib.request.urlopen(base + "/healthz", timeout=2).close()
+                    break
+                except (urllib.error.URLError, TimeoutError):
+                    assert time.monotonic() < deadline, "server did not start"
+                    time.sleep(0.1)
+            with urllib.request.urlopen(base + "/", timeout=60) as response:
+                html = response.read().decode()
+            linked = sorted(set(re.findall(r'(?:href|src)="(/_proa/[^"?#]+)', html)))
+            linked += sorted(set(re.findall(r"url\((/_proa/[^)?#]+)\)", html)))
+            assert any("/rsjs/runtime." in url for url in linked), linked
+            assert any("/fonts/" in url for url in linked), linked
+            assert any(re.search(r"/styles\.[0-9a-f]{16}\.css$", url) for url in linked), linked
+            for url in linked:
+                with urllib.request.urlopen(base + url, timeout=30) as response:
+                    served = response.read()
+                    cache = response.headers.get("Cache-Control", "")
+                stored = public / url.lstrip("/")
+                assert stored.is_file(), f"{url} is served but is not in the bundle"
+                assert stored.read_bytes() == served, f"{url} differs from the bundle"
+                expected = "immutable" if "/_proa/immutable/" in url else "no-cache"
+                assert expected in cache, (url, cache)
+            print(f"bundle serves {len(linked)} linked files from {public}", flush=True)
+        finally:
+            server.terminate()
+            server.wait(timeout=30)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", type=Path, required=True)
@@ -85,6 +157,7 @@ def main():
         run(["cargo", "tree", "--offline", "--depth", "0"], project, environment)
         run(["cargo", "test", "--locked", "--lib"], project, environment)
         run([cli, "test", "--root", project, "--locked", "--test", "atlas"], project, environment)
+        bundle_acceptance(cli, project, work, environment)
 
         # The regular starter owns route-generating pages; ORIGIN does not.
         run([cli, "new", "site", "generated-site", "--template", "marketing", "--no-git"], work, environment)
