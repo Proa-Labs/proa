@@ -881,3 +881,39 @@ async fn managed_head_resolves_catalog_urls_once_under_a_deployment_mount() {
         }
     }
 }
+
+#[test]
+fn a_catalog_bundled_beside_the_executable_is_found_without_configuration() {
+    let f = Fixture::new();
+    f.write("img/logo.png", b"logo");
+    let executable = f.temp.path().join("dist/app");
+    assert_eq!(bundled_catalog(&executable), None);
+
+    let output = f.temp.path().join("dist/app.assets");
+    // A directory Proa did not write, such as the application's own data
+    // directory or a pre-created mount point, is not a bundle.
+    std::fs::create_dir_all(&output).unwrap();
+    assert_eq!(bundled_catalog(&executable), None);
+    std::fs::write(output.join("data.json"), "{}").unwrap();
+    assert_eq!(bundled_catalog(&executable), None);
+    std::fs::remove_file(output.join("data.json")).unwrap();
+    OutputStore::open(&output)
+        .unwrap()
+        .publish(f.temp.path().join("public"))
+        .unwrap();
+    assert_eq!(bundled_catalog(&executable), Some(output.clone()));
+    let assets = PublicAssets::load(&output, &BasePath::new("").unwrap()).unwrap();
+    assert!(assets.url("img/logo.png").is_some());
+    drop(assets);
+
+    // Another executable in the same directory has no claim on it.
+    assert_eq!(bundled_catalog(&f.temp.path().join("dist/other")), None);
+
+    // A bundle that lost its manifest in transit is still found, so loading
+    // it fails startup instead of serving without assets.
+    let base_path = BasePath::new("").unwrap();
+    drop(PublicAssets::load(&output, &base_path).unwrap());
+    std::fs::remove_file(output.join("manifest.json")).unwrap();
+    assert_eq!(bundled_catalog(&executable), Some(output.clone()));
+    assert!(PublicAssets::load(&output, &base_path).is_err());
+}

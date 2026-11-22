@@ -92,7 +92,7 @@ def verify_http(binary: Path, project: Path, environment: dict[str, str],
                 ("/", "text/markdown", "text/markdown"),
                 ("/about", "text/html", "text/html"),
                 ("/readyz", "*/*", None),
-                ("/static/styles.css", "text/css", "text/css"),
+                ("/_proa/assets/styles.css", "text/css", "text/css"),
             ]:
                 request = urllib.request.Request(base + path, headers={"Accept": accept})
                 with urllib.request.urlopen(request, timeout=30) as response:

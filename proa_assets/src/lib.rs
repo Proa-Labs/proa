@@ -29,6 +29,8 @@ pub const MANIFEST_FILE: &str = "manifest.json";
 /// Runtime-only input: never pass this variable to rustc or build scripts.
 pub const OUTPUT_ENV: &str = "PROA_PUBLIC_ASSETS";
 pub const PUBLIC_ROUTE: &str = "/_proa/assets";
+/// Appended to an exported executable's file name to name its catalog.
+pub const BUNDLED_SUFFIX: &str = ".assets";
 const OWNER_FILE: &str = ".proa-assets";
 const OWNER_BYTES: &[u8] = b"proa-public-assets-v1\n";
 const READERS_FILE: &str = ".readers.lock";
@@ -184,6 +186,23 @@ impl Drop for AssetCatalog {
         // same process cannot retain the reader lock after this catalog drops.
         let _ = self._reader.unlock();
     }
+}
+
+/// Where the catalog bundled with `executable` lives: a sibling directory
+/// named after the executable, such as `app.assets` beside `app`.
+///
+/// `proa build` writes the catalog here for every executable it exports, and
+/// a server with no [`OUTPUT_ENV`] loads it from here. The pair can be copied
+/// or moved together without any configuration.
+pub fn bundled_output(executable: &Path) -> Option<PathBuf> {
+    let mut name = executable.file_name()?.to_os_string();
+    name.push(BUNDLED_SUFFIX);
+    Some(executable.with_file_name(name))
+}
+
+/// Whether `directory` carries the marker of a Proa public asset output.
+pub fn is_output(directory: &Path) -> bool {
+    validate_owner(directory).is_ok()
 }
 
 impl AssetCatalog {

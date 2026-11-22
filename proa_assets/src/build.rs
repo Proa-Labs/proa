@@ -40,6 +40,48 @@ impl Drop for OutputStore {
     }
 }
 
+/// An output claimed for deletion: the writer lock plus an exclusive reader
+/// lock. See [`OutputStore::reserve_removal`].
+pub struct PendingRemoval {
+    store: OutputStore,
+    readers: File,
+}
+
+impl Drop for PendingRemoval {
+    fn drop(&mut self) {
+        let _ = self.readers.unlock();
+    }
+}
+
+impl PendingRemoval {
+    pub fn commit(self) -> Result<()> {
+        let root = self.store.root.clone();
+        // Retire the pointer while readers are still locked out: a catalog
+        // loads only by reading it under the shared lock, so none can come up
+        // on files that are about to go.
+        let manifest = root.join(MANIFEST_FILE);
+        match fs::remove_file(&manifest) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(AssetError::Io {
+                    path: manifest,
+                    source,
+                })
+            }
+        }
+        // Unix deletes with both locks held, so no other writer can begin
+        // publishing into the directory while it goes. Windows cannot delete
+        // an open file and has to release them first.
+        #[cfg(unix)]
+        at(&root, fs::remove_dir_all(&root))?;
+        drop(self);
+        #[cfg(not(unix))]
+        at(&root, fs::remove_dir_all(&root))?;
+        Ok(())
+    }
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct History {
@@ -50,6 +92,23 @@ struct History {
 }
 
 impl OutputStore {
+    /// Whether `open` would take `directory` as an output: it is absent,
+    /// already one, or holds nothing but the lock of an interrupted writer.
+    /// A symlink is never accepted, so removal cannot reach through one.
+    pub fn accepts(directory: &Path) -> bool {
+        match fs::symlink_metadata(directory) {
+            Err(error) => error.kind() == io::ErrorKind::NotFound,
+            Ok(metadata) if !metadata.is_dir() => false,
+            Ok(_) => {
+                validate_owner(directory).is_ok()
+                    || fs::read_dir(directory).is_ok_and(|mut entries| {
+                        entries
+                            .all(|entry| entry.is_ok_and(|entry| entry.file_name() == WRITER_FILE))
+                    })
+            }
+        }
+    }
+
     pub fn open(directory: impl AsRef<Path>) -> Result<Self> {
         let directory = directory.as_ref();
         at(directory, fs::create_dir_all(directory))?;
@@ -85,8 +144,15 @@ impl OutputStore {
             at(&marker, file.write_all(OWNER_BYTES))?;
             at(&marker, file.sync_all())?;
         }
-        open_lock(&root.join(READERS_FILE))?;
-        open_lock(&root.join(LIVE_READERS_FILE))?;
+        // Only now is the directory known to be an output, so only now may
+        // its mode change. A marker written under a restrictive umask stays
+        // owner-only.
+        set_traversable_directory_permissions(&root)?;
+        set_readable_file_permissions(&marker, &at(&marker, File::open(&marker))?)?;
+        let readers = open_lock(&root.join(READERS_FILE))?;
+        set_readable_file_permissions(&root.join(READERS_FILE), &readers)?;
+        let live_readers = open_lock(&root.join(LIVE_READERS_FILE))?;
+        set_readable_file_permissions(&root.join(LIVE_READERS_FILE), &live_readers)?;
         ensure_directory(&root, "objects")?;
         ensure_directory(&root, "staging")?;
         let store = Self {
@@ -190,6 +256,14 @@ impl OutputStore {
                     if !entry.matches_contents(&destination)? {
                         return Err(AssetError::Integrity(object.clone()));
                     }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        if metadata.permissions().mode() & 0o444 != 0o444 {
+                            let file = at(&destination, File::open(&destination))?;
+                            set_readable_file_permissions(&destination, &file)?;
+                        }
+                    }
                 }
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
                     let snapshot = stage.path().join(index.to_string());
@@ -202,6 +276,7 @@ impl OutputStore {
                             .write(cfg!(windows))
                             .open(&snapshot),
                     )?;
+                    set_readable_file_permissions(&snapshot, &file)?;
                     at(&snapshot, file.sync_all())?;
                     drop(file);
                     at(&destination, fs::rename(&snapshot, &destination))?;
@@ -261,6 +336,36 @@ impl OutputStore {
                 Ok(false)
             }
             Err(TryLockError::WouldBlock) => Ok(true),
+            Err(TryLockError::Error(source)) => Err(AssetError::Io {
+                path: lock_path,
+                source,
+            }),
+        }
+    }
+
+    /// Delete the whole output unless a catalog is reading it, and report
+    /// whether it went. A server resolves its files by path on every request,
+    /// so removing them under a live reader turns its routes into 404s.
+    pub fn remove(self) -> Result<bool> {
+        match self.reserve_removal()? {
+            Some(removal) => removal.commit().map(|()| true),
+            None => Ok(false),
+        }
+    }
+
+    /// Claim the output for deletion without deleting it yet, or return
+    /// `None` while a catalog is reading it. The claim keeps writers and new
+    /// readers out, so the caller can finish the work that makes the output
+    /// stale and only then commit. Dropping the claim leaves it untouched.
+    pub fn reserve_removal(self) -> Result<Option<PendingRemoval>> {
+        let lock_path = self.root.join(READERS_FILE);
+        let readers = open_lock(&lock_path)?;
+        match readers.try_lock() {
+            Ok(()) => Ok(Some(PendingRemoval {
+                store: self,
+                readers,
+            })),
+            Err(TryLockError::WouldBlock) => Ok(None),
             Err(TryLockError::Error(source)) => Err(AssetError::Io {
                 path: lock_path,
                 source,
@@ -452,6 +557,7 @@ fn ensure_directory(root: &Path, relative: &str) -> Result<()> {
             }
             Err(source) => return Err(AssetError::Io { path, source }),
         }
+        set_traversable_directory_permissions(&path)?;
     }
     Ok(())
 }
@@ -520,6 +626,7 @@ fn write_json(root: &Path, staging: &Path, name: &str, value: &impl Serialize) -
     let mut temporary = at(staging, tempfile::NamedTempFile::new_in(staging))?;
     serde_json::to_writer(temporary.as_file_mut(), value)?;
     at(root, temporary.write_all(b"\n"))?;
+    set_readable_file_permissions(&destination, temporary.as_file())?;
     at(root, temporary.as_file().sync_all())?;
     temporary
         .persist(&destination)
@@ -528,6 +635,61 @@ fn write_json(root: &Path, staging: &Path, name: &str, value: &impl Serialize) -
             source: error.error,
         })?;
     Ok(())
+}
+
+/// Ensure published catalog files are world-readable (`0o644`) on Unix.
+/// `NamedTempFile` defaults to `0o600`, which would block non-root container
+/// runtime users from reading `manifest.json` after a multi-stage Docker build.
+fn set_readable_file_permissions(path: &Path, file: &File) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Leave a file that is already readable alone: changing its mode
+        // needs ownership, and a shared catalog may be group-writable.
+        let mode = at(path, file.metadata())?.permissions().mode();
+        if mode & 0o644 != 0o644 {
+            widened(
+                path,
+                file.set_permissions(fs::Permissions::from_mode(mode | 0o644)),
+            )?;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, file);
+    }
+    Ok(())
+}
+
+/// Published directories are at least `0o755` on Unix whatever the build's umask, so
+/// the readable files inside them can also be reached by another user.
+fn set_traversable_directory_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = at(path, fs::metadata(path))?.permissions().mode();
+        if mode & 0o755 != 0o755 {
+            widened(
+                path,
+                fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o755)),
+            )?;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
+}
+
+/// Only a file's owner may change its mode. A catalog shared with another
+/// user was already usable by this one, so that refusal is not a failure.
+#[cfg(unix)]
+fn widened(path: &Path, result: io::Result<()>) -> Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Ok(()),
+        result => at(path, result),
+    }
 }
 
 fn sync_directory(path: &Path) -> Result<()> {

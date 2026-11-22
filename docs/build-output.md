@@ -191,7 +191,9 @@ work; this catalog does not claim to eliminate their costs.
 ## Load and use the catalog
 
 `proa run` and `proa dev` set `PROA_PUBLIC_ASSETS` on the server process after
-publication. `FrameworkBuilder` loads and mounts that catalog at startup.
+publication. `FrameworkBuilder` loads and mounts that catalog at startup. An
+exported executable started on its own loads the catalog bundled beside it
+instead (see [deployment](#publication-cleanup-and-deployment)).
 `proa test` also publishes the configured public directory and sets
 `PROA_PUBLIC_ASSETS` when launching the selected test executable.
 With the configuration above, place the source image at
@@ -317,20 +319,85 @@ removed by the next writer. Collision reservations survive object cleanup.
 Post-publication cleanup or durability errors are reported as warnings because
 the new pointer is already active. Cleanup never adopts unrelated directories.
 
-For deployment, copy the complete output directory with the binary and set
-`PROA_PUBLIC_ASSETS` to its deployment location. `--artifact-out` exports only
-the executable. The catalog can be loaded from a read-only deployment; the
-reader lock file must be included. Do not manually modify immutable objects.
+For deployment, `proa build --artifact-out <path>` writes the complete output
+side by side: the executable and, beside it, the catalog in a directory named
+after the executable with `.assets` appended.
 
-To start a packaged app with the CLI, pass the copied catalog alongside the
-exported executable.
-
-```bash
-proa start --root . --bin ./app --public-assets ./public-assets
+```text
+/out/
+  app                          linked executable
+  app.assets/                  its public asset catalog
 ```
 
-If the deployment path is set and the catalog is missing or invalid,
-`FrameworkBuilder::try_build` reports a startup error. Apps can also use
+Only an explicit `--artifact-out` bundles, and it publishes only there. A build
+without it keeps publishing into the target directory, and `proa start` passes
+that catalog to the executable under `<target-dir>/release/`. A path that
+cannot hold the bundle is refused before anything compiles. Cargo's own output directory never
+holds a bundle, so a plain `cargo run --release` cannot pick up a catalog that
+an earlier `proa build` left behind. A server started without
+`PROA_PUBLIC_ASSETS` loads the catalog beside its own executable, so copying
+both to any directory is the whole deployment. No environment variable, extra
+flag, or copy script is involved.
+
+```dockerfile
+RUN proa build --locked --artifact-out /out/app
+COPY --from=build /out/ /app/
+CMD ["/app/app"]
+```
+
+This layout follows the same idea as Nuxt's `.output` directory (built by Nitro): the build writes one directory that holds the server and the static files it serves, the server finds those files relative to itself, and deploying is copying that directory and starting the entry point.
+
+```text
+Nuxt: nuxt build                        Proa: proa build --artifact-out /out/app
+
+.output/                                /out/
+  nitro.json        build metadata
+  server/                                 app                  server (one native executable)
+    index.mjs       entry point
+    chunks/         server code
+    node_modules/   traced dependencies
+  public/           static files          app.assets/          static files
+    favicon.ico                             manifest.json      logical path -> object
+    _nuxt/                                  objects/
+      entry.3f9a1c2b.js                       favicon.eb90bbcb.svg
+      styles.8d0e4a71.css                     styles.6ca57fe9.css
+
+node .output/server/index.mjs           /out/app
+```
+
+| | Nuxt `.output` | Proa |
+| --- | --- | --- |
+| Server | `server/`: entry module, chunks, traced `node_modules`; needs Node | one executable |
+| Static files | `public/`, found relative to the server entry | `<executable>.assets/`, found beside the running executable |
+| Location | fixed `.output/` in the project | wherever `--artifact-out <path>` puts the executable |
+| Fingerprinting | bundler output under `public/_nuxt/`; other public files keep their names | every public file is stored as a hashed object, and `manifest.json` maps logical paths to them |
+| Deploy | copy `.output/`, run `node server/index.mjs` | copy the executable and its `.assets` directory, run the executable |
+
+The differences come from the server being a single native binary. There is no server directory to wrap it in, so the static files are a sibling named after the executable instead of a `public/` folder inside a shared root. The output path stays a flag because hosts that cache `target/` (Railway) need the result written outside it.
+
+Catalog files are world-readable and its directories traversable whatever the
+build's umask, so a non-root runtime user can load it from a read-only image.
+The catalog is written before the executable is replaced, so a failed export
+leaves the previous pair working. A build that publishes nothing, because of
+`--no-assets` or `paths.public: None`, removes a catalog left beside the same
+executable path by an earlier build once the new executable is in place. If a
+running server is still reading that catalog, the build fails before the
+executable is replaced and leaves both as they were. A directory at that path that Proa did not
+create fails the build untouched, and so does an export path inside the public
+directory. Do not manually modify immutable objects.
+
+`PROA_PUBLIC_ASSETS` still overrides the location. `proa dev`, `proa run`, and
+`proa test` set it to the catalog they publish under the target directory, and
+`proa start --public-assets <dir>` sets it for a catalog kept elsewhere.
+
+```bash
+proa start --root . --bin ./app
+```
+
+If `PROA_PUBLIC_ASSETS` is set or a Proa catalog directory exists at the bundled path, and
+that catalog is missing or invalid, `FrameworkBuilder::try_build` reports a
+startup error. A partially copied bundle therefore fails startup instead of
+serving pages without their assets. Apps can also use
 `with_public_assets` to supply an explicit catalog or check required logical
 paths at startup. The catalog has no binary hash binding.
 

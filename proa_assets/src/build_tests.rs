@@ -393,3 +393,110 @@ fn extensionless_files_named_after_extensions_stay_immutable() {
         assert_ne!(entry.public_path, logical, "{logical}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn published_catalog_files_are_world_readable_for_non_root_runtimes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let f = Fixture::new();
+    f.write("images/hero.png", b"png-bytes");
+    // Even if a source asset was owner-only (0600), the published object must be readable.
+    fs::set_permissions(
+        f.source.join("images/hero.png"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let report = f.publish();
+    let object_path = f
+        .output
+        .join("objects")
+        .join(&report.manifest.assets["images/hero.png"].object);
+
+    for path in [
+        f.output.join(MANIFEST_FILE),
+        f.output.join(OWNER_FILE),
+        f.output.join(READERS_FILE),
+        f.output.join(LIVE_READERS_FILE),
+        object_path.clone(),
+    ] {
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode & 0o444,
+            0o444,
+            "{} must be readable by non-root users (mode {:o})",
+            path.display(),
+            mode
+        );
+    }
+
+    // Re-publishing into an existing catalog also heals restrictive permissions on retained
+    // objects, the ownership marker, and the directories leading to them.
+    let directories = [
+        f.output.clone(),
+        f.output.join("objects"),
+        f.output.join("objects/images"),
+    ];
+    fs::set_permissions(&object_path, fs::Permissions::from_mode(0o600)).unwrap();
+    fs::set_permissions(f.output.join(OWNER_FILE), fs::Permissions::from_mode(0o600)).unwrap();
+    for directory in &directories {
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    f.publish();
+    let marker_mode = fs::metadata(f.output.join(OWNER_FILE))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(marker_mode & 0o444, 0o444, "marker mode {marker_mode:o}");
+    for directory in &directories {
+        let mode = fs::metadata(directory).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode & 0o755, 0o755, "{} mode {mode:o}", directory.display());
+    }
+    let healed_mode = fs::metadata(&object_path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        healed_mode & 0o444,
+        0o444,
+        "retained object must be healed to world-readable on re-publish (mode {:o})",
+        healed_mode
+    );
+}
+
+#[test]
+fn bundled_output_is_a_sibling_named_after_the_executable() {
+    assert_eq!(
+        bundled_output(Path::new("/srv/app")),
+        Some(PathBuf::from("/srv/app.assets"))
+    );
+    assert_eq!(
+        bundled_output(Path::new("dist/app.exe")),
+        Some(PathBuf::from("dist/app.exe.assets"))
+    );
+    assert_eq!(bundled_output(Path::new("/")), None);
+}
+
+#[test]
+fn removal_waits_for_the_last_reader() {
+    let f = Fixture::new();
+    f.write("a.txt", b"a");
+    f.publish();
+    let reader = AssetCatalog::load(&f.output).unwrap();
+    assert!(!OutputStore::open(&f.output).unwrap().remove().unwrap());
+    assert!(reader.object_path("a.txt").unwrap().is_file());
+    drop(reader);
+
+    // A claim keeps writers out, and dropping it leaves the output intact.
+    let claim = OutputStore::open(&f.output)
+        .unwrap()
+        .reserve_removal()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        OutputStore::open(&f.output),
+        Err(AssetError::WriterBusy(_))
+    ));
+    drop(claim);
+    assert!(AssetCatalog::load(&f.output).is_ok());
+
+    assert!(OutputStore::open(&f.output).unwrap().remove().unwrap());
+    assert!(!f.output.exists());
+}

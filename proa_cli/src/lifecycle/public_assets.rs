@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use proa_assets::{build::OutputStore, sha256, OUTPUT_ENV};
+use proa_assets::{
+    build::{OutputStore, PendingRemoval},
+    sha256, OUTPUT_ENV,
+};
 use serde::Serialize;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -174,19 +177,187 @@ pub(super) fn publish(
     directory: Option<&Path>,
     output: &Path,
 ) -> Result<Option<PathBuf>> {
-    let Some(directory) = directory else {
+    let Some(source) = public_source(root, directory) else {
         return Ok(None);
     };
+    publish_with(&mut OutputStore::open(output)?, &source, "published", "to").map(Some)
+}
+
+/// The catalog side of an export, prepared before the executable is replaced.
+pub(super) struct Bundle {
+    /// The catalog now beside the executable, when one was published.
+    pub(super) directory: Option<PathBuf>,
+    stale: Option<PendingRemoval>,
+}
+
+impl Bundle {
+    /// Call once the executable is in place. A build that published nothing
+    /// removes the catalog an earlier export left, so the new executable
+    /// never starts with stale files.
+    pub(super) fn finish(self) -> Result<()> {
+        match self.stale {
+            Some(stale) => stale
+                .commit()
+                .context("remove the stale public asset catalog"),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Place the catalog beside an exported executable, where the server finds it
+/// without configuration. The executable and this directory are the complete
+/// deployable output: copying both anywhere is enough to run the application.
+///
+/// This runs before the executable is replaced, and everything that can
+/// refuse the export is decided here. The manifest swap is atomic, so a
+/// failure leaves the previous executable with the catalog it had. Removal
+/// of a stale catalog is only claimed here; [`Bundle::finish`] performs it.
+pub(super) fn bundle(root: &Path, directory: Option<&Path>, executable: &Path) -> Result<Bundle> {
+    // Asset commands ran since the first check and may have changed the paths.
+    check_bundle_destination(root, directory, executable)?;
+    let output = bundled_output(executable)?;
+    let Some(source) = public_source(root, directory) else {
+        return clear_bundle(executable);
+    };
+    let context = || format!("bundle public assets beside `{}`", executable.display());
+    let existed = proa_assets::is_output(&output);
+    let mut store = OutputStore::open(&output).with_context(context)?;
+    match publish_with(&mut store, &source, "bundled", "in") {
+        Ok(directory) => Ok(Bundle {
+            directory: Some(directory),
+            stale: None,
+        }),
+        Err(error) => {
+            if !existed {
+                // This attempt created the directory, so nothing may stay: one
+                // without a manifest would stop the previous executable from
+                // starting. The writer lock is still this attempt's own.
+                let _ = store.remove();
+            }
+            Err(error).with_context(context)
+        }
+    }
+}
+
+/// Refuse an export whose bundle path cannot be used, from paths alone. The
+/// build calls this before compiling, so a bad `--artifact-out` costs nothing.
+pub(super) fn check_bundle_destination(
+    root: &Path,
+    directory: Option<&Path>,
+    executable: &Path,
+) -> Result<()> {
+    if executable.is_dir() {
+        bail!(
+            "artifact output must name a file, but `{}` is a directory",
+            executable.display()
+        );
+    }
+    let output = bundled_output(executable)?;
+    // Opening the output store here would leave a lock file inside a
+    // directory that belongs to something else.
+    if !OutputStore::accepts(&output) {
+        bail!(
+            "`{}` is in the way: Proa bundles the public asset catalog beside the exported executable `{}`. Move it, or export the executable to a different path",
+            output.display(),
+            executable.display()
+        );
+    }
+    // Catalog files inside the public source would be published by the next
+    // build.
+    if let Some(source) = public_source(root, directory) {
+        if overlaps(&source, &output) {
+            bail!(
+                "`{}` overlaps the public directory `{}`: export the executable `{}` outside it",
+                output.display(),
+                source.display(),
+                executable.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// With nothing bundled, claim the catalog an earlier export left beside
+/// this executable path. A catalog a running server is reading refuses the
+/// export here, before the executable changes. A directory Proa did not
+/// write is not a catalog and is left alone.
+pub(super) fn clear_bundle(executable: &Path) -> Result<Bundle> {
+    let output = bundled_output(executable)?;
+    let output = output.as_path();
+    let mut bundle = Bundle {
+        directory: None,
+        stale: None,
+    };
+    let is_symlink = fs::symlink_metadata(output).is_ok_and(|metadata| metadata.is_symlink());
+    if is_symlink || !proa_assets::is_output(output) {
+        return Ok(bundle);
+    }
+    let context = || format!("remove stale public asset catalog {}", output.display());
+    let store = OutputStore::open(output).with_context(context)?;
+    bundle.stale = store.reserve_removal().with_context(context)?;
+    if bundle.stale.is_none() {
+        bail!(
+            "`{}` is still being read by a running server, and this build publishes no public assets to replace it. Stop that server, or export the executable to a different path",
+            output.display()
+        );
+    }
+    Ok(bundle)
+}
+
+fn bundled_output(executable: &Path) -> Result<PathBuf> {
+    proa_assets::bundled_output(executable).with_context(|| {
+        format!(
+            "exported executable `{}` has no file name",
+            executable.display()
+        )
+    })
+}
+
+/// Whether one directory contains the other. `output` may not exist yet, so
+/// its deepest existing ancestor is resolved and the rest appended.
+fn overlaps(source: &Path, output: &Path) -> bool {
+    let (Ok(source), Ok(output)) = (source.canonicalize(), std::path::absolute(output)) else {
+        return false;
+    };
+    let mut missing = Vec::new();
+    let mut existing = output.as_path();
+    let base = loop {
+        if let Ok(base) = existing.canonicalize() {
+            break base;
+        }
+        let (Some(name), Some(parent)) = (existing.file_name(), existing.parent()) else {
+            return false;
+        };
+        missing.push(name);
+        existing = parent;
+    };
+    let output = missing
+        .iter()
+        .rev()
+        .fold(base, |path, name| path.join(name));
+    output.starts_with(&source) || source.starts_with(&output)
+}
+
+/// The public directory to publish, when there is one.
+fn public_source(root: &Path, directory: Option<&Path>) -> Option<PathBuf> {
+    let directory = directory?;
     let source = root.join(directory);
     // Asset commands and Cargo build scripts may create the default directory.
     // Check it after they run and leave missing custom paths as errors.
-    if directory == Path::new(crate::config::DEFAULT_PUBLIC_DIRECTORY)
-        && fs::symlink_metadata(&source).is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
-    {
-        return Ok(None);
-    }
-    let report = OutputStore::open(output)?
-        .publish(&source)
+    let absent_default = directory == Path::new(crate::config::DEFAULT_PUBLIC_DIRECTORY)
+        && fs::symlink_metadata(&source)
+            .is_err_and(|error| error.kind() == io::ErrorKind::NotFound);
+    (!absent_default).then_some(source)
+}
+
+fn publish_with(
+    store: &mut OutputStore,
+    source: &Path,
+    verb: &str,
+    preposition: &str,
+) -> Result<PathBuf> {
+    let report = store
+        .publish(source)
         .with_context(|| format!("publish configured public directory `{}`", source.display()))?;
     if let Err(error) = report.cleanup {
         eprintln!("warning: public asset cleanup deferred: {error}");
@@ -195,11 +366,11 @@ pub(super) fn publish(
         eprintln!("warning: public manifest activated, but directory sync failed: {error}");
     }
     super::dev_ui::detail!(
-        "published {} public assets to {}",
+        "{verb} {} public assets {preposition} {}",
         report.manifest.assets.len(),
         report.output_directory.display()
     );
-    Ok(Some(report.output_directory))
+    Ok(report.output_directory)
 }
 
 /// Whether the running server follows the catalog just published in place.
