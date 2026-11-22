@@ -31,7 +31,7 @@ def fences(section: str, language: str) -> list[str]:
     return re.findall(r"```" + language + r"\n(.*?)\n```", section, re.DOTALL)
 
 
-def apply_documented_edits(project: Path, guide: str) -> str:
+def apply_documented_edits(project: Path, guide: str) -> dict[str, str]:
     setup = guide.split("## 2. Create A Site\n", 1)[1].split("## 3. Run The Server", 1)[0]
     starter = project / "styles/starter.css"
     stylesheet = project / "styles/input.css"
@@ -40,18 +40,15 @@ def apply_documented_edits(project: Path, guide: str) -> str:
             (project / "public/styles.css").rename(starter)
         stylesheet.write_text(fences(setup, "css")[0] + "\n", encoding="utf-8")
     edit = guide.split("## 4. Edit The First Page\n", 1)[1].split("## 5. Add A Route", 1)[0]
-    html = fences(edit, "rust")[0]
-    markdown = fences(edit, "markdown")[0]
     home = project / "src/pages/home.rs"
     source = home.read_text(encoding="utf-8")
-    pattern = r'(?m)^( +)<h1>.*?</h1>\s*<p class="lede">.*?</p>'
-    source, count = re.subn(pattern, lambda match: textwrap.indent(html, match[1]),
-                            source, count=1, flags=re.DOTALL)
-    assert count == 1, "the documented hero edit must match the Basic app"
-    pattern = r"(THE SERVER ALREADY DID THE WORK\n\n)( +).*?(\n\n +CLIENT)"
-    source, count = re.subn(pattern, lambda match: match[1] + textwrap.indent(markdown, match[2])
-                            + match[3], source, count=1, flags=re.DOTALL)
-    assert count == 1, "the documented Markdown edit must match the Basic app"
+    copy = {}
+    for line in fences(edit, "rust")[0].splitlines():
+        name, value = re.fullmatch(r'const (\w+): &str = ("[^"\\]*");', line).groups()
+        source, count = re.subn(r"(?m)^const " + name + r": &str = .*;$", lambda _: line,
+                                source, count=1)
+        assert count == 1, f"the documented {name} edit must match the Basic app"
+        copy[name] = json.loads(value)
     home.write_text(source, encoding="utf-8")
     route = guide.split("## 5. Add A Route\n", 1)[1].split("## 6.", 1)[0]
     about, modules, routes = fences(route, "rust")
@@ -63,10 +60,11 @@ def apply_documented_edits(project: Path, guide: str) -> str:
                             path.read_text(encoding="utf-8"), count=1, flags=re.DOTALL)
     assert count == 1, "the documented route table must match the Basic app"
     path.write_text(source, encoding="utf-8")
-    return markdown
+    return copy
 
 
-def verify_http(binary: Path, project: Path, environment: dict[str, str], copy: str) -> None:
+def verify_http(binary: Path, project: Path, environment: dict[str, str],
+                copy: dict[str, str]) -> None:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -103,7 +101,10 @@ def verify_http(binary: Path, project: Path, environment: dict[str, str], copy: 
                     if content_type:
                         assert content_type in response.headers.get("Content-Type", ""), path
                     if path in ("/", "/index.md"):
-                        assert all(line in body for line in copy.splitlines() if line), path
+                        if "markdown" in accept:
+                            # Slots backslash-escape punctuation; CommonMark renders it literally.
+                            body = re.sub(r"\\([!-/:-@\[-`{-~])", r"\1", body)
+                        assert all(value in body for value in copy.values()), path
                     if path.endswith(".css"):
                         assert all(selector in body for selector in STARTER_SELECTORS), path
                     print(f"HTTP {path} ({accept}): {response.status}, {len(body)} characters", flush=True)
@@ -117,13 +118,14 @@ def verify_http(binary: Path, project: Path, environment: dict[str, str], copy: 
                     server.wait()
 
 
-def verify_content_lint(cli: Path, project: Path, environment: dict[str, str], copy: str) -> None:
+def verify_content_lint(cli: Path, project: Path, environment: dict[str, str],
+                        copy: dict[str, str]) -> None:
     home = project / "src/pages/home.rs"
     original = home.read_text(encoding="utf-8")
     html, markdown = original.split("impl<L: DataLoader> MdRender<L> for HomePage", 1)
-    heading = copy.splitlines()[0]
-    markdown, count = re.subn(r"(?m)^ *" + re.escape(heading) + r"\n\n", "", markdown, count=1)
-    assert count == 1
+    heading = next(iter(copy))
+    markdown, count = re.subn(r"(?m)^ *# \{" + heading + r"\}\n\n", "", markdown, count=1)
+    assert count == 1, f"the Markdown template must render {{{heading}}} as a heading"
     try:
         home.write_text(html + "impl<L: DataLoader> MdRender<L> for HomePage"
                         + markdown, encoding="utf-8")
