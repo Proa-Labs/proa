@@ -3639,7 +3639,8 @@ fn emit_browser_read_as_rust(
     query_initializers: &[QueryInitializer],
 ) -> TokenStream {
     fn perf_ok(tokens: TokenStream) -> TokenStream {
-        quote! { ::proa_core::perf_ok(#tokens) }
+        let proa_core = proa_dsl::paths::runtime("proa_core");
+        quote! { #proa_core::perf_ok(#tokens) }
     }
 
     match read {

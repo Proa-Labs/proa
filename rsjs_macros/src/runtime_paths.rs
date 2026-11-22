@@ -22,7 +22,13 @@ fn rewrite(tokens: TokenStream, runtime: &TokenStream) -> TokenStream {
             // Do not match a segment within another absolute path.
             && !continues_path(&tokens[..index])
         {
-            output.extend(runtime.clone());
+            // Keep the authored span so diagnostics still point at the
+            // expression that produced the path, not the whole attribute.
+            let span = tokens[index + 2].span();
+            output.extend(runtime.clone().into_iter().map(|mut token| {
+                token.set_span(span);
+                token
+            }));
             index += 3;
             continue;
         }

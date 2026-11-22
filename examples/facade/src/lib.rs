@@ -99,7 +99,11 @@ mod tests {
                 count.update(|value| value + 1)
             });
             html_sync! {
-                <button type="button" on_click={increment()}>{count.get()}</button>
+                // The browser read expands to a server placeholder that must
+                // resolve through the facade as well.
+                <button type="button" data-search={rsjs::location::search()} on_click={increment()}>
+                    {count.get()}
+                </button>
             }
             .render(cx)
         }
