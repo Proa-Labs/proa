@@ -257,7 +257,10 @@ For a custom Axum router, merge `assets.router()`, wrap the result with
 `assets.serve_root_files(router)` to answer the root icon paths, and apply
 `RouteContextLayer::with_public_assets(assets)` to the combined router. For a
 buffered render, pass the loaded catalog to
-`RouteResponse::render_to_bytes_with_public_assets(&assets)`.
+`RouteResponse::render_to_bytes_with_public_assets(&assets)`. A page with RSJS
+islands needs the published module names as well: use
+`RouteResponse::render_to_bytes_with_assets(&assets, Some(&rsjs))` with the
+same `RsjsAssets` value the router serves.
 For custom HTML caches, include `PublicAssets::cache_key()` or discard cached
 HTML on catalog replacement. A `PublicAssets` value describes one catalog
 generation. Read the key and URLs from the request's
@@ -433,6 +436,12 @@ run on the build machine is skipped with a note, and the server then prepares
 and serves the modules itself. When the bundle holds the modules exported from
 the same executable, the server reads them from disk and does no parsing,
 minifying, or hashing at startup.
+
+Two limits. The export fails soft: if the executable cannot answer, the build
+warns and writes the bundle without the modules, and the server prepares them
+at startup. And the platform, not Proa, orders the code that runs before
+`main`: another crate's constructor (a C++ static initializer, a `#[ctor]`
+function) may run ahead of the export and therefore during the build.
 
 Only an explicit `--artifact-out` bundles, and it publishes only there. A build
 without it keeps publishing into the target directory, and `proa start` passes
