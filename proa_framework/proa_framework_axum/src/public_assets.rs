@@ -110,6 +110,11 @@ impl AssetPrefix {
         &self.value
     }
 
+    /// The prefix as the shared string a request context holds.
+    pub(crate) fn shared(&self) -> Arc<str> {
+        self.value.clone()
+    }
+
     /// The origin the files are served from, when it is another origin. A
     /// content security policy has to name it.
     pub fn origin(&self) -> Option<&str> {
@@ -436,6 +441,10 @@ impl PublicAssets {
     ///
     /// `FrameworkBuilder` applies this. A custom router wraps itself.
     pub fn serve_root_files(&self, router: Router) -> Router {
+        // A fixed catalog with no such file has nothing to answer, ever.
+        if self.live.is_none() && self.catalog.root.is_empty() {
+            return router;
+        }
         let assets = self.clone();
         router.layer(axum::middleware::from_fn(
             move |request: Request<Body>, next: axum::middleware::Next| {

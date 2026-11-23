@@ -570,14 +570,26 @@ impl FrameworkBuilder {
             (Some(policy), Some(origin)) => Some(policy.allow_asset_origin(origin)),
             (csp, _) => csp,
         };
-        let head = match (head, &asset_origin) {
-            (Some(mut head), Some(origin)) => {
+        // The managed head resolves URLs against the mount. Files on an
+        // asset host are complete as they are: another origin is allowed as a
+        // resource origin, and a path on this origin is exempt from the mount.
+        let asset_prefix = public_assets
+            .as_ref()
+            .and_then(PublicAssets::asset_prefix)
+            .cloned();
+        let head = match (head, asset_prefix) {
+            (Some(mut head), Some(prefix)) => {
                 if let Some(urls) = head.urls.take() {
-                    let urls = Arc::unwrap_or_clone(urls)
-                        .allow_resource_origin(origin)
-                        .map_err(|_| {
-                            PublicAssetError::AssetPrefix(InvalidAssetPrefix(origin.clone()))
-                        })?;
+                    let urls = Arc::unwrap_or_clone(urls);
+                    let urls = match prefix.origin() {
+                        Some(origin) => urls.allow_resource_origin(origin),
+                        None => urls.allow_asset_path(prefix.as_str()),
+                    }
+                    .map_err(|_| {
+                        PublicAssetError::AssetPrefix(InvalidAssetPrefix(
+                            prefix.as_str().to_owned(),
+                        ))
+                    })?;
                     head.urls = Some(Arc::new(urls));
                 }
                 Some(head)

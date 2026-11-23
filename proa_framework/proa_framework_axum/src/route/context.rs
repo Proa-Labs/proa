@@ -456,9 +456,7 @@ where
             // even when `proa dev` republishes between the two.
             let assets = assets.current();
             context.public_asset_urls = Some(assets.render_urls());
-            context.asset_prefix = assets
-                .asset_prefix()
-                .map(|prefix| Arc::from(prefix.as_str()));
+            context.asset_prefix = assets.asset_prefix().map(crate::AssetPrefix::shared);
             req.extensions_mut().insert(assets);
         }
 

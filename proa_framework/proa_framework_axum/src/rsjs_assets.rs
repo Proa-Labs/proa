@@ -167,22 +167,33 @@ impl RsjsAssets {
     pub fn load(bundle: Option<&crate::PublicAssets>) -> Result<Self, RsjsAssetsError> {
         let manifest = rsjs::manifest();
         let sources = Sources::linked(&manifest)?;
-        if let Some(assets) =
-            bundle.and_then(|bundle| Self::from_bundle(bundle.catalog(), &sources.digest(minify())))
-        {
+        if let Some(assets) = bundle.and_then(|bundle| {
+            Self::from_bundle(bundle.catalog(), &sources, &sources.digest(minify()))
+        }) {
             return Ok(assets);
         }
         Self::publish(sources, minify())
     }
 
-    fn from_bundle(catalog: &proa_assets::AssetCatalog, source: &str) -> Option<Self> {
+    fn from_bundle(
+        catalog: &proa_assets::AssetCatalog,
+        sources: &Sources,
+        digest: &str,
+    ) -> Option<Self> {
         let manifest = catalog.manifest();
         if manifest.framework.is_empty() {
             return None;
         }
-        if manifest.framework_source.as_deref() != Some(source) {
+        // The digest names the sources, and the list has to be all of them:
+        // a page links a module that is missing here at a path nothing serves.
+        let complete = manifest.framework.len() == sources.0.len()
+            && sources
+                .0
+                .keys()
+                .all(|name| manifest.framework.contains_key(name));
+        if manifest.framework_source.as_deref() != Some(digest) || !complete {
             tracing::warn!(
-                "the bundled RSJS modules were exported from another build; preparing this executable's own"
+                "the bundled RSJS modules were not exported from this executable; preparing its own"
             );
             return None;
         }
@@ -235,16 +246,24 @@ impl RsjsAssets {
                 let target = imported_module(name, specifier)?;
                 logical.binary_search(&target.as_str()).ok()
             };
-            let portable = portable_js(source, &resolve).map_err(fail)?;
-            let mut imports: BTreeSet<usize> =
-                portable.imports.iter().map(|(_, module)| *module).collect();
-            // The helper is the runtime's `app_url`, so a generated module
-            // that needs it imports the runtime.
+            // The two runtime files import nothing and decide for themselves
+            // which URLs gain the base path (a query can opt out, and a
+            // module URL never does). They are published as written. Only
+            // generated modules are made portable.
             let is_runtime = matches!(
                 name.as_str(),
                 rsjs::manifest::RUNTIME_PATH | rsjs::manifest::QUERY_RUNTIME_PATH
             );
-            if portable.helper.is_some() && !is_runtime {
+            let portable = if is_runtime {
+                PortableJs::verbatim()
+            } else {
+                portable_js(source, &resolve).map_err(fail)?
+            };
+            let mut imports: BTreeSet<usize> =
+                portable.imports.iter().map(|(_, module)| *module).collect();
+            // The helper is the runtime's `app_url`, so a generated module
+            // that needs it imports the runtime.
+            if portable.helper.is_some() {
                 imports.insert(runtime);
             }
             let imports_itself = imports.remove(&index);
@@ -252,7 +271,6 @@ impl RsjsAssets {
                 logical: name,
                 source,
                 portable,
-                is_runtime,
                 imports_itself,
                 imports: imports.into_iter().collect(),
             });
@@ -264,42 +282,36 @@ impl RsjsAssets {
         let mut names: Vec<Option<String>> = vec![None; modules.len()];
         let mut bytes: Vec<Option<String>> = vec![None; modules.len()];
         for group in import_groups(&modules) {
-            let render = |module: usize,
-                          names: &[Option<String>],
-                          group_name: &dyn Fn(usize) -> String| {
-                // A module keeps its directory whatever its digest turns out
-                // to be, so its own name is not needed to address another.
-                let from = published_name(modules[module].logical, "");
-                let specifier = |target: usize| {
-                    let to = match &names[target] {
-                        Some(name) => name.clone(),
-                        None => group_name(target),
+            let render =
+                |module: usize, names: &[Option<String>], group_name: &dyn Fn(usize) -> String| {
+                    // A module keeps its directory whatever its digest turns out
+                    // to be, so its own name is not needed to address another.
+                    let from = published_name(modules[module].logical, "");
+                    let specifier = |target: usize| {
+                        let to = match &names[target] {
+                            Some(name) => name.clone(),
+                            None => group_name(target),
+                        };
+                        relative_specifier(&from, &to)
                     };
-                    relative_specifier(&from, &to)
-                };
-                let item = &modules[module];
-                let mut text = item.portable.render(item.source, specifier);
-                if let Some(helper) = &item.portable.helper {
-                    if item.is_runtime {
-                        // Both runtime modules define `app_url` themselves.
-                        text.push_str(&format!("\nfunction {helper}(p){{return app_url(p);}}\n"));
-                    } else {
+                    let item = &modules[module];
+                    let mut text = item.portable.apply(item.source, specifier);
+                    if let Some(helper) = &item.portable.helper {
                         text.push_str(&format!(
                             "\nimport {{ app_url as {helper} }} from {};\n",
                             serde_json::to_string(&specifier(runtime))
                                 .expect("serialize import specifier")
                         ));
                     }
-                }
-                if minify {
-                    minify_module(&text).map_err(|reason| RsjsAssetsError {
-                        asset: item.logical.clone(),
-                        reason,
-                    })
-                } else {
-                    Ok(text)
-                }
-            };
+                    if minify {
+                        minify_module(&text).map_err(|reason| RsjsAssetsError {
+                            asset: item.logical.clone(),
+                            reason,
+                        })
+                    } else {
+                        Ok(text)
+                    }
+                };
             let cyclic = group.len() > 1 || modules[group[0]].imports_itself;
             if !cyclic {
                 // The common case: every import already has its final name,
@@ -431,7 +443,6 @@ struct Module<'a> {
     logical: &'a String,
     source: &'a str,
     portable: PortableJs,
-    is_runtime: bool,
     imports_itself: bool,
     imports: Vec<usize>,
 }
@@ -664,6 +675,7 @@ mod tests {
             export function hydrate(root) {
                 const currentValue = signal(root.dataset.initialValue);
                 mount_row(root.querySelector("[data-rsjs-bind]"), currentValue);
+                fetch("./component_row.js");
                 fetch("/api/count");
                 fetch("https://api.example/count");
             }
@@ -752,6 +764,14 @@ mod tests {
             .expect("the runtime helper is imported");
         assert!(source.contains(&format!(r#"fetch({helper}("/api/count"))"#)));
         assert!(source.contains(r#"fetch("https://api.example/count")"#));
+        // A fetch resolves against the document, not the module, so a path
+        // that looks like a sibling module is not an import of it.
+        assert!(source.contains(r#"fetch("./component_row.js")"#));
+
+        // The runtime files are published as written: they decide for
+        // themselves which URLs gain the base path.
+        assert_eq!(text(runtime), rsjs::runtime_assets::CORE_JS);
+        assert_eq!(text(query), rsjs::runtime_assets::QUERY_JS);
 
         // Modules that import each other share one digest and still reach
         // each other by their published names.
@@ -891,6 +911,22 @@ mod tests {
             assert_eq!(stored.bytes, own.bytes);
         }
         drop(matching);
+
+        // A bundle that lost a module is not used either: the page would link
+        // that module at a path nothing serves.
+        let partial = bundle(temp.path(), &own);
+        let manifest_path = partial.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["framework"]
+            .as_object_mut()
+            .unwrap()
+            .remove("rsjs/island/hosted_fixture.js")
+            .expect("the fixture island is bundled");
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let partial = crate::PublicAssets::load(&partial, &base).unwrap();
+        assert!(!RsjsAssets::load(Some(&partial)).unwrap().bundled());
+        drop(partial);
 
         // Files from another build are not this executable's modules.
         let other = crate::PublicAssets::load(bundle(temp.path(), "another build"), &base).unwrap();

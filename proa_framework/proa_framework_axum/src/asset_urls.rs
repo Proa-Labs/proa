@@ -383,9 +383,18 @@ pub(crate) struct PortableJs {
 }
 
 impl PortableJs {
+    /// A module that is published exactly as written.
+    pub(crate) fn verbatim() -> Self {
+        Self {
+            edits: Vec::new(),
+            imports: Vec::new(),
+            helper: None,
+        }
+    }
+
     /// Write the module with `specifier(index)` in place of each import of
     /// another module of the set.
-    pub(crate) fn render(&self, source: &str, specifier: impl Fn(usize) -> String) -> String {
+    pub(crate) fn apply(&self, source: &str, specifier: impl Fn(usize) -> String) -> String {
         let mut edits: Vec<Edit> = self
             .edits
             .iter()
@@ -518,14 +527,19 @@ impl JsUrls<'_> {
             });
         }
     }
-    fn url(&mut self, expression: &Expression<'_>) {
+    /// The argument of a call that fetches a URL. `module` marks a dynamic
+    /// `import(...)`: it is the only such call whose literal can name another
+    /// module of the set, because only an import resolves a relative
+    /// specifier against the importing module. Everything else resolves
+    /// against the document.
+    fn url(&mut self, expression: &Expression<'_>, module: bool) {
         if let Expression::StringLiteral(literal) = expression.get_inner_expression() {
             if self.base.is_some() {
                 self.literal(literal);
                 return;
             }
             // Only a path from the origin root can gain a base path.
-            if self.import(literal)
+            if (module && self.import(literal))
                 || !literal.value.starts_with('/')
                 || literal.value.starts_with("//")
             {
@@ -549,7 +563,7 @@ impl<'a> Visit<'a> for JsUrls<'_> {
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         if self.native(&call.callee, "fetch") {
             if let Some(argument) = call.arguments.first().and_then(Argument::as_expression) {
-                self.url(argument);
+                self.url(argument, false);
             }
         }
         walk::walk_call_expression(self, call);
@@ -577,13 +591,13 @@ impl<'a> Visit<'a> for JsUrls<'_> {
                 .first()
                 .and_then(Argument::as_expression)
             {
-                self.url(argument);
+                self.url(argument, false);
             }
         }
         walk::walk_new_expression(self, expression);
     }
     fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
-        self.url(&expression.source);
+        self.url(&expression.source, true);
         walk::walk_import_expression(self, expression);
     }
     fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'a>) {
