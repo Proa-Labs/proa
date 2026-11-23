@@ -56,6 +56,8 @@ pub struct RequestContext {
     original_pathname: Option<String>,
     base_path: super::BasePath,
     public_assets: Option<super::PublicAssetUrls>,
+    framework_assets: Option<super::FrameworkAssets>,
+    asset_prefix: Option<std::sync::Arc<str>>,
 }
 
 fn empty_headers() -> &'static HeaderMap {
@@ -85,6 +87,46 @@ impl RequestContext {
     /// Attach the public URL map prepared by the host.
     pub fn set_public_asset_urls(&mut self, urls: Option<super::PublicAssetUrls>) {
         self.public_assets = urls;
+    }
+
+    /// Attach the framework's own published files, when the host serves them
+    /// under content-hashed names.
+    pub fn set_framework_assets(&mut self, assets: Option<super::FrameworkAssets>) {
+        self.framework_assets = assets;
+    }
+
+    /// The framework's own published files. `None` means the host serves them
+    /// at their fixed logical URLs.
+    pub fn framework_assets(&self) -> Option<&super::FrameworkAssets> {
+        self.framework_assets.as_ref()
+    }
+
+    /// Name the host that serves the published files in place of this
+    /// server, as the URL its copy of them starts at.
+    pub fn set_asset_prefix(&mut self, prefix: Option<std::sync::Arc<str>>) {
+        self.asset_prefix = prefix;
+    }
+
+    /// What a URL to a published file starts with: the asset host when one
+    /// is configured, the base path otherwise. Published files live under
+    /// `/_proa/`; application routes always use [`base_path`](Self::base_path).
+    pub fn asset_prefix(&self) -> &str {
+        self.asset_prefix
+            .as_deref()
+            .unwrap_or(self.base_path.as_str())
+    }
+
+    /// A shared handle to the configured asset host, for a renderer that
+    /// writes it while it also holds the output buffer.
+    pub fn asset_host(&self) -> Option<std::sync::Arc<str>> {
+        self.asset_prefix.clone()
+    }
+
+    /// Whether published files are fetched from another origin.
+    pub fn assets_are_cross_origin(&self) -> bool {
+        self.asset_prefix
+            .as_deref()
+            .is_some_and(|prefix| !prefix.starts_with('/'))
     }
 
     /// Whether the host installed a managed public asset catalog for this request.

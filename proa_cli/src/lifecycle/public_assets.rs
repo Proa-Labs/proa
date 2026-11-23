@@ -204,39 +204,197 @@ impl Bundle {
     }
 }
 
-/// Place the catalog beside an exported executable, where the server finds it
+/// Place the bundle beside an exported executable, where the server finds it
 /// without configuration. The executable and this directory are the complete
-/// deployable output: copying both anywhere is enough to run the application.
+/// deployable output: copying both anywhere is enough to run the application,
+/// and the bundle's `public/` directory is what a static host would serve.
 ///
 /// This runs before the executable is replaced, and everything that can
-/// refuse the export is decided here. The manifest swap is atomic, so a
-/// failure leaves the previous executable with the catalog it had. Removal
-/// of a stale catalog is only claimed here; [`Bundle::finish`] performs it.
-pub(super) fn bundle(root: &Path, directory: Option<&Path>, executable: &Path) -> Result<Bundle> {
+/// refuse the export is decided here. The bundle is assembled beside its
+/// destination and moved into place whole, so a failure leaves the previous
+/// executable with the bundle it had. Removal of a stale bundle is only
+/// claimed here; [`Bundle::finish`] performs it.
+pub(super) fn bundle(
+    root: &Path,
+    directory: Option<&Path>,
+    executable: &Path,
+    framework: Option<&FrameworkExport>,
+) -> Result<Bundle> {
     // Asset commands ran since the first check and may have changed the paths.
     check_bundle_destination(root, directory, executable)?;
     let output = bundled_output(executable)?;
-    let Some(source) = public_source(root, directory) else {
+    let source = public_source(root, directory);
+    if source.is_none() && framework.is_none() {
         return clear_bundle(executable);
-    };
-    let context = || format!("bundle public assets beside `{}`", executable.display());
-    let existed = proa_assets::is_output(&output);
-    let mut store = OutputStore::open(&output).with_context(context)?;
-    match publish_with(&mut store, &source, "bundled", "in") {
-        Ok(directory) => Ok(Bundle {
-            directory: Some(directory),
-            stale: None,
-        }),
-        Err(error) => {
-            if !existed {
-                // This attempt created the directory, so nothing may stay: one
-                // without a manifest would stop the previous executable from
-                // starting. The writer lock is still this attempt's own.
-                let _ = store.remove();
-            }
-            Err(error).with_context(context)
-        }
     }
+    let files = framework.map(FrameworkExport::files).transpose()?;
+    let report = proa_assets::build::export_with_framework_source(
+        &output,
+        source.as_deref(),
+        files.as_deref().unwrap_or_default(),
+        framework.map(|framework| framework.source.as_str()),
+    )
+    .map_err(|error| match error {
+        proa_assets::AssetError::InUse(path) => anyhow::anyhow!(
+            "`{}` is still being read by a running server. Stop that server, or export the executable to a different path",
+            path.display()
+        ),
+        error => anyhow::Error::new(error),
+    })
+    .with_context(|| format!("bundle public assets beside `{}`", executable.display()))?;
+    for diagnostic in &report.diagnostics {
+        eprintln!("warning: {diagnostic}");
+    }
+    let modules = match report.manifest.framework.len() {
+        0 => String::new(),
+        count => format!(" and {count} RSJS modules"),
+    };
+    super::dev_ui::detail!(
+        "bundled {} public assets{modules} in {}",
+        report.manifest.assets.len(),
+        report.directory.display()
+    );
+    Ok(Bundle {
+        directory: Some(report.directory),
+        stale: None,
+    })
+}
+
+/// The framework's own browser modules, exported from a built executable.
+pub(super) struct FrameworkExport {
+    source: String,
+    /// `(name, path)`, with `path` relative to the directory.
+    index: Vec<(String, String)>,
+    contents: Vec<Vec<u8>>,
+}
+
+#[derive(Deserialize)]
+struct ExportedHost {
+    source: String,
+    files: Vec<(String, String)>,
+}
+
+impl FrameworkExport {
+    fn files(&self) -> Result<Vec<proa_assets::build::FrameworkFile<'_>>> {
+        let route = proa_assets::PUBLIC_ROUTE.trim_start_matches('/');
+        self.index
+            .iter()
+            .zip(&self.contents)
+            .map(|((name, path), bytes)| {
+                let path = path
+                    .strip_prefix(route)
+                    .and_then(|path| path.strip_prefix('/'))
+                    .with_context(|| format!("exported module `{path}` is outside `/{route}`"))?;
+                Ok(proa_assets::build::FrameworkFile { name, path, bytes })
+            })
+            .collect()
+    }
+}
+
+/// How long a built executable gets to write its modules. It runs no
+/// application code to do so, only the framework's own preparation.
+const EXPORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Ask `executable` for the framework modules linked into it, so the bundle
+/// can hold them as files.
+///
+/// `None` means there is nothing to store: the executable does not serve
+/// such modules, or was built for a target this machine cannot run. The
+/// server then prepares and serves them itself, as it does under `proa dev`,
+/// and only hosting those files somewhere else is unavailable.
+pub(super) fn export_framework_assets(
+    executable: &Path,
+    explicit_target: bool,
+) -> Result<Option<FrameworkExport>> {
+    use rsjs_transport::framework_export::{ENV, INDEX_FILE, SENTINEL};
+    let bytes = fs::read(executable).with_context(|| format!("read `{}`", executable.display()))?;
+    // An executable without the sentinel would not answer the request: it
+    // would simply start. Never run one.
+    if !bytes
+        .windows(SENTINEL.len())
+        .any(|window| window == SENTINEL)
+    {
+        return Ok(None);
+    }
+    drop(bytes);
+    let directory = tempfile::tempdir().context("create a framework asset export directory")?;
+    // The child's diagnostics go to a file. A pipe nobody reads until the
+    // child exits would stall it as soon as it wrote more than the pipe holds.
+    let diagnostics = tempfile::NamedTempFile::new().context("create an export log")?;
+    let spawned = Command::new(executable)
+        .env(ENV, directory.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(diagnostics.reopen().context("open the export log")?)
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        // A cross-compiled executable cannot be started on this machine.
+        Err(error) if explicit_target => {
+            eprintln!(
+                "note: `{}` cannot run on this machine ({error}), so its RSJS modules are not stored in the bundle; the server will serve them itself",
+                executable.display()
+            );
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("start `{}` to export its modules", executable.display()))
+        }
+    };
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if started.elapsed() > EXPORT_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "`{}` did not finish exporting its RSJS modules within {} seconds",
+                executable.display(),
+                EXPORT_TIMEOUT.as_secs()
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    let index_path = directory.path().join(INDEX_FILE);
+    if !status.success() || !index_path.is_file() {
+        let reason = fs::read(diagnostics.path())
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
+        bail!(
+            "`{}` could not export its RSJS modules ({status}): {}",
+            executable.display(),
+            reason.trim()
+        );
+    }
+    let hosts: Vec<ExportedHost> = serde_json::from_slice(&fs::read(&index_path)?)
+        .context("read the exported module index")?;
+    // One host exports today, and it compares this value with its own
+    // digest. A second exporter would need the manifest to record a digest
+    // for each host.
+    let source = hosts
+        .iter()
+        .map(|host| host.source.as_str())
+        .collect::<Vec<_>>()
+        .join("+");
+    let index: Vec<(String, String)> = hosts.into_iter().flat_map(|host| host.files).collect();
+    if index.is_empty() {
+        return Ok(None);
+    }
+    let mut contents = Vec::with_capacity(index.len());
+    for (_, path) in &index {
+        crate::config::validate_project_relative_path(Path::new(path))
+            .map_err(anyhow::Error::msg)
+            .with_context(|| format!("exported module path `{path}`"))?;
+        contents.push(fs::read(directory.path().join(path))?);
+    }
+    Ok(Some(FrameworkExport {
+        source,
+        index,
+        contents,
+    }))
 }
 
 /// Refuse an export whose bundle path cannot be used, from paths alone. The
@@ -260,6 +418,22 @@ pub(super) fn check_bundle_destination(
             "`{}` is in the way: Proa bundles the public asset catalog beside the exported executable `{}`. Move it, or export the executable to a different path",
             output.display(),
             executable.display()
+        );
+    }
+    // A bundle a server is reading cannot be replaced or removed. Finding
+    // that out now costs nothing; finding it out after compiling costs the
+    // whole build. The claim is released at once: this only asks.
+    let is_symlink = fs::symlink_metadata(&output).is_ok_and(|metadata| metadata.is_symlink());
+    if !is_symlink
+        && proa_assets::is_output(&output)
+        && matches!(
+            proa_assets::build::reserve_bundle_removal(&output),
+            Ok(None)
+        )
+    {
+        bail!(
+            "`{}` is still being read by a running server. Stop that server, or export the executable to a different path",
+            output.display()
         );
     }
     // Catalog files inside the public source would be published by the next
@@ -293,8 +467,7 @@ pub(super) fn clear_bundle(executable: &Path) -> Result<Bundle> {
         return Ok(bundle);
     }
     let context = || format!("remove stale public asset catalog {}", output.display());
-    let store = OutputStore::open(output).with_context(context)?;
-    bundle.stale = store.reserve_removal().with_context(context)?;
+    bundle.stale = proa_assets::build::reserve_bundle_removal(output).with_context(context)?;
     if bundle.stale.is_none() {
         bail!(
             "`{}` is still being read by a running server, and this build publishes no public assets to replace it. Stop that server, or export the executable to a different path",
@@ -364,6 +537,9 @@ fn publish_with(
     }
     if let Some(error) = report.durability_error {
         eprintln!("warning: public manifest activated, but directory sync failed: {error}");
+    }
+    for diagnostic in &report.diagnostics {
+        eprintln!("warning: {diagnostic}");
     }
     super::dev_ui::detail!(
         "{verb} {} public assets {preposition} {}",

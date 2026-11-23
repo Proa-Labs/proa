@@ -42,7 +42,7 @@ class RejectRedirects(urllib.request.HTTPRedirectHandler):
 
 
 HTTP_OPENER = urllib.request.build_opener(RejectRedirects)
-CATALOG_PREFIX = "/_proa/assets/"
+CATALOG_PREFIXES = ("/_proa/immutable/", "/_proa/mutable/")
 
 
 def parse_args() -> argparse.Namespace:
@@ -243,7 +243,9 @@ CHECKS = (
     Check("/healthz", validate_text(b"ok")),
     Check("/readyz", validate_text(b"ready")),
     Check("/", validate_html),
-    Check("/_proa/assets/styles.css", validate_css),
+    # The stylesheet is named after its bytes, so it is reached through the
+    # site's stable address for it.
+    Check("/static/styles.css", validate_css, catalog_alias=True),
     Check("/showcase/airbnb/proa", validate_showcase_html),
     Check("/assets/airbnb-showcase.js", validate_showcase_javascript),
     Check("/images/airbnb/bedroom.jpg", validate_showcase_image, catalog_alias=True),
@@ -277,7 +279,7 @@ def fetch(
         # Follow it by path only, so the target is fetched from the host under
         # test whatever the Location header names.
         location = urllib.parse.urlsplit(error.headers.get("Location", ""))
-        if location.scheme or location.netloc or not location.path.startswith(CATALOG_PREFIX):
+        if location.scheme or location.netloc or not location.path.startswith(CATALOG_PREFIXES):
             raise SmokeError(
                 f"{check.path} redirected outside the asset catalog: "
                 f"{error.headers.get('Location')!r}"

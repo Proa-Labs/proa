@@ -96,10 +96,13 @@ struct DocsImage {
     logical_path: String,
 }
 
-// Compiled Markdown image tags have this source-attribute shape. Index the
-// diagrams once so serving an article writes the compiled HTML in slices.
+// The Markdown sources name each diagram by its stable `/static/` address,
+// which the site redirects to the published file, so the Markdown a reader
+// copies keeps working. Compiled image tags have this source-attribute shape.
+// Index the diagrams once so serving an article writes the compiled HTML in
+// slices, with each image linked straight to its published URL.
 static DOCS_IMAGES: LazyLock<BTreeMap<&'static str, Vec<DocsImage>>> = LazyLock::new(|| {
-    const IMAGE_PREFIX: &str = r#"<img src="/_proa/assets/images/docs/"#;
+    const IMAGE_PREFIX: &str = r#"<img src="/static/images/docs/"#;
     crate::pages::docs::docs()
         .pages
         .iter()
@@ -110,7 +113,7 @@ static DOCS_IMAGES: LazyLock<BTreeMap<&'static str, Vec<DocsImage>>> = LazyLock:
                 .filter_map(|(offset, _)| {
                     let start = offset + r#"<img src=""#.len();
                     let end = start + html[start..].find('"')?;
-                    let path = html[start..end].strip_prefix("/_proa/assets/")?;
+                    let path = html[start..end].strip_prefix("/static/")?;
                     Some(DocsImage {
                         value: start..end,
                         logical_path: format!("public/{path}"),

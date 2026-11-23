@@ -160,7 +160,7 @@ pub fn populate(
     if agents_md {
         plan.write("AGENTS.md", agents())?;
     }
-    add_deploy(plan, package, selection.deploy, has_database, false)?;
+    add_deploy(plan, package, selection.deploy, has_database)?;
     Ok(())
 }
 
@@ -620,12 +620,14 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     assert_eq!(html.headers()[header::VARY], "Accept");
     assert!(html.headers()[header::LINK].to_str().unwrap().contains("/apps/demo/index.md"));
     let document = String::from_utf8(body(html).await).unwrap();
+    // A published stylesheet is named after its bytes, so read its URL from the page.
     let stylesheet = if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
-        "/_proa/assets/styles.css"
+        let start = document.find("href=\"/apps/demo/_proa/immutable/styles.").expect("hashed stylesheet link") + "href=\"/apps/demo".len();
+        &document[start..start + document[start..].find('"').unwrap()]
     } else {
+        assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
         "/static/styles.css"
     };
-    assert!(document.contains(&format!("href=\"/apps/demo{stylesheet}\"")));
     let css = app.clone().oneshot(Request::builder().uri(stylesheet).body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(css.status(), StatusCode::OK);
     assert!(css.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/css"));
@@ -690,15 +692,11 @@ fn add_deploy(
     package: &str,
     deploy: DeployChoice,
     has_database: bool,
-    serves_vendored_fonts: bool,
 ) -> Result<()> {
     if deploy == DeployChoice::None {
         return Ok(());
     }
-    plan.write(
-        "Dockerfile",
-        current_deployment_dockerfile(has_database, serves_vendored_fonts),
-    )?;
+    plan.write("Dockerfile", current_deployment_dockerfile(has_database))?;
     plan.write(".dockerignore", "target\n.git\n.env\ndata/*.db*\n")?;
     let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies resolve from crates.io without credentials:\n\n```bash\ndocker build .\n```\n\nUse `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
     if has_database {
@@ -741,18 +739,8 @@ fn add_deploy(
 }
 
 /// The Dockerfile `proa new site` and `proa add <deployment>` both write.
-///
-/// Vendored fonts are the one part of `public/` an application serves from
-/// disk itself (at `/fonts`, outside the catalog), so an application that has
-/// them carries that directory into the image as well.
-pub(super) fn current_deployment_dockerfile(
-    has_database: bool,
-    serves_vendored_fonts: bool,
-) -> String {
+pub(super) fn current_deployment_dockerfile(has_database: bool) -> String {
     let mut copies = String::new();
-    if serves_vendored_fonts {
-        copies.push_str("COPY --from=build /app/public/fonts ./public/fonts\n");
-    }
     if has_database {
         copies.push_str("COPY --from=build /app/migrations ./migrations\n");
     }
@@ -929,11 +917,8 @@ mod tests {
         assert!(dockerfile.contains("CMD [\"/app/app\"]"));
         assert!(!dockerfile.contains("PROA_PUBLIC_ASSETS"));
         assert!(!dockerfile.contains("COPY --from=build /app/public ./public"));
-        // Vendored fonts are served from disk, so only an application that
-        // has them copies that one directory.
+        // Vendored fonts are in the catalog with every other public file.
         assert!(!dockerfile.contains("/app/public/fonts"));
-        assert!(current_deployment_dockerfile(false, true)
-            .contains("COPY --from=build /app/public/fonts ./public/fonts\n"));
         assert!(!dockerfile.contains("cargo build --release"));
         assert!(!dockerfile.contains("/app/target/release/"));
         assert!(!dockerfile.contains("install.sh"));

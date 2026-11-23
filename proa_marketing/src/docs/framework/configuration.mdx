@@ -46,7 +46,8 @@ The builder returns an Axum router; bind a TCP listener and pass both to `proa::
 | [`.with_sitemap(entries)`](/docs/framework/sitemaps) | Serve one sitemap using the final public origin and base path. |
 | [`.with_sitemaps(files)`](/docs/framework/sitemaps#multiple-sitemaps) | Serve named sitemap documents plus a sitemap index; accepts results from an awaited async generator. |
 | [`.with_robots(robots)`](/docs/framework/robots) | Serve `/robots.txt` from a document or awaited generator result, with bot-specific groups and automatic sitemap/index links. Behind a prefix-stripping proxy, forward origin-root `/robots.txt` to this handler. |
-| [`.with_rsjs_assets()`](#frameworkbuilder-base-paths-and-rsjs-assets) | Serve the linked RSJS runtimes and generated modules. |
+| [`.with_rsjs_assets()`](#frameworkbuilder-base-paths-and-rsjs-assets) | Serve the linked RSJS runtimes and generated modules (on by default). |
+| [`.without_rsjs_assets()`](#frameworkbuilder-base-paths-and-rsjs-assets) | Disable automatic RSJS serving when the app serves its own copies at the canonical paths. |
 | [`.with_public_assets(assets)`](/docs/framework/static-assets#managed-public-assets) | Supply a loaded `PublicAssets` catalog explicitly instead of the one from `PROA_PUBLIC_ASSETS` or beside the executable. |
 | `.with_static_service(router)` | Mount a router under `/static`. |
 | `.with_dynamic_routes(router)` | Merge an Axum router without a metadata map. |
@@ -69,10 +70,11 @@ These methods configure separate parts of the application:
 - `with_base_path(BasePath)` sets the public mount used by `cx.url(...)`
   and framework-generated URLs. Island query/mutation requests follow it only
   when declared with `cx.url(...)` or `FetchRequest.apply_base_path: true`.
-  Managed static CSS/JS URLs follow it too. Its default is the origin root.
-- `with_rsjs_assets()` installs routes for the RSJS runtimes and linked modules.
-  Enable it when this app serves its own island assets, including at the origin
-  root. It is opt-in so applications can supply their own asset handlers.
+  CSS/JS URLs in the `/static` service follow it too; files published from
+  `public/` are served unchanged. Its default is the origin root.
+- Linked RSJS runtimes and modules are served by default at content-hashed
+  names under `/_proa/immutable/rsjs/`. Call `without_rsjs_assets()` if your
+  application serves its own runtime and island handlers at the canonical paths.
 
 For an app exposed at `/apps/demo/` by a prefix-stripping proxy:
 
@@ -81,7 +83,6 @@ use proa::axum::{BasePath, FrameworkBuilder};
 
 let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new("/apps/demo")?)
-    .with_rsjs_assets()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .build();
 ```
@@ -101,6 +102,7 @@ covers startup environment configuration, proxy behavior, and coverage limits.
 
 | Default | Value |
 |---------|-------|
+| RSJS assets | On: serves linked runtimes and modules under `/_proa/immutable/rsjs/`. Disable with `.without_rsjs_assets()`. |
 | Body limit | `1 MiB` through Axum `DefaultBodyLimit`. |
 | Request timeout | `30s` for response production. Streaming bodies keep flowing after the response head is produced. |
 | Cross-origin protection | On for unsafe browser requests. |

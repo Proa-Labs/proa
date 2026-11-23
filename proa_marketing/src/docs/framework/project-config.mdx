@@ -86,9 +86,10 @@ template. Use `proa_pro` to configure the Pro registry.
 
 When `styles/input.css` exists, Proa runs the standalone Tailwind CLI and
 writes `public/styles.css` by default. `cx.url("public/styles.css")`
-resolves to the stable stylesheet URL. Proa
-fingerprints the stored file and serves the URL with `Cache-Control: no-cache`
-and an `ETag` so browsers revalidate it after changes.
+resolves to the stylesheet's content-hashed URL
+(`/_proa/immutable/styles.<16 hex>.css`). Proa serves it with
+`Cache-Control: public, max-age=31536000, immutable`, and the URL changes
+whenever the stylesheet or a file it refers to changes.
 
 Set `scripts.css` to use PostCSS, Lightning CSS, or another processor. For
 example, add this line to your existing `ScriptsConfig` and have the script
@@ -253,9 +254,9 @@ pub async fn config() -> Result<Config> {
 ```
 
 The linked build records the choice in the executable.
-Axum applies it to the generated modules and both RSJS
-runtimes once at startup, after preparing URLs for the deployment base
-path. Use `build.assets` commands for JavaScript files sourced separately.
+`proa build` applies it to the generated modules and both RSJS
+runtimes when it exports them into the bundle beside the executable; a server
+without exported modules applies it once at startup. Use `build.assets` commands for JavaScript files sourced separately.
 
 The generated `proa.lock.json` tracks vendored UI components, which Cargo
 does not track as crate dependencies. `proa ui add` installs source components

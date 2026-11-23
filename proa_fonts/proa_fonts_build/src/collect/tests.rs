@@ -170,6 +170,49 @@ fn vendors_locks_and_takes_the_fast_path_on_rerun() {
 }
 
 #[test]
+fn files_named_by_an_earlier_release_are_renamed_from_the_bytes_on_disk() {
+    let Some(bytes) = system_ttf() else {
+        eprintln!("no system font; skipping collector rename test");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let opts = scratch_crate(dir.path(), &bytes, DECLARATION);
+    run(&opts).unwrap();
+
+    // Put the output back the way a release with 8-character names left it.
+    let fonts = dir.path().join("public/fonts");
+    let current = std::fs::read_dir(&fonts)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .file_name()
+        .into_string()
+        .unwrap();
+    let digest = hash::sha256_hex(&bytes);
+    let legacy = current.replace(&digest[..hash::FINGERPRINT_LENGTH], &digest[..8]);
+    assert_ne!(legacy, current);
+    std::fs::rename(fonts.join(&current), fonts.join(&legacy)).unwrap();
+    let lock_path = dir.path().join(LOCK_FILE);
+    let lock = std::fs::read_to_string(&lock_path).unwrap();
+    std::fs::write(&lock_path, lock.replace(&current, &legacy)).unwrap();
+
+    // The strict check reports the drift and writes nothing.
+    assert!(matches!(sync(&opts, true), Err(BuildError::Stale(_))));
+    assert!(fonts.join(&legacy).exists());
+
+    let renamed = run(&opts).unwrap();
+    assert!(renamed.reports[0].refreshed);
+    assert_eq!(renamed.removed, [legacy.clone()]);
+    assert_eq!(std::fs::read(fonts.join(&current)).unwrap(), bytes);
+    assert!(!fonts.join(&legacy).exists());
+    assert!(std::fs::read_to_string(&lock_path)
+        .unwrap()
+        .contains(&current));
+    assert!(!sync(&opts, true).unwrap().reports[0].refreshed);
+}
+
+#[test]
 fn changed_declaration_revendors_and_cleans_up_the_old_files() {
     let Some(bytes) = system_ttf() else {
         eprintln!("no system font; skipping collector cleanup test");

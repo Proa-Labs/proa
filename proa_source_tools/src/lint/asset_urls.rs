@@ -8,7 +8,8 @@
 //! Instead of relying solely on a fixed list of field names, this pass infers
 //! which struct fields and constructor parameters flow into URL sinks without
 //! passing through `.url(...)` (and which ones *do* pass through `.url(...)`),
-//! then flags raw `public/…`, hardcoded `/_proa/assets/…`, and root-relative
+//! then flags raw `public/…`, hardcoded `/_proa/immutable/…` and
+//! `/_proa/mutable/…`, and root-relative
 //! paths matching files in a project's configured `public/` catalog.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1724,6 +1725,26 @@ impl<'a> FileAssetChecker<'a> {
     }
 }
 
+impl FileAssetChecker<'_> {
+    /// Files served this way are not in the build output: `proa build` does
+    /// not copy them, hash them, or list them for a static host, so a
+    /// deployment has to carry them by hand.
+    fn unmanaged_static(&mut self, span: proc_macro2::Span, what: &str) {
+        let position = span.start();
+        push_source_diag_with_severity(
+            self.path,
+            self.diagnostics,
+            self.suppressions.get(),
+            position.line,
+            position.column + 1,
+            Severity::Warning,
+            "asset/unmanaged-static",
+            &format!("`{what}` serves files the build output does not contain"),
+            "move the files into `public/` and link them with `cx.url(\"public/…\")`, so `proa build` bundles them and a static host can serve them; for files that only exist at run time, such as uploads, keep this and end the line with `// proa-perf-ok: <reason>`",
+        );
+    }
+}
+
 impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
     fn visit_block(&mut self, block: &'ast Block) {
         let prev_locals = self.local_str_bindings.clone();
@@ -1888,6 +1909,16 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         if line_in_ranges(call.span().start().line, self.ignored_ranges) {
             return;
         }
+        if let Expr::Path(callee) = &*call.func {
+            let mut segments = callee.path.segments.iter().rev();
+            let constructor = segments.next().map(|segment| segment.ident.to_string());
+            let service = segments.next().map(|segment| segment.ident.to_string());
+            if matches!(service.as_deref(), Some("ServeDir" | "ServeFile"))
+                && constructor.is_some_and(|name| name.starts_with("new"))
+            {
+                self.unmanaged_static(callee.span(), service.as_deref().unwrap_or_default());
+            }
+        }
         self.as_macro_checker().check_call_args(call);
         visit::visit_expr_call(self, call);
     }
@@ -1907,6 +1938,19 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         let pos = last.ident.span().start();
         if line_in_ranges(pos.line, self.ignored_ranges) {
             return;
+        }
+        // Embedding a directory is how a crate ships browser files without a
+        // build step. Only a directory named like one is reported: the same
+        // macro also embeds templates and migrations.
+        if last.ident == "include_dir" {
+            let directory = mac.tokens.to_string();
+            // Whole path segments: `public`, not `public_keys`.
+            if directory
+                .split(|c: char| c == '/' || c == '\\' || c == '"' || c.is_whitespace())
+                .any(|segment| matches!(segment, "public" | "static" | "assets"))
+            {
+                self.unmanaged_static(last.ident.span(), "include_dir!");
+            }
         }
         let owned = self.templates.owned.get(&(pos.line, pos.column)).copied();
         let Some(dialect) = self.templates.dialect(mac, owned) else {
@@ -2853,6 +2897,17 @@ fn diagnostic_for_asset_url(kind: &AssetUrl, srcset: bool) -> (&'static str, &'s
     }
 }
 
+/// Whether a path holds one of the two directories the asset catalog
+/// publishes into. A file's place there changes with its bytes, so writing
+/// one out by hand goes stale on the next edit.
+fn names_published_file(path: &str) -> bool {
+    // The last is where earlier releases published everything. Nothing is
+    // served there now, so a URL left over from then is reported too.
+    ["/_proa/immutable/", "/_proa/mutable/", "/_proa/assets/"]
+        .iter()
+        .any(|directory| path.contains(directory))
+}
+
 fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
     let value = value.trim();
     let path = value.split(['?', '#']).next()?;
@@ -2861,7 +2916,7 @@ fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
             .is_some_and(|rest| !rest.is_empty())
     }) {
         Some(AssetUrl::Logical)
-    } else if path.starts_with('/') && !path.starts_with("//") && path.contains("/_proa/assets/") {
+    } else if path.starts_with('/') && !path.starts_with("//") && names_published_file(path) {
         Some(AssetUrl::Generated)
     } else if let Some(logical_path) =
         catalog.and_then(|cat| cat.logical_path_for_root_relative(path))
@@ -2873,10 +2928,10 @@ fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
 }
 
 /// Asset kind already proven by the static text before a slot, as in
-/// `public/{name}.svg` or `/_proa/assets/{file}`. Matching a catalog file
+/// `public/{name}.svg` or `/_proa/mutable/{file}`. Matching a catalog file
 /// needs the whole path, so only logical and generated prefixes count.
 fn asset_url_prefix(prefix: &str) -> Option<AssetUrl> {
-    // Like `asset_url`, only the path counts: `/search?next=/_proa/assets/{x}`
+    // Like `asset_url`, only the path counts: `/search?next=/_proa/mutable/{x}`
     // links to `/search`.
     let prefix = prefix.trim_start().split(['?', '#']).next().unwrap_or("");
     if ["public/", "./public/", "/public/"]
@@ -2884,10 +2939,7 @@ fn asset_url_prefix(prefix: &str) -> Option<AssetUrl> {
         .any(|logical| prefix.starts_with(logical))
     {
         Some(AssetUrl::Logical)
-    } else if prefix.starts_with('/')
-        && !prefix.starts_with("//")
-        && prefix.contains("/_proa/assets/")
-    {
+    } else if prefix.starts_with('/') && !prefix.starts_with("//") && names_published_file(prefix) {
         Some(AssetUrl::Generated)
     } else {
         None
