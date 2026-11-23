@@ -22,8 +22,4 @@ ignore = [
     # from the selected release at docs build time; no untrusted bytes reach
     # bincode. Accepted.
     "RUSTSEC-2025-0141",
-    # number_prefix 0.4.0, unmaintained. Enters only via indicatif
-    # progress bars in the proa-cli developer tool. Dev-tooling
-    # dependency path, not shipped library code. Accepted.
-    "RUSTSEC-2025-0119",
 ]

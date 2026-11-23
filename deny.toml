@@ -17,7 +17,6 @@ yanked = "deny"
 # dependency-path justification per entry. All accepted.
 ignore = [
     { id = "RUSTSEC-2025-0141", reason = "bincode 1.x unmaintained with no fixed release; used by syntect to deserialize its trusted embedded syntax pack at docs build time, never untrusted input" },
-    { id = "RUSTSEC-2025-0119", reason = "number_prefix unmaintained; enters only via indicatif in the proa-cli developer tool, not shipped library code" },
 ]
 
 [bans]
