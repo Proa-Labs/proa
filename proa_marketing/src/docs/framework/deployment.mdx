@@ -132,7 +132,6 @@ let base_path = BasePath::new(
 )?;
 let app = FrameworkBuilder::new()
     .with_base_path(base_path) // <-- new: set the public URL prefix
-    .with_rsjs_assets() // <-- new: serve the RSJS runtime and island modules
     .with_static_service(static_router)
     .with_dynamic_routes(router)
     .build();
@@ -147,10 +146,11 @@ The APIs are also covered in
 [FrameworkBuilder configuration](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
 and [linked island asset serving](/docs/framework/static-assets#serving-linked-island-assets).
 
-`with_rsjs_assets()` serves the linked runtime and generated modules at
+`FrameworkBuilder` serves the linked runtime and generated modules by default at
 content-hashed names under `/_proa/immutable/rsjs/`. The modules import each
 other by relative path and contain no base path, so the same files work under
-every prefix. Use it instead of registering your own runtime and island handlers.
+every prefix. You do not need to register your own runtime and island handlers
+(call `.without_rsjs_assets()` to opt out).
 Runtime scripts, preloads, query runtime, dependency modules, and deferred island
 loading use the same prefix, including islands arriving in streamed boundaries.
 HTML responses remain streamed.

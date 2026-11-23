@@ -203,7 +203,7 @@ Page invalidation is separate from JavaScript bundle versioning. When managed pu
 
 ## Caching RSJS bundles
 
-`FrameworkBuilder::with_rsjs_assets()` serves the runtimes and every generated module at content-hashed names: `/_proa/immutable/rsjs/runtime.<16 hex>.js`, `/_proa/immutable/rsjs/query.<16 hex>.js`, and `/_proa/immutable/rsjs/island/<name>.<16 hex>.js`. It sends `Cache-Control: public, max-age=31536000, immutable`, the modules import each other by relative path, and pages link the hashed names automatically, so there is nothing to configure.
+`FrameworkBuilder` serves the runtimes and every generated module by default at content-hashed names: `/_proa/immutable/rsjs/runtime.<16 hex>.js`, `/_proa/immutable/rsjs/query.<16 hex>.js`, and `/_proa/immutable/rsjs/island/<name>.<16 hex>.js`. It sends `Cache-Control: public, max-age=31536000, immutable`, the modules import each other by relative path, and pages link the hashed names automatically, so there is nothing to configure.
 
 The rest of this section applies to a custom adapter that serves its own copies at the canonical paths (`/rsjs-runtime.js`, `/rsjs/island/<asset_id>.js`). Those URLs are stable: an asset ID is not a guarantee that the URL changes with its contents. Configure these headers on your static asset server:
 

@@ -25,7 +25,11 @@ All notable public changes are tracked here.
   `<script type="application/json" id="__proa">{"basePath":"..."}</script>`,
   which the runtime's `app_url` reads. Hand-written JS takes its URLs from
   the page, rendered with `cx.url(...)`.
-- Breaking: `FrameworkBuilder::with_rsjs_assets()` serves the RSJS runtimes and
+- `FrameworkBuilder::new()` now serves the linked RSJS runtimes and generated
+  modules under `/_proa/immutable/rsjs/` by default, so applications no longer
+  need to call `.with_rsjs_assets()`. Call `.without_rsjs_assets()` when an
+  application serves its own copies at the canonical paths.
+- Breaking: `FrameworkBuilder` serves the RSJS runtimes and
   generated modules at content-hashed names under `/_proa/immutable/rsjs/`,
   cached for a year, in place of `/rsjs-runtime.js`, `/rsjs-runtime-query.js`,
   and `/rsjs/island/<file>.js`. `rsjs_assets_router` and

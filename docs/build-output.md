@@ -231,7 +231,6 @@ async fn home() -> RouteResponse {
 
 fn app() -> Result<Router, FrameworkBuildError> {
     FrameworkBuilder::new()
-        .with_rsjs_assets()
         .with_dynamic_routes(Router::new().route("/", get(home)))
         .try_build()
 }
@@ -357,8 +356,9 @@ hard-coding a path.
 
 ### RSJS modules
 
-`FrameworkBuilder::with_rsjs_assets()` serves the runtimes and every generated
-module at content-hashed names, cached for a year:
+`FrameworkBuilder` serves the runtimes and every generated module by default at
+content-hashed names, cached for a year (call `.without_rsjs_assets()` to opt
+out):
 
 ```text
 /_proa/immutable/rsjs/runtime.<16 hex>.js

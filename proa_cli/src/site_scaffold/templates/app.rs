@@ -723,7 +723,6 @@ pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, Fram
     };
     let app = FrameworkBuilder::new()
         .with_base_path(base_path)
-        .with_rsjs_assets()
         .with_dynamic_routes_and_metadata(router, metadata)
         .try_build()?;
     Ok(app.layer(TraceLayer::new_for_http()))

@@ -131,8 +131,8 @@ const DIRECTORY: &str = "rsjs";
 ///
 /// Merge [`router`](Self::router) into a custom router and hand the same
 /// value to [`RouteContextLayer::with_rsjs_assets`](crate::RouteContextLayer::with_rsjs_assets),
-/// so pages link the names this router serves. `FrameworkBuilder::with_rsjs_assets`
-/// does both.
+/// so pages link the names this router serves. `FrameworkBuilder` does both by
+/// default.
 #[derive(Clone)]
 pub struct RsjsAssets {
     files: Arc<Vec<RsjsFile>>,
@@ -987,7 +987,6 @@ mod tests {
             let app = FrameworkBuilder::new()
                 .with_base_path(base.clone())
                 .with_public_assets(assets)
-                .with_rsjs_assets()
                 .with_strict_csp()
                 .with_dynamic_routes(
                     Router::new().route("/", get(|| async { RouteResponse::ssr(Page) })),
@@ -1113,5 +1112,75 @@ mod tests {
                 "{gone}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn framework_builder_serves_rsjs_assets_by_default_and_can_opt_out() {
+        use crate::{FrameworkBuilder, RouteResponse};
+        use proa_core::{WebContext, WebRenderSync, WriteError};
+        use proa_macros::html_sync;
+
+        struct IslandPage;
+        impl WebRenderSync for IslandPage {
+            fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+                cx.rsjs_island_used("hosted_fixture");
+                html_sync! { <main>"Island"</main> }.render(cx)
+            }
+        }
+
+        let routes = || Router::new().route("/", get(|| async { RouteResponse::ssr(IslandPage) }));
+        let fetch = |app: Router, uri: String| async move {
+            let response = app
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = response.status();
+            let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+            (status, String::from_utf8(body.to_vec()).unwrap())
+        };
+
+        // Default builder: linked RSJS modules are served and hashed URLs are
+        // linked automatically without calling `with_rsjs_assets()`.
+        let default_app = FrameworkBuilder::new()
+            .with_dynamic_routes(routes())
+            .build();
+        let (status, html) = fetch(default_app.clone(), "/".into()).await;
+        assert_eq!(status, StatusCode::OK);
+        let runtime_url = html
+            .split(r#"src=""#)
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("linked runtime script");
+        assert!(
+            runtime_url.starts_with("/_proa/immutable/rsjs/runtime."),
+            "{html}"
+        );
+        assert!(html.contains(r#" integrity="sha384-"#), "{html}");
+        let (asset_status, js) = fetch(default_app, runtime_url.to_owned()).await;
+        assert_eq!(asset_status, StatusCode::OK);
+        assert!(js.contains("app_url"));
+
+        // Opt-out: `without_rsjs_assets()` omits the routes and leaves canonical
+        // paths for custom adapters.
+        let opted_out = FrameworkBuilder::new()
+            .without_rsjs_assets()
+            .with_dynamic_routes(routes())
+            .build();
+        let (status, html) = fetch(opted_out.clone(), "/".into()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(r#"src="/rsjs-runtime.js""#), "{html}");
+        assert!(!html.contains("/_proa/immutable/rsjs/"), "{html}");
+        let (asset_status, _) = fetch(opted_out, runtime_url.to_owned()).await;
+        assert_eq!(asset_status, StatusCode::NOT_FOUND);
+
+        // Re-enabling after opt-out works.
+        let reenabled = FrameworkBuilder::new()
+            .without_rsjs_assets()
+            .with_rsjs_assets()
+            .with_dynamic_routes(routes())
+            .build();
+        let (status, html) = fetch(reenabled, "/".into()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(runtime_url), "{html}");
     }
 }

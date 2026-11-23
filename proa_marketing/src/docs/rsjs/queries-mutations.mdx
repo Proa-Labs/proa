@@ -15,8 +15,8 @@ For a simple JSON GET or POST, pass `cx.url("/api/items")` directly as the
 query or mutation request argument. Use a literal path in that direct call. It
 uses the same mount behavior without a `FetchRequest` descriptor. Use
 `FetchRequest` when request options are needed.
-This works when the runtime is served with `FrameworkBuilder::with_rsjs_assets()`
-and `with_base_path(...)`. Custom runtime handlers configure the source with
+This works out of the box with `FrameworkBuilder` and `with_base_path(...)`.
+Custom runtime handlers configure the source with
 `rsjs::runtime_assets::with_base_path`.
 See [runtime wiring](/docs/rsjs/runtime#serving-linked-assets-with-axum).
 
