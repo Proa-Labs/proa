@@ -89,8 +89,8 @@ pub fn export_with_framework_source(
     )?;
     // The marker is what lets a later export recognize this directory as its
     // own leftover, should this one be killed.
-    let work_marker = work.path().join(OWNER_FILE);
-    at(&work_marker, fs::write(&work_marker, OWNER_BYTES))?;
+    let work_marker = work.path().join(WORK_MARKER_FILE);
+    at(&work_marker, fs::write(&work_marker, WORK_MARKER_BYTES))?;
     let bundle = work.path().join("bundle");
     at(&bundle, fs::create_dir(&bundle))?;
     set_traversable_directory_permissions(&bundle)?;
@@ -205,6 +205,11 @@ pub fn export_with_framework_source(
 }
 
 const WORK_PREFIX: &str = ".proa-export-";
+/// Marks an export's working directory. It is deliberately not the marker a
+/// bundle or store carries: a real output whose name happens to start with
+/// [`WORK_PREFIX`] must never pass for a leftover.
+pub(super) const WORK_MARKER_FILE: &str = ".proa-export-work";
+pub(super) const WORK_MARKER_BYTES: &[u8] = b"proa-export-work-v1\n";
 
 /// Remove working directories an export left beside its destination when it
 /// was killed. A directory goes only when it carries the marker an export
@@ -230,7 +235,10 @@ fn sweep_abandoned(parent: &Path) {
             .and_then(|metadata| metadata.modified().ok())
             .and_then(|modified| modified.elapsed().ok())
             .is_some_and(|age| age > ABANDONED_AFTER);
-        if named && old && validate_owner(&path).is_ok() {
+        let marker = path.join(WORK_MARKER_FILE);
+        let marked = fs::symlink_metadata(&marker).is_ok_and(|metadata| metadata.is_file())
+            && fs::read(&marker).is_ok_and(|bytes| bytes == WORK_MARKER_BYTES);
+        if named && old && marked {
             let _ = fs::remove_dir_all(path);
         }
     }

@@ -824,6 +824,9 @@ fn published_names_under_the_reserved_directory_are_refused() {
     ));
 }
 
+// Aging a directory needs a writable handle to it, which only Unix gives
+// through `File::open`. The sweep itself is the same code everywhere.
+#[cfg(unix)]
 #[test]
 fn only_an_exports_own_old_leftovers_are_swept() {
     let f = Fixture::new();
@@ -836,24 +839,37 @@ fn only_an_exports_own_old_leftovers_are_swept() {
     let aged = |path: &Path| {
         File::open(path).unwrap().set_times(old).unwrap();
     };
+    let work_marker = |directory: &Path| {
+        fs::write(
+            directory.join(export::WORK_MARKER_FILE),
+            export::WORK_MARKER_BYTES,
+        )
+        .unwrap();
+    };
 
     // A killed export's working directory, marked as one.
     let leftover = parent.join(".proa-export-killed");
     fs::create_dir_all(leftover.join("previous")).unwrap();
-    fs::write(leftover.join(OWNER_FILE), OWNER_BYTES).unwrap();
+    work_marker(&leftover);
     aged(&leftover);
     // The same, but young: its export may still be running.
     let running = parent.join(".proa-export-running");
     fs::create_dir(&running).unwrap();
-    fs::write(running.join(OWNER_FILE), OWNER_BYTES).unwrap();
+    work_marker(&running);
     // Someone else's directory that only shares the prefix, however old.
     let foreign = parent.join(".proa-export-static");
     fs::create_dir(&foreign).unwrap();
     fs::write(foreign.join("keep.png"), b"keep").unwrap();
     aged(&foreign);
+    // A real bundle whose executable is named with the prefix. It carries
+    // the output marker, which is not the working-directory one.
+    let bundle = parent.join(".proa-export-app.assets");
+    export(&bundle, Some(&f.source), &[]).unwrap();
+    aged(&bundle);
 
     export(&parent.join("app.assets"), Some(&f.source), &[]).unwrap();
     assert!(!leftover.exists());
     assert!(running.exists());
     assert_eq!(fs::read(foreign.join("keep.png")).unwrap(), b"keep");
+    drop(AssetCatalog::load(&bundle).unwrap());
 }

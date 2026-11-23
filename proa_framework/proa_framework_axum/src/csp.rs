@@ -190,7 +190,7 @@ impl CspPolicy {
         ] {
             let key = spelled(&self.directives, directive);
             let own = key.as_ref().and_then(|key| self.directives.get(key));
-            if own.is_some_and(|value| value.trim() == "'none'") {
+            if own.is_some_and(|value| value.trim().eq_ignore_ascii_case("'none'")) {
                 continue;
             }
             // With neither the directive nor a default, nothing is restricted.
@@ -203,7 +203,7 @@ impl CspPolicy {
             {
                 continue;
             }
-            let value = if current.trim() == "'none'" {
+            let value = if current.trim().eq_ignore_ascii_case("'none'") {
                 origin.to_owned()
             } else {
                 format!("{current} {origin}")
@@ -503,14 +503,14 @@ mod tests {
             CspPolicy::strict()
                 .with_directive("Img-Src", "'self' data:")
                 .with_directive("style-src-elem", "'self'")
-                .with_directive("media-src", "'none'")
+                .with_directive("media-src", "'NONE'")
                 .with_directive("font-src", "https://cdn.example")
                 .allow_asset_origin(CDN),
         );
         for directive in [
             "Img-Src 'self' data: https://cdn.example",
             "style-src-elem 'self' https://cdn.example",
-            "media-src 'none'",
+            "media-src 'NONE'",
             "font-src https://cdn.example",
         ] {
             assert!(

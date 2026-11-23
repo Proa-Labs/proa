@@ -73,7 +73,12 @@ impl AssetPrefix {
             return Err(invalid());
         }
         if trimmed.starts_with('/') {
-            if trimmed.starts_with("//") {
+            // The managed head applies the same rule to this path. A prefix
+            // it would refuse must not get as far as building a router.
+            if trimmed[1..]
+                .split('/')
+                .any(|segment| matches!(segment, "" | "." | ".."))
+            {
                 return Err(invalid());
             }
             return Ok(Self {
