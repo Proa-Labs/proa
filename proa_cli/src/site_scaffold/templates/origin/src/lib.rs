@@ -142,6 +142,7 @@ pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBu
         .nest_service(
             "/static",
             proa::axum::base_path_assets(
+                // proa-perf-ok: direct launches without a catalog read the source tree
                 Router::new().fallback_service(ServeDir::new(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/public"
@@ -149,11 +150,18 @@ pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBu
                 base_path.clone(),
             ),
         )
-        .nest_service(
-            "/fonts",
+        .with_state(state);
+    // The asset catalog serves the vendored fonts. A direct launch has no
+    // catalog, so the files are served from the source tree at the same URL.
+    let router = if proa::axum::PublicAssets::configured() {
+        router
+    } else {
+        router.nest_service(
+            "/_proa/immutable/fonts",
+            // proa-perf-ok: direct launches without a catalog read the source tree
             ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/public/fonts")),
         )
-        .with_state(state);
+    };
     let app = FrameworkBuilder::new()
         .with_base_path(base_path)
         .with_head(proa::HeadConfig::default())

@@ -151,6 +151,69 @@ impl CspPolicy {
         self
     }
 
+    /// Let pages load published files from the host that serves them in
+    /// place of this server.
+    ///
+    /// Stylesheets, images, fonts, media, web manifests, and fetches are
+    /// governed by directives that list hosts, so `origin` is appended to
+    /// each of those,
+    /// whether the application set the directive or it falls back to
+    /// `default-src`. A directive the application set to `'none'` stays
+    /// closed. `script-src` is not touched: the nonce authorizes each script
+    /// tag whatever host it names, `'strict-dynamic'` extends that to the
+    /// modules it imports, and browsers ignore host sources beside it.
+    ///
+    /// `FrameworkBuilder` calls this with the origin of `PROA_ASSET_PREFIX`.
+    pub fn allow_asset_origin(mut self, origin: &str) -> Self {
+        // Directive names are case-insensitive, and a policy that carries a
+        // directive twice is read by its first copy. Find the application's
+        // own spelling before deciding there is none.
+        let spelled = |directives: &BTreeMap<Cow<'static, str>, String>, name: &str| {
+            directives
+                .keys()
+                .find(|key| key.eq_ignore_ascii_case(name))
+                .cloned()
+        };
+        let fallback = spelled(&self.directives, "default-src")
+            .and_then(|key| self.directives.get(&key).cloned());
+        // Every directive that governs a published file a page loads by URL.
+        // The `-elem` forms override their parent for the tags they cover, so
+        // they are extended where the application set them, never added.
+        for (directive, only_if_set) in [
+            ("style-src", false),
+            ("style-src-elem", true),
+            ("img-src", false),
+            ("font-src", false),
+            ("media-src", false),
+            ("connect-src", false),
+            ("manifest-src", false),
+        ] {
+            let key = spelled(&self.directives, directive);
+            let own = key.as_ref().and_then(|key| self.directives.get(key));
+            if own.is_some_and(|value| value.trim().eq_ignore_ascii_case("'none'")) {
+                continue;
+            }
+            // With neither the directive nor a default, nothing is restricted.
+            let Some(current) = own.or(if only_if_set { None } else { fallback.as_ref() }) else {
+                continue;
+            };
+            if current
+                .split_ascii_whitespace()
+                .any(|source| source == origin || source == "*")
+            {
+                continue;
+            }
+            let value = if current.trim().eq_ignore_ascii_case("'none'") {
+                origin.to_owned()
+            } else {
+                format!("{current} {origin}")
+            };
+            self.directives
+                .insert(key.unwrap_or(Cow::Borrowed(directive)), value);
+        }
+        self
+    }
+
     /// Send `Content-Security-Policy-Report-Only` instead of the enforcing
     /// header. Use this to observe violations before switching a live app
     /// over to enforcement.
@@ -411,6 +474,61 @@ mod tests {
             .to_str()
             .unwrap()
             .to_owned()
+    }
+
+    #[test]
+    fn an_asset_origin_is_added_wherever_a_host_list_decides() {
+        const CDN: &str = "https://cdn.example";
+        let has = |policy: &str, directive: &str| policy.split("; ").any(|part| part == directive);
+        let strict = policy_string(CspPolicy::strict().allow_asset_origin(CDN));
+        for directive in [
+            "style-src 'self' 'unsafe-inline' https://cdn.example",
+            "img-src 'self' https://cdn.example",
+            "font-src 'self' https://cdn.example",
+            "media-src 'self' https://cdn.example",
+            "connect-src 'self' https://cdn.example",
+            "manifest-src 'self' https://cdn.example",
+            "script-src 'nonce-dGVzdC1ub25jZQ' 'strict-dynamic'",
+        ] {
+            assert!(
+                has(&strict, directive),
+                "missing `{directive}` in `{strict}`"
+            );
+        }
+        assert!(!strict.contains("style-src-elem"));
+
+        // The application's own directives are extended in place, whatever
+        // their case, and one it closed stays closed.
+        let custom = policy_string(
+            CspPolicy::strict()
+                .with_directive("Img-Src", "'self' data:")
+                .with_directive("style-src-elem", "'self'")
+                .with_directive("media-src", "'NONE'")
+                .with_directive("font-src", "https://cdn.example")
+                .allow_asset_origin(CDN),
+        );
+        for directive in [
+            "Img-Src 'self' data: https://cdn.example",
+            "style-src-elem 'self' https://cdn.example",
+            "media-src 'NONE'",
+            "font-src https://cdn.example",
+        ] {
+            assert!(
+                has(&custom, directive),
+                "missing `{directive}` in `{custom}`"
+            );
+        }
+        assert_eq!(custom.to_ascii_lowercase().matches("img-src").count(), 1);
+
+        // A default that closes everything opens only for the asset host.
+        let closed = policy_string(
+            CspPolicy::strict()
+                .with_directive("default-src", "'none'")
+                .without_directive("style-src")
+                .allow_asset_origin(CDN),
+        );
+        assert!(has(&closed, "img-src https://cdn.example"), "{closed}");
+        assert!(has(&closed, "style-src https://cdn.example"), "{closed}");
     }
 
     #[test]

@@ -179,7 +179,8 @@ impl FontDisplay {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FontFace {
     /// Root-absolute, content-hashed URL of the vended file, e.g.
-    /// `"/fonts/geist-latin-400-normal.9f2c1a3b.woff2"`. Always leading-slash
+    /// `"/_proa/immutable/fonts/geist-latin-400-normal.9f2c1a3b7d4e5f60.woff2"`.
+    /// Always leading-slash
     /// absolute so it is immune to `<base href>` rewriting.
     pub url: &'static str,
     /// Container format of the vended file.
@@ -300,7 +301,16 @@ impl Font {
             StaticRaw("<link rel=\"preload\" as=\"font\" type=\"").render(cx)?;
             StaticRaw(face.format.mime()).render(cx)?;
             StaticRaw("\" href=\"").render(cx)?;
-            proa_core::shared::attr_value::AttrValue::render_attr_value(&cx.url(face.url), cx)?;
+            if published(face.url) {
+                // proa-perf-ok: share the prefix while writing it; no string is built.
+                let host = cx.request().asset_host();
+                let base_path = cx.request().base_path().clone();
+                let prefix = host.as_deref().unwrap_or(base_path.as_str());
+                proa_core::shared::escape::escape_attr_value(cx.output_mut(), prefix)?;
+                proa_core::shared::escape::escape_attr_value(cx.output_mut(), face.url)?;
+            } else {
+                proa_core::shared::attr_value::AttrValue::render_attr_value(&cx.url(face.url), cx)?;
+            }
             StaticRaw("\" crossorigin=\"anonymous\">").render(cx)?;
         }
         Ok(())
@@ -315,10 +325,11 @@ impl Font {
         cx: &mut WebContext<impl proa_core::DataLoader, B>,
     ) -> Result<(), WriteError> {
         StaticRaw("<style>").render(cx)?;
-        if cx.request().base_path().as_str().is_empty() {
+        // proa-perf-ok: share the prefix while writing CSS without allocating a stylesheet.
+        let host = cx.request().asset_host();
+        if cx.request().base_path().as_str().is_empty() && host.is_none() {
             StaticRaw(self.css).render(cx)?;
         } else {
-            // proa-perf-ok: share the prefix while writing CSS without allocating a stylesheet.
             let base_path = cx.request().base_path().clone();
             let mut rest = self.css;
             // The font compiler emits src:url(<face.url>). Only substitute
@@ -334,7 +345,11 @@ impl Font {
                     && !url.starts_with("//")
                     && self.faces.iter().any(|face| face.url == url)
                 {
-                    write_css_url_prefix(cx.output_mut(), base_path.as_str())?;
+                    let prefix = match &host {
+                        Some(host) if published(url) => host,
+                        _ => base_path.as_str(),
+                    };
+                    write_css_url_prefix(cx.output_mut(), prefix)?;
                 }
                 cx.output_mut().extend_str(url)?;
                 rest = &rest[split + end..];
@@ -350,8 +365,10 @@ impl Font {
     ///
     /// Allocation-free and generic over the output buffer, so it composes inside
     /// any `WebRenderSync` head builder.
-    /// Both preload links and generated CSS face URLs follow the base path on
-    /// `cx.request()`. Render with the page's context so each mount stays local.
+    /// Both preload links and generated CSS face URLs follow `cx.request()`:
+    /// the asset host for files the catalog publishes when one is
+    /// configured, the base path otherwise. Render with the page's context
+    /// so each mount stays local.
     #[cfg(feature = "render")]
     pub fn head<B: WriteBuf>(
         &self,
@@ -360,6 +377,14 @@ impl Font {
         self.preload_links(cx)?;
         self.style(cx)
     }
+}
+
+/// Whether a face URL names a file the asset catalog publishes. Those are
+/// linked from the asset host when one is configured; a URL the application
+/// serves itself always follows the base path.
+#[cfg(feature = "render")]
+fn published(url: &str) -> bool {
+    url.starts_with("/_proa/")
 }
 
 // Escape an unquoted CSS url() token, including '<' so a mount containing
@@ -450,6 +475,56 @@ mod tests {
         ));
         // Italic face is not preloaded, so no preload hint mentions it.
         assert!(!html.contains("geist-latin-400-italic"));
+    }
+
+    #[test]
+    fn catalog_fonts_follow_the_asset_host_and_app_served_fonts_do_not() {
+        const CATALOG: &str = "/_proa/immutable/fonts/geist.0123456789abcdef.woff2";
+        const OWN: &str = "/fonts/geist-italic.woff2";
+        const FACES: &[FontFace] = &[
+            FontFace {
+                url: CATALOG,
+                format: FontFormat::Woff2,
+                weight: FontWeight::Fixed(400),
+                style: FontStyle::Normal,
+                preload: true,
+            },
+            FontFace {
+                url: OWN,
+                format: FontFormat::Woff2,
+                weight: FontWeight::Fixed(400),
+                style: FontStyle::Italic,
+                preload: true,
+            },
+        ];
+        let font = Font {
+            faces: FACES,
+            css: concat!(
+                "@font-face{src:url(/_proa/immutable/fonts/geist.0123456789abcdef.woff2) format('woff2')}",
+                "@font-face{src:url(/fonts/geist-italic.woff2) format('woff2')}",
+            ),
+            ..FIXTURE
+        };
+        let head = |host: Option<&str>| {
+            let mut cx = WebContext::new();
+            cx.request_mut()
+                .set_base_path(proa_core::BasePath::new("/shop").unwrap());
+            cx.request_mut()
+                .set_asset_prefix(host.map(std::sync::Arc::from));
+            font.head(&mut cx).unwrap();
+            cx.into_output().into_string()
+        };
+
+        let local = head(None);
+        assert!(local.contains(&format!("href=\"/shop{CATALOG}\"")));
+        assert!(local.contains(&format!("src:url(/shop{CATALOG})")));
+
+        let hosted = head(Some("https://cdn.example/site"));
+        assert!(hosted.contains(&format!("href=\"https://cdn.example/site{CATALOG}\"")));
+        assert!(hosted.contains(&format!("src:url(https://cdn.example/site{CATALOG})")));
+        // A font the application serves itself stays under the base path.
+        assert!(hosted.contains(&format!("href=\"/shop{OWN}\"")));
+        assert!(hosted.contains(&format!("src:url(/shop{OWN})")));
     }
 
     #[test]

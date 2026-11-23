@@ -26,7 +26,8 @@ pub struct SyncOptions {
     /// matching the collector default). Must match the build script's
     /// `CollectOptions` when that is customized.
     pub fonts_dir: Option<PathBuf>,
-    /// Override the URL prefix (defaults to `/fonts`).
+    /// Override the URL prefix (defaults to the asset catalog's fonts
+    /// directory, `/_proa/immutable/fonts`).
     pub url_prefix: Option<String>,
 }
 
@@ -39,7 +40,9 @@ pub fn sync(opts: SyncOptions) -> Result<()> {
         fonts_out_dir: opts
             .fonts_dir
             .unwrap_or_else(|| PathBuf::from("public/fonts")),
-        url_prefix: opts.url_prefix.unwrap_or_else(|| "/fonts".to_string()),
+        url_prefix: opts
+            .url_prefix
+            .unwrap_or_else(|| proa_fonts_build::CATALOG_URL_PREFIX.to_string()),
         lock_path: None,
     };
     let result = collect::sync(&collect_opts, opts.offline)

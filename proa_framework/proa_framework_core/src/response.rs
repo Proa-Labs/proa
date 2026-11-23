@@ -1132,11 +1132,11 @@ pub fn render_sync_html_response(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan_with_base_path(
+    append_rsjs_runtime_plan_for_request(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
-        request.request.base_path(),
+        &request.request,
     )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
@@ -1191,11 +1191,11 @@ pub async fn render_async_html_response<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan_with_base_path(
+    append_rsjs_runtime_plan_for_request(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
-        request.request.base_path(),
+        &request.request,
     )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
@@ -1246,11 +1246,11 @@ pub async fn render_send_html_response<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan_with_base_path(
+    append_rsjs_runtime_plan_for_request(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
-        request.request.base_path(),
+        &request.request,
     )?;
     move_appended_response_tail_before_body(&mut buffer, response_tail_start);
     let mut response = FrameworkResponse::html(Bytes::from(buffer));
@@ -1404,11 +1404,11 @@ fn render_sync_component_to_html(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan_with_base_path(
+    append_rsjs_runtime_plan_for_request(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
-        request.request.base_path(),
+        &request.request,
     )?;
     let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
     Ok((html, title, decisions))
@@ -1463,11 +1463,11 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan_with_base_path(
+    append_rsjs_runtime_plan_for_request(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
-        request.request.base_path(),
+        &request.request,
     )?;
     let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
     Ok((html, title, decisions))
@@ -1519,11 +1519,11 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
         shared_seed_table_json.as_deref(),
         request.csp_nonce.as_ref(),
     )?;
-    append_rsjs_runtime_plan_with_base_path(
+    append_rsjs_runtime_plan_for_request(
         &mut buffer,
         rsjs_artifacts.rendered_islands(),
         request.csp_nonce.as_ref(),
-        request.request.base_path(),
+        &request.request,
     )?;
     let html = String::from_utf8(buffer).map_err(|error| error.utf8_error())?;
     Ok((html, title, decisions))
@@ -1599,12 +1599,12 @@ where
                 shared_seed_table_json.as_deref(),
                 request.csp_nonce.as_ref(),
             )?;
-            append_rsjs_runtime_plan_delta_with_base_path(
+            append_rsjs_runtime_plan_delta_for_request(
                 &mut shell,
                 rsjs_artifacts.rendered_islands(),
                 &mut rsjs_emission,
                 request.csp_nonce.as_ref(),
-                request.request.base_path(),
+                &request.request,
             )?;
             if stream.has_pending_boundaries() {
                 write_inline_runtime_tag(&mut shell, request.csp_nonce.as_ref())?;
@@ -1648,12 +1648,12 @@ where
                                 shared_seed_table_json.as_deref(),
                                 request.csp_nonce.as_ref(),
                             )?;
-                            append_rsjs_runtime_plan_delta_with_base_path(
+                            append_rsjs_runtime_plan_delta_for_request(
                                 &mut chunk,
                                 artifacts.rsjs.rendered_islands(),
                                 &mut rsjs_emission,
                                 request.csp_nonce.as_ref(),
-                                request.request.base_path(),
+                                &request.request,
                             )?;
                             // Metadata and every template precede the one
                             // application script for this readiness epoch.
@@ -1749,12 +1749,12 @@ where
                 shared_seed_table_json.as_deref(),
                 request.csp_nonce.as_ref(),
             )?;
-            append_rsjs_runtime_plan_delta_with_base_path(
+            append_rsjs_runtime_plan_delta_for_request(
                 &mut shell,
                 rsjs_artifacts.rendered_islands(),
                 &mut rsjs_emission,
                 request.csp_nonce.as_ref(),
-                request.request.base_path(),
+                &request.request,
             )?;
             if stream.has_pending_boundaries() {
                 write_inline_runtime_tag(&mut shell, request.csp_nonce.as_ref())?;
@@ -1798,12 +1798,12 @@ where
                                 shared_seed_table_json.as_deref(),
                                 request.csp_nonce.as_ref(),
                             )?;
-                            append_rsjs_runtime_plan_delta_with_base_path(
+                            append_rsjs_runtime_plan_delta_for_request(
                                 &mut chunk,
                                 artifacts.rsjs.rendered_islands(),
                                 &mut rsjs_emission,
                                 request.csp_nonce.as_ref(),
-                                request.request.base_path(),
+                                &request.request,
                             )?;
                             append_boundary_buffer_template(&mut chunk, id, &html);
                             swap_ids.push(id);
@@ -1920,11 +1920,11 @@ where
                     shared_seed_table_json.as_deref(),
                     request.csp_nonce.as_ref(),
                 )?;
-                append_rsjs_runtime_plan_with_base_path(
+                append_rsjs_runtime_plan_for_request(
                     &mut shell,
                     rsjs_artifacts.rendered_islands(),
                     request.csp_nonce.as_ref(),
-                    request.request.base_path(),
+                    &request.request,
                 )?;
                 move_appended_response_tail_before_body(&mut shell, response_tail_start);
                 if !shell.is_empty() {
@@ -2023,11 +2023,11 @@ where
                     shared_seed_table_json.as_deref(),
                     request.csp_nonce.as_ref(),
                 )?;
-                append_rsjs_runtime_plan_with_base_path(
+                append_rsjs_runtime_plan_for_request(
                     &mut shell,
                     rsjs_artifacts.rendered_islands(),
                     request.csp_nonce.as_ref(),
-                    request.request.base_path(),
+                    &request.request,
                 )?;
                 move_appended_response_tail_before_body(&mut shell, response_tail_start);
                 if !shell.is_empty() {
@@ -2331,6 +2331,97 @@ where
     let plan = manifest.page_runtime_plan_with_urls(rendered_islands, &urls)?;
     plan.write_html_delta(buffer, emission, nonce)?;
     Ok(())
+}
+
+fn append_rsjs_runtime_plan_for_request<I, S, B>(
+    buffer: &mut B,
+    rendered_islands: I,
+    nonce: Option<&CspNonce>,
+    request: &proa_core::RequestContext,
+) -> Result<(), FrameworkError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+    B: proa_core::WriteBuf,
+{
+    let mut emission = rsjs::PageRuntimeEmissionState::new();
+    append_rsjs_runtime_plan_delta_for_request(
+        buffer,
+        rendered_islands,
+        &mut emission,
+        nonce,
+        request,
+    )
+}
+
+/// Write the tags for a response rendered under `request`.
+///
+/// A host that published the RSJS modules under content-hashed names lists
+/// them on the request, and the tags point there. Those files are the same in
+/// every deployment, so the base path travels in the page. Without that list
+/// the modules are at their canonical URLs under the base path, served by an
+/// adapter that wrote the base path into them.
+fn append_rsjs_runtime_plan_delta_for_request<I, S, B>(
+    buffer: &mut B,
+    rendered_islands: I,
+    emission: &mut rsjs::PageRuntimeEmissionState,
+    nonce: Option<&CspNonce>,
+    request: &proa_core::RequestContext,
+) -> Result<(), FrameworkError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+    B: proa_core::WriteBuf,
+{
+    let Some(published) = request.framework_assets() else {
+        return append_rsjs_runtime_plan_delta_with_base_path(
+            buffer,
+            rendered_islands,
+            emission,
+            nonce,
+            request.base_path(),
+        );
+    };
+    // Modules stored with the public files are wherever those are hosted.
+    // Modules prepared in this process are only here.
+    let (prefix, cross_origin) = if published.is_hosted() {
+        (request.asset_prefix(), request.assets_are_cross_origin())
+    } else {
+        (request.base_path().as_str(), false)
+    };
+    let urls = PublishedRsjsUrls { published, prefix };
+    let plan = rsjs::manifest().page_runtime_plan_with_urls(rendered_islands, &urls)?;
+    let integrity = |url: &str| {
+        let path = url.strip_prefix(prefix)?.strip_prefix('/')?;
+        // A deferred module's URL carries a query; its bytes are the same.
+        published.integrity(path.split('?').next()?)
+    };
+    plan.write_html_delta_with(
+        buffer,
+        emission,
+        &rsjs::PageRuntimeHtml {
+            nonce,
+            base_path: request.base_path().as_str(),
+            integrity: Some(&integrity),
+            cross_origin,
+        },
+    )?;
+    Ok(())
+}
+
+struct PublishedRsjsUrls<'a> {
+    published: &'a proa_core::FrameworkAssets,
+    prefix: &'a str,
+}
+
+impl rsjs::RsjsAssetUrlResolver for PublishedRsjsUrls<'_> {
+    fn resolve(&self, asset: rsjs::RsjsAssetRef<'_>) -> String {
+        match self.published.get(&asset.canonical_path()) {
+            Some(file) => format!("{}/{}", self.prefix, file.path),
+            // A module the host did not publish has no other URL to offer.
+            None => rsjs::CanonicalRsjsAssetUrls::new(self.prefix).resolve(asset),
+        }
+    }
 }
 
 /// Move a tail appended after the component render to immediately before a

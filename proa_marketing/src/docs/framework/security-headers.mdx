@@ -44,7 +44,7 @@ style-src 'self' 'unsafe-inline'
 
 Directives are emitted in alphabetical order, so a captured header reads exactly like this.
 
-Proa applies the same nonce to framework-emitted state, import-map, bootstrap, client-shell, and boundary-swap tags. So `script-src` needs no `'unsafe-inline'` and no host allowlist.
+Proa applies the same nonce to framework-emitted state, import-map, bootstrap, client-shell, and boundary-swap tags. So `script-src` needs no `'unsafe-inline'` and no host allowlist. The RSJS script and `modulepreload` tags emitted by `with_rsjs_assets()` carry the nonce too, along with an `integrity="sha384-..."` attribute for the content-hashed module they name.
 
 Pairing the nonce with `'strict-dynamic'` means a script loaded by an already-trusted script inherits trust. That is what makes bundler-emitted chunks work without enumerating CDN hosts.
 
@@ -72,6 +72,10 @@ let app = FrameworkBuilder::new()
 `report_only(true)` sends `Content-Security-Policy-Report-Only`, which is how to roll a strict policy onto a live app. Violations are reported but nothing is blocked. Switch it off once the report stream is clean.
 
 Style policy is separate from script policy. The default keeps `style-src 'unsafe-inline'` because inline `style` attributes are common and cannot execute code. Tighten it to `'self'` once those styles live in classes.
+
+## Assets on another origin
+
+When [`PROA_ASSET_PREFIX`](/docs/framework/deployment#serving-assets-from-a-static-host) names another origin and a nonce policy is installed (`with_strict_csp()` or `with_csp_policy(...)`), `FrameworkBuilder` appends that origin to `style-src`, `img-src`, `font-src`, `media-src`, and `connect-src`. This also applies to directives you set with `with_directive`; a directive set to `'none'` stays closed. `script-src` is unchanged, because the nonce plus `'strict-dynamic'` already covers scripts on any host.
 
 ## Conflicts the builder warns about
 

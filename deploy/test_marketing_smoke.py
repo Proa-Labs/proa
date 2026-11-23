@@ -24,7 +24,7 @@ RESPONSES = {
     "/healthz": ("text/plain; charset=utf-8", b"ok"),
     "/readyz": ("text/plain; charset=utf-8", b"ready"),
     "/": ("text/html; charset=utf-8", b"<!doctype html><html><title>Proa</title></html>"),
-    "/_proa/assets/styles.css": ("text/css; charset=utf-8", b".proa{}" * 200),
+    "/_proa/immutable/styles.0123456789abcdef.css": ("text/css; charset=utf-8", b".proa{}" * 200),
     "/showcase/airbnb/proa": (
         "text/html; charset=utf-8",
         b'<!doctype html><html><div class="air-parity-shell">Airbnb</div></html>',
@@ -33,7 +33,7 @@ RESPONSES = {
         "application/javascript; charset=utf-8",
         b"const airbnbShowcase = true;" * 100,
     ),
-    "/_proa/assets/images/airbnb/bedroom.0123abcd.jpg": (
+    "/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg": (
         "image/jpeg",
         b"\xff\xd8\xff" + b" " * 2_000,
     ),
@@ -49,7 +49,8 @@ RESPONSES = {
 
 # The showcase image URL answers with a redirect into the asset catalog.
 CATALOG_ALIASES = {
-    "/images/airbnb/bedroom.jpg": "/_proa/assets/images/airbnb/bedroom.0123abcd.jpg",
+    "/images/airbnb/bedroom.jpg": "/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg",
+    "/static/styles.css": "/_proa/immutable/styles.0123456789abcdef.css",
 }
 
 
@@ -167,17 +168,17 @@ class MarketingSmokeTests(unittest.TestCase):
 
     def test_catalog_alias_must_stay_on_the_host_and_in_the_catalog(self) -> None:
         for location in (
-            "https://example.com/_proa/assets/images/airbnb/bedroom.0123abcd.jpg",
-            "//example.com/_proa/assets/images/airbnb/bedroom.0123abcd.jpg",
+            "https://example.com/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg",
+            "//example.com/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg",
             "/healthz",
         ):
             with self.subTest(location=location):
-                MarketingHandler.redirects = {"/images/airbnb/bedroom.jpg": location}
+                MarketingHandler.redirects["/images/airbnb/bedroom.jpg"] = location
                 with self.assertRaisesRegex(marketing_smoke.SmokeError, "outside the asset catalog"):
                     marketing_smoke.run(self.args())
 
     def test_other_paths_still_reject_redirects(self) -> None:
-        MarketingHandler.redirects["/openapi.json"] = "/_proa/assets/openapi.json"
+        MarketingHandler.redirects["/openapi.json"] = "/_proa/mutable/openapi.json"
         with self.assertRaises(marketing_smoke.SmokeError):
             marketing_smoke.run(self.args())
 

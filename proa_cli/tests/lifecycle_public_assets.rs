@@ -318,8 +318,9 @@ fn page_inputs() {
     );
     let first_css = &first_catalog.manifest().assets["styles.css"];
     let second_css = &second_catalog.manifest().assets["styles.css"];
-    assert_eq!(first_css.public_path, "styles.css");
-    assert_eq!(second_css.public_path, first_css.public_path);
+    // A stylesheet is named after its bytes like any other hashed file.
+    assert!(first_css.public_path.starts_with("styles."));
+    assert_ne!(second_css.public_path, first_css.public_path);
     assert_ne!(first_css.object, second_css.object);
     fs::write(root.join("public/logo.svg"), "updated logo").unwrap();
     let third = watch.wait_for(&log, waiting, 3);
@@ -1205,6 +1206,18 @@ fn build_bundles_the_public_catalog_beside_the_exported_executable() {
         b"first"
     );
     drop(catalog);
+    // The bundle holds each file at the path of its URL, the manifest, and
+    // the marker that says Proa wrote it. A static host can serve `public/`.
+    assert_eq!(
+        fs::read(bundled.join("public/_proa/immutable").join(&first_url)).unwrap(),
+        b"first"
+    );
+    let mut entries: Vec<_> = fs::read_dir(&bundled)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, [".proa-assets", "manifest.json", "public"]);
 
     // The directory is self-contained: it still loads after the pair is moved.
     let moved = temp.path().join("deployed");

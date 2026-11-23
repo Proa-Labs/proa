@@ -34,7 +34,9 @@ pub use proa_framework_core::{
     SitemapFile, SitemapIndex, SitemapIndexEntry, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
     MAX_SITEMAP_BYTES, MAX_SITEMAP_ENTRIES,
 };
-pub use public_assets::{PublicAssetError, PublicAssets};
+pub use public_assets::{
+    AssetPrefix, InvalidAssetPrefix, PublicAssetError, PublicAssets, ASSET_PREFIX_ENV,
+};
 pub use readiness::{Readiness, DEFAULT_READINESS_TIMEOUT};
 pub use route::{
     app_url, drive_dyn_render, drive_dyn_send_render, explicit_markdown,
@@ -47,7 +49,7 @@ pub use route::{
     ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
     StaticPathsFn,
 };
-pub use rsjs_assets::{rsjs_assets_router, try_rsjs_assets_router, RsjsAssetsError};
+pub use rsjs_assets::{RsjsAssets, RsjsAssetsError, RsjsFile};
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
 pub use server::{serve, serve_with_shutdown, ShutdownOutcome, DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT};
 pub use static_service::EmbeddedStaticService;
@@ -332,9 +334,8 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Serve linked RSJS assets, rewriting runtime imports once at startup.
-    /// Do not also register custom routes at `/rsjs-runtime.js`,
-    /// `/rsjs-runtime-query.js`, or `/rsjs/island/:file`.
+    /// Serve the linked RSJS modules under content-hashed names below
+    /// `/_proa/immutable/rsjs/`, and link those names from every page.
     pub fn with_rsjs_assets(mut self) -> Self {
         self.rsjs_assets = true;
         self
@@ -345,7 +346,7 @@ impl FrameworkBuilder {
     /// This enables `cx.url("public/...")` in components.
     /// Handlers can also extract `axum::Extension<PublicAssets>`.
     /// Load it with the same `BasePath` used by this builder.
-    /// The catalog owns routes under `/_proa/assets`.
+    /// The catalog owns routes under `/_proa/immutable` and `/_proa/mutable`.
     pub fn with_public_assets(mut self, assets: PublicAssets) -> Self {
         self.public_assets = Some(assets);
         self
@@ -555,8 +556,48 @@ impl FrameworkBuilder {
             Some(assets) => Some(assets),
             None => PublicAssets::from_env(&base_path)?,
         };
-        if rsjs_assets {
-            app = app.merge(try_rsjs_assets_router(&base_path)?);
+        let rsjs_assets = rsjs_assets
+            .then(|| RsjsAssets::load(public_assets.as_ref()))
+            .transpose()?;
+        // Published files hosted on another origin have to be named wherever
+        // an origin allowlist decides what a page may load.
+        let asset_origin = public_assets
+            .as_ref()
+            .and_then(PublicAssets::asset_prefix)
+            .and_then(AssetPrefix::origin)
+            .map(str::to_owned);
+        let csp = match (csp, &asset_origin) {
+            (Some(policy), Some(origin)) => Some(policy.allow_asset_origin(origin)),
+            (csp, _) => csp,
+        };
+        // The managed head resolves URLs against the mount. Files on an
+        // asset host are complete as they are: another origin is allowed as a
+        // resource origin, and a path on this origin is exempt from the mount.
+        let asset_prefix = public_assets
+            .as_ref()
+            .and_then(PublicAssets::asset_prefix)
+            .cloned();
+        let head = match (head, asset_prefix) {
+            (Some(mut head), Some(prefix)) => {
+                if let Some(urls) = head.urls.take() {
+                    let urls = Arc::unwrap_or_clone(urls);
+                    let urls = match prefix.origin() {
+                        Some(origin) => urls.allow_resource_origin(origin),
+                        None => urls.allow_asset_path(prefix.as_str()),
+                    }
+                    .map_err(|_| {
+                        PublicAssetError::AssetPrefix(InvalidAssetPrefix(
+                            prefix.as_str().to_owned(),
+                        ))
+                    })?;
+                    head.urls = Some(Arc::new(urls));
+                }
+                Some(head)
+            }
+            (head, _) => head,
+        };
+        if let Some(assets) = &rsjs_assets {
+            app = app.merge(assets.router());
         }
 
         if let Some(static_router) = static_router {
@@ -573,8 +614,11 @@ impl FrameworkBuilder {
         let computed_metadata = computed_metadata.unwrap_or_else(|| Arc::new(HashMap::new()));
         let mut layer = RouteContextLayer::new(computed_metadata);
         if let Some(assets) = public_assets {
-            app = app.merge(assets.router());
+            app = assets.serve_root_files(app.merge(assets.router()));
             layer = layer.with_public_assets(assets);
+        }
+        if let Some(assets) = &rsjs_assets {
+            layer = layer.with_rsjs_assets(assets);
         }
         let layer = layer
             .with_base_path(base_path)

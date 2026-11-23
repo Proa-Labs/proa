@@ -831,6 +831,7 @@ pub fn static_assets_rs() -> &'static str {
 pub fn service(base_path: proa::BasePath) -> axum::Router {
     proa::axum::base_path_assets(
         axum::Router::new().fallback_service(
+            // proa-perf-ok: only for a bare `cargo test`; a build serves the catalog
             ServeDir::new("public").append_index_html_on_directories(false),
         ),
         base_path,

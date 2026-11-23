@@ -9,7 +9,7 @@ Read [what self-managed Docker costs you](/docs/framework/deployment) first. Tak
 
 ## Build the image
 
-Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. That Dockerfile downloads the prebuilt CLI on x86-64 and compiles the same published version from crates.io on ARM64, so it builds natively on either. When the project vendors fonts with `proa_fonts`, it also copies `public/fonts`, the one directory the app serves from disk. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
+Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. That Dockerfile downloads the prebuilt CLI on x86-64 and compiles the same published version from crates.io on ARM64, so it builds natively on either. Vendored `proa_fonts` files need no extra copy: they are published into the asset bundle with the rest of `public/`. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
@@ -56,7 +56,7 @@ minutes. Docker caches that installation layer separately from your application
 source. The installer handles only Tailwind and verifies its standalone binary's
 checksum. This source-build path also works with the Bookworm base images.
 
-`proa build` runs the configured asset build and the linked RSJS pipeline, then writes the attested binary to `--artifact-out` and its fingerprinted public asset catalog beside it, here `/out/my-site` and `/out/my-site.assets/`. That directory is the whole deployable output, so one `COPY` carries it into the runtime stage. The server loads the catalog next to its own executable and serves it under `/_proa/assets`; there is no path to configure. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT`.
+`proa build` runs the configured asset build and the linked RSJS pipeline, then writes the attested binary to `--artifact-out` and its read-only public asset bundle beside it, here `/out/my-site` and `/out/my-site.assets/`. That directory is the whole deployable output, so one `COPY` carries it into the runtime stage. The server loads the bundle next to its own executable and serves it under `/_proa/immutable` (content-hashed, cached for a year) and `/_proa/mutable` (revalidated); there is no path to configure. To serve those files from a CDN instead, see [serving assets from a static host](/docs/framework/deployment#serving-assets-from-a-static-host). A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT`.
 
 ```bash
 docker build -t my-site:$(git rev-parse --short HEAD) .

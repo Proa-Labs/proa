@@ -4,7 +4,7 @@
 //! Build-time font pipeline for Proa.
 //!
 //! Given font bytes (raw sfnt or WOFF2) and a [`FontSpec`], [`generate_font`]:
-//! 1. content-hashes each file and names it `{stem}.{hash8}.{ext}`,
+//! 1. content-hashes each file and names it `{stem}.{hash16}.{ext}`,
 //! 2. parses the primary face's metrics ([`metrics`]),
 //! 3. synthesizes a metric-matched fallback `@font-face` ([`metrics::compute_fallback`]),
 //! 4. assembles the stylesheet ([`css`]), and
@@ -32,6 +32,12 @@ pub mod woff2;
 use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
+
+/// Where the public asset catalog serves `public/fonts`. A vendored file is
+/// already named after its bytes, so the catalog publishes it under that name
+/// in its content-hashed directory, and this URL is known before any build
+/// runs. It mirrors `proa_assets`' route, which this crate does not link.
+pub const CATALOG_URL_PREFIX: &str = "/_proa/immutable/fonts";
 
 pub use error::BuildError;
 pub use metrics::{FallbackMetrics, FallbackOverrides, FontMetrics};
@@ -163,9 +169,9 @@ pub fn generate_font(spec: &FontSpec) -> Result<GeneratedFont, BuildError> {
     let mut resolved = Vec::with_capacity(spec.faces.len());
     for face in &spec.faces {
         let format = detect_format(&face.bytes)?;
-        let hash8 = hash::content_hash8(&face.bytes);
+        let fingerprint = hash::content_hash(&face.bytes);
         let sha = hash::sha256_hex(&face.bytes);
-        let filename = format!("{}.{}.{}", face.stem, hash8, format.extension());
+        let filename = format!("{}.{}.{}", face.stem, fingerprint, format.extension());
         let url = join_url(&spec.url_prefix, &filename);
         resolved.push(ResolvedFace {
             filename,

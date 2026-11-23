@@ -17,10 +17,10 @@ use axum::{
     routing::get,
     Router,
 };
-use bytes::Bytes;
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use proa_assets::{
-    AssetCatalog, AssetError, CachePolicy, LiveReader, MANIFEST_FILE, OUTPUT_ENV, PUBLIC_ROUTE,
+    AssetCatalog, AssetError, LiveReader, IMMUTABLE_DIRECTORY, MANIFEST_FILE, MUTABLE_DIRECTORY,
+    OUTPUT_ENV, PUBLIC_ROUTE,
 };
 use proa_core::{BasePath, PublicAssetUrls};
 use thiserror::Error;
@@ -33,15 +33,111 @@ const PATH_ENCODING: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'_')
     .remove(b'.')
     .remove(b'~');
-const MAX_REWRITE_BYTES: u64 = 32 * 1024 * 1024;
 /// A manifest whose modification time is this close to the moment it was
 /// read can be replaced again without its size or timestamp changing, because
 /// file systems record times as coarsely as two seconds. Inside the window the
 /// manifest bytes decide; outside it the metadata alone is exact.
 const RACY_MANIFEST_WINDOW: Duration = Duration::from_secs(2);
 
+/// Names the host browsers fetch the catalog's files from, when that is not
+/// this server. Read once at startup, so one build runs in every environment.
+pub const ASSET_PREFIX_ENV: &str = "PROA_ASSET_PREFIX";
+
+/// Where browsers fetch the published files from when a static host serves
+/// them: the URL that the bundle's `public/` directory was uploaded to.
+///
+/// With `https://cdn.example.com/shop`, the file this server would serve at
+/// `/_proa/immutable/logo.<hash>.svg` is linked as
+/// `https://cdn.example.com/shop/_proa/immutable/logo.<hash>.svg`. Application
+/// routes keep using the base path: only published files move.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetPrefix {
+    value: Arc<str>,
+    origin: Option<Arc<str>>,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("invalid asset prefix `{0}`: use an http(s) URL or a path from the origin root, with no query or fragment")]
+pub struct InvalidAssetPrefix(pub(crate) String);
+
+impl AssetPrefix {
+    pub fn new(value: &str) -> Result<Self, InvalidAssetPrefix> {
+        let invalid = || InvalidAssetPrefix(value.to_owned());
+        let trimmed = value.trim_end_matches('/');
+        // The prefix is written into HTML, CSS, and a response header.
+        if trimmed.is_empty()
+            || trimmed
+                .chars()
+                .any(|c| c.is_whitespace() || c.is_control() || "\"'<>\\?#;,".contains(c))
+        {
+            return Err(invalid());
+        }
+        if trimmed.starts_with('/') {
+            // The managed head applies the same rule to this path. A prefix
+            // it would refuse must not get as far as building a router.
+            if trimmed[1..]
+                .split('/')
+                .any(|segment| matches!(segment, "" | "." | ".."))
+            {
+                return Err(invalid());
+            }
+            return Ok(Self {
+                value: Arc::from(trimmed),
+                origin: None,
+            });
+        }
+        // The string is written into pages as it is, and a browser reads
+        // `https:cdn.example` as a relative path. The URL parser would
+        // forgive that spelling, so the authority form is required literally.
+        let lowered = trimmed.to_ascii_lowercase();
+        if !(lowered.starts_with("http://") || lowered.starts_with("https://")) {
+            return Err(invalid());
+        }
+        let url = url::Url::parse(trimmed).map_err(|_| invalid())?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Err(invalid());
+        }
+        Ok(Self {
+            value: Arc::from(trimmed),
+            origin: Some(Arc::from(url.origin().ascii_serialization())),
+        })
+    }
+
+    /// The prefix named by `PROA_ASSET_PREFIX`, when it is set and not empty.
+    pub fn from_env() -> Result<Option<Self>, InvalidAssetPrefix> {
+        match std::env::var(ASSET_PREFIX_ENV) {
+            Ok(value) if !value.trim().is_empty() => Self::new(value.trim()).map(Some),
+            Ok(_) | Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(std::env::VarError::NotUnicode(value)) => {
+                Err(InvalidAssetPrefix(value.to_string_lossy().into_owned()))
+            }
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.value
+    }
+
+    /// The prefix as the shared string a request context holds.
+    pub(crate) fn shared(&self) -> Arc<str> {
+        self.value.clone()
+    }
+
+    /// The origin the files are served from, when it is another origin. A
+    /// content security policy has to name it.
+    pub fn origin(&self) -> Option<&str> {
+        self.origin.as_deref()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PublicAssetError {
+    #[error(transparent)]
+    AssetPrefix(#[from] InvalidAssetPrefix),
     #[error(transparent)]
     Catalog(#[from] AssetError),
     #[error("could not prepare public asset `{path}`: {reason}")]
@@ -51,7 +147,9 @@ pub enum PublicAssetError {
 /// Load once at startup and attach to the framework builder to serve files
 /// and resolve `cx.url("public/...")` in templates.
 ///
-/// The router serves only active manifest entries under `/_proa/assets`.
+/// The router serves only active manifest entries, each at its one URL:
+/// content-hashed files under `/_proa/immutable`, files that keep their name
+/// under `/_proa/mutable`.
 /// A base path changes outgoing URLs for a prefix-stripping proxy; incoming
 /// routes stay rooted at `/`, matching `FrameworkBuilder::with_base_path`.
 ///
@@ -140,7 +238,8 @@ impl LiveCatalog {
         {
             match AssetCatalog::load(&self.output)
                 .map_err(PublicAssetError::from)
-                .and_then(|catalog| PreparedCatalog::from_catalog(catalog, &self.base_path))
+                // A development server serves the files it republishes.
+                .and_then(|catalog| PreparedCatalog::from_catalog(catalog, &self.base_path, None))
             {
                 Ok(catalog) => {
                     tracing::debug!("public asset catalog reloaded in place");
@@ -168,23 +267,21 @@ struct PreparedCatalog {
     /// Also holds the reader lock that keeps these objects on disk.
     catalog: AssetCatalog,
     base_path: BasePath,
+    asset_prefix: Option<AssetPrefix>,
     urls: PublicAssetUrls,
     routes: BTreeMap<String, PreparedFile>,
+    /// Files also answered at a fixed path from the origin root, by that
+    /// path with its leading slash.
+    root: BTreeMap<String, PreparedFile>,
     cache_key: String,
 }
 
 #[derive(Clone)]
 struct PreparedFile {
-    source: Source,
+    service: ServeFile,
     etag: HeaderValue,
     content_type: HeaderValue,
-    immutable: bool,
-}
-
-#[derive(Clone)]
-enum Source {
-    File(ServeFile),
-    Rewritten(Bytes),
+    cache_control: HeaderValue,
 }
 
 /// The bundled catalog of the running executable, when one was published.
@@ -208,7 +305,18 @@ fn bundled_catalog(executable: &Path) -> Option<PathBuf> {
 impl PublicAssets {
     /// An explicitly configured missing/corrupt output fails startup.
     pub fn load(output: impl AsRef<Path>, base_path: &BasePath) -> Result<Self, PublicAssetError> {
-        let prepared = PreparedCatalog::from_catalog(AssetCatalog::load(output)?, base_path)?;
+        Self::load_hosted(output, base_path, None)
+    }
+
+    /// [`load`](Self::load), linking the files at `asset_prefix` when a
+    /// static host serves them in place of this server.
+    pub fn load_hosted(
+        output: impl AsRef<Path>,
+        base_path: &BasePath,
+        asset_prefix: Option<&AssetPrefix>,
+    ) -> Result<Self, PublicAssetError> {
+        let prepared =
+            PreparedCatalog::from_catalog(AssetCatalog::load(output)?, base_path, asset_prefix)?;
         Ok(Self {
             catalog: Arc::new(prepared),
             live: None,
@@ -276,10 +384,11 @@ impl PublicAssets {
         else {
             return Ok(None);
         };
+        // A development server serves the files it republishes itself.
         if crate::dev_reload::session_from_env() {
             Self::load_live(path, base_path).map(Some)
         } else {
-            Self::load(path, base_path).map(Some)
+            Self::load_hosted(path, base_path, AssetPrefix::from_env()?.as_ref()).map(Some)
         }
     }
 
@@ -312,12 +421,23 @@ impl PublicAssets {
         }
     }
 
+    /// Where the files are hosted, when not on this server.
+    pub fn asset_prefix(&self) -> Option<&AssetPrefix> {
+        self.catalog.asset_prefix.as_ref()
+    }
+
+    /// The catalog this handle was loaded from.
+    pub(crate) fn catalog(&self) -> &AssetCatalog {
+        &self.catalog.catalog
+    }
+
     pub(crate) fn base_path(&self) -> &BasePath {
         &self.catalog.base_path
     }
 
     /// Include this in application caches that hold HTML containing asset URLs.
-    /// It incorporates both catalog bytes and the startup delivery base path.
+    /// It incorporates the catalog bytes, the startup delivery base path, and
+    /// the host the files are linked from.
     ///
     /// The key belongs to the catalog this handle holds. Under `proa dev`,
     /// read it from the request's `Extension<PublicAssets>` or from
@@ -326,18 +446,64 @@ impl PublicAssets {
         &self.catalog.cache_key
     }
 
+    /// Answer the fixed paths browsers request on their own, such as
+    /// `/favicon.ico`, from the public files of those names. A route of the
+    /// application's own at one of those paths still wins: a root file is
+    /// served only where the router would have answered 404.
+    ///
+    /// `FrameworkBuilder` applies this. A custom router wraps itself.
+    pub fn serve_root_files(&self, router: Router) -> Router {
+        // A fixed catalog with no such file has nothing to answer, ever.
+        if self.live.is_none() && self.catalog.root.is_empty() {
+            return router;
+        }
+        let assets = self.clone();
+        router.layer(axum::middleware::from_fn(
+            move |request: Request<Body>, next: axum::middleware::Next| {
+                let assets = assets.clone();
+                async move {
+                    let assets = assets.current();
+                    let wanted = matches!(*request.method(), Method::GET | Method::HEAD)
+                        && assets.catalog.root.contains_key(request.uri().path());
+                    if !wanted {
+                        return next.run(request).await;
+                    }
+                    let (parts, body) = request.into_parts();
+                    let response = next.run(Request::from_parts(parts.clone(), body)).await;
+                    if response.status() != StatusCode::NOT_FOUND {
+                        return response;
+                    }
+                    let file = &assets.catalog.root[parts.uri.path()];
+                    respond(file, Request::from_parts(parts, Body::empty())).await
+                }
+            },
+        ))
+    }
+
     pub fn router(&self) -> Router {
         Router::new()
-            .route(&format!("{PUBLIC_ROUTE}/*path"), get(serve))
+            .route(
+                &format!("{PUBLIC_ROUTE}/{IMMUTABLE_DIRECTORY}/*path"),
+                get(serve_immutable),
+            )
+            .route(
+                &format!("{PUBLIC_ROUTE}/{MUTABLE_DIRECTORY}/*path"),
+                get(serve_mutable),
+            )
             .with_state(self.clone())
     }
 }
 
 impl PreparedCatalog {
-    fn from_catalog(catalog: AssetCatalog, base_path: &BasePath) -> Result<Self, PublicAssetError> {
+    fn from_catalog(
+        catalog: AssetCatalog,
+        base_path: &BasePath,
+        asset_prefix: Option<&AssetPrefix>,
+    ) -> Result<Self, PublicAssetError> {
+        // Published files are linked from wherever they are hosted.
+        let prefix = asset_prefix.map_or(base_path.as_str(), AssetPrefix::as_str);
         let mut urls = BTreeMap::new();
         let mut routes = BTreeMap::new();
-        let mut rewrite_bytes = 0;
         for (logical, entry) in &catalog.manifest().assets {
             let fail = |reason: String| PublicAssetError::Preparation {
                 path: logical.clone(),
@@ -348,90 +514,82 @@ impl PreparedCatalog {
                 .parse()
                 .map_err(|e: mime::FromStrError| fail(e.to_string()))?;
             let path = catalog.object_path(logical).expect("manifest entry");
-            let extension = logical
-                .rsplit('/')
-                .next()
-                .and_then(|name| name.rsplit_once('.'))
-                .filter(|(stem, _)| !stem.is_empty())
-                .map(|(_, ext)| ext.to_ascii_lowercase())
-                .unwrap_or_default();
-            let rewrite = !base_path.as_str().is_empty()
-                && entry.cache_policy == CachePolicy::Revalidate
-                && matches!(extension.as_str(), "js" | "mjs" | "css");
-            let (source, digest) = if rewrite {
-                rewrite_bytes += entry.byte_length;
-                if rewrite_bytes > MAX_REWRITE_BYTES {
-                    return Err(fail(
-                        "base-path rewriting exceeds the 32 MiB startup budget".into(),
-                    ));
-                }
-                let input = std::fs::read_to_string(&path).map_err(|e| fail(e.to_string()))?;
-                let output = if extension == "css" {
-                    crate::asset_urls::rewrite_css(&input, base_path)
-                } else {
-                    crate::asset_urls::rewrite_js(&input, base_path)
-                }
-                .map_err(fail)?;
-                let digest = proa_assets::sha256(output.as_bytes());
-                (Source::Rewritten(Bytes::from(output)), digest)
-            } else {
-                (
-                    Source::File(ServeFile::new_with_mime(path, &mime)),
-                    entry.sha256.clone(),
-                )
-            };
             let file = PreparedFile {
-                source,
-                etag: format!("\"{digest}\"").parse().expect("SHA-256 header"),
+                // The file on disk is the response, whatever the base path:
+                // one build output serves every environment and any host.
+                service: ServeFile::new_with_mime(path, &mime),
+                etag: format!("\"{}\"", entry.sha256)
+                    .parse()
+                    .expect("SHA-256 header"),
                 content_type: entry
                     .content_type
                     .parse()
                     .map_err(|e: axum::http::header::InvalidHeaderValue| fail(e.to_string()))?,
-                immutable: false,
+                cache_control: HeaderValue::from_static(entry.cache_policy.cache_control()),
             };
-            routes
-                .entry(logical.clone())
-                .or_insert_with(|| file.clone());
-            let mut preferred = file;
-            preferred.immutable = entry.cache_policy == CachePolicy::Immutable;
-            // Manifest validation rejects different bytes claiming one route.
-            // Prefer the immutable policy when a generated name is also logical.
-            routes
-                .entry(entry.public_path.clone())
-                .and_modify(|existing| {
-                    if preferred.immutable {
-                        *existing = preferred.clone();
-                    }
-                })
-                .or_insert(preferred);
-            let encoded = utf8_percent_encode(&entry.public_path, PATH_ENCODING);
+            // Manifest validation rejects different bytes claiming one path.
+            let url_path = entry.url_path();
+            let encoded = utf8_percent_encode(&url_path, PATH_ENCODING);
             urls.insert(
                 logical.clone(),
-                Arc::from(format!("{}{PUBLIC_ROUTE}/{encoded}", base_path.as_str())),
+                Arc::from(format!("{prefix}{PUBLIC_ROUTE}/{encoded}")),
             );
+            routes.insert(url_path, file);
+        }
+        let mut root = BTreeMap::new();
+        for (path, logical) in &catalog.manifest().root {
+            let entry = &catalog.manifest().assets[logical];
+            let mut file = routes[&entry.url_path()].clone();
+            // The path stays the same when the bytes change.
+            file.cache_control =
+                HeaderValue::from_static(proa_assets::CachePolicy::Revalidate.cache_control());
+            root.insert(format!("/{path}"), file);
         }
         let cache_key = proa_assets::sha256(
-            format!("{}\n{}", catalog.generation(), base_path.as_str()).as_bytes(),
+            format!("{}\n{}\n{prefix}", catalog.generation(), base_path.as_str()).as_bytes(),
         );
         Ok(Self {
             catalog,
             base_path: base_path.clone(),
+            asset_prefix: asset_prefix.cloned(),
             urls: PublicAssetUrls::new(urls),
             routes,
+            root,
             cache_key,
         })
     }
 }
 
+async fn serve_immutable(
+    assets: State<PublicAssets>,
+    RequestPath(path): RequestPath<String>,
+    request: Request<Body>,
+) -> Response<Body> {
+    serve(assets, IMMUTABLE_DIRECTORY, &path, request).await
+}
+
+async fn serve_mutable(
+    assets: State<PublicAssets>,
+    RequestPath(path): RequestPath<String>,
+    request: Request<Body>,
+) -> Response<Body> {
+    serve(assets, MUTABLE_DIRECTORY, &path, request).await
+}
+
 async fn serve(
     State(assets): State<PublicAssets>,
-    RequestPath(path): RequestPath<String>,
-    mut request: Request<Body>,
+    directory: &str,
+    path: &str,
+    request: Request<Body>,
 ) -> Response<Body> {
     let assets = assets.current();
-    let Some(file) = assets.catalog.routes.get(&path) else {
-        return empty(StatusCode::NOT_FOUND);
-    };
+    match assets.catalog.routes.get(&format!("{directory}/{path}")) {
+        Some(file) => respond(file, request).await,
+        None => empty(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn respond(file: &PreparedFile, mut request: Request<Body>) -> Response<Body> {
     let matches = request
         .headers()
         .get_all(header::IF_NONE_MATCH)
@@ -456,41 +614,18 @@ async fn serve(
                 request.headers_mut().remove(header::RANGE);
             }
         }
-        match &file.source {
-            Source::File(service) => service
-                .clone()
-                .oneshot(request)
-                .await
-                .unwrap()
-                .map(Body::new),
-            Source::Rewritten(bytes) => {
-                // A server may ignore Range and send the complete representation.
-                // Rewritten JS/CSS uses that behavior; media stays on ServeFile.
-                let body = if request.method() == Method::HEAD {
-                    Body::empty()
-                } else {
-                    Body::from(bytes.clone())
-                };
-                let mut response = Response::new(body);
-                response
-                    .headers_mut()
-                    .insert(header::CONTENT_LENGTH, bytes.len().into());
-                response
-            }
-        }
+        file.service
+            .clone()
+            .oneshot(request)
+            .await
+            .unwrap()
+            .map(Body::new)
     };
     if response.status().is_success() || response.status() == StatusCode::NOT_MODIFIED {
         let headers = response.headers_mut();
         headers.insert(header::ETAG, file.etag.clone());
         headers.insert(header::CONTENT_TYPE, file.content_type.clone());
-        headers.insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static(if file.immutable {
-                "public, max-age=31536000, immutable"
-            } else {
-                "no-cache"
-            }),
-        );
+        headers.insert(header::CACHE_CONTROL, file.cache_control.clone());
         headers.insert(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

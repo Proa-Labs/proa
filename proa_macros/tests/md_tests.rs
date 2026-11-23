@@ -1046,7 +1046,7 @@ fn markdown_link_and_image_destinations_preserve_urls_and_allow_cx_url() {
     cx.request_mut()
         .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
             "images/brand.svg".to_string(),
-            Arc::from("/apps/demo/_proa/assets/images/brand.0dd0d0d7.svg"),
+            Arc::from("/apps/demo/_proa/immutable/images/brand.0dd0d0d7.svg"),
         )]))));
 
     let label = "Brand_Logo.svg";
@@ -1066,7 +1066,7 @@ fn markdown_link_and_image_destinations_preserve_urls_and_allow_cx_url() {
     let out = cx.into_output().into_string();
     assert_eq!(
         out,
-        "![Brand\\_Logo\\.svg](/apps/demo/_proa/assets/images/brand.0dd0d0d7.svg)\n\n\
+        "![Brand\\_Logo\\.svg](/apps/demo/_proa/immutable/images/brand.0dd0d0d7.svg)\n\n\
          [Docs](/apps/demo/docs/rust_\\(lang\\)/v1.0)\n\n\
          [Blocked]()\n\n"
     );
@@ -1077,14 +1077,14 @@ fn markdown_link_and_image_destinations_preserve_urls_and_allow_cx_url() {
         .request_mut()
         .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
             "images/brand.svg".to_string(),
-            Arc::from("/_proa/assets/images/brand.0dd0d0d7.svg"),
+            Arc::from("/_proa/immutable/images/brand.0dd0d0d7.svg"),
         )]))));
     md_sync! { "![Brand]({inline_cx.url(\"public/images/brand.svg\")})" }
         .render_md(&mut inline_cx)
         .unwrap();
     assert_eq!(
         inline_cx.into_output().into_string(),
-        "![Brand](/_proa/assets/images/brand.0dd0d0d7.svg)"
+        "![Brand](/_proa/immutable/images/brand.0dd0d0d7.svg)"
     );
 }
 
@@ -1099,7 +1099,7 @@ async fn async_markdown_allows_cx_url_in_destinations() {
     cx.request_mut()
         .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
             "images/brand.svg".to_string(),
-            Arc::from("/_proa/assets/images/brand.0dd0d0d7.svg"),
+            Arc::from("/_proa/immutable/images/brand.0dd0d0d7.svg"),
         )]))));
     md! { r###"
         ![Brand]({cx.url("public/images/brand.svg")})
@@ -1111,7 +1111,7 @@ async fn async_markdown_allows_cx_url_in_destinations() {
     .unwrap();
     assert_eq!(
         cx.into_output().into_string(),
-        "![Brand](/_proa/assets/images/brand.0dd0d0d7.svg)\n\n"
+        "![Brand](/_proa/immutable/images/brand.0dd0d0d7.svg)\n\n"
     );
 }
 

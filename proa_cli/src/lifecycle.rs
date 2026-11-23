@@ -1180,7 +1180,18 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
         // The default export never bundles, but an explicit export to the
         // same path may have: that catalog must not outlive its executable.
         let bundle = if artifact_destination.is_some() {
-            public_assets::bundle(&root, public_source, destination)?
+            // Storing the modules is what lets a static host serve them. The
+            // server prepares its own when they are not there, so a failed
+            // export costs that option and not the build.
+            let framework =
+                public_assets::export_framework_assets(&source, target_triple.is_some())
+                    .unwrap_or_else(|error| {
+                        eprintln!(
+                            "warning: {error:#}; the bundle is written without them and the server will prepare them at startup"
+                        );
+                        None
+                    });
+            public_assets::bundle(&root, public_source, destination, framework.as_ref())?
         } else {
             public_assets::clear_bundle(destination)?
         };

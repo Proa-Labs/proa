@@ -922,15 +922,15 @@ mod metadata_patch_tests {
         let public_assets = crate::PublicAssetUrls::new(BTreeMap::from([
             (
                 "images/og.png".to_string(),
-                Arc::from(format!("{prefix}/_proa/assets/images/og.0c380908.png")),
+                Arc::from(format!("{prefix}/_proa/immutable/images/og.0c380908.png")),
             ),
             (
                 "favicon.svg".to_string(),
-                Arc::from(format!("{prefix}/_proa/assets/favicon.eb90bbcb.svg")),
+                Arc::from(format!("{prefix}/_proa/immutable/favicon.eb90bbcb.svg")),
             ),
             (
                 "app.css".to_string(),
-                Arc::from(format!("{prefix}/_proa/assets/app.css")),
+                Arc::from(format!("{prefix}/_proa/immutable/app.css")),
             ),
         ]));
         let mut cx = WebContext::new();
@@ -991,10 +991,10 @@ mod metadata_patch_tests {
             .unwrap();
             for expected in [
                 format!(
-                    r#"property="og:image" content="{site}/_proa/assets/images/og.0c380908.png""#
+                    r#"property="og:image" content="{site}/_proa/immutable/images/og.0c380908.png""#
                 ),
-                format!(r#"rel="icon" href="{site}/_proa/assets/favicon.eb90bbcb.svg""#),
-                format!(r#"rel="stylesheet" href="{site}/_proa/assets/app.css""#),
+                format!(r#"rel="icon" href="{site}/_proa/immutable/favicon.eb90bbcb.svg""#),
+                format!(r#"rel="stylesheet" href="{site}/_proa/immutable/app.css""#),
                 format!(r#"rel="manifest" href="{site}/site.webmanifest""#),
                 format!(r#"rel="canonical" href="{site}/products/jacket""#),
                 format!(r#"src="{site}/static/app.js""#),
@@ -1025,10 +1025,10 @@ mod metadata_patch_tests {
             .unwrap();
             for expected in [
                 format!(
-                    r#"property="og:image" content="{site}/_proa/assets/images/og.0c380908.png?v=1#top""#
+                    r#"property="og:image" content="{site}/_proa/immutable/images/og.0c380908.png?v=1#top""#
                 ),
-                format!(r#"rel="icon" href="{site}/_proa/assets/favicon.eb90bbcb.svg""#),
-                format!(r#"rel="canonical" href="{site}/_proa/assets/images/og.0c380908.png""#),
+                format!(r#"rel="icon" href="{site}/_proa/immutable/favicon.eb90bbcb.svg""#),
+                format!(r#"rel="canonical" href="{site}/_proa/immutable/images/og.0c380908.png""#),
             ] {
                 assert!(
                     html.contains(&expected),
@@ -1061,7 +1061,7 @@ mod metadata_patch_tests {
         .unwrap();
         assert_eq!(html.matches(r#"property="og:image""#).count(), 1, "{html}");
         assert!(
-            html.contains("/apps/demo/_proa/assets/images/og.0c380908.png"),
+            html.contains("/apps/demo/_proa/immutable/images/og.0c380908.png"),
             "{html}"
         );
         assert!(
