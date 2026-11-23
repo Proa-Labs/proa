@@ -203,8 +203,7 @@ The island gets its compiled JS embedded in the binary at link time
 via `linkme::distributed_slice`. The framework adapter
 (`proa_demo/src/playground.rs::serve_rsjs_*` is the reference) serves
 it from memory at `/rsjs/island/<asset_id>.<hash>.js` with brotli +
-`Cache-Control: immutable`. An application that uses
-`FrameworkBuilder::with_rsjs_assets()` serves the module at
+`Cache-Control: immutable`. An application that uses `FrameworkBuilder` serves the module by default at
 `/_proa/immutable/rsjs/island/<name>.<16 hex>.js` instead; read the exact URL
 from the page's script tags.
 

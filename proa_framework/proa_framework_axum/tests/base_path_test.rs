@@ -352,7 +352,7 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
         .into_data()
         .unwrap();
     let shell = std::str::from_utf8(&first).unwrap();
-    assert!(!shell.contains("base_path_late.js"));
+    assert!(!shell.contains("base_path_late."));
     notify.notify_one();
     let remaining = tokio::time::timeout(Duration::from_secs(2), to_bytes(body, usize::MAX))
         .await
@@ -360,11 +360,15 @@ async fn streamed_shell_arrives_before_late_island_with_prefixed_deferred_loader
         .unwrap();
     let remaining = std::str::from_utf8(&remaining).unwrap();
     assert!(
-        remaining.contains("/apps/demo/rsjs/island/base_path_late.js"),
+        remaining.contains("/apps/demo/_proa/immutable/rsjs/island/base_path_late."),
         "{remaining}"
     );
-    assert!(remaining.contains("/apps/demo/rsjs-runtime.js"));
-    assert!(!remaining.contains(r#"src="/rsjs"#));
+    assert!(
+        remaining.contains("/apps/demo/_proa/immutable/rsjs/runtime."),
+        "{remaining}"
+    );
+    assert!(remaining.contains(r#"{"basePath":"/apps/demo"}"#));
+    assert!(!remaining.contains(r#""/_proa/immutable/rsjs/"#));
     // The child resumes after the HTTP handler's task-local context ends.
     // Its own URL helper must retain the captured request prefix too.
     use base64::Engine as _;

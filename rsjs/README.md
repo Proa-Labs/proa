@@ -437,10 +437,10 @@ cart.invalidate();
 ```
 
 `/rsjs-runtime-query.js` is the canonical specifier, served by adapters that
-publish the runtimes at their canonical paths. When
-`FrameworkBuilder::with_rsjs_assets()` serves RSJS, the runtimes are published
-at content-hashed names under `/_proa/immutable/rsjs/` and that fixed path does
-not exist, so hand-written JavaScript cannot import it by a hard-coded URL.
+publish the runtimes at their canonical paths. When `FrameworkBuilder` serves
+RSJS (on by default), the runtimes are published at content-hashed names under
+`/_proa/immutable/rsjs/` and that fixed path does not exist, so hand-written
+JavaScript cannot import it by a hard-coded URL.
 
 Both handles expose `subscribe` and `getSnapshot`, so they adapt directly to
 React's `useSyncExternalStore` and equivalent store APIs. Their TypeScript

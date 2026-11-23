@@ -44,7 +44,7 @@ style-src 'self' 'unsafe-inline'
 
 Directives are emitted in alphabetical order, so a captured header reads exactly like this.
 
-Proa applies the same nonce to framework-emitted state, import-map, bootstrap, client-shell, and boundary-swap tags. So `script-src` needs no `'unsafe-inline'` and no host allowlist. The RSJS script and `modulepreload` tags emitted by `with_rsjs_assets()` carry the nonce too, along with an `integrity="sha384-..."` attribute for the content-hashed module they name.
+Proa applies the same nonce to framework-emitted state, import-map, bootstrap, client-shell, and boundary-swap tags. So `script-src` needs no `'unsafe-inline'` and no host allowlist. The RSJS script and `modulepreload` tags emitted by `FrameworkBuilder` carry the nonce too, along with an `integrity="sha384-..."` attribute for the content-hashed module they name.
 
 Pairing the nonce with `'strict-dynamic'` means a script loaded by an already-trusted script inherits trust. That is what makes bundler-emitted chunks work without enumerating CDN hosts.
 

@@ -8,8 +8,8 @@ Proa ships RSJS runtime code only for the owners a response actually rendered. T
 ## Loading the runtime layers
 
 RSJS has two shared runtime layers. The paths below are what
-`with_rsjs_assets()` serves at the origin root; `<hash>` is 16 hex characters
-of the file's content hash:
+`FrameworkBuilder` serves by default at the origin root; `<hash>` is 16 hex
+characters of the file's content hash:
 
 | Asset | Loaded when | Purpose |
 |-------|-------------|---------|
@@ -35,23 +35,23 @@ from your page code.
 
 ## Serving linked assets with Axum
 
-Serve the linked assets when building your application:
+`FrameworkBuilder` serves the linked assets automatically:
 
 ```rust filename="src/app.rs"
 use proa::axum::FrameworkBuilder;
 
 let app = FrameworkBuilder::new()
-    .with_rsjs_assets()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .build();
 ```
 
-The finalizer emits tags; `with_rsjs_assets()` serves the linked JavaScript those
-tags request, at content-hashed names under `/_proa/immutable/rsjs/` cached
-for a year. Modules import each other by relative path and contain no base
-path. It works at the origin root and follows
+The finalizer emits tags; `FrameworkBuilder` serves the linked JavaScript those
+tags request by default, at content-hashed names under `/_proa/immutable/rsjs/`
+cached for a year. Modules import each other by relative path and contain no
+base path. It works at the origin root and follows
 [`with_base_path(...)`](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
-when configured. Use it in place of custom runtime and island handlers.
+when configured. Call `.without_rsjs_assets()` if you serve your own runtime and
+island handlers instead.
 
 See [Static assets](/docs/framework/static-assets#serving-linked-island-assets)
 for the installed routes and custom-router alternative, and

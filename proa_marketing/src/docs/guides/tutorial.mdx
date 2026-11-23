@@ -557,9 +557,8 @@ the component running in the demo at the top of this page.
 
 ## Serving the Island
 
-The generated site's `FrameworkBuilder` already calls `.with_rsjs_assets()`.
-Keep that call: it serves the linked core runtime, query runtime,
-island modules, and component fragments at content-hashed URLs under
+`FrameworkBuilder` serves the linked core runtime, query runtime,
+island modules, and component fragments by default at content-hashed URLs under
 `/_proa/immutable/rsjs/`, with the configured URL prefix.
 
 `RouteResponse` records the rendered owners and emits the required runtime tags
@@ -567,9 +566,9 @@ automatically, including owners arriving in streamed boundaries. Do not append
 runtime tags in `RootDocument` or add a separate `rsjs_assets.rs` implementation.
 A response without hydrated owners emits no RSJS runtime tags.
 
-For an existing hand-written server, follow [Runtime wiring](/docs/rsjs/runtime)
-and install `FrameworkBuilder::with_rsjs_assets()` or merge the shared asset
-router explicitly.
+For an existing hand-written Axum router without `FrameworkBuilder`, follow
+[Runtime wiring](/docs/rsjs/runtime) to prepare `RsjsAssets` and attach it
+explicitly.
 
 ## Verify
 

@@ -165,7 +165,6 @@ pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBu
     let app = FrameworkBuilder::new()
         .with_base_path(base_path)
         .with_head(proa::HeadConfig::default())
-        .with_rsjs_assets()
         .with_dynamic_routes_and_metadata(router, metadata)
         .try_build()?;
     Ok(app.layer(TraceLayer::new_for_http()))

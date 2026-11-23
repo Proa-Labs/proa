@@ -126,6 +126,8 @@ pub struct FrameworkBuilder {
     head: Option<proa_core::HeadConfig>,
     sitemaps: Option<discovery::SitemapConfig>,
     robots: Option<RobotsTxt>,
+    /// Serve the linked RSJS runtimes and modules under `/_proa/immutable/rsjs/`.
+    /// ON by default; disable with [`without_rsjs_assets`](Self::without_rsjs_assets).
     rsjs_assets: bool,
     public_assets: Option<PublicAssets>,
     static_router: Option<Router>,
@@ -172,7 +174,7 @@ impl FrameworkBuilder {
             head: None,
             sitemaps: None,
             robots: None,
-            rsjs_assets: false,
+            rsjs_assets: true,
             public_assets: None,
             static_router: None,
             dynamic_router: None,
@@ -336,8 +338,21 @@ impl FrameworkBuilder {
 
     /// Serve the linked RSJS modules under content-hashed names below
     /// `/_proa/immutable/rsjs/`, and link those names from every page.
+    ///
+    /// **ON by default.** Call this only to re-enable RSJS serving after
+    /// [`without_rsjs_assets`](Self::without_rsjs_assets).
     pub fn with_rsjs_assets(mut self) -> Self {
         self.rsjs_assets = true;
+        self
+    }
+
+    /// Disable automatic RSJS module serving and hashed URL linking.
+    ///
+    /// Use this only when an application serves its own copies of the RSJS
+    /// runtime and island modules at their canonical paths (`/rsjs-runtime.js`
+    /// and `/rsjs/island/<file>.js`).
+    pub fn without_rsjs_assets(mut self) -> Self {
+        self.rsjs_assets = false;
         self
     }
 
@@ -523,8 +538,11 @@ impl FrameworkBuilder {
     ///
     /// Load and mount the public asset catalog unless one was supplied
     /// explicitly: the one `PROA_PUBLIC_ASSETS` names, or else the one
-    /// `proa build` bundled beside this executable. Invalid catalogs and discovery settings return
-    /// an error. Axum's existing duplicate-route restrictions still apply.
+    /// `proa build` bundled beside this executable. Linked RSJS modules are
+    /// also served under `/_proa/immutable/rsjs/` by default unless disabled
+    /// with [`without_rsjs_assets`](Self::without_rsjs_assets). Invalid
+    /// catalogs and discovery settings return an error. Axum's existing
+    /// duplicate-route restrictions still apply.
     pub fn try_build(self) -> Result<Router, FrameworkBuildError> {
         let FrameworkBuilder {
             base_path,
