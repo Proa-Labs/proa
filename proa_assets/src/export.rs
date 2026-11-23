@@ -87,6 +87,10 @@ pub fn export_with_framework_source(
             .prefix(WORK_PREFIX)
             .tempdir_in(parent),
     )?;
+    // The marker is what lets a later export recognize this directory as its
+    // own leftover, should this one be killed.
+    let work_marker = work.path().join(OWNER_FILE);
+    at(&work_marker, fs::write(&work_marker, OWNER_BYTES))?;
     let bundle = work.path().join("bundle");
     at(&bundle, fs::create_dir(&bundle))?;
     set_traversable_directory_permissions(&bundle)?;
@@ -203,27 +207,31 @@ pub fn export_with_framework_source(
 const WORK_PREFIX: &str = ".proa-export-";
 
 /// Remove working directories an export left beside its destination when it
-/// was killed. Only old ones go: a young one may belong to an export that is
-/// running now. Failing to clean up is never a reason to fail an export.
+/// was killed. A directory goes only when it carries the marker an export
+/// writes into its own working directory, never on its name alone: anything
+/// else there, such as an application directory that happens to share the
+/// prefix, belongs to someone else. Only old ones go, because a young one may
+/// belong to an export that is running now. Failing to clean up is never a
+/// reason to fail an export.
 fn sweep_abandoned(parent: &Path) {
     const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
     let Ok(entries) = fs::read_dir(parent) else {
         return;
     };
     for entry in entries.flatten() {
-        let abandoned = entry
+        let path = entry.path();
+        let named = entry
             .file_name()
             .to_str()
-            .is_some_and(|name| name.starts_with(WORK_PREFIX))
-            && entry
-                .metadata()
-                .ok()
-                .filter(|metadata| metadata.is_dir())
-                .and_then(|metadata| metadata.modified().ok())
-                .and_then(|modified| modified.elapsed().ok())
-                .is_some_and(|age| age > ABANDONED_AFTER);
-        if abandoned {
-            let _ = fs::remove_dir_all(entry.path());
+            .is_some_and(|name| name.starts_with(WORK_PREFIX));
+        let old = fs::symlink_metadata(&path)
+            .ok()
+            .filter(|metadata| metadata.is_dir())
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > ABANDONED_AFTER);
+        if named && old && validate_owner(&path).is_ok() {
+            let _ = fs::remove_dir_all(path);
         }
     }
 }

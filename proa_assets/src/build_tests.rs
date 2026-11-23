@@ -823,3 +823,37 @@ fn published_names_under_the_reserved_directory_are_refused() {
         Err(AssetError::ReservedPath(_))
     ));
 }
+
+#[test]
+fn only_an_exports_own_old_leftovers_are_swept() {
+    let f = Fixture::new();
+    f.write("logo.png", b"logo");
+    let parent = f.output.parent().unwrap().to_path_buf();
+    fs::create_dir_all(&parent).unwrap();
+    let old = fs::FileTimes::new().set_modified(
+        std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 24 * 60 * 60),
+    );
+    let aged = |path: &Path| {
+        File::open(path).unwrap().set_times(old).unwrap();
+    };
+
+    // A killed export's working directory, marked as one.
+    let leftover = parent.join(".proa-export-killed");
+    fs::create_dir_all(leftover.join("previous")).unwrap();
+    fs::write(leftover.join(OWNER_FILE), OWNER_BYTES).unwrap();
+    aged(&leftover);
+    // The same, but young: its export may still be running.
+    let running = parent.join(".proa-export-running");
+    fs::create_dir(&running).unwrap();
+    fs::write(running.join(OWNER_FILE), OWNER_BYTES).unwrap();
+    // Someone else's directory that only shares the prefix, however old.
+    let foreign = parent.join(".proa-export-static");
+    fs::create_dir(&foreign).unwrap();
+    fs::write(foreign.join("keep.png"), b"keep").unwrap();
+    aged(&foreign);
+
+    export(&parent.join("app.assets"), Some(&f.source), &[]).unwrap();
+    assert!(!leftover.exists());
+    assert!(running.exists());
+    assert_eq!(fs::read(foreign.join("keep.png")).unwrap(), b"keep");
+}
