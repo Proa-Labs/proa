@@ -21,7 +21,10 @@ const MID = "var(--ink3, #8C887E)";
 // comes from the page, where the RSJS runtime reads it too.
 function basePath() {
   try {
-    return JSON.parse(document.getElementById("__proa")?.textContent || "{}").basePath || "";
+    const config = document.getElementById("__proa");
+    if (config?.tagName !== "SCRIPT" || config.type !== "application/json") return "";
+    const base = JSON.parse(config.textContent || "{}").basePath;
+    return typeof base === "string" && base.startsWith("/") && !base.startsWith("//") ? base : "";
   } catch {
     return "";
   }

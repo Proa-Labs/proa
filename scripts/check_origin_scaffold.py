@@ -81,7 +81,6 @@ def bundle_acceptance(cli, project, work, environment):
         name.startswith("rsjs/island/") for name in modules), sorted(modules)
     fonts = sorted((public / "_proa/immutable/fonts").glob("*.woff2"))
     assert fonts and all(re.search(r"\.[0-9a-f]{16}\.woff2$", font.name) for font in fonts), fonts
-    assert (public / "favicon.ico").is_file() or not (project / "public/favicon.ico").exists()
 
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))

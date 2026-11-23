@@ -79,8 +79,10 @@ compatibility, custom adapter emission, and render allocation behavior.
   Custom asset handlers that serve their own copies at the canonical paths
   must apply the import rewriter themselves.
 - Public catalog files are never rewritten for a base path. Stylesheets refer
-  to other public files by relative path, and hand-written public JS reads the
-  base path from the page's `__proa` element.
+  to other public files by relative path. Hand-written public JS takes the
+  URLs it needs from the page, rendered with `cx.url(...)` into attributes:
+  the `__proa` element exists only on pages with islands, and the runtime
+  accepts it only as a JSON script element holding a path on this origin.
 - `/static` router assets compose CSS URL tokens and native JS URL arguments/imports.
   They preserve ordinary strings, external URLs, and local API bindings.
   Browser composition accepts already-mounted URLs without double-prefixing.

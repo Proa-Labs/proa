@@ -18,12 +18,13 @@ All notable public changes are tracked here.
 - Breaking: stylesheets are rewritten at publication so relative `url(...)`,
   `@import`, and `image-set(...)` references point at the published files, then
   hashed. References that cannot follow (a missing file, a root-relative URL, a
-  stylesheet that is not valid UTF-8 CSS) are build warnings; an `@import`
-  cycle fails publication. Catalog CSS and JS are no longer rewritten for a
+  stylesheet that is not valid UTF-8 CSS, a reference cycle) are build
+  warnings, and so is a path from a file that keeps its name to a hashed one. Catalog CSS and JS are no longer rewritten for a
   base path at startup: files are served byte for byte as built. Pages with
   RSJS islands under a non-empty base path carry
   `<script type="application/json" id="__proa">{"basePath":"..."}</script>`,
-  which the runtime's `app_url` and hand-written JS read.
+  which the runtime's `app_url` reads. Hand-written JS takes its URLs from
+  the page, rendered with `cx.url(...)`.
 - Breaking: `FrameworkBuilder::with_rsjs_assets()` serves the RSJS runtimes and
   generated modules at content-hashed names under `/_proa/immutable/rsjs/`,
   cached for a year, in place of `/rsjs-runtime.js`, `/rsjs-runtime-query.js`,

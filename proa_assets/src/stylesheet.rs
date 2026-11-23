@@ -117,6 +117,44 @@ pub(crate) fn references(source: &str) -> Result<Vec<Reference>, ()> {
     Ok(found)
 }
 
+/// The contents of every quoted string in `text` that could be a path: on
+/// one line, of a sane length, with no spaces. This is a search for things to
+/// warn about in files nothing parses, so it only needs to be cheap and to
+/// find the ordinary spellings of a path.
+pub(crate) fn quoted(text: &str) -> impl Iterator<Item = &str> {
+    let bytes = text.as_bytes();
+    let mut position = 0;
+    std::iter::from_fn(move || {
+        while position < bytes.len() {
+            let quote = bytes[position];
+            position += 1;
+            if !matches!(quote, b'"' | b'\'' | b'`') {
+                continue;
+            }
+            let start = position;
+            let end = bytes[start..]
+                .iter()
+                .take(512)
+                .position(|&byte| byte == quote || byte == b'\n');
+            let Some(end) = end.map(|end| start + end) else {
+                continue;
+            };
+            if bytes[end] != quote {
+                continue;
+            }
+            position = end + 1;
+            let candidate = &text[start..end];
+            if !candidate.is_empty()
+                && candidate.contains('.')
+                && !candidate.contains(|c: char| c.is_whitespace() || c == '\\')
+            {
+                return Some(candidate);
+            }
+        }
+        None
+    })
+}
+
 /// Resolve `url` as written in the stylesheet at logical path `from`.
 pub(crate) fn target(from: &str, url: &str) -> Target {
     let url = url.trim();

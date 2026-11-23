@@ -69,7 +69,12 @@ impl HeadUrlPolicy {
         {
             return Err(invalid());
         }
-        self.asset_path = Some(format!("{}/", path.trim_end_matches('/')));
+        // Stored the way the URL parser writes a path, because that is what
+        // a candidate URL's path is compared against: a prefix with spaces or
+        // non-ASCII characters is percent-encoded on both sides.
+        let mut normalized = self.base.clone();
+        normalized.set_path(&format!("{}/", path.trim_end_matches('/')));
+        self.asset_path = Some(normalized.path().to_owned());
         Ok(self)
     }
     pub fn allow_resource_origin(mut self, origin: &str) -> Result<Self, WriteError> {
@@ -980,6 +985,22 @@ mod url_policy_tests {
                 .unwrap(),
             "https://shop.example/shop/admin"
         );
+        // A prefix the URL parser escapes still matches its asset URLs,
+        // written either way.
+        let escaped = HeadUrlPolicy::new("https://shop.example", "/shop")
+            .unwrap()
+            .allow_asset_path("/cdn/日本語 a")
+            .unwrap();
+        for written in [
+            "/cdn/日本語 a/_proa/immutable/og.png",
+            "/cdn/%E6%97%A5%E6%9C%AC%E8%AA%9E%20a/_proa/immutable/og.png",
+        ] {
+            assert_eq!(
+                escaped.resolve(written, true).unwrap(),
+                "https://shop.example/cdn/%E6%97%A5%E6%9C%AC%E8%AA%9E%20a/_proa/immutable/og.png",
+                "{written}"
+            );
+        }
         // Without the setting the same URL is an application path.
         let plain = HeadUrlPolicy::new("https://shop.example", "/shop").unwrap();
         assert_eq!(

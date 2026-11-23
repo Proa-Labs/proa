@@ -42,7 +42,7 @@ class RejectRedirects(urllib.request.HTTPRedirectHandler):
 
 
 HTTP_OPENER = urllib.request.build_opener(RejectRedirects)
-CATALOG_PREFIX = "/_proa/"
+CATALOG_PREFIXES = ("/_proa/immutable/", "/_proa/mutable/")
 
 
 def parse_args() -> argparse.Namespace:
@@ -279,7 +279,7 @@ def fetch(
         # Follow it by path only, so the target is fetched from the host under
         # test whatever the Location header names.
         location = urllib.parse.urlsplit(error.headers.get("Location", ""))
-        if location.scheme or location.netloc or not location.path.startswith(CATALOG_PREFIX):
+        if location.scheme or location.netloc or not location.path.startswith(CATALOG_PREFIXES):
             raise SmokeError(
                 f"{check.path} redirected outside the asset catalog: "
                 f"{error.headers.get('Location')!r}"

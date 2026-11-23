@@ -405,15 +405,68 @@ fn references_that_cannot_follow_the_published_file_are_reported() {
 }
 
 #[test]
-fn stylesheets_that_import_each_other_in_a_circle_are_refused() {
+fn a_reference_cycle_between_stylesheets_is_reported_and_left_as_written() {
     let f = Fixture::new();
-    f.write("a.css", b"@import 'b.css';");
+    f.write("a.css", b"@import 'b.css'; a { mask: url(a.css#self) }");
     f.write("b.css", b"@import 'a.css';");
-    assert!(matches!(
-        OutputStore::open(&f.output).unwrap().publish(&f.source),
-        Err(AssetError::ImportCycle(_))
-    ));
-    assert!(!f.output.join(MANIFEST_FILE).exists());
+    let report = f.publish();
+    let problems: Vec<_> = report
+        .diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.file.as_str(), diagnostic.problem.clone()))
+        .collect();
+    assert_eq!(
+        problems,
+        [
+            ("b.css", Problem::Cycle("a.css".into())),
+            ("a.css", Problem::Cycle("a.css#self".into())),
+        ]
+    );
+    // The forward reference is still rewritten; the two back to a file whose
+    // name was not settled yet are the ones left alone.
+    let catalog = AssetCatalog::load(&f.output).unwrap();
+    let a = fs::read_to_string(catalog.object_path("a.css").unwrap()).unwrap();
+    let b = &report.manifest.assets["b.css"].public_path;
+    assert_eq!(a, format!("@import \"{b}\"; a {{ mask: url(a.css#self) }}"));
+    assert_eq!(
+        fs::read(catalog.object_path("b.css").unwrap()).unwrap(),
+        b"@import 'a.css';"
+    );
+}
+
+#[test]
+fn a_path_from_an_unhashed_file_to_a_hashed_one_is_reported() {
+    let f = Fixture::new();
+    f.write("icons/icon-192.png", b"icon");
+    f.write("app_bg.wasm", b"wasm");
+    f.write("vendor/lib.mjs", b"export {};");
+    f.write("data.json", b"{}");
+    f.write(
+        "site.webmanifest",
+        br#"{"name":"App","icons":[{"src":"icons/icon-192.png"}],"start_url":"/"}"#,
+    );
+    f.write(
+        "app.js",
+        b"import './vendor/lib.mjs'; fetch('data.json'); new URL('app_bg.wasm', import.meta.url); const label = 'a sentence. With a dot';",
+    );
+    let diagnostics = f.publish().diagnostics;
+    let problems: Vec<_> = diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.file.as_str(), diagnostic.problem.clone()))
+        .collect();
+    // References between files that keep their names still work, and are
+    // not reported.
+    assert_eq!(
+        problems,
+        [
+            ("app.js", Problem::Hashed("app_bg.wasm".into())),
+            (
+                "site.webmanifest",
+                Problem::Hashed("icons/icon-192.png".into())
+            ),
+        ]
+    );
+    assert!(diagnostics[0].to_string().contains("cx.url("));
 }
 
 #[test]
@@ -723,12 +776,10 @@ fn an_export_replaces_the_previous_output_whole_or_not_at_all() {
     drop(reader);
 
     // A failed export leaves it alone too.
-    f.write("a.css", b"@import 'b.css';");
-    f.write("b.css", b"@import 'a.css';");
+    f.write("_proa/reserved.png", b"refused");
     assert!(export(&bundle, Some(&f.source), &[]).is_err());
     assert_eq!(AssetCatalog::load(&bundle).unwrap().manifest(), &first);
-    fs::remove_file(f.source.join("a.css")).unwrap();
-    fs::remove_file(f.source.join("b.css")).unwrap();
+    fs::remove_dir_all(f.source.join("_proa")).unwrap();
 
     let second = export(&bundle, Some(&f.source), &[]).unwrap().manifest;
     assert_ne!(first, second);

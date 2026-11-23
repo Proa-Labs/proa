@@ -18,9 +18,17 @@ function proa_base_path() {
     if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return '';
     let value = '';
     try {
+        // Only the framework's own data block counts: a JSON script element.
+        // Markup from anywhere else that carries this id (a sanitizer keeps
+        // ids and drops scripts) must not be able to redirect requests. The
+        // value has to be a path on this origin.
         const config = document.getElementById('__proa');
-        const base = config ? JSON.parse(config.textContent || '{}').basePath : '';
-        if (typeof base === 'string') value = base;
+        const trusted = config && String(config.tagName).toUpperCase() === 'SCRIPT' &&
+            String(config.type).toLowerCase() === 'application/json';
+        const base = trusted ? JSON.parse(config.textContent || '{}').basePath : '';
+        if (typeof base === 'string' && base.startsWith('/') && !base.startsWith('//')) {
+            value = base;
+        }
     } catch (_) {
         // A page without a readable config is served from the origin root.
     }

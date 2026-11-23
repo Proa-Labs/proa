@@ -1038,6 +1038,8 @@ fn an_asset_prefix_is_a_url_or_a_root_path_and_nothing_that_could_break_markup()
         "//cdn.example.com",
         "cdn.example.com",
         "ftp://cdn.example.com",
+        "https:cdn.example.com",
+        "https:/cdn.example.com",
         "https://user:secret@cdn.example.com",
         "https://cdn.example.com/?v=1",
         "https://cdn.example.com/#x",

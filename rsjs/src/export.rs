@@ -42,46 +42,89 @@ pub type Exporter = fn(&Path) -> Result<Exported, String>;
 #[linkme::distributed_slice]
 pub static EXPORTERS: [Exporter] = [..];
 
-#[used]
-static SENTINEL_IN_EXECUTABLE: &[u8] = SENTINEL;
+/// The hook exists only where this crate knows how to run code before
+/// `main`. Everything about it is gated together, the sentinel included: an
+/// executable for any other platform must not look like one that answers, or
+/// the build tool would start the application itself.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_os = "dragonfly",
+    target_os = "illumos",
+    target_vendor = "apple",
+    windows
+))]
+mod hook {
+    use super::{export, EXPORT_ENV, SENTINEL};
+    use std::path::Path;
 
-/// Runs before `main` on the platforms the build tool supports.
-#[used]
+    #[used]
+    static SENTINEL_IN_EXECUTABLE: &[u8] = SENTINEL;
+
+    /// Runs before `main`.
+    #[used]
+    #[cfg_attr(
+        any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd",
+            target_os = "dragonfly",
+            target_os = "illumos"
+        ),
+        link_section = ".init_array"
+    )]
+    #[cfg_attr(target_vendor = "apple", link_section = "__DATA,__mod_init_func")]
+    #[cfg_attr(windows, link_section = ".CRT$XCU")]
+    static ANSWER_BEFORE_MAIN: extern "C" fn() = answer;
+
+    extern "C" fn answer() {
+        // The optimizer cannot see through `black_box`, so this is a real use
+        // of the sentinel: it stays in the executable wherever this function
+        // does.
+        if std::hint::black_box(SENTINEL_IN_EXECUTABLE).is_empty() {
+            return;
+        }
+        // An empty value names no directory. Treating it as the current one
+        // would write files there and stop a server that merely inherited it.
+        let Some(directory) = std::env::var_os(EXPORT_ENV).filter(|value| !value.is_empty()) else {
+            return;
+        };
+        // Said out loud: a process that exits here was asked to, and anyone
+        // reading its log should be able to tell.
+        eprintln!(
+            "{EXPORT_ENV} is set: exporting framework assets to `{}` and exiting",
+            Path::new(&directory).display()
+        );
+        let code = match export(Path::new(&directory)) {
+            Ok(()) => 0,
+            Err(reason) => {
+                eprintln!("could not export framework assets: {reason}");
+                1
+            }
+        };
+        std::process::exit(code);
+    }
+}
+
 #[cfg_attr(
-    any(
+    not(any(
         target_os = "linux",
         target_os = "android",
         target_os = "freebsd",
         target_os = "netbsd",
         target_os = "openbsd",
         target_os = "dragonfly",
-        target_os = "illumos"
-    ),
-    link_section = ".init_array"
+        target_os = "illumos",
+        target_vendor = "apple",
+        windows
+    )),
+    allow(dead_code)
 )]
-#[cfg_attr(target_vendor = "apple", link_section = "__DATA,__mod_init_func")]
-#[cfg_attr(windows, link_section = ".CRT$XCU")]
-static ANSWER_BEFORE_MAIN: extern "C" fn() = answer;
-
-extern "C" fn answer() {
-    // The optimizer cannot see through `black_box`, so this is a real use of
-    // the sentinel: it stays in the executable wherever this function does.
-    if std::hint::black_box(SENTINEL_IN_EXECUTABLE).is_empty() {
-        return;
-    }
-    let Some(directory) = std::env::var_os(EXPORT_ENV) else {
-        return;
-    };
-    let code = match export(Path::new(&directory)) {
-        Ok(()) => 0,
-        Err(reason) => {
-            eprintln!("could not export framework assets: {reason}");
-            1
-        }
-    };
-    std::process::exit(code);
-}
-
 fn export(directory: &Path) -> Result<(), String> {
     let mut exported = Vec::new();
     for exporter in EXPORTERS {

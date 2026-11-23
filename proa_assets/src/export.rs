@@ -16,9 +16,13 @@
 //!       mutable/data.json                 revalidated on every load
 //! ```
 //!
-//! It is assembled beside its destination and moved into place whole, so a
-//! failed export leaves the previous bundle exactly as it was. There is no
-//! lock file, staging area, or history in it: nothing writes to it again.
+//! It is assembled beside its destination and moved into place whole, so an
+//! export that fails while building leaves the previous bundle untouched.
+//! The move itself is two renames (the old bundle out, the new one in). A
+//! process killed between them leaves no bundle at the destination and the
+//! old one in a `.proa-export-*` directory beside it, which the next export
+//! replaces. There is no lock file, staging area, or history in a bundle:
+//! nothing writes to it again.
 
 use super::*;
 
@@ -75,11 +79,12 @@ pub fn export_with_framework_source(
             return Err(AssetError::OverlappingDirectories);
         }
     }
+    sweep_abandoned(parent);
     // Everything is built here first. Dropping this on any error removes it.
     let work = at(
         parent,
         tempfile::Builder::new()
-            .prefix(".proa-export-")
+            .prefix(WORK_PREFIX)
             .tempdir_in(parent),
     )?;
     let bundle = work.path().join("bundle");
@@ -173,8 +178,14 @@ pub fn export_with_framework_source(
         }
     };
     if let Err(source) = fs::rename(&bundle, destination) {
-        if previous.exists() {
-            let _ = fs::rename(&previous, destination);
+        if previous.exists() && fs::rename(&previous, destination).is_err() {
+            // The old bundle could not be put back. Keep it where it is
+            // instead of deleting it with the working directory, and say
+            // where, so it can be restored by hand.
+            return Err(AssetError::Io {
+                path: work.keep().join("previous"),
+                source,
+            });
         }
         return Err(AssetError::Io {
             path: destination.into(),
@@ -187,6 +198,34 @@ pub fn export_with_framework_source(
         manifest,
         diagnostics,
     })
+}
+
+const WORK_PREFIX: &str = ".proa-export-";
+
+/// Remove working directories an export left beside its destination when it
+/// was killed. Only old ones go: a young one may belong to an export that is
+/// running now. Failing to clean up is never a reason to fail an export.
+fn sweep_abandoned(parent: &Path) {
+    const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let abandoned = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(WORK_PREFIX))
+            && entry
+                .metadata()
+                .ok()
+                .filter(|metadata| metadata.is_dir())
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age > ABANDONED_AFTER);
+        if abandoned {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 enum Placement<'a> {

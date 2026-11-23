@@ -161,9 +161,11 @@ impl RsjsAssets {
     }
 
     /// The modules `proa build` stored in `bundle`, when they were exported
-    /// from this executable. They are read as they are: nothing is parsed,
-    /// minified, or hashed at startup. Any other bundle, and a store, gives
-    /// the same result as [`prepare`](Self::prepare).
+    /// from this executable. They are read as they are: no module is parsed,
+    /// rewritten, or minified again at startup. What startup still does is
+    /// identify them (one digest over the linked sources) and let the
+    /// catalog verify the files. Any other bundle, and a store, gives the
+    /// same result as [`prepare`](Self::prepare).
     pub fn load(bundle: Option<&crate::PublicAssets>) -> Result<Self, RsjsAssetsError> {
         let manifest = rsjs::manifest();
         let sources = Sources::linked(&manifest)?;
@@ -248,8 +250,9 @@ impl RsjsAssets {
             };
             // The two runtime files import nothing and decide for themselves
             // which URLs gain the base path (a query can opt out, and a
-            // module URL never does). They are published as written. Only
-            // generated modules are made portable.
+            // module URL never does). No URL in them is touched: apart from
+            // minification they are published as written. Only generated
+            // modules are made portable.
             let is_runtime = matches!(
                 name.as_str(),
                 rsjs::manifest::RUNTIME_PATH | rsjs::manifest::QUERY_RUNTIME_PATH
@@ -259,6 +262,11 @@ impl RsjsAssets {
             } else {
                 portable_js(source, &resolve).map_err(fail)?
             };
+            if let Some(specifier) = portable.unresolved.first() {
+                return Err(fail(format!(
+                    "it imports `{specifier}`, which is not a linked module"
+                )));
+            }
             let mut imports: BTreeSet<usize> =
                 portable.imports.iter().map(|(_, module)| *module).collect();
             // The helper is the runtime's `app_url`, so a generated module
@@ -838,6 +846,20 @@ mod tests {
         assert!(counter.contains(name(file(&minified, "rsjs/island/component_row.js"))));
         assert!(counter.contains("[data-rsjs-bind]"));
         assert!(text(file(&minified, "rsjs-runtime.js")).contains("export function app_url("));
+    }
+
+    #[test]
+    fn an_import_of_a_path_that_is_not_a_linked_module_is_refused() {
+        static STRAY: rsjs::IslandManifestEntry = island(
+            "stray",
+            r#"import { helper } from "./not_linked.js"; import "https://cdn.example/lib.js"; export const value = helper;"#,
+        );
+        let manifest = rsjs::Manifest {
+            islands: vec![&STRAY],
+            ..rsjs::Manifest::default()
+        };
+        let error = RsjsAssets::build(&manifest, false).err().expect("refused");
+        assert!(error.to_string().contains("./not_linked.js"), "{error}");
     }
 
     #[test]

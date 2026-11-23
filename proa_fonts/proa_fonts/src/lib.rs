@@ -179,7 +179,8 @@ impl FontDisplay {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FontFace {
     /// Root-absolute, content-hashed URL of the vended file, e.g.
-    /// `"/fonts/geist-latin-400-normal.9f2c1a3b.woff2"`. Always leading-slash
+    /// `"/_proa/immutable/fonts/geist-latin-400-normal.9f2c1a3b7d4e5f60.woff2"`.
+    /// Always leading-slash
     /// absolute so it is immune to `<base href>` rewriting.
     pub url: &'static str,
     /// Container format of the vended file.

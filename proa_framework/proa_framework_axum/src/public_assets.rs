@@ -81,6 +81,13 @@ impl AssetPrefix {
                 origin: None,
             });
         }
+        // The string is written into pages as it is, and a browser reads
+        // `https:cdn.example` as a relative path. The URL parser would
+        // forgive that spelling, so the authority form is required literally.
+        let lowered = trimmed.to_ascii_lowercase();
+        if !(lowered.starts_with("http://") || lowered.starts_with("https://")) {
+            return Err(invalid());
+        }
         let url = url::Url::parse(trimmed).map_err(|_| invalid())?;
         if !matches!(url.scheme(), "http" | "https")
             || url.host_str().is_none()

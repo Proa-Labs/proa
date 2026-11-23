@@ -420,6 +420,22 @@ pub(super) fn check_bundle_destination(
             executable.display()
         );
     }
+    // A bundle a server is reading cannot be replaced or removed. Finding
+    // that out now costs nothing; finding it out after compiling costs the
+    // whole build. The claim is released at once: this only asks.
+    let is_symlink = fs::symlink_metadata(&output).is_ok_and(|metadata| metadata.is_symlink());
+    if !is_symlink
+        && proa_assets::is_output(&output)
+        && matches!(
+            proa_assets::build::reserve_bundle_removal(&output),
+            Ok(None)
+        )
+    {
+        bail!(
+            "`{}` is still being read by a running server. Stop that server, or export the executable to a different path",
+            output.display()
+        );
+    }
     // Catalog files inside the public source would be published by the next
     // build.
     if let Some(source) = public_source(root, directory) {

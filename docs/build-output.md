@@ -330,7 +330,13 @@ References that cannot follow are reported as build warnings:
   stylesheet),
 - a stylesheet that is not valid UTF-8 CSS.
 
-Stylesheets that `@import` each other in a cycle fail publication.
+A reference that leads back to the stylesheet it is in, directly or through
+other stylesheets, is reported and left as written.
+
+Files that keep their names (public JS, HTML, JSON, web manifests) are not
+rewritten. A quoted relative path in one that names a hashed file is reported:
+nothing is served at that path any more. Render the file's URL into the page
+with `cx.url("public/...")` and read it from there.
 
 ### No environment in files
 
@@ -425,17 +431,22 @@ illustrative.
 
 The bundle holds no lock files, `objects/`, `staging/`, or `fingerprints.json`:
 nothing writes to it again. It is assembled beside its destination and moved
-into place whole, so a failed export leaves the previous bundle untouched.
+into place whole, so an export that fails while building leaves the previous
+bundle untouched. The move is two renames, the old bundle out and the new one
+in. A build killed between them leaves no bundle at the destination; the old
+one stays in a `.proa-export-*` directory beside it until a later export.
 
 The RSJS modules get into the bundle because `proa build` starts the executable
 it just built with `PROA_EXPORT_FRAMEWORK_ASSETS=<dir>`. The framework answers
 before `main` runs, writes the modules, and exits, so no application startup
 code (database, configuration, ports) runs during a build. An executable that
-does not serve RSJS is never started. A cross-compiled executable that cannot
+does not link the RSJS runtime is never started; one that links it is, even if
+it serves its own copies of the modules. A cross-compiled executable that cannot
 run on the build machine is skipped with a note, and the server then prepares
 and serves the modules itself. When the bundle holds the modules exported from
-the same executable, the server reads them from disk and does no parsing,
-minifying, or hashing at startup.
+the same executable, the server reads them from disk and does not parse,
+rewrite, or minify any module at startup. It still computes one digest over
+the linked sources to recognize them, and the catalog verifies each file.
 
 Two limits. The export fails soft: if the executable cannot answer, the build
 warns and writes the bundle without the modules, and the server prepares them

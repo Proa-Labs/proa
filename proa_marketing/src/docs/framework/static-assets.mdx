@@ -55,7 +55,7 @@ Publication rewrites every `url(...)`, `@import`, and `image-set(...)` in a styl
 .hero { background-image: url(images/hero.webp); }
 ```
 
-References that cannot follow are reported as build warnings: a relative URL that names no public file, a root-relative URL such as `url(/images/a.png)` (use a path relative to the stylesheet), and a stylesheet that is not valid UTF-8 CSS. Stylesheets that `@import` each other in a cycle fail publication.
+References that cannot follow are reported as build warnings: a relative URL that names no public file, a root-relative URL such as `url(/images/a.png)` (use a path relative to the stylesheet), a stylesheet that is not valid UTF-8 CSS, and a reference that leads back to the stylesheet it is in (left as written). Files that keep their names (public JS, HTML, JSON, web manifests) are not rewritten, so a quoted relative path in one that names a hashed file is reported too: nothing is served at that path. Render the file's URL into the page with `cx.url("public/...")` and read it from there.
 
 ### Hand-written public JavaScript
 
@@ -194,8 +194,8 @@ let app = router
 ```
 
 `proa build --artifact-out` stores the same modules in the bundle beside the
-executable. A server that finds them there reads them from disk and does no
-parsing, minifying, or hashing at startup.
+executable. A server that finds them there reads them from disk and does not
+parse, rewrite, or minify any module at startup.
 
 `with_rsjs_assets()` works with the default root or with
 [`with_base_path(...)`](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets).

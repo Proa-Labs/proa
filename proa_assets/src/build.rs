@@ -35,6 +35,14 @@ pub enum Problem {
     RootRelative(String),
     /// The stylesheet could not be read as CSS, so nothing in it was changed.
     Unreadable,
+    /// A stylesheet reference that leads back to the stylesheet itself,
+    /// directly or through the stylesheets it refers to. Its target's name
+    /// depends on this file's bytes, so it cannot be written into them.
+    Cycle(String),
+    /// A relative reference from a file that keeps its name to a file that is
+    /// published under a content-hashed one. Nothing is served at the path
+    /// the reference names.
+    Hashed(String),
 }
 
 impl std::fmt::Display for Diagnostic {
@@ -52,6 +60,14 @@ impl std::fmt::Display for Diagnostic {
             Problem::Unreadable => write!(
                 f,
                 "`{file}` could not be read as CSS, so its references were not rewritten"
+            ),
+            Problem::Cycle(url) => write!(
+                f,
+                "`{file}` refers to `{url}`, which refers back to it; that reference was left as written and will not load"
+            ),
+            Problem::Hashed(url) => write!(
+                f,
+                "`{file}` refers to `{url}`, which is published under a content-hashed name, so nothing is served at that path; render the file's URL into the page with `cx.url(\"public/...\")` and read it from there"
             ),
         }
     }
@@ -99,12 +115,18 @@ fn snapshot(source: &Path, stage: &Path, history: &mut History) -> Result<Snapsh
     for index in 0..files.len() {
         pass.entry(index)?;
     }
-    let diagnostics = std::mem::take(&mut pass.diagnostics);
+    let mut diagnostics = std::mem::take(&mut pass.diagnostics);
     let mut manifest = AssetManifest::default();
     for (logical, entry) in files.iter().zip(pass.entries) {
         manifest
             .assets
             .insert(logical.clone(), entry.expect("every file was published"));
+    }
+    for (index, logical) in files.iter().enumerate() {
+        if refers_by_path(logical) {
+            let staged = stage.join(index.to_string());
+            diagnostics.extend(hashed_references(logical, &staged, &manifest)?);
+        }
     }
     for path in AssetManifest::default_root_files() {
         if manifest.assets.contains_key(path) {
@@ -147,9 +169,10 @@ impl Pass<'_> {
             return Ok(entry.clone());
         }
         let logical = &self.files[index];
-        if std::mem::replace(&mut self.visiting[index], true) {
-            return Err(AssetError::ImportCycle(logical.clone()));
-        }
+        // `rewrite_stylesheet` never follows a reference into a file that is
+        // still being settled, so a file is entered once.
+        debug_assert!(!self.visiting[index], "reference cycle through `{logical}`");
+        self.visiting[index] = true;
         let snapshot = self.stage.join(index.to_string());
         if is_stylesheet(logical) {
             self.rewrite_stylesheet(index, &snapshot)?;
@@ -212,6 +235,12 @@ impl Pass<'_> {
                     logical: target,
                     suffix,
                 } => match self.files.binary_search(&target) {
+                    // The target's name is settled only after this file's
+                    // bytes are, so the reference cannot hold it. Browsers
+                    // ignore an import cycle; this one is left as written.
+                    Ok(target) if self.visiting[target] => {
+                        (Some(Problem::Cycle(reference.url.clone())), None)
+                    }
                     Ok(target) => {
                         let entry = self.entry(target)?;
                         let path = stylesheet::relative(&from, &entry.url_path());
@@ -235,6 +264,59 @@ impl Pass<'_> {
         }
         Ok(())
     }
+}
+
+/// Formats that keep their name and commonly hold paths to other files:
+/// scripts, pages, and manifests. Nothing rewrites them, so a relative path
+/// in one still means the logical location.
+fn refers_by_path(logical: &str) -> bool {
+    matches!(
+        extension(logical).as_str(),
+        "js" | "mjs" | "cjs" | "html" | "htm" | "json" | "webmanifest" | "xml"
+    )
+}
+
+/// Files above this size are not searched for references. They are data or
+/// bundles, and the search is only there to explain a broken link.
+const REFERENCE_SCAN_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// Quoted relative paths in `logical` that name a file published under a
+/// hashed name. Before files were hashed in place such a path worked; now it
+/// is a 404, and saying so at build time is the only place it can be said.
+fn hashed_references(
+    logical: &str,
+    staged: &Path,
+    manifest: &AssetManifest,
+) -> Result<Vec<Diagnostic>> {
+    if at(staged, fs::metadata(staged))?.len() > REFERENCE_SCAN_LIMIT {
+        return Ok(Vec::new());
+    }
+    let Ok(text) = String::from_utf8(at(staged, fs::read(staged))?) else {
+        return Ok(Vec::new());
+    };
+    let mut found = BTreeSet::new();
+    for quoted in stylesheet::quoted(&text) {
+        let stylesheet::Target::Public {
+            logical: target, ..
+        } = stylesheet::target(logical, quoted)
+        else {
+            continue;
+        };
+        let hashed = manifest
+            .assets
+            .get(&target)
+            .is_some_and(|entry| entry.cache_policy == CachePolicy::Immutable);
+        if hashed && target != logical {
+            found.insert(quoted.to_owned());
+        }
+    }
+    Ok(found
+        .into_iter()
+        .map(|url| Diagnostic {
+            file: logical.to_owned(),
+            problem: Problem::Hashed(url),
+        })
+        .collect())
 }
 
 fn is_stylesheet(logical: &str) -> bool {

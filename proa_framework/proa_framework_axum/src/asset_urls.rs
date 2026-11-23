@@ -357,6 +357,7 @@ pub(crate) fn rewrite_js(source: &str, base: &BasePath) -> Result<String, String
         scoping: semantic.semantic.scoping(),
         edits: Vec::new(),
         imports: Vec::new(),
+        unresolved: Vec::new(),
         helper,
         dynamic: false,
     };
@@ -380,6 +381,10 @@ pub(crate) struct PortableJs {
     /// Name of the function every application URL is passed through at run
     /// time, when the module has any.
     pub(crate) helper: Option<String>,
+    /// Static imports by path that name no module of the set. A static
+    /// import cannot be routed through the helper, and once the module is
+    /// published under another directory or host the path leads nowhere.
+    pub(crate) unresolved: Vec<String>,
 }
 
 impl PortableJs {
@@ -389,6 +394,7 @@ impl PortableJs {
             edits: Vec::new(),
             imports: Vec::new(),
             helper: None,
+            unresolved: Vec::new(),
         }
     }
 
@@ -444,6 +450,7 @@ pub(crate) fn portable_js(
         scoping: semantic.semantic.scoping(),
         edits: Vec::new(),
         imports: Vec::new(),
+        unresolved: Vec::new(),
         helper,
         dynamic: false,
     };
@@ -452,6 +459,7 @@ pub(crate) fn portable_js(
         edits: visitor.edits,
         imports: visitor.imports,
         helper: visitor.dynamic.then_some(visitor.helper),
+        unresolved: visitor.unresolved,
     })
 }
 
@@ -463,6 +471,7 @@ struct JsUrls<'s> {
     scoping: &'s oxc_semantic::Scoping,
     edits: Vec<Edit>,
     imports: Vec<(Span, usize)>,
+    unresolved: Vec<String>,
     helper: String,
     dynamic: bool,
 }
@@ -516,6 +525,12 @@ impl JsUrls<'_> {
     fn literal(&mut self, literal: &StringLiteral<'_>) {
         if self.import(literal) {
             return;
+        }
+        let by_path = literal.value.starts_with("./")
+            || literal.value.starts_with("../")
+            || (literal.value.starts_with('/') && !literal.value.starts_with("//"));
+        if self.modules.is_some() && by_path {
+            self.unresolved.push(literal.value.to_string());
         }
         if let Some(url) = self
             .base

@@ -93,9 +93,9 @@ The bundle is read-only and mirrors browser URLs under `public/` (names are illu
           data.json
 ```
 
-Files under `_proa/immutable/` carry a content hash and are cached for a year. Files under `_proa/mutable/` keep their names and are revalidated on every load. The bundle is assembled beside its destination and moved into place whole, so a failed export leaves the previous bundle untouched, and an export is refused while a running server is reading the bundle it would replace.
+Files under `_proa/immutable/` carry a content hash and are cached for a year. Files under `_proa/mutable/` keep their names and are revalidated on every load. The bundle is assembled beside its destination and moved into place whole, so an export that fails while building leaves the previous bundle untouched. An export is refused, before it compiles anything, while a running server is reading the bundle it would replace.
 
-To put the RSJS modules in the bundle, `proa build` starts the executable it just built with `PROA_EXPORT_FRAMEWORK_ASSETS=<dir>`. The framework answers before `main` runs, writes the modules, and exits, so no application startup code (database, configuration, ports) runs during a build. An executable that does not serve RSJS is never started. A cross-compiled executable that cannot run on the build machine is skipped with a note, and the server then prepares and serves the modules itself.
+To put the RSJS modules in the bundle, `proa build` starts the executable it just built with `PROA_EXPORT_FRAMEWORK_ASSETS=<dir>`. The framework answers before `main` runs, writes the modules, and exits, so no application startup code (database, configuration, ports) runs during a build. An executable that does not link the RSJS runtime is never started; one that links it is, even if it serves its own copies of the modules. If the export fails, the build warns and writes the bundle without them. A cross-compiled executable that cannot run on the build machine is skipped with a note, and the server then prepares and serves the modules itself.
 
 ## Serving assets from a static host
 
@@ -214,7 +214,7 @@ proa_docs::adapter::axum::response_with_base_path(&DOCS, "/docs/start", &base_pa
 The collection's build-time `.base_path("/docs")` remains its internal route.
 Non-Axum callers can use `proa_docs::render_with_base_path`. ORIGIN serves linked
 islands through the shared asset router and resolves its browser-side lab
-request against the URL of its JavaScript module.
+request against the base path it reads from the page.
 
 ### Coverage and limitations
 
@@ -253,18 +253,26 @@ const endpoint = "/api/items";
 const response = await fetch(endpoint);
 ```
 
-For handwritten browser code using a custom client library, compose its URL
-explicitly. When the base path is not empty, pages with RSJS islands carry
-`<script type="application/json" id="__proa">{"basePath":"/apps/demo"}</script>`
-ahead of the runtime tags. The linked runtime's own `app_url` reads it, and
-handwritten code can read the same element:
+For handwritten browser code using a custom client library, render the URL it
+needs into the page and read it from there. `cx.url(...)` already includes the
+base path, and this works on every page:
+
+```rust
+html_sync! {
+    <div id="items" data-endpoint={cx.url("/api/items")}></div>
+}
+```
 
 ```javascript
-const config = document.getElementById("__proa");
-const basePath = config ? JSON.parse(config.textContent).basePath : "";
-
-client.load(basePath + "/api/items"); // /apps/demo/api/items
+client.load(document.getElementById("items").dataset.endpoint); // /apps/demo/api/items
 ```
+
+Public files are served as written under every mount, so a root-relative URL
+typed into one is not adjusted. Pages with RSJS islands also carry
+`<script type="application/json" id="__proa">{"basePath":"/apps/demo"}</script>`
+when the base path is not empty, which is where the linked runtime's `app_url`
+reads it. A page without islands does not have that element, so handwritten
+code should not depend on it.
 
 The runtime is served at a content-hashed URL, so handwritten code cannot
 `import` it from `/rsjs-runtime.js`. When handwritten code needs the URL of a

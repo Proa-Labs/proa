@@ -72,8 +72,6 @@ pub enum AssetError {
     ReservedPath(String),
     #[error("asset output `{0}` is being read by a running server")]
     InUse(PathBuf),
-    #[error("stylesheet `{0}` imports itself through its own imports")]
-    ImportCycle(String),
     #[error("asset `{0}` changed during publication; retry the build")]
     SourceChanged(String),
     #[error("asset fingerprint collision at `{path}`: {previous} versus {current}")]
@@ -116,7 +114,10 @@ impl CachePolicy {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AssetEntry {
-    /// Path relative to `objects/`, always tied to the delivered bytes.
+    /// The file's content-hashed name, always tied to the delivered bytes.
+    /// A store keeps the file at this path under `objects/`. A bundle keeps
+    /// it at [`url_path`](Self::url_path) and uses this only to check the
+    /// name against the digest.
     pub object: String,
     /// Browser path relative to the directory of its cache policy.
     pub public_path: String,

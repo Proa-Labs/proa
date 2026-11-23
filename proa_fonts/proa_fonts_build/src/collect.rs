@@ -315,6 +315,13 @@ fn vendor(
                     )));
                 }
                 for face in &font.faces {
+                    // The name is built from the lock's `stem`, which is
+                    // input: it has to stay inside the fonts directory.
+                    if !is_plain_filename(&face.filename) {
+                        return Err(BuildError::InvalidFont(
+                            "locked font filename escapes the fonts directory",
+                        ));
+                    }
                     pending_files.push((face.filename.clone(), face.bytes.clone()));
                 }
                 (font, true, false)
