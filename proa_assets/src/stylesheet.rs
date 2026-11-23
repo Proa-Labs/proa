@@ -71,9 +71,19 @@ pub(crate) fn references(source: &str) -> Result<Vec<Reference>, ()> {
                     reference = Some((url.to_string(), false));
                 }
                 Token::Function(name) if name.eq_ignore_ascii_case("url") => {
-                    let url =
-                        parser.parse_nested_block(|nested| Ok(nested.expect_string_cloned()?))?;
-                    reference = Some((url.to_string(), true));
+                    // Only the plain `url("...")` form is rewritten. One with
+                    // modifiers, or anything else in the parentheses, is left
+                    // exactly as written, and the rest of the file still is
+                    // processed.
+                    let url = parser.parse_nested_block(|nested| {
+                        let url = nested
+                            .try_parse(|nested| nested.expect_string_cloned())
+                            .ok()
+                            .filter(|_| nested.is_exhausted());
+                        while nested.next_including_whitespace_and_comments().is_ok() {}
+                        Ok::<_, ParseError<'i, ()>>(url)
+                    })?;
+                    reference = url.map(|url| (url.to_string(), true));
                 }
                 Token::Function(name)
                     if name.eq_ignore_ascii_case("image-set")
@@ -209,6 +219,28 @@ mod tests {
             .map(|reference| reference.url)
             .collect();
         assert_eq!(urls, ["base.css", "theme.css", "a.png", "b.png", "b2.png"]);
+    }
+
+    #[test]
+    fn a_url_this_does_not_understand_is_left_alone_and_the_rest_is_still_found() {
+        let source = r#"
+            a { background: url("a.png" cross-origin(anonymous)) }
+            b { background: url(var(--image)) }
+            c { background: url("c.png") }
+        "#;
+        let found = references(source).unwrap();
+        let urls: Vec<_> = found
+            .iter()
+            .map(|reference| reference.url.as_str())
+            .collect();
+        assert_eq!(urls, ["c.png"]);
+        let out = rewrite(source, &found, |_| Some("x.png".into()));
+        assert!(
+            out.contains(r#"url("a.png" cross-origin(anonymous))"#),
+            "{out}"
+        );
+        assert!(out.contains("url(var(--image))"));
+        assert!(out.contains(r#"c { background: url("x.png") }"#));
     }
 
     #[test]

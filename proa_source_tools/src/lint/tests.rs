@@ -6463,6 +6463,8 @@ use tower_http::services::{ServeDir, ServeFile};
 
 static PUBLIC: Dir = include_dir!("$CARGO_MANIFEST_DIR/public");
 static MIGRATIONS: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+static KEYS: Dir = include_dir!("$CARGO_MANIFEST_DIR/public_keys");
+static RELATIVE: Dir = include_dir!("public");
 
 pub fn router() -> Router {
     Router::new()
@@ -6492,11 +6494,15 @@ mod tests {
                 "`include_dir!` serves files the build output does not contain".to_string()
             ),
             (
-                10,
+                8,
+                "`include_dir!` serves files the build output does not contain".to_string()
+            ),
+            (
+                12,
                 "`ServeDir` serves files the build output does not contain".to_string()
             ),
             (
-                11,
+                13,
                 "`ServeFile` serves files the build output does not contain".to_string()
             ),
         ]

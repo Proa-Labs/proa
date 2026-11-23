@@ -139,7 +139,11 @@ impl AssetEntry {
 
     fn matches_contents(&self, path: &Path) -> Result<bool> {
         let hashed = hash_file(path)?;
-        Ok(hashed.sha256 == self.sha256 && hashed.byte_length == self.byte_length)
+        // The integrity value is what a page hands the browser, so a file
+        // that does not match it would load from disk and then be refused.
+        Ok(hashed.sha256 == self.sha256
+            && hashed.integrity == self.integrity
+            && hashed.byte_length == self.byte_length)
     }
 }
 
@@ -377,9 +381,7 @@ impl AssetCatalog {
                 })
             }
         };
-        plain_file(&reader_path)?;
-        let reader = at(&reader_path, File::open(&reader_path))?;
-        at(&reader_path, reader.lock_shared())?;
+        let reader = lock_current(&reader_path)?;
         // Lock before reading the pointer. Cleanup then cannot remove files
         // referenced by either the old or the new atomically read manifest.
         let (manifest, bytes) = AssetManifest::read(&output.join(MANIFEST_FILE))?;
@@ -402,7 +404,10 @@ impl AssetCatalog {
         for entry in catalog.manifest.framework.values() {
             let path = confined_file(&catalog.public_root(), &entry.path)?;
             let hashed = hash_file(&path)?;
-            if hashed.sha256 != entry.sha256 || hashed.byte_length != entry.byte_length {
+            if hashed.sha256 != entry.sha256
+                || hashed.integrity != entry.integrity
+                || hashed.byte_length != entry.byte_length
+            {
                 return Err(AssetError::Integrity(entry.path.clone()));
             }
         }
@@ -498,8 +503,6 @@ fn integrity_value(digest: &[u8]) -> String {
 
 struct Hashed {
     sha256: String,
-    /// Recorded by the writer; a reader verifies the SHA-256 alone.
-    #[cfg_attr(not(feature = "build"), allow(dead_code))]
     integrity: String,
     byte_length: u64,
 }
@@ -524,6 +527,50 @@ fn hash_file(path: &Path) -> Result<Hashed> {
         integrity: integrity_value(&sha384.finalize()),
         byte_length,
     })
+}
+
+/// Take a shared lock on the file now at `path`.
+///
+/// An export replaces a bundle by moving a new directory into its place. A
+/// reader that opened the old marker just before that would wait for the
+/// export's lock, get it once the export finished, and then hold a lock on a
+/// file that is no longer in the directory: the next export would not see it.
+/// So after locking, the file at `path` has to still be the one that was
+/// opened, or the lock is taken again on its replacement.
+fn lock_current(path: &Path) -> Result<File> {
+    loop {
+        plain_file(path)?;
+        let file = at(path, File::open(path))?;
+        at(path, file.lock_shared())?;
+        if same_file(&file, path)? {
+            return Ok(file);
+        }
+        let _ = file.unlock();
+    }
+}
+
+#[cfg(unix)]
+fn same_file(open: &File, path: &Path) -> Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let held = at(path, open.metadata())?;
+    Ok(match fs::metadata(path) {
+        Ok(current) => held.dev() == current.dev() && held.ino() == current.ino(),
+        // Gone for the moment: the next attempt reports it or finds the new one.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(source) => {
+            return Err(AssetError::Io {
+                path: path.into(),
+                source,
+            })
+        }
+    })
+}
+
+/// Windows cannot move a directory that holds an open file, so an export
+/// never replaces one under a reader there.
+#[cfg(not(unix))]
+fn same_file(_open: &File, _path: &Path) -> Result<bool> {
+    Ok(true)
 }
 
 fn validate_integrity(value: &str) -> Result<()> {

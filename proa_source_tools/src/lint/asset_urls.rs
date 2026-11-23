@@ -1944,9 +1944,10 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         // macro also embeds templates and migrations.
         if last.ident == "include_dir" {
             let directory = mac.tokens.to_string();
-            if ["public", "static", "assets"]
-                .iter()
-                .any(|name| directory.contains(&format!("/{name}")))
+            // Whole path segments: `public`, not `public_keys`.
+            if directory
+                .split(|c: char| c == '/' || c == '\\' || c == '"' || c.is_whitespace())
+                .any(|segment| matches!(segment, "public" | "static" | "assets"))
             {
                 self.unmanaged_static(last.ident.span(), "include_dir!");
             }
@@ -2900,7 +2901,11 @@ fn diagnostic_for_asset_url(kind: &AssetUrl, srcset: bool) -> (&'static str, &'s
 /// publishes into. A file's place there changes with its bytes, so writing
 /// one out by hand goes stale on the next edit.
 fn names_published_file(path: &str) -> bool {
-    path.contains("/_proa/immutable/") || path.contains("/_proa/mutable/")
+    // The last is where earlier releases published everything. Nothing is
+    // served there now, so a URL left over from then is reported too.
+    ["/_proa/immutable/", "/_proa/mutable/", "/_proa/assets/"]
+        .iter()
+        .any(|directory| path.contains(directory))
 }
 
 fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {

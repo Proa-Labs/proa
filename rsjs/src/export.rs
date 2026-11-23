@@ -14,6 +14,12 @@
 //!
 //! An executable that can answer carries [`SENTINEL`] in its bytes. The
 //! build tool looks for it first and never starts one that does not.
+//!
+//! One limit: the order in which a platform runs the code registered to run
+//! before `main` is not something a crate controls. Another crate's
+//! constructor (a C++ static initializer, a `#[ctor]` function) may run ahead
+//! of this one, and so runs during the build. Only `main` and everything
+//! after it are certain not to.
 
 use std::path::Path;
 
@@ -58,10 +64,12 @@ static SENTINEL_IN_EXECUTABLE: &[u8] = SENTINEL;
 static ANSWER_BEFORE_MAIN: extern "C" fn() = answer;
 
 extern "C" fn answer() {
-    // Read the sentinel so it stays in the executable with this function.
-    let Some(directory) =
-        std::env::var_os(EXPORT_ENV).filter(|_| !SENTINEL_IN_EXECUTABLE.is_empty())
-    else {
+    // The optimizer cannot see through `black_box`, so this is a real use of
+    // the sentinel: it stays in the executable wherever this function does.
+    if std::hint::black_box(SENTINEL_IN_EXECUTABLE).is_empty() {
+        return;
+    }
+    let Some(directory) = std::env::var_os(EXPORT_ENV) else {
         return;
     };
     let code = match export(Path::new(&directory)) {

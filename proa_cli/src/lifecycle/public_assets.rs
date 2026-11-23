@@ -318,11 +318,14 @@ pub(super) fn export_framework_assets(
     }
     drop(bytes);
     let directory = tempfile::tempdir().context("create a framework asset export directory")?;
+    // The child's diagnostics go to a file. A pipe nobody reads until the
+    // child exits would stall it as soon as it wrote more than the pipe holds.
+    let diagnostics = tempfile::NamedTempFile::new().context("create an export log")?;
     let spawned = Command::new(executable)
         .env(ENV, directory.path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stderr(diagnostics.reopen().context("open the export log")?)
         .spawn();
     let mut child = match spawned {
         Ok(child) => child,
@@ -357,10 +360,9 @@ pub(super) fn export_framework_assets(
     };
     let index_path = directory.path().join(INDEX_FILE);
     if !status.success() || !index_path.is_file() {
-        let mut reason = String::new();
-        if let Some(mut stderr) = child.stderr.take() {
-            let _ = io::Read::read_to_string(&mut stderr, &mut reason);
-        }
+        let reason = fs::read(diagnostics.path())
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap_or_default();
         bail!(
             "`{}` could not export its RSJS modules ({status}): {}",
             executable.display(),
@@ -369,6 +371,9 @@ pub(super) fn export_framework_assets(
     }
     let hosts: Vec<ExportedHost> = serde_json::from_slice(&fs::read(&index_path)?)
         .context("read the exported module index")?;
+    // One host exports today, and it compares this value with its own
+    // digest. A second exporter would need the manifest to record a digest
+    // for each host.
     let source = hosts
         .iter()
         .map(|host| host.source.as_str())

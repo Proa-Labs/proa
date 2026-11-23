@@ -106,6 +106,8 @@
   function reloadStylesheets() {
     fetch(window.location.href, { headers: { Accept: "text/html" }, cache: "no-store" })
       .then(function (response) {
+        /* An error page lists no stylesheets to swap in. */
+        if (!response.ok) throw new Error("page fetch failed");
         return response.text();
       })
       .then(function (html) {
@@ -116,7 +118,10 @@
         for (var i = 0; i < fresh.length; i++) {
           try {
             var url = new URL(fresh[i].getAttribute("href"), window.location.href);
-            current[stableName(url)] = url;
+            current[stableName(url)] = {
+              url: url,
+              integrity: fresh[i].getAttribute("integrity"),
+            };
           } catch (error) {
             /* An unparsable link cannot replace anything. */
           }
@@ -140,10 +145,14 @@
         continue;
       }
       if (url.origin !== window.location.origin) continue;
-      var renamed = current[stableName(url)];
-      if (renamed && renamed.pathname !== url.pathname) {
-        url = renamed;
-      } else if (/\/_proa\/immutable\//.test(url.pathname) && !renamed) {
+      var published = /\/_proa\/immutable\//.test(url.pathname);
+      var fresh = current[stableName(url)];
+      if (fresh && fresh.url.pathname !== url.pathname) {
+        url = fresh.url;
+      } else if (published && fresh) {
+        /* Same name, so the same bytes: nothing to fetch again. */
+        continue;
+      } else if (published) {
         /* The page no longer links this stylesheet at all. */
         window.location.reload();
         return;
@@ -153,6 +162,13 @@
 
       var next = link.cloneNode();
       next.href = url.href;
+      /* The copy carries the old file's integrity value. Take the one the
+         page now gives for this stylesheet, or none. */
+      if (fresh && fresh.integrity) {
+        next.setAttribute("integrity", fresh.integrity);
+      } else {
+        next.removeAttribute("integrity");
+      }
       (function (previous, replacement) {
         var drop = function () {
           if (previous.parentNode) previous.remove();
