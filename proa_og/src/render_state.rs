@@ -1,135 +1,278 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Shared render-loop state and RAII guards for the WebKit renderers.
-//!
-//! Both [`crate::renderer`] (WebKitGTK) and [`crate::wpe_renderer`] (WPE) drive
-//! a GLib main loop, connect a `load-changed` signal, and arm a timeout source.
-//! The pointer that GLib hands back to the C callbacks is a `*mut c_void` that
-//! both renderers cast to `*mut State`. Defining a single `#[repr(C)]` struct
-//! here (instead of two look-alike structs declared independently at each site)
-//! guarantees the connect site and the callback agree on the layout even under
-//! `-Z randomize-layout`.
+//! The GLib main context dispatches the load, watchdog, and snapshot callbacks
+//! on the rendering thread. Each pending snapshot owns a reference to its state.
 
-#![cfg(not(wpe_stub))]
+use crate::{ffi, renderer::MAX_DIMENSION, OgImage, OgImageError};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::{CStr, CString},
+    ptr,
+    rc::Rc,
+};
 
-use crate::ffi;
-use std::os::raw::c_void;
-
-/// State shared between the render driver and the GLib C callbacks.
-///
-/// `#[repr(C)]` is load-bearing: the same allocation is reinterpreted from a
-/// raw `*mut c_void` inside `extern "C"` callbacks, so a stable, non-randomized
-/// field layout is required for soundness.
-#[repr(C)]
-pub(crate) struct State {
-    /// Loop the callbacks quit once a snapshot (or error, or timeout) lands.
-    pub(crate) main_loop: *mut ffi::GMainLoop,
-    /// Error message recorded by a callback, if any.
-    pub(crate) error: Option<String>,
-    /// The copied snapshot surface owned by this struct once captured.
-    pub(crate) surface: *mut ffi::cairo_surface_t,
-    /// Set by the timeout callback so the driver can distinguish a timeout from
-    /// a snapshot failure and return [`crate::OgImageError::Timeout`].
-    pub(crate) timed_out: bool,
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    AwaitingLoad,
+    Loading,
+    Snapshot,
+    Complete,
+    TimedOut,
 }
 
-impl State {
-    pub(crate) fn new(main_loop: *mut ffi::GMainLoop) -> Self {
-        Self {
-            main_loop,
-            error: None,
-            surface: std::ptr::null_mut(),
-            timed_out: false,
-        }
-    }
-}
-
-/// RAII guard that disconnects the `load-changed` handler and unrefs the main
-/// loop on drop.
-///
-/// Connecting a signal handler whose `user_data` points at a stack local is
-/// only sound while that stack frame is alive. Any early return between the
-/// `g_signal_connect_data` call and an explicit disconnect (a `?` on a fallible
-/// FFI input, or a panic) would otherwise leave a stale handler installed on
-/// the persistent `WebView`, and the next render would fire it against freed
-/// memory: a write-what-where use-after-free. This guard makes the disconnect
-/// and unref unconditional, so no control-flow path can leak the handler.
-pub(crate) struct SignalGuard {
-    web_view: *mut c_void,
-    handler_id: ffi::gulong,
+struct Capture {
     main_loop: *mut ffi::GMainLoop,
+    cancellable: *mut ffi::GCancellable,
+    phase: Cell<Phase>,
+    result: RefCell<Option<Result<OgImage, OgImageError>>>,
 }
 
-impl SignalGuard {
-    /// Take ownership of the disconnect/unref responsibility.
-    ///
-    /// # Safety
-    ///
-    /// `web_view` must be the object the handler was connected to, `handler_id`
-    /// the id returned by `g_signal_connect_data`, and `main_loop` a loop owned
-    /// by the caller (one reference is consumed on drop).
-    pub(crate) unsafe fn new(
-        web_view: *mut c_void,
-        handler_id: ffi::gulong,
-        main_loop: *mut ffi::GMainLoop,
-    ) -> Self {
-        Self {
-            web_view,
-            handler_id,
-            main_loop,
+impl Capture {
+    fn new() -> Self {
+        unsafe {
+            Self {
+                main_loop: ffi::g_main_loop_new(ptr::null_mut(), 0),
+                cancellable: ffi::g_cancellable_new(),
+                phase: Cell::new(Phase::AwaitingLoad),
+                result: RefCell::new(None),
+            }
+        }
+    }
+
+    fn timeout(&self) {
+        if !matches!(self.phase.get(), Phase::Complete | Phase::TimedOut) {
+            self.phase.set(Phase::TimedOut);
+            unsafe { ffi::g_main_loop_quit(self.main_loop) };
+        }
+    }
+
+    fn finish_snapshot(&self, result: Result<OgImage, OgImageError>) {
+        if self.phase.get() == Phase::Snapshot {
+            self.result.replace(Some(result));
+            self.phase.set(Phase::Complete);
+            unsafe { ffi::g_main_loop_quit(self.main_loop) };
         }
     }
 }
 
-impl Drop for SignalGuard {
+impl Drop for Capture {
     fn drop(&mut self) {
         unsafe {
-            ffi::g_signal_handler_disconnect(self.web_view, self.handler_id);
+            ffi::g_object_unref(self.cancellable.cast());
             ffi::g_main_loop_unref(self.main_loop);
         }
     }
 }
 
-/// RAII guard that removes a GLib timeout source on drop.
-///
-/// The timeout source must be removed on the normal completion path so it does
-/// not later fire into a freed main loop. A guard guarantees removal on every
-/// exit path, including early returns and panics.
-pub(crate) struct TimeoutGuard {
-    /// Source tag from `g_timeout_add_seconds`, or 0 if no source is armed.
-    source_id: ffi::guint,
+/// These two registrations borrow the driver's Rc until the loop exits.
+/// The snapshot completion callback takes its own strong reference.
+struct Registrations {
+    view: *mut ffi::WebKitWebView,
+    signal: ffi::gulong,
+    timer: ffi::guint,
 }
 
-impl TimeoutGuard {
-    /// Hold a timeout source tag for removal on drop.
-    pub(crate) fn new(source_id: ffi::guint) -> Self {
-        Self { source_id }
-    }
-}
-
-impl Drop for TimeoutGuard {
+impl Drop for Registrations {
     fn drop(&mut self) {
-        if self.source_id != 0 {
-            unsafe {
-                ffi::g_source_remove(self.source_id);
-            }
+        unsafe {
+            ffi::g_signal_handler_disconnect(self.view.cast(), self.signal);
+            ffi::g_source_remove(self.timer);
         }
     }
 }
 
-/// GLib timeout callback. Records a timeout, quits the loop, and removes itself
-/// by returning `G_SOURCE_REMOVE` (0).
-///
-/// # Safety
-///
-/// `user_data` must point at a live [`State`] for the duration of the render,
-/// which the [`SignalGuard`]/[`TimeoutGuard`] ordering guarantees: both guards
-/// live in the same scope as the `State`, and the loop only returns once they
-/// are about to drop.
-pub(crate) unsafe extern "C" fn on_timeout(user_data: ffi::gpointer) -> ffi::gboolean {
-    let state = &mut *(user_data as *mut State);
-    state.timed_out = true;
-    ffi::g_main_loop_quit(state.main_loop);
-    0 // G_SOURCE_REMOVE: do not fire again
+/// `view` belongs to the calling renderer and its GLib main context.
+pub(crate) unsafe fn capture(
+    view: *mut ffi::WebKitWebView,
+    html: &str,
+    timeout_secs: u32,
+) -> Result<OgImage, OgImageError> {
+    let html = CString::new(html).map_err(|e| OgImageError::LoadFailed(e.to_string()))?;
+    let state = Rc::new(Capture::new());
+    {
+        let data = ptr::from_ref(&state).cast_mut().cast();
+        let signal = ffi::g_signal_connect_data(
+            view.cast(),
+            c"load-changed".as_ptr(),
+            Some(std::mem::transmute::<
+                unsafe extern "C" fn(*mut ffi::WebKitWebView, u32, ffi::gpointer),
+                unsafe extern "C" fn(),
+            >(on_load_changed)),
+            data,
+            None,
+            0,
+        );
+        let timer = ffi::g_timeout_add_seconds(timeout_secs, Some(on_timeout), data);
+        let _registrations = Registrations {
+            view,
+            signal,
+            timer,
+        };
+        ffi::webkit_web_view_load_html(view, html.as_ptr(), c"".as_ptr());
+        ffi::g_main_loop_run(state.main_loop);
+    }
+    if state.phase.get() == Phase::TimedOut {
+        ffi::g_cancellable_cancel(state.cancellable);
+        ffi::webkit_web_view_stop_loading(view);
+        return Err(OgImageError::Timeout(timeout_secs));
+    }
+    let result = state.result.take();
+    result.unwrap_or_else(|| Err(OgImageError::SnapshotFailed("no snapshot".into())))
+}
+
+unsafe extern "C" fn on_timeout(data: ffi::gpointer) -> ffi::gboolean {
+    let state = &*data.cast::<Rc<Capture>>();
+    state.timeout();
+    // The registration guard removes the source immediately after the loop returns.
+    1
+}
+
+unsafe extern "C" fn on_load_changed(
+    view: *mut ffi::WebKitWebView,
+    event: u32,
+    data: ffi::gpointer,
+) {
+    let state = &*data.cast::<Rc<Capture>>();
+    match (event, state.phase.get()) {
+        (ffi::WebKitLoadEvent_WEBKIT_LOAD_STARTED, Phase::AwaitingLoad) => {
+            state.phase.set(Phase::Loading);
+        }
+        (ffi::WebKitLoadEvent_WEBKIT_LOAD_FINISHED, Phase::Loading) => {
+            state.phase.set(Phase::Snapshot);
+            ffi::webkit_web_view_get_snapshot(
+                view,
+                ffi::WebKitSnapshotRegion_WEBKIT_SNAPSHOT_REGION_VISIBLE,
+                ffi::WebKitSnapshotOptions_WEBKIT_SNAPSHOT_OPTIONS_NONE,
+                state.cancellable,
+                Some(on_snapshot_ready),
+                Rc::into_raw(Rc::clone(state)).cast_mut().cast(),
+            );
+        }
+        _ => {}
+    }
+}
+
+struct Surface(*mut ffi::cairo_surface_t);
+impl Drop for Surface {
+    fn drop(&mut self) {
+        unsafe { ffi::cairo_surface_destroy(self.0) }
+    }
+}
+
+unsafe extern "C" fn on_snapshot_ready(
+    source: *mut ffi::GObject,
+    result: *mut ffi::GAsyncResult,
+    data: ffi::gpointer,
+) {
+    // WebKit calls completion once, including after cancellation.
+    let state = Rc::from_raw(data.cast::<Capture>());
+    let mut error = ptr::null_mut();
+    let raw = ffi::webkit_web_view_get_snapshot_finish(source.cast(), result, &mut error);
+    let surface = (!raw.is_null()).then(|| Surface(raw));
+    let result = if !error.is_null() {
+        let message = CStr::from_ptr((*error).message)
+            .to_string_lossy()
+            .into_owned();
+        ffi::g_error_free(error);
+        Err(OgImageError::SnapshotFailed(message))
+    } else if state.phase.get() != Phase::Snapshot {
+        return;
+    } else if let Some(surface) = surface {
+        read_image(surface)
+    } else {
+        Err(OgImageError::SnapshotFailed("no surface".into()))
+    };
+    state.finish_snapshot(result);
+}
+
+unsafe fn read_image(source: Surface) -> Result<OgImage, OgImageError> {
+    let width = ffi::cairo_image_surface_get_width(source.0);
+    let height = ffi::cairo_image_surface_get_height(source.0);
+    let dimensions = 1..=MAX_DIMENSION as i32;
+    if ffi::cairo_surface_status(source.0) != 0
+        || !dimensions.contains(&width)
+        || !dimensions.contains(&height)
+    {
+        return Err(OgImageError::SnapshotFailed(format!(
+            "invalid snapshot dimensions {width}x{height}"
+        )));
+    }
+    let copy = Surface(ffi::cairo_image_surface_create(
+        ffi::_cairo_format_CAIRO_FORMAT_ARGB32,
+        width,
+        height,
+    ));
+    let cr = ffi::cairo_create(copy.0);
+    ffi::cairo_set_source_surface(cr, source.0, 0.0, 0.0);
+    ffi::cairo_paint(cr);
+    let status = ffi::cairo_status(cr);
+    ffi::cairo_destroy(cr);
+    ffi::cairo_surface_flush(copy.0);
+    let stride = ffi::cairo_image_surface_get_stride(copy.0);
+    let data = ffi::cairo_image_surface_get_data(copy.0);
+    // Cairo's fresh ARGB32 image has four bytes per pixel, already aligned.
+    if status != 0
+        || ffi::cairo_surface_status(copy.0) != 0
+        || stride != width * 4
+        || data.is_null()
+    {
+        return Err(OgImageError::SnapshotFailed(
+            "invalid ARGB32 surface".into(),
+        ));
+    }
+    let pixels = std::slice::from_raw_parts(data, stride as usize * height as usize).to_vec();
+    let mut png_bytes = Vec::new();
+    let status = ffi::cairo_surface_write_to_png_stream(
+        copy.0,
+        Some(write_png),
+        ptr::from_mut(&mut png_bytes).cast(),
+    );
+    if status != 0 {
+        return Err(OgImageError::PngEncode(format!("Cairo status {status}")));
+    }
+    Ok(OgImage {
+        pixels,
+        png_bytes,
+        width: width as u32,
+        height: height as u32,
+    })
+}
+
+unsafe extern "C" fn write_png(output: ffi::gpointer, data: *const u8, length: u32) -> u32 {
+    if length != 0 {
+        (*output.cast::<Vec<u8>>())
+            .extend_from_slice(std::slice::from_raw_parts(data, length as usize));
+    }
+    0 // CAIRO_STATUS_SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_terminal_callback_owns_the_result() {
+        let done = Capture::new();
+        done.phase.set(Phase::Snapshot);
+        done.finish_snapshot(Err(OgImageError::SnapshotFailed("test".into())));
+        done.timeout();
+        assert!(done.phase.get() == Phase::Complete);
+        assert!(matches!(
+            done.result.take(),
+            Some(Err(OgImageError::SnapshotFailed(_)))
+        ));
+
+        let driver = Rc::new(Capture::new());
+        driver.phase.set(Phase::Snapshot);
+        let pending = Rc::clone(&driver);
+        let weak = Rc::downgrade(&driver);
+        driver.timeout();
+        drop(driver);
+        pending.finish_snapshot(Err(OgImageError::SnapshotFailed("test".into())));
+        assert!(pending.phase.get() == Phase::TimedOut);
+        assert!(pending.result.take().is_none());
+        drop(pending);
+        assert!(weak.upgrade().is_none());
+    }
 }

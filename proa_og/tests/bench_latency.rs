@@ -4,8 +4,7 @@
 use proa_og::{OgRenderer, RenderOptions};
 use std::time::Instant;
 
-#[test]
-fn bench_latency_breakdown() {
+fn main() {
     let renderer = match OgRenderer::new() {
         Ok(r) => r,
         Err(e) => {

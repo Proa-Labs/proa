@@ -629,30 +629,65 @@ fn bare_slug_preserves_non_not_found_pro_failure_context() {
 }
 
 #[test]
-fn bearer_auth_is_applied_only_to_pro_registry_requests() {
-    const SECRET: &str = "test-registry-secret";
+fn pro_credentials_are_scoped_to_the_official_https_origin() {
     let client = Client::new();
-    let public = with_registry_bearer_auth(
-        client.get("https://ui.proa.so/r/button.json"),
-        PUBLIC_REGISTRY,
-        Some(SECRET),
-    )
-    .build()
-    .unwrap();
-    assert!(public.headers().get("authorization").is_none());
-
-    let pro = with_registry_bearer_auth(
-        client.get("https://console.proa.so/r/calendar.json"),
+    for (alias, destination) in [
+        (PUBLIC_REGISTRY, "https://console.proa.so/"),
+        (PRO_REGISTRY, "https://mirror.example/"),
+        (PRO_REGISTRY, "https://console.proa.so:8443/"),
+        (PRO_REGISTRY, "http://console.proa.so/"),
+    ] {
+        let request = registry_request(&client, &Url::parse(destination).unwrap(), alias, || {
+            panic!("credentials should only be read for the official Pro origin")
+        })
+        .unwrap()
+        .build()
+        .unwrap();
+        assert!(request.headers().get("authorization").is_none());
+    }
+    let pro = registry_request(
+        &client,
+        &Url::parse("https://console.proa.so:443/r/calendar.json").unwrap(),
         PRO_REGISTRY,
-        Some(SECRET),
+        || Ok(Some("test-token".into())),
     )
+    .unwrap()
     .build()
     .unwrap();
+    assert_eq!(pro.headers()["authorization"], "Bearer test-token");
+    assert!(!format!("{pro:?}").contains("test-token"));
+}
+
+#[test]
+fn registry_redirects_and_artifacts_must_stay_on_the_original_http_origin() {
+    let catalog = Url::parse("https://registry.example/r").unwrap();
+    assert!(same_registry_origin(
+        &catalog,
+        &Url::parse("https://registry.example:443/versions/new").unwrap()
+    ));
+    for target in [
+        "https://mirror.example/r",
+        "https://registry.example:8443/r",
+        "http://registry.example/r",
+        "file:///registry/r",
+    ] {
+        assert!(!same_registry_origin(
+            &catalog,
+            &Url::parse(target).unwrap()
+        ));
+    }
+}
+
+#[test]
+fn registry_read_accepts_exact_limit_and_stops_after_one_extra_byte() {
+    let location = ResourceLocation::File("component.json".into());
     assert_eq!(
-        pro.headers().get("authorization").unwrap(),
-        "Bearer test-registry-secret"
+        read_registry_body(&b"abc"[..], &location, 3).unwrap(),
+        b"abc"
     );
-    assert!(!format!("{pro:?}").contains(SECRET));
+    let mut bytes = &b"abcde"[..];
+    assert!(read_registry_body(&mut bytes, &location, 3).is_err());
+    assert_eq!(bytes, b"e");
 }
 
 #[test]

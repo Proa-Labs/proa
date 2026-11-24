@@ -151,6 +151,7 @@ fn keyed_list_emits_bind_list_with_create_adopt_and_deps() {
         js.lines().next().unwrap_or_default().contains("bind_list"),
         "bind_list must be imported from the runtime; got:\n{js}"
     );
+    assert!(!js.contains("safe_url_attr_value"));
     // The view tree contains a ForLoop, which disables static index
     // walks; the container resolves through the marker selector.
     assert!(
@@ -200,9 +201,12 @@ fn keyed_list_field_template_resolves_nested_slots_by_child_index() {
         js.contains(".setAttribute(\"class\", \"t\");"),
         "static attributes must be re-applied in create; got:\n{js}"
     );
-    assert!(
-        js.contains("__li_0_0.setAttribute(\"href\", String(item.url));"),
-        "dynamic item attributes must update from item fields; got:\n{js}"
+    assert!(js.lines().next().unwrap().contains("safe_url_attr_value"));
+    assert_eq!(
+        js.matches("__li_0_0.setAttribute(\"href\", safe_url_attr_value(item.url));")
+            .count(),
+        2,
+        "both create and adopt must apply the URL policy; got:\n{js}"
     );
     assert!(
         js.contains("__li_0_1.textContent = String(item.title);"),
