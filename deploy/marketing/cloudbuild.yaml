@@ -67,19 +67,32 @@ steps:
         mkdir -p /release/artifacts /release/report /cache/target
         touch /cache/.compile-start
         cd /cache/source
-        cargo build --profile release-fast --locked -p proa-cli --bin proa
+        fingerprints=/tmp/marketing-cargo-fingerprints
+        : > "$$fingerprints"
+        record_cargo_units() {
+          awk -v fingerprints="$$fingerprints" -f /workspace/deploy/marketing/cargo-fingerprints.awk
+        }
+        export CARGO_LOG=cargo::core::compiler::fingerprint=debug
+        cargo build --profile release-fast --locked -p proa-cli --bin proa 2>&1 | record_cargo_units
         export CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
-        export CARGO_PROFILE_RELEASE_LTO=thin CARGO_LOG=cargo::core::compiler::fingerprint=info
+        export CARGO_PROFILE_RELEASE_LTO=thin
         /cache/target/release-fast/proa build --root /cache/source/proa_marketing \
           --package proa_marketing --bin proa_marketing --locked --no-check \
           --artifact-out /release/artifacts/proa_marketing -- cargo build --profile release --timings \
-          2>&1 | tee /release/report/build.log
+          2>&1 | record_cargo_units | tee /release/report/build.log
         find /cache/target -name cargo-timing.html -exec cp --parents {} /release/report/ \;
         sha256sum /release/artifacts/proa_marketing > /release/report/binary.sha256
         cp -a /release/artifacts /workspace/release-artifacts
-        python3 /workspace/deploy/marketing/prune_cache.py /cache/target \
+        rm -f /release/cache-ready
+        if python3 /workspace/deploy/marketing/prune_cache.py /cache/target \
           --since-file /cache/.compile-start \
-          --wrapper /cache/target/release-fast/proa
+          --cargo-fingerprints "$$fingerprints" --wrapper /cache/target/release-fast/proa; then
+          touch /release/cache-ready
+        else
+          status=$$?
+          # An oversized cache (exit 3) can skip publication after a successful compile.
+          [[ "$$status" -eq 3 ]] || exit "$$status"
+        fi
         rm -f /cache/.compile-start
         du -sh /cache/source /cache/target /cache/cargo || true
         df -h /cache /tmp || true
@@ -93,6 +106,8 @@ steps:
       - -ceu
       - |
         set -euo pipefail
+        gcloud storage cp --recursive /release/report '${_CACHE}/reports/$BUILD_ID/'
+        [[ -f /release/cache-ready ]] || exit 0
         # A failed producer can still close stdin successfully at the uploader.
         # Publish the immutable upload only after the entire pipeline succeeds.
         staging='${_CACHE}/staging/$BUILD_ID.tar.zst'
@@ -109,7 +124,6 @@ steps:
           fi
           printf 'Cache changed since restore; keeping the completed cache.\n'
         fi
-        gcloud storage cp --recursive /release/report '${_CACHE}/reports/$BUILD_ID/'
     volumes: [{name: cache, path: /cache}, {name: release, path: /release}]
 
   - id: package

@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -252,7 +255,7 @@ class PruneCacheTests(unittest.TestCase):
                 with_build_dir=True,
             )
 
-            # Multi-version unchanged dependency (e.g. syn 1.x and syn 2.x): both MUST be kept.
+            # Cargo reused one version of syn and rebuilt the other.
             make_cargo_unit(
                 profile,
                 "syn",
@@ -266,7 +269,7 @@ class PruneCacheTests(unittest.TestCase):
                 "syn",
                 "bbbbbbbbbbbbbbbb",
                 kind_json="lib-syn.json",
-                mtime_ns=T_MID,
+                mtime_ns=T_FRESH,
                 dep_files=[("libsyn-bbbbbbbbbbbbbbbb.rlib", 2048)],
             )
 
@@ -274,7 +277,16 @@ class PruneCacheTests(unittest.TestCase):
             write_bytes(profile / "deps" / "liborphan-9999999999999999.rlib", b"o" * 1024, T_OLD)
             write_bytes(profile / "build" / "orphan-9999999999999999" / "output", b"o", T_OLD)
 
-            stats = prune_cache.prune_target_directory(target, since_ns=T_SINCE)
+            fp_root = (profile / ".fingerprint").resolve()
+            current = Path(tmp) / "cargo-fingerprints"
+            current.write_text(
+                f"{fp_root}/proa-cli-2222222222222222/bin-proa\n"
+                f"{fp_root}/syn-aaaaaaaaaaaaaaaa/lib-syn\n"
+                f"{fp_root}/syn-bbbbbbbbbbbbbbbb/lib-syn\n"
+            )
+            stats = prune_cache.prune_target_directory(
+                target, since_ns=T_SINCE, cargo_fingerprints=current
+            )
 
             self.assertEqual(stats.superseded_units, 1)
             self.assertEqual(stats.orphan_entries, 2)
@@ -290,7 +302,71 @@ class PruneCacheTests(unittest.TestCase):
             self.assertFalse((profile / "deps" / "liborphan-9999999999999999.rlib").exists())
             self.assertFalse((profile / "build" / "orphan-9999999999999999").exists())
 
-    def test_enforces_size_budget_by_evicting_oldest_non_fresh_units(self) -> None:
+    @unittest.skipUnless(shutil.which("cargo") and shutil.which("awk"), "requires Cargo and awk")
+    def test_warm_cargo_build_reuses_both_versions_after_pruning(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            crates = (("v1", "shared", 1), ("v2", "shared", 2), ("app", "app", 1))
+            for directory, package, version in crates:
+                crate = root / directory
+                (crate / "src").mkdir(parents=True)
+                (crate / "Cargo.toml").write_text(
+                    f'[package]\nname="{package}"\nversion="{version}.0.0"\nedition="2021"\n'
+                )
+            for directory in ("v1", "v2"):
+                (root / directory / "src/lib.rs").write_text("pub fn value() -> u32 { 1 }")
+            app = root / "app"
+            with (app / "Cargo.toml").open("a") as manifest:
+                manifest.write(
+                    '[dependencies]\n'
+                    'v1={package="shared",path="../v1"}\n'
+                    'v2={package="shared",path="../v2"}\n'
+                )
+            (app / "src/main.rs").write_text("fn main() { assert!(v1::value() + v2::value() > 0); }")
+            target = root / "target"
+            fingerprints = root / "cargo-fingerprints"
+
+            def build() -> dict[str, bool]:
+                result = subprocess.run(
+                    [
+                        "cargo", "build", "--offline", "--release", "--manifest-path",
+                        str(app / "Cargo.toml"), "--message-format=json-render-diagnostics",
+                    ],
+                    cwd=repo,
+                    env={
+                        **os.environ, "CARGO_TARGET_DIR": str(target), "CARGO_TERM_COLOR": "never",
+                        "CARGO_LOG": "cargo::core::compiler::fingerprint=debug",
+                    },
+                    check=True, capture_output=True, text=True,
+                )
+                fingerprints.write_text("")
+                subprocess.run(
+                    [
+                        "awk", "-v", f"fingerprints={fingerprints}", "-f",
+                        str(repo / "deploy/marketing/cargo-fingerprints.awk"),
+                    ],
+                    input=result.stderr, check=True, capture_output=True, text=True,
+                )
+                return {
+                    Path(message["manifest_path"]).parent.name: message["fresh"]
+                    for message in map(json.loads, result.stdout.splitlines())
+                    if message["reason"] == "compiler-artifact"
+                }
+
+            build()
+            marker = root / "compile-start"
+            marker.touch()
+            (root / "v2/src/lib.rs").write_text("pub fn value() -> u32 { 2 }")
+            self.assertEqual(build(), {"v1": True, "v2": False, "app": False})
+            used = [Path(line) for line in fingerprints.read_text().splitlines()]
+            self.assertEqual(len({path.parent for path in used if path.name == "lib-shared"}), 2)
+            self.assertEqual(prune_cache.main([
+                str(target), "--since-file", str(marker), "--cargo-fingerprints", str(fingerprints)
+            ]), 0)
+            self.assertEqual(build(), {"v1": True, "v2": True, "app": True})
+
+    def test_budget_evicts_unused_units_before_warm_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "target"
             profile = target / "release"
@@ -320,17 +396,56 @@ class PruneCacheTests(unittest.TestCase):
                 dep_files=[("libfresh_crate-3333333333333333.rlib", 10_000)],
             )
 
+            current = Path(tmp) / "cargo-fingerprints"
+            current.write_text(
+                f"{profile.resolve()}/.fingerprint/oldest_crate-1111111111111111/lib-oldest_crate\n"
+            )
             stats = prune_cache.prune_target_directory(
                 target,
                 since_ns=T_SINCE,
                 max_bytes=22_000,
+                cargo_fingerprints=current,
             )
 
             self.assertEqual(stats.budget_evicted_units, 1)
             self.assertLessEqual(stats.bytes_after, 22_000)
-            self.assertFalse((profile / "deps" / "liboldest_crate-1111111111111111.rlib").exists())
-            self.assertTrue((profile / "deps" / "libmiddle_crate-2222222222222222.rlib").exists())
+            self.assertTrue((profile / "deps" / "liboldest_crate-1111111111111111.rlib").exists())
+            self.assertFalse((profile / "deps" / "libmiddle_crate-2222222222222222.rlib").exists())
             self.assertTrue((profile / "deps" / "libfresh_crate-3333333333333333.rlib").exists())
+
+    def test_over_budget_resets_descriptor_generations_and_matching_target_together(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target"
+            rsjs = target / "proa-rsjs"
+            shared = rsjs / "shared" / "scope"
+            cache = shared / "descriptor-cache-v5"
+            descriptor = shared / "descriptor-target-policy-v2"
+            for generation, mtime in (("a", T_OLD), ("b", T_FRESH)):
+                write_bytes(cache / "objects" / "unit" / f"{generation}.o", b"x" * 2048, mtime)
+                write_bytes(cache / "units" / "unit" / f"{generation}.json", b"sidecar", mtime)
+            write_bytes(cache / "artifacts" / "index.json", b"index", T_FRESH)
+            write_bytes(descriptor / "release" / "deps" / "artifact", b"compiled", T_FRESH)
+            final = write_bytes(
+                rsjs / "final-target" / "scope" / "rsjs-final" / "wrapper-v1" / "release" / "bin",
+                b"final", T_FRESH,
+            )
+
+            within = prune_cache.prune_target_directory(target, max_bytes=8192)
+            self.assertFalse(within.descriptor_cache_reset)
+            self.assertTrue((cache / "objects" / "unit" / "a.o").is_file())
+            self.assertTrue(descriptor.is_dir())
+
+            stats = prune_cache.prune_target_directory(target, since_ns=T_SINCE, max_bytes=1024)
+            self.assertTrue(stats.descriptor_cache_reset)
+            self.assertEqual(stats.bytes_after, len(b"final"))
+            self.assertFalse(cache.exists())
+            self.assertFalse(descriptor.exists())
+            self.assertEqual(final.read_bytes(), b"final")
+
+            # An oversized final output survives for deployment, but cannot be archived.
+            self.assertEqual(prune_cache.main([str(target), "--max-bytes", "4"]), 3)
+            self.assertEqual(prune_cache.main([str(target), "--max-bytes", "5"]), 0)
+            self.assertEqual(final.read_bytes(), b"final")
 
     def test_cli_since_file_and_error_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -358,7 +473,8 @@ class PruneCacheTests(unittest.TestCase):
 
             exit_code = prune_cache.main([str(target), "--since-file", str(since_file)])
             self.assertEqual(exit_code, 0)
-            self.assertFalse((profile / "deps" / "libdemo-1111111111111111.rlib").exists())
+            # Without current Cargo evidence, another version rebuilding is ambiguous.
+            self.assertTrue((profile / "deps" / "libdemo-1111111111111111.rlib").exists())
             self.assertTrue((profile / "deps" / "libdemo-2222222222222222.rlib").exists())
 
             self.assertEqual(prune_cache.main(["/"]), 1)

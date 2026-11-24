@@ -19,6 +19,7 @@ import sys
 
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024 * 1024  # 32 GiB uncompressed
 DEFAULT_KEEP_METADATA = 4
+CACHE_OVER_BUDGET = 3
 HASH_CHUNK_SIZE = 1024 * 1024
 
 UNIT_DIR_RE = re.compile(r"^(?P<pkg>.+)-(?P<hash>[0-9a-f]{16})$")
@@ -41,6 +42,7 @@ class PruneStats:
     superseded_units: int = 0
     orphan_entries: int = 0
     budget_evicted_units: int = 0
+    descriptor_cache_reset: bool = False
     active_scope: str | None = None
 
     @property
@@ -59,6 +61,13 @@ class CargoUnit:
     deps_files: list[Path]
     mtime_ns: int
     size_bytes: int
+
+
+@dataclass
+class RsjsCache:
+    descriptor_target: Path | None = None
+    descriptor_cache: Path | None = None
+    final_target: Path | None = None
 
 
 def entry_size_bytes(path: Path) -> int:
@@ -285,11 +294,11 @@ def prune_proa_rsjs(
     since_ns: int | None,
     wrapper_path: Path | None,
     keep_metadata: int,
-) -> list[Path]:
+) -> RsjsCache:
+    active = RsjsCache()
     if not rsjs_root.is_dir() or rsjs_root.is_symlink():
-        return []
+        return active
 
-    active_cargo_targets: list[Path] = []
     # Determine active scope BEFORE removing cargo-timings so warm cache hits
     # still identify the active scope via freshly written timing files.
     active_scope = select_active_rsjs_scope(rsjs_root)
@@ -303,12 +312,12 @@ def prune_proa_rsjs(
         if active_scope is not None:
             active_shared = shared_root / active_scope
             if active_shared.is_dir() and not active_shared.is_symlink():
-                active_descriptor = keep_newest_subdir(
+                active.descriptor_target = keep_newest_subdir(
                     active_shared, stats, prefix="descriptor-target-"
                 )
-                if active_descriptor is not None:
-                    active_cargo_targets.append(active_descriptor)
-                keep_newest_subdir(active_shared, stats, prefix="descriptor-cache-")
+                active.descriptor_cache = keep_newest_subdir(
+                    active_shared, stats, prefix="descriptor-cache-"
+                )
 
     final_root = rsjs_root / "final-target"
     if final_root.is_dir() and not final_root.is_symlink():
@@ -319,11 +328,9 @@ def prune_proa_rsjs(
             active_final = final_root / active_scope
             if active_final.is_dir() and not active_final.is_symlink():
                 remove_path(active_final / "rsjs-final-artifact-snapshots", stats)
-                active_wrapper = keep_newest_subdir(
+                active.final_target = keep_newest_subdir(
                     active_final / "rsjs-final", stats, prefix="wrapper-v"
                 )
-                if active_wrapper is not None:
-                    active_cargo_targets.append(active_wrapper)
                 prune_metadata_entries(
                     active_final / "rsjs-final-unit-maps",
                     stats,
@@ -356,7 +363,7 @@ def prune_proa_rsjs(
             except FileNotFoundError:
                 continue
 
-    return active_cargo_targets
+    return active
 
 
 def find_cargo_profile_dirs(cargo_target_dir: Path) -> list[Path]:
@@ -468,6 +475,7 @@ def prune_superseded_profile_units(
     stats: PruneStats,
     *,
     since_ns: int,
+    used_fingerprints: set[Path],
 ) -> None:
     units, live_hashes = scan_profile_units(profile_dir)
     if not live_hashes:
@@ -475,17 +483,17 @@ def prune_superseded_profile_units(
 
     grouped: dict[tuple[str, tuple[str, ...]], list[CargoUnit]] = {}
     for unit in units:
-        canonical_pkg = unit.pkg.replace("-", "_")
-        grouped.setdefault((canonical_pkg, unit.kind_key), []).append(unit)
+        grouped.setdefault((unit.pkg, unit.kind_key), []).append(unit)
 
     for group_units in grouped.values():
         if len(group_units) < 2:
             continue
-        has_fresh = any(unit.mtime_ns >= since_ns for unit in group_units)
-        if not has_fresh:
+        # Cargo reports the exact fingerprint even on cache hits. Without an
+        # observed member of this group, keep every version and feature set.
+        if not any(unit.fingerprint_dir in used_fingerprints for unit in group_units):
             continue
         for unit in group_units:
-            if unit.mtime_ns < since_ns:
+            if unit.fingerprint_dir not in used_fingerprints and unit.mtime_ns < since_ns:
                 remove_cargo_unit(unit, stats)
                 live_hashes.discard(unit.hash_hex)
                 stats.superseded_units += 1
@@ -523,10 +531,12 @@ def prune_superseded_profile_units(
 def enforce_size_budget(
     target_dir: Path,
     profile_dirs: list[Path],
+    rsjs: RsjsCache,
     stats: PruneStats,
     *,
     max_bytes: int,
     since_ns: int | None,
+    used_fingerprints: set[Path],
 ) -> int:
     current_bytes = entry_size_bytes(target_dir)
     if current_bytes <= max_bytes:
@@ -536,6 +546,8 @@ def enforce_size_budget(
     for profile_dir in profile_dirs:
         units, _ = scan_profile_units(profile_dir)
         for unit in units:
+            if unit.fingerprint_dir in used_fingerprints:
+                continue
             if since_ns is not None and unit.mtime_ns >= since_ns:
                 continue
             candidates.append(unit)
@@ -548,7 +560,16 @@ def enforce_size_budget(
         stats.budget_evicted_units += 1
         current_bytes = max(0, current_bytes - unit.size_bytes)
 
-    return entry_size_bytes(target_dir)
+    current_bytes = entry_size_bytes(target_dir)
+    if current_bytes > max_bytes and rsjs.descriptor_cache is not None:
+        # A Cargo cache hit expects its descriptor index, sidecar and object.
+        # Reset both halves so the next build regenerates them together.
+        remove_path(rsjs.descriptor_cache, stats)
+        if rsjs.descriptor_target is not None:
+            remove_path(rsjs.descriptor_target, stats)
+        stats.descriptor_cache_reset = True
+        current_bytes = entry_size_bytes(target_dir)
+    return current_bytes
 
 
 def prune_target_directory(
@@ -558,6 +579,7 @@ def prune_target_directory(
     wrapper_path: str | Path | None = None,
     max_bytes: int | None = DEFAULT_MAX_BYTES,
     keep_metadata: int = DEFAULT_KEEP_METADATA,
+    cargo_fingerprints: Path | None = None,
 ) -> PruneStats:
     target_dir = Path(target_argument).resolve(strict=True)
     if target_dir == Path("/"):
@@ -568,16 +590,22 @@ def prune_target_directory(
     resolved_wrapper = Path(wrapper_path).resolve(strict=False) if wrapper_path is not None else None
     stats = PruneStats(bytes_before=entry_size_bytes(target_dir))
 
-    cargo_target_dirs: list[Path] = [target_dir]
-    cargo_target_dirs.extend(
-        prune_proa_rsjs(
-            target_dir / "proa-rsjs",
-            stats,
-            since_ns=since_ns,
-            wrapper_path=resolved_wrapper,
-            keep_metadata=keep_metadata,
-        )
+    used_fingerprints: set[Path] = set()
+    if cargo_fingerprints is not None:
+        with cargo_fingerprints.open(encoding="utf-8", errors="surrogateescape") as paths:
+            used_fingerprints = {Path(line.rstrip("\n")).parent for line in paths if line.strip()}
+
+    rsjs = prune_proa_rsjs(
+        target_dir / "proa-rsjs",
+        stats,
+        since_ns=since_ns,
+        wrapper_path=resolved_wrapper,
+        keep_metadata=keep_metadata,
     )
+    cargo_target_dirs = [target_dir]
+    for cargo_target in (rsjs.descriptor_target, rsjs.final_target):
+        if cargo_target is not None:
+            cargo_target_dirs.append(cargo_target)
 
     remove_path(target_dir / "proa-output", stats)
 
@@ -597,15 +625,19 @@ def prune_target_directory(
 
     if since_ns is not None:
         for profile_dir in profile_dirs:
-            prune_superseded_profile_units(profile_dir, stats, since_ns=since_ns)
+            prune_superseded_profile_units(
+                profile_dir, stats, since_ns=since_ns, used_fingerprints=used_fingerprints
+            )
 
     if max_bytes is not None:
         stats.bytes_after = enforce_size_budget(
             target_dir,
             profile_dirs,
+            rsjs,
             stats,
             max_bytes=max_bytes,
             since_ns=since_ns,
+            used_fingerprints=used_fingerprints,
         )
     else:
         stats.bytes_after = entry_size_bytes(target_dir)
@@ -639,6 +671,11 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
         "--since-file",
         default=None,
         help="File whose mtime marks the start of the current build.",
+    )
+    parser.add_argument(
+        "--cargo-fingerprints",
+        type=Path,
+        help="File of exact fingerprint paths Cargo used during this build, one per line.",
     )
     parser.add_argument(
         "--wrapper",
@@ -679,6 +716,7 @@ def main(arguments: list[str]) -> int:
             wrapper_path=args.wrapper,
             max_bytes=args.max_bytes,
             keep_metadata=args.keep_metadata,
+            cargo_fingerprints=args.cargo_fingerprints,
         )
     except (OSError, PruneError) as error:
         print(f"cargo cache prune failed: {error}", file=sys.stderr)
@@ -693,14 +731,16 @@ def main(arguments: list[str]) -> int:
         f"superseded_units={stats.superseded_units} "
         f"orphan_entries={stats.orphan_entries} "
         f"budget_evicted_units={stats.budget_evicted_units} "
+        f"descriptor_cache_reset={stats.descriptor_cache_reset} "
         f"active_scope={stats.active_scope or 'none'}"
     )
     if args.max_bytes is not None and stats.bytes_after > args.max_bytes:
         print(
-            f"warning: target cache remains above budget "
+            f"Skipping cache upload because the target cache exceeds its budget "
             f"({format_bytes(stats.bytes_after)} > {format_bytes(args.max_bytes)})",
             file=sys.stderr,
         )
+        return CACHE_OVER_BUDGET
     return 0
 
 
