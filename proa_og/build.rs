@@ -147,6 +147,7 @@ fn build_webkitgtk() {
                 .allowlist_function("gtk_init_check")
                 .allowlist_function("gtk_offscreen_window_new")
                 .allowlist_function("gtk_container_add")
+                .allowlist_function("gtk_container_check_resize")
                 .allowlist_function("gtk_widget_.*")
                 .allowlist_function("gtk_window_.*")
                 // GObject/GLib

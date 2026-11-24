@@ -225,24 +225,20 @@ impl OgRenderer {
     #[cfg(not(wpe_stub))]
     fn render_impl(&self, html: &str, options: &RenderOptions) -> Result<OgImage, OgImageError> {
         use crate::ffi;
-        let width = options.clamped_width();
-        let height = options.clamped_height();
-
-        // Resize if options differ from current size.
-        unsafe {
-            ffi::gtk_window_set_default_size(
-                self.window as *mut ffi::GtkWindow,
-                width as i32,
-                height as i32,
-            );
-            ffi::gtk_widget_set_size_request(
-                self.web_view as *mut ffi::GtkWidget,
-                width as i32,
-                height as i32,
-            );
-        }
+        let width = options.clamped_width() as i32;
+        let height = options.clamped_height() as i32;
 
         unsafe {
+            let widget = self.web_view.cast();
+            if ffi::gtk_widget_get_allocated_width(widget) != width
+                || ffi::gtk_widget_get_allocated_height(widget) != height
+            {
+                ffi::gtk_window_set_default_size(self.window.cast(), width, height);
+                ffi::gtk_widget_set_size_request(widget, width, height);
+                // A fast load can finish before GTK's next layout frame. Allocate
+                // the offscreen window and its WebView before requesting the page.
+                ffi::gtk_container_check_resize(self.window.cast());
+            }
             crate::render_state::capture(self.web_view, html, options.effective_timeout_secs())
         }
     }
