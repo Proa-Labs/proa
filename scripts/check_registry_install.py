@@ -17,8 +17,27 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
+
+
+def registry_environment(work: Path) -> dict[str, str]:
+    # A fresh Cargo home has no checkout config, source overrides, or credentials.
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not key.startswith(("CARGO_", "PROA_", "RSJS_", "SCCACHE_"))
+        and key not in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER")
+    }
+    # Generated sites live outside the checkout, where rustup cannot see its pin.
+    if not environment.get("RUSTUP_TOOLCHAIN"):
+        pin = Path(__file__).resolve().parents[1] / "rust-toolchain.toml"
+        with pin.open("rb") as manifest:
+            environment["RUSTUP_TOOLCHAIN"] = tomllib.load(manifest)["toolchain"]["channel"]
+    environment.update(CARGO_HOME=tempfile.mkdtemp(prefix="cargo-home-", dir=work),
+                       CARGO_TARGET_DIR=str(work / "target"), CARGO_PROFILE_DEV_DEBUG="0",
+                       CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
+    return environment
 
 
 def run(arguments: list[str], cwd: Path, environment: dict[str, str]) -> None:
@@ -144,16 +163,8 @@ def main() -> None:
     work = work.resolve()
     work.mkdir(parents=True, exist_ok=True)
     print(f"Registry acceptance artifacts: {work}", flush=True)
-    cargo_home = Path(tempfile.mkdtemp(prefix="cargo-home-", dir=work))
-    # A fresh Cargo home has no checkout config, source overrides, or credentials.
-    environment = {
-        key: value for key, value in os.environ.items()
-        if not key.startswith(("CARGO_", "PROA_", "RSJS_", "SCCACHE_"))
-        and key not in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER")
-    }
-    environment.update(CARGO_HOME=str(cargo_home), CARGO_PROFILE_DEV_DEBUG="0",
-                       CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
-    environment["CARGO_TARGET_DIR"] = str(work / "target")
+    environment = registry_environment(work)
+    print(f"Registry acceptance Rust toolchain: {environment['RUSTUP_TOOLCHAIN']}", flush=True)
     if arguments.cli:
         proa = arguments.cli.resolve()
     else:
