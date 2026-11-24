@@ -2246,6 +2246,21 @@ fn malformed_and_duplicate_cargo_messages_fail_closed() {
         collector.ingest_line(r#"{"reason":"compiler-message","package_id":"x"}"#),
         Err(CargoMessageError::MalformedAuxiliaryMessage { .. })
     ));
+    for header in [
+        r#"{"reason":"build-started"}"#,
+        r#"{"reason":"build-started","run_id":""}"#,
+    ] {
+        assert!(matches!(
+            CargoArtifactCollector::default().ingest_line(header),
+            Err(CargoMessageError::MalformedAuxiliaryMessage { .. })
+        ));
+    }
+    let mut collector = CargoArtifactCollector::default();
+    collector.ingest_line(&artifact).unwrap();
+    assert!(matches!(
+        collector.ingest_line(r#"{"reason":"build-started","run_id":"another-run"}"#),
+        Err(CargoMessageError::MalformedAuxiliaryMessage { .. })
+    ));
 }
 
 #[test]
@@ -2271,6 +2286,11 @@ fn collector_returns_only_cargo_enumerated_artifact_paths() {
     })
     .to_string();
     let mut collector = CargoArtifactCollector::default();
+    collector
+        .ingest_line(
+            r#"{"reason":"build-started","run_id":"20261124T022838673Z-b2c967fff3e276da"}"#,
+        )
+        .unwrap();
     collector.ingest_line(&artifact).unwrap();
     collector
         .ingest_line(r#"{"reason":"build-finished","success":true}"#)
