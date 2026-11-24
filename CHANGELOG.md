@@ -4,6 +4,14 @@ All notable public changes are tracked here.
 
 ## Unreleased
 
+- Breaking: the minimum supported Rust version is 1.98 (was 1.93).
+- Breaking: the Axum adapter uses Axum 0.8. Routes registered directly on an
+  `axum::Router` use `/{id}` and `/{*path}`; `/:id` and `/*path` panic when the
+  route is registered. Declarative `Route` specs still accept both spellings.
+  `nest("/", ..)` and `nest_service("/", ..)` also panic, so a static router
+  for `with_static_service` uses `Router::new().fallback_service(..)`.
+- Breaking: removed React interop: the `proa/react` feature, the `proa_react`
+  crate, and the `#[island]` TSX attribute macro. Migrate islands to RSJS.
 - Breaking: published public files moved from `/_proa/assets/` to two prefixes
   split by cache policy. `/_proa/immutable/<path>.<16 hex>.<ext>` holds
   content-hashed images, media, fonts, other opaque files, and now stylesheets,

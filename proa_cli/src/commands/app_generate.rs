@@ -116,6 +116,7 @@ pub fn page(
     add_module(&mut modules, &route.module);
     let routes_path = root.join("src/routes.rs");
     let mut routes = fs::read_to_string(&routes_path)?;
+    ensure_route_unregistered(&routes, &route.canonical)?;
     let handler = if markdown && route.canonical.ends_with('}') {
         "handler_with_markdown_alias"
     } else {
@@ -173,9 +174,7 @@ pub fn endpoint(
         "        Route::endpoint(\"{}\", axum::routing::{}(endpoints::{}::handler)),",
         route.canonical, method, route.module
     );
-    if routes.contains(&format!("\"{}\"", route.canonical)) {
-        bail!("route path is already registered: {}", route.canonical);
-    }
+    ensure_route_unregistered(&routes, &route.canonical)?;
     add_route_spec(&mut routes, &registration)?;
     let files = vec![
         (
@@ -277,6 +276,37 @@ fn route_name(raw: &str) -> Result<RouteName> {
         canonical,
         module,
     })
+}
+
+/// Reject a path that `routes.rs` already registers in either capture
+/// spelling; Axum panics at startup on the overlapping registration.
+fn ensure_route_unregistered(routes: &str, canonical: &str) -> Result<()> {
+    // Odd-indexed pieces between quotes are the string literals.
+    if routes
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .any(|literal| canonical_route(literal) == canonical)
+    {
+        bail!("route path is already registered: {canonical}");
+    }
+    Ok(())
+}
+
+/// Spell `/:id` and `/*path` captures as `/{id}` and `/{*path}`.
+fn canonical_route(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if let Some(name) = segment.strip_prefix(':') {
+                format!("{{{name}}}")
+            } else if let Some(name) = segment.strip_prefix('*') {
+                format!("{{*{name}}}")
+            } else {
+                segment.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn human_title(name: &str) -> String {
@@ -751,6 +781,21 @@ mod tests {
             syn::parse_file(&source).unwrap();
             assert!(source.contains("fn handler_with_markdown_alias("));
         }
+    }
+
+    #[test]
+    fn detects_routes_registered_in_either_capture_spelling() {
+        let routes = r#"
+        Route::endpoint("/blog/:slug", get(pages::blog_slug::handler)),
+        Route::endpoint("/files/*rest", get(pages::files_rest::handler)),
+        Route::endpoint("/shop/{id}", get(pages::shop_id::handler)),
+"#;
+        for canonical in ["/blog/{slug}", "/files/{*rest}", "/shop/{id}"] {
+            let error = ensure_route_unregistered(routes, canonical).unwrap_err();
+            assert!(error.to_string().contains("already registered"), "{error}");
+        }
+        ensure_route_unregistered(routes, "/blog").unwrap();
+        ensure_route_unregistered(routes, "/blog/{slug}/edit").unwrap();
     }
 
     #[test]

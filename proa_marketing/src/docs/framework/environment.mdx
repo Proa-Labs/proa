@@ -118,7 +118,7 @@ use tower_http::services::ServeDir;
 pub fn build_app(config: RuntimeConfig) -> anyhow::Result<Router> {
     let (routes, metadata) = build_routes();
 
-    let static_router = Router::new().nest_service("/", ServeDir::new(&config.static_dir));
+    let static_router = Router::new().fallback_service(ServeDir::new(&config.static_dir));
 
     let mut builder = FrameworkBuilder::new()
         .with_static_service(static_router)
