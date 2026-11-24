@@ -112,6 +112,22 @@ pub enum ListTemplateNode {
 }
 
 impl ListTemplateNode {
+    pub(crate) fn has_dynamic_url_attr(&self) -> bool {
+        match self {
+            Self::Element {
+                dynamic_attrs,
+                children,
+                ..
+            } => {
+                dynamic_attrs
+                    .iter()
+                    .any(|(name, _)| crate::bindings::is_dynamic_url_attr(name))
+                    || children.iter().any(Self::has_dynamic_url_attr)
+            }
+            Self::Text(_) | Self::Slot(_) => false,
+        }
+    }
+
     /// Whether this subtree contains at least one dynamic slot.
     pub fn has_slot(&self) -> bool {
         match self {

@@ -282,7 +282,7 @@ fn fence_info_encoding(ch: char) -> CharacterEncoding {
 fn destination_encoding(ch: char) -> CharacterEncoding {
     if ch.is_control() || ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '`') {
         CharacterEncoding::PercentEncode
-    } else if matches!(ch, '\\' | '(' | ')') {
+    } else if matches!(ch, '\\' | '(' | ')' | '&') {
         CharacterEncoding::BackslashEscape
     } else {
         CharacterEncoding::Copy
@@ -376,8 +376,8 @@ fn write_percent_encoded<B: WriteBuf>(buf: &mut B, bytes: &[u8]) -> Result<(), W
 ///
 /// Dangerous schemes, including executable `data:` URLs, emit an empty
 /// destination. Controls, whitespace, angle brackets, double quotes, and
-/// backticks are percent-encoded, while backslash and parentheses are
-/// CommonMark-backslash-escaped. Other UTF-8 is preserved.
+/// backticks are percent-encoded. Backslash, parentheses, and ampersands are
+/// backslash-escaped so CommonMark preserves the literal destination.
 /// The returned boolean reports whether a non-empty destination was emitted.
 pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<bool, WriteError> {
     if value.is_empty() || has_dangerous_url_scheme(value) {
@@ -554,6 +554,21 @@ mod tests {
         html::push_html(&mut bracketed_html, Parser::new(&bracketed));
         assert!(!bracketed_html.contains("<script>"), "{bracketed_html}");
         assert!(bracketed_html.contains("<a href="), "{bracketed_html}");
+    }
+
+    #[test]
+    fn commonmark_preserves_literal_entities_and_query_separators_in_urls() {
+        let url = "/docs&colon;index?q=one&sort=two&copy;";
+        let encoded = destination(url);
+        assert_eq!(link_destination_len(url), Some(encoded.len()));
+        let source = format!("[Guide]({encoded})");
+        let parsed = Parser::new(&source).find_map(|event| match event {
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) => {
+                Some(dest_url)
+            }
+            _ => None,
+        });
+        assert_eq!(parsed.as_deref(), Some(url));
     }
 
     #[test]

@@ -139,15 +139,14 @@ pub(crate) fn write_element_open<B: WriteBuf, L: DataLoader>(
                 Attr::Str {
                     k: AttrKey::Target,
                     v,
-                } if *v == "_blank" => {
+                } if v.eq_ignore_ascii_case("_blank") => {
                     has_target_blank = true;
                 }
                 Attr::Str { k: AttrKey::Rel, v } => {
                     existing_rel = Some(v);
                     rel_has_noopener = v
-                        .as_bytes()
-                        .windows(8)
-                        .any(|w| w.eq_ignore_ascii_case(b"noopener"));
+                        .split_ascii_whitespace()
+                        .any(|token| token.eq_ignore_ascii_case("noopener"));
                 }
                 _ => {}
             }
@@ -175,7 +174,8 @@ pub(crate) fn write_element_open<B: WriteBuf, L: DataLoader>(
             }
             Some(existing) => {
                 cx.out.extend_static_str(" rel=\"")?;
-                cx.out.extend_str(existing)?;
+                let dialect = cx.__proa_current_escape_dialect();
+                escape_attr_value_for_dialect(&mut cx.out, existing, dialect)?;
                 cx.out.extend_static_str(" noopener noreferrer\"")?;
             }
         }
@@ -234,4 +234,37 @@ fn write_attr<B: WriteBuf, L: DataLoader>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merged_rel_escapes_values_and_matches_complete_tokens() {
+        for (rel, expected) in [
+            (
+                "tag&note noopeners",
+                "tag&amp;note noopeners noopener noreferrer",
+            ),
+            ("tag NOOPENER", "tag NOOPENER"),
+        ] {
+            let mut cx = WebContext::<NoLoader>::new();
+            let attrs = [
+                Attr::Str {
+                    k: AttrKey::Target,
+                    v: "_BLANK",
+                },
+                Attr::Str {
+                    k: AttrKey::Rel,
+                    v: rel,
+                },
+            ];
+            write_element_open(&mut cx, Tag::A, &attrs).unwrap();
+            assert_eq!(
+                cx.into_output().into_string(),
+                format!(r#"<a target="_BLANK" rel="{expected}">"#)
+            );
+        }
+    }
 }

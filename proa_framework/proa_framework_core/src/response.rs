@@ -749,7 +749,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
 fn encode_client_payload(
     html: String,
     page_title: Option<String>,
-    decisions: Option<ResponseContext>,
+    decisions: ResponseContext,
 ) -> FrameworkResponse {
     let mut payload = serde_json::json!({
         "html": html,
@@ -762,7 +762,7 @@ fn encode_client_payload(
     match serde_json::to_vec(&payload) {
         Ok(bytes) => {
             let mut response = FrameworkResponse::json(Bytes::from(bytes));
-            if let Some(decisions) = decisions {
+            if !decisions.is_empty() {
                 merge_response_context(&mut response, &decisions);
                 // Negotiation selected JSON; document hooks cannot change its encoding.
                 response.headers.insert(
@@ -1362,7 +1362,7 @@ where
 fn render_sync_component_to_html(
     component: Box<dyn DynWebRenderSync<NoLoader, RenderBuffer> + Send>,
     request: &FrameworkRequestContext,
-) -> Result<(String, Option<Option<String>>, Option<ResponseContext>), FrameworkError> {
+) -> Result<(String, Option<Option<String>>, ResponseContext), FrameworkError> {
     let (rsjs_artifacts, shared_seed_table_json, buffer, title, decisions) = {
         let mut ctx = Ctx::new();
         install_request_context(&mut ctx, request);
@@ -1375,8 +1375,7 @@ fn render_sync_component_to_html(
             .head_state()
             .document()
             .map(|head| head.resolved_title());
-        // proa-perf-ok: managed client finalization transfers owned HTTP decisions after rendering
-        let decisions = title.as_ref().map(|_| ctx.response().clone());
+        let decisions = std::mem::take(ctx.response_mut());
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1419,7 +1418,7 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<(String, Option<Option<String>>, Option<ResponseContext>), FrameworkError> {
+) -> Result<(String, Option<Option<String>>, ResponseContext), FrameworkError> {
     let (rsjs_artifacts, shared_seed_table_json, buffer, title, decisions) = {
         let mut ctx =
             WebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
@@ -1434,8 +1433,7 @@ async fn render_async_component_to_html<L: DataLoader + 'static>(
             .head_state()
             .document()
             .map(|head| head.resolved_title());
-        // proa-perf-ok: managed client finalization transfers owned HTTP decisions after rendering
-        let decisions = title.as_ref().map(|_| ctx.response().clone());
+        let decisions = std::mem::take(ctx.response_mut());
         let state = (
             ctx.rsjs_artifacts_snapshot(),
             ctx.rsjs_shared_state_seed_table_json(),
@@ -1478,7 +1476,7 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     loader: Arc<L>,
     render_mode: RenderMode,
-) -> Result<(String, Option<Option<String>>, Option<ResponseContext>), FrameworkError> {
+) -> Result<(String, Option<Option<String>>, ResponseContext), FrameworkError> {
     let (rsjs_artifacts, buffer, title, decisions) = {
         let mut ctx =
             SendWebContext::<L, RenderBuffer>::with_loader_buffer(RenderBuffer::new(), loader);
@@ -1493,9 +1491,7 @@ async fn render_send_component_to_html<L: DataLoader + 'static>(
             .head_state()
             .document()
             .map(|head| head.resolved_title());
-        // proa-perf-ok: managed client finalization transfers owned HTTP decisions after rendering
-        let decisions = title.as_ref().map(|_| ctx.response().clone());
-        let (buffer, artifacts) = ctx.into_output_and_render_artifacts();
+        let (buffer, artifacts, decisions) = ctx.into_output_render_artifacts_and_response();
         (
             artifacts.rsjs,
             match head_buffer {

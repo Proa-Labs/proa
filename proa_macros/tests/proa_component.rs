@@ -223,6 +223,50 @@ fn derive_hides_buffer_and_loader_generics_for_generic_children() {
     );
 }
 
+#[derive(ProaComponent)]
+#[component(tag = "a")]
+struct Link<'a> {
+    #[component(attr, attr_name = "href")]
+    href: Option<&'a str>,
+    #[component(class)]
+    class: Option<&'a str>,
+}
+
+impl Link<'_> {
+    fn classes(&self) -> ([&str; 1], usize) {
+        (["base&accent"], 1)
+    }
+}
+
+#[test]
+fn derived_attributes_use_the_same_escaping_and_url_policy_as_templates() {
+    let render = |href| {
+        let mut cx = WebContext::<proa_core::NoLoader>::new();
+        WebRenderSync::render(
+            Link {
+                href: Some(href),
+                class: Some("quiet&bold"),
+            },
+            &mut cx,
+        )
+        .unwrap();
+        cx.into_output().into_string()
+    };
+    assert_eq!(
+        render("/search?a=1&b=2"),
+        r#"<a class="base&amp;accent quiet&amp;bold" href="/search?a=1&amp;b=2"></a>"#
+    );
+    let blocked = std::panic::catch_unwind(|| render("data:text/html,"));
+    if cfg!(debug_assertions) {
+        assert!(blocked.is_err());
+    } else {
+        assert_eq!(
+            blocked.unwrap(),
+            r#"<a class="base&amp;accent quiet&amp;bold" href=""></a>"#
+        );
+    }
+}
+
 #[test]
 fn children_builder_infers_child_type_and_preserves_fields_and_generics() {
     let component = GenericShell::<_, 2, ()> {

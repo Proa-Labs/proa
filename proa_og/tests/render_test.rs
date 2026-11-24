@@ -6,18 +6,33 @@
 //! Run inside the Docker container:
 //!   cargo test -p proa_og
 
-use proa_og::{OgRenderer, RenderOptions};
+use proa_og::{OgImageError, OgRenderer, RenderOptions};
 
-#[test]
-fn render_simple_og_image() {
+// WebKit requires its native callbacks and process teardown on the main thread.
+fn main() {
     let renderer = match OgRenderer::new() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Skipping test: {e}");
-            return;
-        }
+        Ok(renderer) => renderer,
+        Err(OgImageError::PlatformNotAvailable | OgImageError::GtkInit) => return,
+        Err(error) => panic!("renderer initialization failed: {error}"),
     };
+    assert!(matches!(
+        renderer.render_html("before\0after", &RenderOptions::default()),
+        Err(OgImageError::LoadFailed(_))
+    ));
+    render_simple_og_image(&renderer);
+    render_with_flexbox_and_grid(&renderer);
+    let options = RenderOptions {
+        width: 640,
+        height: 360,
+        ..RenderOptions::default()
+    };
+    let image = renderer
+        .render_html("<div style='height: 1500px'></div>", &options)
+        .expect("render a page longer than the viewport");
+    assert_eq!((image.width, image.height), (options.width, options.height));
+}
 
+fn render_simple_og_image(renderer: &OgRenderer) {
     let html = r#"
     <html>
     <head>
@@ -86,16 +101,7 @@ fn render_simple_og_image() {
     );
 }
 
-#[test]
-fn render_with_flexbox_and_grid() {
-    let renderer = match OgRenderer::new() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Skipping test: {e}");
-            return;
-        }
-    };
-
+fn render_with_flexbox_and_grid(renderer: &OgRenderer) {
     let html = r#"
     <html>
     <head>

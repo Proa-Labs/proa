@@ -2403,6 +2403,10 @@ impl Analyzer {
                     static_attrs.push((html_name, String::new()));
                 }
                 Attribute::Dynamic { value, .. } => {
+                    let html_name = raw_name.replace('_', "-");
+                    if is_dynamic_attr_rejected_for_safety(&html_name) {
+                        return Err(syn::Error::new(name_ident.span(), format!("dynamic `{html_name}` attributes are not supported inside `#[rsjs]` islands")));
+                    }
                     let Some((expr, tokens)) = keyed_list_item_expr(value, item_name) else {
                         return Err(syn::Error::new(
                             value.span(),
@@ -2415,7 +2419,6 @@ impl Analyzer {
                             ),
                         ));
                     };
-                    let html_name = raw_name.replace('_', "-");
                     self.builder.server_attr_with_source_anchor(
                         id,
                         &html_name,

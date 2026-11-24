@@ -3,17 +3,16 @@
 
 //! # proa_og
 //!
-//! OG image generation powered by WPE WebKit's headless rendering engine.
+//! Open Graph image generation with WebKitGTK and Cairo.
 //!
-//! Uses the real WebKit CSS/layout engine for pixel-perfect HTML/CSS rendering,
-//! then captures the result as PNG. No Yoga, no Taffy, no CSS subset — the same
-//! engine that powers Safari and GNOME Web.
+//! WebKit lays out HTML and CSS in an offscreen view. The renderer captures
+//! the configured viewport and returns its pixels and a PNG.
 //!
 //! ## Architecture
 //!
 //! ```text
 //! HTML + CSS string
-//!   → WPE headless display (no GPU, no window server)
+//!   → GTK offscreen window
 //!   → WebKitWebView (full WebCore layout engine)
 //!   → snapshot → BGRA8 pixel buffer
 //!   → PNG encoding
@@ -21,9 +20,9 @@
 //!
 //! ## Platform
 //!
-//! Requires Linux with WPE WebKit development libraries installed.
-//! On macOS, the crate compiles with stub bindings for IDE support,
-//! but panics at runtime. Use the provided Dockerfile for local development.
+//! Native snapshots require Linux with WebKitGTK and Cairo. Stock WPE SDKs
+//! lack the Cairo snapshot API. On those SDKs and on hosts without WebKitGTK,
+//! renderer construction returns [`OgImageError::PlatformNotAvailable`].
 //!
 //! ## Security
 //!
@@ -49,8 +48,8 @@
 //! - JavaScript is disabled.
 //! - HTML is loaded with an empty base URI, so relative subresource references
 //!   cannot resolve (absolute `file://`/`http(s)://`/`data:` still can).
-//! - Render dimensions are clamped to the renderer's fixed dimension limit
-//!   before any surface is allocated, bounding memory use.
+//! - The viewport is clamped before rendering. Snapshot dimensions are also
+//!   checked before allocating the output pixel buffer.
 //! - Each render is bounded by a configurable timeout
 //!   ([`RenderOptions::timeout_secs`]); a hung or slow subresource yields
 //!   [`OgImageError::Timeout`] rather than wedging the render thread.
@@ -67,7 +66,11 @@ mod renderer;
 #[cfg(feature = "wpe")]
 mod wpe_renderer;
 
-pub use renderer::{OgImage, OgImageError, OgRenderer, RenderOptions};
+#[cfg(not(feature = "wpe"))]
+pub use renderer::OgRenderer;
+pub use renderer::{OgImage, OgImageError, RenderOptions};
+#[cfg(feature = "wpe")]
+pub use wpe_renderer::WpeRenderer as OgRenderer;
 
 #[cfg(feature = "wpe")]
 pub use wpe_renderer::WpeRenderer;

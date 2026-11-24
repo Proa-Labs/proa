@@ -4309,6 +4309,26 @@ fn authored_rsjs_marker_namespace_is_reserved_after_html_normalization() {
 }
 
 #[test]
+fn keyed_list_items_apply_the_ordinary_dynamic_attribute_policy() {
+    let root = syn::parse2::<HtmlRoot>(quote::quote! {
+        <li key={item.id} style={item.style}>{item.label}</li>
+    })
+    .unwrap();
+    let Node::Element(element) = &root.nodes[0] else {
+        panic!("expected list item")
+    };
+    let mut analyzer = test_analyzer();
+    let parent = analyzer.builder.element("ul", None);
+    let error = analyzer
+        .lower_keyed_item_element(element, parent, "item", true, &mut None)
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("dynamic `style` attributes"),
+        "{error}"
+    );
+}
+
+#[test]
 fn keyed_list_items_reject_authored_rsjs_marker_attributes() {
     let root = syn::parse2::<HtmlRoot>(quote::quote! {
         <li key={item} data_rsjs_key="author">{item}</li>
