@@ -122,6 +122,85 @@ fn adding_markdown_changes_page_scaffolding_without_rewriting_config() {
     assert_eq!(fs::read(root.join("proa.config.rs")).unwrap(), before);
 }
 
+#[test]
+fn route_generators_reject_collisions_before_writing_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let new = proa(
+        &["new", "site", "demo", "--template", "minimal", "--no-git"],
+        temp.path(),
+    );
+    assert!(new.status.success(), "{}", stderr(&new));
+    let root = temp.path().join("demo");
+    let added = proa(&["add", "representation", "markdown", "--yes"], &root);
+    assert!(added.status.success(), "{}", stderr(&added));
+    let endpoint = |path: &str| {
+        proa(
+            &[
+                "generate",
+                "endpoint",
+                path,
+                "--method",
+                "get",
+                "--response",
+                "json",
+            ],
+            &root,
+        )
+    };
+    let routes = root.join("src/routes.rs");
+    let source = fs::read_to_string(&routes).unwrap();
+    let source = format!(
+        "// Accept a literal \" in the query.\n{source}\n//        Route::endpoint(\"/about\", get(pages::about::handler)),\n"
+    );
+    fs::write(&routes, &source).unwrap();
+
+    let endpoints = root.join("src/endpoints/mod.rs");
+    let modules_before = fs::read(&endpoints).unwrap();
+    let duplicate = endpoint("healthz");
+    assert!(!duplicate.status.success());
+    assert!(
+        stderr(&duplicate).contains("already registered: /healthz"),
+        "{}",
+        stderr(&duplicate)
+    );
+    assert_eq!(fs::read_to_string(&routes).unwrap(), source);
+    assert_eq!(fs::read(endpoints).unwrap(), modules_before);
+    assert!(!root.join("src/endpoints/healthz.rs").exists());
+
+    let alias = endpoint("about.md");
+    assert!(alias.status.success(), "{}", stderr(&alias));
+    let pages = root.join("src/pages/mod.rs");
+    let routes_before = fs::read(&routes).unwrap();
+    let pages_before = fs::read(&pages).unwrap();
+    let duplicate = proa(&["generate", "page", "about"], &root);
+    assert!(!duplicate.status.success());
+    assert!(
+        stderr(&duplicate).contains("already registered: /about.md"),
+        "{}",
+        stderr(&duplicate)
+    );
+    assert_eq!(fs::read(&routes).unwrap(), routes_before);
+    assert_eq!(fs::read(pages).unwrap(), pages_before);
+    assert!(!root.join("src/pages/about.rs").exists());
+
+    let html = proa(&["generate", "page", "about", "--no-markdown"], &root);
+    assert!(html.status.success(), "{}", stderr(&html));
+    assert!(fs::read_to_string(&routes)
+        .unwrap()
+        .lines()
+        .any(|line| line.trim() == r#"Route::endpoint("/about", get(pages::about::handler)),"#));
+
+    let alias = endpoint("blog/{slug}.md");
+    assert!(alias.status.success(), "{}", stderr(&alias));
+    let captured = proa(&["generate", "page", "blog/:slug"], &root);
+    assert!(captured.status.success(), "{}", stderr(&captured));
+    let source = fs::read_to_string(routes).unwrap();
+    assert_eq!(source.matches(r#""/blog/{slug}.md""#).count(), 1);
+    assert!(source.contains(
+        r#"Route::endpoint("/blog/{slug}", get(pages::blog_slug::handler_with_markdown_alias))"#
+    ));
+}
+
 #[cfg(unix)]
 #[test]
 fn new_site_dry_run_never_checks_or_installs_tailwind() {
