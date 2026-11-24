@@ -3,10 +3,9 @@
 
 [workspace]
 members = [
-    # Cargo resolves proa_macros' versioned dev-dependency when packaging it.
-    # Start release-plz at proa_core before it traverses the facade's dependencies.
+    # Start with proa_core so release-plz publishes it before proa_macros,
+    # whose versioned dev-dependency Cargo resolves during packaging.
     "proa_core",
-    "proa",
     "proa_html_policy",
     "proa_assets",
     "proa_cli",
@@ -45,9 +44,10 @@ members = [
     "examples/facade",
     "examples/webmcp-pizza",
     "examples/mcp-incident-desk",
+    # Keep the public facade last. Add new workspace members above this line.
+    "proa",
 ]
 default-members = [
-    "proa",
     "proa_core",
     "proa_html_policy",
     "proa_assets",
@@ -66,6 +66,7 @@ default-members = [
     "rsjs_macros",
     "rsjs_transport",
     "rsjs_web",
+    "proa",
 ]
 resolver = "2"
 
