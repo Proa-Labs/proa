@@ -279,14 +279,23 @@ fn fence_info_encoding(ch: char) -> CharacterEncoding {
 }
 
 #[inline(always)]
-fn destination_encoding(ch: char) -> CharacterEncoding {
+fn destination_encoding(ch: char, following: &[u8]) -> CharacterEncoding {
     if ch.is_control() || ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '`') {
         CharacterEncoding::PercentEncode
-    } else if matches!(ch, '\\' | '(' | ')' | '&') {
+    } else if matches!(ch, '\\' | '(' | ')') || (ch == '&' && looks_like_entity(following)) {
         CharacterEncoding::BackslashEscape
     } else {
         CharacterEncoding::Copy
     }
+}
+
+/// Whether the bytes after an ampersand have the shape of a CommonMark entity.
+pub(super) fn looks_like_entity(following: &[u8]) -> bool {
+    let len = following
+        .iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'#')
+        .count();
+    len > 0 && following.get(len) == Some(&b';')
 }
 
 fn measured_char_len(ch: char, encoding: CharacterEncoding) -> Option<usize> {
@@ -376,8 +385,9 @@ fn write_percent_encoded<B: WriteBuf>(buf: &mut B, bytes: &[u8]) -> Result<(), W
 ///
 /// Dangerous schemes, including executable `data:` URLs, emit an empty
 /// destination. Controls, whitespace, angle brackets, double quotes, and
-/// backticks are percent-encoded. Backslash, parentheses, and ampersands are
-/// backslash-escaped so CommonMark preserves the literal destination.
+/// backticks are percent-encoded. Backslash, parentheses, and the ampersand
+/// of an entity-shaped reference are backslash-escaped. Query separators
+/// stay literal.
 /// The returned boolean reports whether a non-empty destination was emitted.
 pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<bool, WriteError> {
     if value.is_empty() || has_dangerous_url_scheme(value) {
@@ -388,7 +398,7 @@ pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<b
     let mut chunk_start = 0usize;
     for (index, ch) in value.char_indices() {
         let char_len = ch.len_utf8();
-        let encoding = destination_encoding(ch);
+        let encoding = destination_encoding(ch, &bytes[index + char_len..]);
         if matches!(encoding, CharacterEncoding::Copy) {
             continue;
         }
@@ -422,8 +432,9 @@ pub fn link_destination_len(value: &str) -> Option<usize> {
     if value.is_empty() || has_dangerous_url_scheme(value) {
         return Some(0);
     }
-    value.chars().try_fold(0usize, |len, ch| {
-        len.checked_add(measured_char_len(ch, destination_encoding(ch))?)
+    value.char_indices().try_fold(0usize, |len, (index, ch)| {
+        let encoding = destination_encoding(ch, &value.as_bytes()[index + ch.len_utf8()..]);
+        len.checked_add(measured_char_len(ch, encoding)?)
     })
 }
 
@@ -558,8 +569,9 @@ mod tests {
 
     #[test]
     fn commonmark_preserves_literal_entities_and_query_separators_in_urls() {
-        let url = "/docs&colon;index?q=one&sort=two&copy;";
+        let url = "/docs&colon;index?q=one&sort=two&copy;&#35;";
         let encoded = destination(url);
+        assert_eq!(encoded, r"/docs\&colon;index?q=one&sort=two\&copy;\&#35;");
         assert_eq!(link_destination_len(url), Some(encoded.len()));
         let source = format!("[Guide]({encoded})");
         let parsed = Parser::new(&source).find_map(|event| match event {
