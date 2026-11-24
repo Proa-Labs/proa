@@ -157,8 +157,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DatePicker {
                         class="text-sm font-semibold underline underline-offset-4"
                         data-booking-clear-all
                         hidden={check_in.get() == 0}
-                        popovertarget="booking-dates"
-                        popovertargetaction="show"
                         on_click={clear()}
                     >
                         "Clear dates"

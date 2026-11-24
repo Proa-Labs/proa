@@ -64,6 +64,7 @@ try {
   await page.keyboard.press("Escape");
   await popover.waitFor({ state: "hidden" });
   await dates.locator("[data-booking-clear-all]").click();
+  assert.equal(await popover.isVisible(), false, "Clearing dates in the listing calendar should keep the popover closed");
   assert.equal(await displayedDate("checkIn").innerText(), "Add date");
   assert.equal(await displayedDate("checkOut").innerText(), "Add date");
   assert.equal(await total.innerText(), "$0");
