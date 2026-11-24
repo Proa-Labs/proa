@@ -16,6 +16,15 @@ With no file selection, `cargo proa check` checks template formatting, runs the 
 
 ## Unreleased changes
 
+Proa now requires Rust 1.98 or later; the previous minimum was 1.93.
+
+The Axum adapter uses Axum 0.8. Routes registered directly on an `axum::Router`
+must use `/{id}` and `/{*path}`; the `/:id` and `/*path` spellings panic when
+the route is registered. Proa's declarative `Route` specs still accept both. Axum
+0.8 also panics on `nest("/", ..)` and `nest_service("/", ..)`, so build a
+router for `with_static_service` with `Router::new().fallback_service(..)`. See
+[routing](/docs/framework/routing).
+
 Applications using the React bridge should remove the `react` feature from their `proa` dependency and migrate `#[island]` components to RSJS. The workspace removes `proa_react` and the TSX attribute macro. See [RSJS islands](/docs/guides/islands).
 
 ## Using the 0.4 facade from source

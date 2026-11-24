@@ -55,7 +55,7 @@ Use your configured public origin in place of `https://acme.example`. The framew
 
 ## Read route parameters from cx
 
-A segment beginning with `:` captures a path value:
+A `{name}` segment captures a path value, and `{*name}` captures the rest of the path:
 
 | Route | Request | Read through cx |
 | --- | --- | --- |
@@ -109,7 +109,7 @@ For `/shop/products/42`, `ShopLayout`'s `title_template("%s | Shop")` formats th
 <main data-product-page><h1>Product 42</h1></main>
 ```
 
-The title goes in the document head and `<main>` in its body. Title templates work the same for `:id` and `:slug`: the Page supplies its title, often from a loader, and the nearest ancestor template formats it. A slug is not automatically turned into a display title. See [Load metadata from data](/docs/framework/metadata#load-metadata-from-data) for an async example.
+The title goes in the document head and `<main>` in its body. Title templates work the same for `{id}` and `{slug}`: the Page supplies its title, often from a loader, and the nearest ancestor template formats it. A slug is not automatically turned into a display title. See [Load metadata from data](/docs/framework/metadata#load-metadata-from-data) for an async example.
 
 ### Query strings
 

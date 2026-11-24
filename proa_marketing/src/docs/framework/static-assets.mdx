@@ -132,10 +132,7 @@ use proa::axum::EmbeddedStaticService;
 
 static PUBLIC: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/public");
 
-let static_router = Router::new().nest_service(
-    "/",
-    EmbeddedStaticService::new(PUBLIC.clone()),
-);
+let static_router = Router::new().fallback_service(EmbeddedStaticService::new(PUBLIC.clone()));
 ```
 
 `Dir` holds only `'static` slices, so the clone copies references, not file bytes.

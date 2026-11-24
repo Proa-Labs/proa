@@ -155,16 +155,9 @@ fn prepare_dom(node: &Handle, in_code: bool) {
 fn escape_attribute_entities(text: &str) -> Option<String> {
     // The custom link handler writes attributes directly into Markdown. Preserve
     // entity-shaped literals that the HTML parser has already decoded once.
-    let is_entity = |following: &[u8]| {
-        let len = following
-            .iter()
-            .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'#')
-            .count();
-        len > 0 && following.get(len) == Some(&b';')
-    };
     let mut matches = text
         .match_indices('&')
-        .filter(|(index, _)| is_entity(&text.as_bytes()[index + 1..]))
+        .filter(|(index, _)| crate::md::escape::looks_like_entity(&text.as_bytes()[index + 1..]))
         .peekable();
     matches.peek()?;
     let mut escaped = String::with_capacity(text.len());
@@ -340,22 +333,8 @@ fn link_or_image(
     output.push(b'[');
     output.extend_from_slice(label.as_bytes());
     output.extend_from_slice(b"](");
-    let escaped_destination = escape_attribute_entities(destination);
-    let mut url = Vec::new();
-    crate::md::escape::write_link_destination(
-        &mut url,
-        escaped_destination.as_deref().unwrap_or(destination),
-    )
-    .expect("growable Markdown buffer");
-    // A leading '<' selects CommonMark's angle-delimited destination form.
-    // Encode both angle brackets so a literal HTML URL keeps its target.
-    for byte in url {
-        match byte {
-            b'<' => output.extend_from_slice(b"%3C"),
-            b'>' => output.extend_from_slice(b"%3E"),
-            _ => output.push(byte),
-        }
-    }
+    crate::md::escape::write_link_destination(&mut output, destination)
+        .expect("growable Markdown buffer");
     if let Some(title) = attribute("title").as_deref() {
         output.extend_from_slice(b" \"");
         let title = escape_attribute_entities(title).unwrap_or_else(|| title.to_owned());

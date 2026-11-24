@@ -433,3 +433,43 @@ async fn concurrency_limit_still_serves_sequential_requests() {
         assert_eq!(response.status(), StatusCode::OK);
     }
 }
+
+#[tokio::test]
+async fn standalone_static_router_serves_files_under_static() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("app.css"), "body{}").unwrap();
+    let app = builder_with_routes(simple_routes())
+        .with_static_service(proa_framework_axum::standalone_static_router(
+            dir.path().to_str().unwrap(),
+        ))
+        .build();
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/static/app.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+        "nosniff"
+    );
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert_eq!(&body[..], b"body{}");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/static/missing.css")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

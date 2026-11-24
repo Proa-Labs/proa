@@ -8,63 +8,7 @@ use super::*;
 // Free helpers
 // ---------------------------------------------------------------------------
 
-pub(super) fn is_dynamic_attr_rejected_for_safety(name: &str) -> bool {
-    // Event-handler attributes (`onclick`, `onerror`, `onmouseover`,
-    // `onload`, ...) are an inline-script injection sink: lowering a dynamic
-    // `onclick={expr}` to a client-side `node.setAttribute('onclick',
-    // String(value))` installs attacker-controlled JavaScript with no
-    // quoting or escaping defense. Reject the whole `on*` family. The check
-    // is intentionally tight (starts with `on`, the remainder is ascii
-    // alphabetic, total length > 2) so it catches every standard handler
-    // without over-matching a hypothetical non-handler attribute. HTML has
-    // no standard non-handler attribute that begins with `on`. The
-    // comparison is case-insensitive to match the rsjs runtime's `/^on/i`
-    // defense-in-depth guard.
-    let lower = name.to_ascii_lowercase();
-    if lower.len() > 2
-        && lower.starts_with("on")
-        && lower.as_bytes()[2..].iter().all(u8::is_ascii_alphabetic)
-    {
-        return true;
-    }
-    matches!(
-        lower.as_str(),
-        // Multi-URL / second-order contexts still need dedicated
-        // parsers or non-attribute APIs before client-side updates
-        // are safe. Single URL-bearing attrs are classified by
-        // `is_dynamic_url_attr` and lowered to a sanitized binding.
-        "srcset"
-            | "ping"
-            // `srcdoc` injects a full HTML document into an <iframe>. A
-            // dynamic value is a direct HTML-injection sink, so block it
-            // until a vetted server-rendered binding exists.
-            | "srcdoc"
-            // Style is a second-order CSS context. Keep requiring
-            // static CSS/classes until a typed style binding exists.
-            | "style"
-    )
-}
-
-pub(super) fn is_dynamic_url_attr(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "href"
-            | "src"
-            | "action"
-            | "formaction"
-            | "poster"
-            | "cite"
-            | "data"
-            | "longdesc"
-            | "manifest"
-            | "background"
-            // `xlink:href` is the SVG/legacy alias for `href` and is an
-            // equivalent navigation/script sink (e.g. `xlink:href` on an
-            // SVG `<a>` or `javascript:` in older engines).
-            | "xlink:href"
-            | "xlink-href"
-    )
-}
+pub(super) use rsjs_ir::bindings::{is_dynamic_attr_rejected_for_safety, is_dynamic_url_attr};
 
 pub(super) fn is_html_boolean_attr(name: &str) -> bool {
     matches!(

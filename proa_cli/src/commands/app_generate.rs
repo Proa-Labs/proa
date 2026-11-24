@@ -15,6 +15,9 @@ use serde::Serialize;
 
 use crate::{config, util::resolve_config_root};
 
+mod registered_routes;
+use registered_routes::ensure_routes_unregistered;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GenerateReport {
@@ -116,7 +119,10 @@ pub fn page(
     add_module(&mut modules, &route.module);
     let routes_path = root.join("src/routes.rs");
     let mut routes = fs::read_to_string(&routes_path)?;
-    let handler = if markdown && route.canonical.ends_with('}') {
+    let captured_alias = markdown && route.canonical.ends_with('}');
+    let explicit_alias = (markdown && !captured_alias).then_some(route.markdown_alias.as_str());
+    ensure_routes_unregistered(&routes, &route.canonical, explicit_alias)?;
+    let handler = if captured_alias {
         "handler_with_markdown_alias"
     } else {
         "handler"
@@ -128,12 +134,12 @@ pub fn page(
             route.canonical, route.module
         ),
     )?;
-    if markdown && !route.canonical.ends_with('}') {
+    if let Some(alias) = explicit_alias {
         add_explicit_route(
             &mut routes,
             &format!(
-                "        .route(\"{}\", get(pages::{}::markdown))",
-                route.markdown_alias, route.module
+                "        .route(\"{alias}\", get(pages::{}::markdown))",
+                route.module
             ),
         )?;
     }
@@ -173,9 +179,7 @@ pub fn endpoint(
         "        Route::endpoint(\"{}\", axum::routing::{}(endpoints::{}::handler)),",
         route.canonical, method, route.module
     );
-    if routes.contains(&format!("\"{}\"", route.canonical)) {
-        bail!("route path is already registered: {}", route.canonical);
-    }
+    ensure_routes_unregistered(&routes, &route.canonical, None)?;
     add_route_spec(&mut routes, &registration)?;
     let files = vec![
         (
@@ -253,20 +257,12 @@ fn route_name(raw: &str) -> Result<RouteName> {
         bail!("route path must contain safe, nonempty segments");
     }
     let mut module_parts = Vec::new();
-    let mut canonical = String::new();
-    for part in trimmed.split('/') {
-        canonical.push('/');
-        let name = if let Some(name) = part.strip_prefix(':') {
-            canonical.push('{');
-            canonical.push_str(name);
-            canonical.push('}');
-            name
-        } else {
-            canonical.push_str(part);
-            part.strip_prefix('{')
-                .and_then(|name| name.strip_suffix('}'))
-                .unwrap_or(part)
-        };
+    let canonical = canonical_route(&format!("/{trimmed}"));
+    for part in canonical.trim_start_matches('/').split('/') {
+        let name = part
+            .strip_prefix('{')
+            .and_then(|name| name.strip_suffix('}'))
+            .unwrap_or(part);
         module_parts.push(snake_name(name)?);
     }
     let module = module_parts.join("_");
@@ -277,6 +273,22 @@ fn route_name(raw: &str) -> Result<RouteName> {
         canonical,
         module,
     })
+}
+
+/// Spell `/:id` and `/*path` captures as `/{id}` and `/{*path}`.
+fn canonical_route(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if let Some(name) = segment.strip_prefix(':') {
+                format!("{{{name}}}")
+            } else if let Some(name) = segment.strip_prefix('*') {
+                format!("{{*{name}}}")
+            } else {
+                segment.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn human_title(name: &str) -> String {
@@ -326,9 +338,6 @@ fn add_explicit_route(source: &mut String, line: &str) -> Result<()> {
 }
 
 fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result<()> {
-    if source.contains(line) {
-        return Ok(());
-    }
     let offset = source.find(marker).with_context(|| {
         format!("generated ownership marker `{marker}` is missing; no arbitrary Rust was changed")
     })?;
@@ -750,6 +759,11 @@ mod tests {
             let source = page_source(&route, true);
             syn::parse_file(&source).unwrap();
             assert!(source.contains("fn handler_with_markdown_alias("));
+        }
+        for input in ["files/*rest", "files/{*rest}"] {
+            let route = route_name(input).unwrap();
+            assert_eq!(route.canonical, "/files/{*rest}");
+            assert_eq!(route.module, "files_rest");
         }
     }
 

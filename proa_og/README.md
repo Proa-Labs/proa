@@ -53,16 +53,16 @@ sudo apt-get install libwebkit2gtk-4.1-dev libgtk-3-dev
 sudo apt-get install libwebkit2gtk-4.0-dev libgtk-3-dev
 ```
 
-On macOS, the crate compiles with stub bindings for IDE support but panics at runtime. Use the provided Dockerfile for local development:
+On macOS and with stock WPE SDKs, `OgRenderer::new()` returns `OgImageError::PlatformNotAvailable`. On Linux with WebKitGTK and Xvfb installed, run the native tests from the workspace root.
 
 ```bash
-docker build -t proa-og .
-docker run --rm proa-og cargo test -p proa_og
+xvfb-run -a -s "-screen 0 1280x720x24" cargo test --locked -p proa_og
 ```
 
 ## Architecture
 
-- **`renderer.rs`** — `OgRenderer` with persistent WebView, GLib main loop integration, cairo surface snapshot
+- **`renderer.rs`** owns the persistent WebView and configures the viewport.
+- **`render_state.rs`** manages the GLib callbacks, snapshot timeout, and Cairo pixel copy.
 - **`ffi.rs`** — bindgen-generated FFI bindings to WebKitGTK + GTK + GLib + Cairo
 - **`build.rs`** — probes for `webkit2gtk-4.1` via pkg-config, falls back to stubs on macOS
 

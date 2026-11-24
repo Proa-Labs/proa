@@ -2039,6 +2039,13 @@ fn runtime_import_line(
         .any(|list| ctx.includes_node(list.container))
     {
         imports.push("bind_list");
+        if island
+            .lists
+            .iter()
+            .any(|list| ctx.includes_node(list.container) && list.item.has_dynamic_url_attr())
+        {
+            imports.push("safe_url_attr_value");
+        }
     }
     if island.handlers.iter().any(|handler| {
         handler.debounce_ms().is_some()
@@ -2808,10 +2815,19 @@ fn emit_list_update_and_return(
     out.push_str("        const update = (item) => {\n");
     for info in elements {
         for (name, expr) in &info.dynamic_attrs {
+            // Descriptors produced by an older compiler can also reach the emitter.
+            if crate::bindings::is_dynamic_attr_rejected_for_safety(name) {
+                continue;
+            }
+            let convert = if crate::bindings::is_dynamic_url_attr(name) {
+                "safe_url_attr_value"
+            } else {
+                "String"
+            };
             out.push_str("            ");
             let _ = writeln!(
                 out,
-                "{}.setAttribute(\"{}\", String({}));",
+                "{}.setAttribute(\"{}\", {convert}({}));",
                 info.var,
                 js_string_inner(name),
                 expr.js()

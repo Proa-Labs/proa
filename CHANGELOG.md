@@ -6,9 +6,14 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
 
 ## Unreleased
 
-- Breaking: removed `proa_react`, the `proa` facade's `react` feature, and
-  the TSX `#[island]` macro. Use RSJS for browser interactivity. Axum is now
-  on the 0.8 series, and the workspace requires Rust 1.98 or newer.
+- Breaking: the minimum supported Rust version is 1.98 (was 1.93).
+- Breaking: the Axum adapter uses Axum 0.8. Routes registered directly on an
+  `axum::Router` use `/{id}` and `/{*path}`; `/:id` and `/*path` panic when the
+  route is registered. Declarative `Route` specs still accept both spellings.
+  `nest("/", ..)` and `nest_service("/", ..)` also panic, so a static router
+  for `with_static_service` uses `Router::new().fallback_service(..)`.
+- Breaking: removed React interop: the `proa/react` feature, the `proa_react`
+  crate, and the `#[island]` TSX attribute macro. Migrate islands to RSJS.
 - Rendering performance: validate raw bytes as UTF-8 at the write, use trusted
   `&str` writes for template text, remove final output scans, and allocate
   `RenderBuffer` pages without zero-filling. See [the performance results and

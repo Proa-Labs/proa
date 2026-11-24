@@ -742,7 +742,8 @@ fn hardened_serve_dir(
 
 pub fn standalone_static_router(dir: &str) -> Router {
     // See `hardened_serve_dir` for the symlink and MIME-sniffing notes.
-    Router::new().nest_service("/", hardened_serve_dir(dir.into()))
+    // Axum 0.8 panics on `nest_service("/", ..)`; a fallback serves every path.
+    Router::new().fallback_service(hardened_serve_dir(dir.into()))
 }
 
 pub use route::PageCache;
