@@ -3590,7 +3590,6 @@ name = "proa_framework_axum"
 version = "0.4.0"
 dependencies = [
  "anyhow",
- "arrayvec",
  "async-stream",
  "axum",
  "base16ct",

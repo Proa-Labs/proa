@@ -78,3 +78,15 @@ impl<'a> IntoIterator for &'a RouteParams {
         self.iter()
     }
 }
+
+impl FromIterator<RouteParam> for RouteParams {
+    fn from_iter<I: IntoIterator<Item = RouteParam>>(entries: I) -> Self {
+        let mut entries = entries.into_iter().peekable();
+        if entries.peek().is_none() {
+            return Self::default();
+        }
+        Self {
+            entries: Some(entries.collect()),
+        }
+    }
+}

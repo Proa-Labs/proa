@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use axum::body::Body;
@@ -16,7 +16,7 @@ use axum::response::{IntoResponse, Response};
 use pin_project::{pin_project, pinned_drop};
 use proa_core::{CspNonce, PublicAssetUrls, RouteParam, RouteParams};
 use proa_framework_core::{
-    extract_route_params, has_named_route_params, ComputedRouteMeta, FrameworkRouteSnapshot,
+    extract_route_params, visit_route_params, ComputedRouteMeta, FrameworkRouteSnapshot,
     MetadataRef, ResolvedMetadata,
 };
 use tower::layer::Layer;
@@ -33,10 +33,9 @@ tokio::task_local! {
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct RouteContext {
-    snapshot: FrameworkRouteSnapshot,
+    snapshot: FrameworkRouteSnapshot<AxumRouteParams>,
     request_method: Option<http::Method>,
-    request_headers: CapturedHeaders,
-    matched_params: Option<MatchedParams>,
+    request_headers: http::HeaderMap,
     csp_nonce: Option<CspNonce>,
     base_path: proa_core::BasePath,
     public_asset_urls: Option<PublicAssetUrls>,
@@ -46,44 +45,118 @@ pub struct RouteContext {
 }
 
 #[derive(Clone)]
+enum AxumRouteParams {
+    Ready(RouteParams),
+    Matched(MatchedParams),
+}
+
+#[derive(Clone)]
 struct MatchedParams {
     pattern: MatchedPath,
-    uri: http::Uri,
-    parsed: OnceLock<RouteParams>,
+    path: http::uri::PathAndQuery,
+    ranges: CaptureRanges,
 }
 
-// A render may inspect any original header, including repeated values, after
-// middleware has changed the request. Avoid a second hash table on small requests.
-#[derive(Clone)]
-enum CapturedHeaders {
-    Inline(arrayvec::ArrayVec<(http::HeaderName, http::HeaderValue), 4>),
-    Map(http::HeaderMap),
+impl MatchedParams {
+    fn collect(&self) -> RouteParams {
+        self.ranges
+            .as_slice()
+            .iter()
+            .map(|capture| {
+                RouteParam::new(
+                    capture.name.slice(self.pattern.as_str()),
+                    capture.value.slice(self.path.path()),
+                )
+            })
+            .collect()
+    }
 }
 
-impl CapturedHeaders {
-    fn capture(headers: &http::HeaderMap) -> Self {
-        if headers.len() <= 4 {
-            Self::Inline(
-                headers
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-            )
-        } else {
-            Self::Map(headers.clone())
+#[derive(Clone, Copy)]
+struct CaptureRange {
+    name: CaptureSpan,
+    value: CaptureSpan,
+}
+
+#[derive(Clone, Copy)]
+struct CaptureSpan {
+    start: u32,
+    end: u32,
+}
+
+impl CaptureSpan {
+    fn from_substr(source: &str, capture: &str) -> Self {
+        let range = source
+            .substr_range(capture)
+            .expect("capture is part of its source");
+        Self {
+            start: range.start as u32,
+            end: range.end as u32,
         }
     }
 
-    fn to_header_map(&self) -> http::HeaderMap {
+    fn slice(self, source: &str) -> &str {
+        &source[self.start as usize..self.end as usize]
+    }
+}
+
+// A single named segment needs no heap storage until a renderer reads it.
+#[derive(Clone)]
+enum CaptureRanges {
+    One(CaptureRange),
+    Many(Vec<CaptureRange>),
+}
+
+impl CaptureRanges {
+    fn as_slice(&self) -> &[CaptureRange] {
         match self {
-            Self::Inline(entries) => {
-                let mut headers = http::HeaderMap::with_capacity(entries.len());
-                for (name, value) in entries {
-                    headers.append(name, value.clone());
-                }
-                headers
+            Self::One(capture) => std::slice::from_ref(capture),
+            Self::Many(captures) => captures,
+        }
+    }
+
+    fn for_path(pattern: &str, path: &str) -> Option<Self> {
+        // Keep a single capture inline in the space already required for a Vec.
+        // Defer to Axum if either source cannot be indexed with 32-bit offsets.
+        if u32::try_from(pattern.len()).is_err()
+            || u32::try_from(path.len()).is_err()
+            || path.contains('%')
+            || pattern.contains(':')
+        {
+            return None;
+        }
+        let mut captures = None;
+        let matched = visit_route_params(pattern, path, |name, value| {
+            let capture = CaptureRange {
+                name: CaptureSpan::from_substr(pattern, name),
+                value: CaptureSpan::from_substr(path, value),
+            };
+            match &mut captures {
+                None => captures = Some(Self::One(capture)),
+                Some(Self::One(first)) => captures = Some(Self::Many(vec![*first, capture])),
+                Some(Self::Many(captures)) => captures.push(capture),
             }
-            Self::Map(headers) => headers.clone(),
+        });
+        if matched {
+            captures
+        } else {
+            None
+        }
+    }
+}
+
+impl AxumRouteParams {
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Ready(params) if params.is_empty())
+    }
+
+    fn get(&mut self) -> &RouteParams {
+        match self {
+            Self::Ready(params) => params,
+            Self::Matched(matched) => {
+                *self = Self::Ready(matched.collect());
+                self.get()
+            }
         }
     }
 }
@@ -93,10 +166,12 @@ impl RouteContext {
         computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     ) -> Self {
         Self {
-            snapshot: FrameworkRouteSnapshot::new(computed_metadata),
+            snapshot: FrameworkRouteSnapshot::with_route_params(
+                computed_metadata,
+                AxumRouteParams::Ready(RouteParams::default()),
+            ),
             request_method: None,
-            request_headers: CapturedHeaders::Inline(Default::default()),
-            matched_params: None,
+            request_headers: http::HeaderMap::new(),
             csp_nonce: None,
             base_path: proa_core::BasePath::default(),
             public_asset_urls: None,
@@ -153,7 +228,7 @@ impl RouteContext {
     fn set_current_request_parts(
         &mut self,
         method: http::Method,
-        headers: CapturedHeaders,
+        headers: http::HeaderMap,
         uri: http::Uri,
     ) {
         self.request_method = Some(method);
@@ -165,8 +240,8 @@ impl RouteContext {
         self.request_method.as_ref()
     }
 
-    pub(super) fn current_headers(&self) -> http::HeaderMap {
-        self.request_headers.to_header_map()
+    pub(super) fn current_headers(&self) -> &http::HeaderMap {
+        &self.request_headers
     }
 
     pub(super) fn set_csp_nonce(&mut self, nonce: Option<CspNonce>) {
@@ -177,28 +252,27 @@ impl RouteContext {
         self.csp_nonce.as_ref()
     }
 
-    pub(super) fn current_route_params(&self) -> &RouteParams {
-        if let Some(params) = &self.matched_params {
-            params
-                .parsed
-                .get_or_init(|| extract_route_params(params.pattern.as_str(), params.uri.path()))
-        } else {
-            self.snapshot.current_route_params()
+    pub(super) fn current_route_params(&mut self) -> &RouteParams {
+        self.snapshot.current_route_params_mut().get()
+    }
+
+    pub(super) fn set_route_params(&mut self, route_params: RouteParams) {
+        self.snapshot
+            .restore_route_params(AxumRouteParams::Ready(route_params));
+    }
+
+    // An outer router may install this layer before it matches the endpoint.
+    // Only an initially empty parameter collection may be filled here.
+    fn fill_missing_route_params(&mut self, pattern: &str, path: &str) -> bool {
+        if !self.snapshot.current_route_params().is_empty() || !pattern.contains(['{', ':']) {
+            return false;
         }
-    }
-
-    pub(super) fn swap_route_params(&mut self, route_params: RouteParams) -> RouteParams {
-        let previous = self.snapshot.swap_route_params(route_params);
-        self.matched_params.take().map_or(previous, |params| {
-            params
-                .parsed
-                .into_inner()
-                .unwrap_or_else(|| extract_route_params(params.pattern.as_str(), params.uri.path()))
-        })
-    }
-
-    pub(super) fn restore_route_params(&mut self, route_params: RouteParams) {
-        self.snapshot.restore_route_params(route_params);
+        let params = extract_route_params(pattern, path);
+        if params.is_empty() {
+            return false;
+        }
+        self.set_route_params(params);
+        true
     }
 
     pub(super) fn swap_metadata(
@@ -274,32 +348,20 @@ where
         let previous = ROUTE_CONTEXT.with(|ctx| {
             let mut ctx = ctx.borrow_mut();
             let uri = req.uri();
-            // The outer layer already owns Axum's captures on normal routes.
-            // A custom, outer router can reach this endpoint before matching.
-            let route_params = if ctx.matched_params.is_none()
-                && ctx.snapshot.current_route_params().is_empty()
-                && self.route_pattern.contains(['{', ':'])
-            {
-                let params = extract_route_params(&self.route_pattern, uri.path());
-                (!params.is_empty()).then(|| ctx.swap_route_params(params))
-            } else {
-                None
-            };
+            let clear_params = ctx.fill_missing_route_params(&self.route_pattern, uri.path());
             ctx.set_current_uri(uri.clone());
-            if self.metadata.is_empty() && !ctx.snapshot.has_metadata() {
-                return route_params.map(|params| PreviousContext {
-                    metadata: None,
-                    route_params: Some(params),
-                });
-            }
-
-            let (metadata, resolved) = ctx.swap_metadata(self.metadata.clone());
-            Some(PreviousContext {
-                metadata: Some(PreviousMetadata {
-                    providers: metadata,
-                    resolved: resolved.map(Box::new),
-                }),
-                route_params,
+            let metadata = if self.metadata.is_empty() && !ctx.snapshot.has_metadata() {
+                None
+            } else {
+                let (providers, resolved) = ctx.swap_metadata(self.metadata.clone());
+                Some(PreviousMetadata {
+                    providers,
+                    resolved,
+                })
+            };
+            (clear_params || metadata.is_some()).then_some(PreviousContext {
+                metadata,
+                clear_params,
             })
         });
         EndpointContextFuture {
@@ -356,12 +418,12 @@ where
 
 struct PreviousMetadata {
     providers: Arc<[MetadataRef]>,
-    resolved: Option<Box<ResolvedMetadata>>,
+    resolved: Option<ResolvedMetadata>,
 }
 
 struct PreviousContext {
     metadata: Option<PreviousMetadata>,
-    route_params: Option<RouteParams>,
+    clear_params: bool,
 }
 
 impl PreviousContext {
@@ -369,10 +431,10 @@ impl PreviousContext {
         ROUTE_CONTEXT.with(|ctx| {
             let mut ctx = ctx.borrow_mut();
             if let Some(metadata) = self.metadata {
-                ctx.restore_metadata(metadata.providers, metadata.resolved.map(|value| *value));
+                ctx.restore_metadata(metadata.providers, metadata.resolved);
             }
-            if let Some(params) = self.route_params {
-                ctx.restore_route_params(params);
+            if self.clear_params {
+                ctx.set_route_params(RouteParams::default());
             }
         });
     }
@@ -489,7 +551,7 @@ where
             .and_then(|v| v.to_str().ok())
             .is_some();
         let current_method = req.method().clone();
-        let current_headers = CapturedHeaders::capture(req.headers());
+        let current_headers = req.headers().clone();
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
 
@@ -511,8 +573,6 @@ where
         }
 
         if prepare_ascii_params(&req, &mut context) {
-            // Static and ordinary named paths keep the original ready-service
-            // path: no extractor future, service clone, or replacement params.
             let future = self.inner.call(req);
             let scoped = ROUTE_CONTEXT.scope(RefCell::new(context), future);
             let local_stream_executor = self.local_stream_executor.clone();
@@ -530,21 +590,14 @@ where
         Box::pin(async move {
             let (mut parts, body) = req.into_parts();
             let params = match RawPathParams::from_request_parts(&mut parts, &()).await {
-                Ok(params) => RouteParams::from_vec(
-                    params
-                        .iter()
-                        .map(|(name, value)| {
-                            RouteParam::new(
-                                name.to_owned().into_boxed_str(),
-                                value.to_owned().into_boxed_str(),
-                            )
-                        })
-                        .collect(),
-                ),
+                Ok(params) => params
+                    .iter()
+                    .map(|(name, value)| RouteParam::new(name, value))
+                    .collect(),
                 Err(RawPathParamsRejection::MissingPathParams(_)) => RouteParams::default(),
                 Err(rejection) => return Ok(rejection.into_response()),
             };
-            context.swap_route_params(params);
+            context.set_route_params(params);
             let request = axum::http::Request::from_parts(parts, body);
             let response = ROUTE_CONTEXT
                 .scope(
@@ -557,23 +610,15 @@ where
     }
 }
 
-/// Match unescaped named segments synchronously. Axum still owns decoding and
-/// wildcard semantics on the cold path below. A nested router strips its prefix
-/// from the current URI while `MatchedPath` keeps the full pattern, so the full
-/// path is read from `OriginalUri` when the current path is its tail. Any other
-/// divergence between the two means a rewrite happened between them; only
-/// Axum's own captures are authoritative then, so that request also takes the
-/// cold path.
-fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteContext) -> bool {
+/// Keep the ready service for plain segments. Axum handles decoding, wildcards,
+/// and URI rewrites. Store byte ranges from the match so a renderer can copy
+/// just the captures without walking the pattern a second time.
+fn prepare_ascii_params(req: &http::Request<Body>, context: &mut RouteContext) -> bool {
     let Some(pattern) = req.extensions().get::<MatchedPath>() else {
         return true;
     };
-    let pattern_str = pattern.as_str();
-    if !pattern_str.contains('{') {
+    if !pattern.as_str().contains('{') {
         return true;
-    }
-    if pattern_str.contains("{*") || pattern_str.contains("{{") || pattern_str.contains("}}") {
-        return false;
     }
     let current = req.uri();
     let uri = match req.extensions().get::<OriginalUri>() {
@@ -582,14 +627,19 @@ fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteCont
         Some(original) if original.0.path().ends_with(current.path()) => &original.0,
         Some(_) => return false,
     };
-    if uri.path().contains('%') || !has_named_route_params(pattern_str, uri.path()) {
+    let Some(path) = uri.path_and_query() else {
         return false;
-    }
-    context.matched_params = Some(MatchedParams {
-        pattern: pattern.clone(),
-        uri: uri.clone(),
-        parsed: OnceLock::new(),
-    });
+    };
+    let Some(ranges) = CaptureRanges::for_path(pattern.as_str(), path.path()) else {
+        return false;
+    };
+    context
+        .snapshot
+        .restore_route_params(AxumRouteParams::Matched(MatchedParams {
+            pattern: pattern.clone(),
+            path: path.clone(),
+            ranges,
+        }));
     true
 }
 
@@ -604,102 +654,4 @@ pub fn app_url(path: &str) -> proa_core::AppUrl<'_> {
 }
 
 #[cfg(test)]
-mod perf_tests {
-    use super::*;
-    use std::{
-        convert::Infallible,
-        future::{ready, Ready},
-        sync::atomic::{AtomicUsize, Ordering},
-    };
-    use tower::ServiceExt;
-
-    #[test]
-    fn header_capture_preserves_repeated_sensitive_values_after_request_mutation() {
-        for extra in [0, 2, 3, 8] {
-            let mut original = http::HeaderMap::new();
-            let mut secret = http::HeaderValue::from_static("second");
-            secret.set_sensitive(true);
-            original.append("x-test", http::HeaderValue::from_static("first"));
-            original.append("x-test", secret);
-            for _ in 0..extra {
-                original.append("x-extra", http::HeaderValue::from_static("value"));
-            }
-            let captured = CapturedHeaders::capture(&original);
-            original.clear();
-            let headers = captured.to_header_map();
-            let values: Vec<_> = headers.get_all("x-test").iter().collect();
-            assert_eq!(values.len(), 2);
-            assert_eq!(values[0], "first");
-            assert_eq!(values[1], "second");
-            assert!(values[1].is_sensitive());
-            assert_eq!(headers.get_all("x-extra").iter().count(), extra);
-        }
-    }
-
-    #[tokio::test]
-    async fn named_params_are_materialized_on_first_read_inside_the_endpoint() {
-        async fn handler() {
-            ROUTE_CONTEXT.with(|context| {
-                let context = context.borrow();
-                let captures = context.matched_params.as_ref().unwrap();
-                assert!(captures.parsed.get().is_none());
-                assert_eq!(context.current_route_params().get("album"), Some("sea"));
-                assert_eq!(context.current_route_params().get("id"), Some("07"));
-                assert!(std::ptr::eq(
-                    captures.parsed.get().unwrap(),
-                    context.current_route_params()
-                ));
-            });
-        }
-        let (router, metadata) = crate::router_from_spec(vec![crate::Route::endpoint(
-            "/albums/{album}/{id}",
-            axum::routing::get(handler),
-        )]);
-        let response = router
-            .layer(RouteContextLayer::new(metadata))
-            .oneshot(
-                http::Request::get("/albums/sea/07")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), http::StatusCode::OK);
-    }
-
-    struct ReadyService(Arc<AtomicUsize>);
-    impl Clone for ReadyService {
-        fn clone(&self) -> Self {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Self(self.0.clone())
-        }
-    }
-    impl Service<axum::http::Request<Body>> for ReadyService {
-        type Response = Response;
-        type Error = Infallible;
-        type Future = Ready<Result<Response, Infallible>>;
-        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Infallible>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, _: axum::http::Request<Body>) -> Self::Future {
-            ready(Ok(Response::new(Body::from("ok"))))
-        }
-    }
-
-    #[tokio::test]
-    async fn static_context_calls_the_ready_service_without_cloning_it() {
-        let clones = Arc::new(AtomicUsize::new(0));
-        let layer = RouteContextLayer::new(Arc::new(Default::default()));
-        let mut service = layer.layer(ReadyService(clones.clone()));
-        for _ in 0..3 {
-            service
-                .ready()
-                .await
-                .unwrap()
-                .call(axum::http::Request::new(Body::empty()))
-                .await
-                .unwrap();
-        }
-        assert_eq!(clones.load(Ordering::Relaxed), 0);
-    }
-}
+mod tests;

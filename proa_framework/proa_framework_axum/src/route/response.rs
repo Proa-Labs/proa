@@ -388,15 +388,6 @@ pub(super) async fn prepare_deferred_framework_stream(
     else {
         return response;
     };
-    // Keep stream preparation storage out of ordinary response futures.
-    Box::pin(prepare_deferred_response(response, executor, deferred)).await
-}
-
-async fn prepare_deferred_response(
-    mut response: Response,
-    executor: LocalStreamExecutor,
-    deferred: DeferredFrameworkStream,
-) -> Response {
     let Some(factory) = deferred.take() else {
         error!("framework stream factory was already consumed");
         return framework_response_to_axum(FrameworkResponse::plain_text(
@@ -563,7 +554,7 @@ async fn prepare_stream(
     }
 }
 
-fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
+fn framework_request_context(ctx: &mut RouteContext) -> FrameworkRequestContext {
     let request_location = ctx.current_uri().cloned().map(RequestLocation::from);
     let route_params = Some(ctx.current_route_params().clone());
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
@@ -573,7 +564,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     if let Some(method) = ctx.current_method().cloned() {
         request.set_method(method);
     }
-    request.set_headers(ctx.current_headers());
+    request.set_headers(ctx.current_headers().clone());
     if let Some(location) = request_location.clone() {
         request.set_original_pathname(location.path());
         request.set_location(location);
@@ -593,7 +584,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
 
 pub(super) fn current_framework_request_context() -> FrameworkRequestContext {
     ROUTE_CONTEXT
-        .try_with(|ctx| framework_request_context(&ctx.borrow()))
+        .try_with(|ctx| framework_request_context(&mut ctx.borrow_mut()))
         .unwrap_or_default()
 }
 
@@ -604,7 +595,7 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
                 let (is_client_request, page_title, request) = {
                     let mut ctx_ref = ctx.borrow_mut();
                     let is_client = ctx_ref.is_client_request();
-                    let request = framework_request_context(&ctx_ref);
+                    let request = framework_request_context(&mut ctx_ref);
                     let page_title = if is_client {
                         ctx_ref.resolve_metadata().and_then(|meta| meta.title)
                     } else {

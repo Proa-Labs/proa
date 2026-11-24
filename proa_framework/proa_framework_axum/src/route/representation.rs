@@ -361,7 +361,7 @@ fn alternate_link(alternate: MarkdownAlternate) -> HeaderValue {
     let mut path = Cow::Borrowed(alternate.path());
     if path.contains('{') {
         let _ = super::context::ROUTE_CONTEXT.try_with(|ctx| {
-            for param in ctx.borrow().current_route_params() {
+            for param in ctx.borrow_mut().current_route_params() {
                 let capture = format!("{{{}}}", param.key());
                 if path.contains(&capture) {
                     path = Cow::Owned(path.replace(
@@ -668,7 +668,7 @@ mod shared_context_tests {
                         ROUTE_CONTEXT.with(|context| {
                             context
                                 .borrow_mut()
-                                .swap_route_params(RouteParams::from_vec(vec![RouteParam::new(
+                                .set_route_params(RouteParams::from_vec(vec![RouteParam::new(
                                     "slug", "article",
                                 )]));
                         });
