@@ -5229,6 +5229,21 @@ impl CargoArtifactCollector {
             .ok_or(CargoMessageError::MissingReason { line: self.line })?;
 
         match reason {
+            "build-started" => {
+                // Cargo emits this optional header when collecting build timings.
+                if self.line != 1 {
+                    return Err(CargoMessageError::MalformedAuxiliaryMessage {
+                        line: self.line,
+                        reason: reason.to_owned(),
+                    });
+                }
+                validate_auxiliary_message(
+                    &value,
+                    self.line,
+                    reason,
+                    &[("run_id", JsonFieldKind::NonemptyString)],
+                )?;
+            }
             "compiler-artifact" => {
                 let raw: RawCargoArtifact = serde_json::from_value(value).map_err(|source| {
                     CargoMessageError::MalformedCompilerArtifact {
