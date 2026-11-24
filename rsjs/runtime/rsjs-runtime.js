@@ -2558,8 +2558,7 @@ export function bind_attr(node, name, kind, getter, deps, extra_handles) {
                 }
                 return;
             }
-            const next = String(value);
-            node.setAttribute(name, kind === 'url' && has_dangerous_url_scheme(next) ? '' : next);
+            node.setAttribute(name, kind === 'url' ? safe_url_attr_value(value) : String(value));
         }
         if (name === 'value' && 'value' in node) {
             try {
@@ -2585,6 +2584,11 @@ export function bind_attr(node, name, kind, getter, deps, extra_handles) {
         const effect = tracked_effect(apply);
         return once_disposer(() => dispose_effect(effect));
     }
+}
+
+export function safe_url_attr_value(value) {
+    const text = String(value);
+    return has_dangerous_url_scheme(text) ? '' : text;
 }
 
 function has_dangerous_url_scheme(url) {

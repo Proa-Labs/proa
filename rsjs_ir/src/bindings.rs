@@ -596,6 +596,52 @@ pub enum AttrBindingKind {
     Url,
 }
 
+/// Attributes that require a typed binding or a dedicated parser.
+pub fn is_dynamic_attr_rejected_for_safety(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if lower.starts_with("on") || lower == "data-rsjs" || lower.starts_with("data-rsjs-") {
+        return true;
+    }
+    matches!(
+        lower.as_str(),
+        // Multi-URL / second-order contexts still need dedicated
+        // parsers or non-attribute APIs before client-side updates
+        // are safe. Single URL-bearing attrs are classified by
+        // `is_dynamic_url_attr` and lowered to a sanitized binding.
+        "srcset" | "imagesrcset"
+            | "ping"
+            // `srcdoc` injects a full HTML document into an <iframe>. A
+            // dynamic value is a direct HTML-injection sink, so block it
+            // until a vetted server-rendered binding exists.
+            | "srcdoc"
+            // Style is a second-order CSS context. Keep requiring
+            // static CSS/classes until a typed style binding exists.
+            | "style"
+    )
+}
+
+/// Single-URL attributes checked by both ordinary and keyed-list bindings.
+pub fn is_dynamic_url_attr(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "href"
+            | "src"
+            | "action"
+            | "formaction"
+            | "poster"
+            | "cite"
+            | "data"
+            | "longdesc"
+            | "manifest"
+            | "background"
+            // `xlink:href` is the SVG/legacy alias for `href` and is an
+            // equivalent navigation/script sink (e.g. `xlink:href` on an
+            // SVG `<a>` or `javascript:` in older engines).
+            | "xlink:href"
+            | "xlink-href"
+    )
+}
+
 impl AttrBindingKind {
     /// Runtime discriminator consumed by `bind_attr(...)`.
     pub const fn as_runtime_kind(self) -> &'static str {

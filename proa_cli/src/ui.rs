@@ -5,7 +5,7 @@ use base16ct::HexDisplay;
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
-    io::Write,
+    io::{Read, Write},
     path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -218,7 +218,7 @@ impl ResourceLocation {
                     .join(relative)
                     .with_context(|| format!("resolve artifact `{relative}` relative to {url}"))?;
                 ensure_supported_http_url(&resolved)?;
-                if resolved.origin() != url.origin() {
+                if !same_registry_origin(url, &resolved) {
                     bail!(
                         "artifact source `{relative}` resolves outside manifest origin {}",
                         url.origin().ascii_serialization()
@@ -337,7 +337,16 @@ fn resolve_graph(
     let explicit_registry = qualified_registry.or(requested_registry);
     let client = Client::builder()
         .user_agent(concat!("proa-cli/", env!("CARGO_PKG_VERSION")))
-        .redirect(reqwest::redirect::Policy::limited(5))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if !attempt
+                .previous()
+                .first()
+                .is_some_and(|first| same_registry_origin(first, attempt.url()))
+            {
+                return attempt.error("registry redirect crosses origins");
+            }
+            reqwest::redirect::Policy::limited(5).redirect(attempt)
+        }))
         .build()
         .context("build Proa UI registry client")?;
     let mut resolver = Resolver {
@@ -1341,40 +1350,22 @@ impl<'a> Resolver<'a> {
     ) -> std::result::Result<Vec<u8>, FetchError> {
         match location {
             ResourceLocation::File(path) => {
-                let metadata = fs::metadata(path).map_err(|error| {
+                let file = fs::File::open(path).map_err(|error| {
                     if error.kind() == std::io::ErrorKind::NotFound {
                         FetchError::NotFound(format!("{} was not found", path.display()))
                     } else {
-                        FetchError::Failed(format!("read {}: {error}", path.display()))
+                        FetchError::Failed(format!("open {}: {error}", path.display()))
                     }
                 })?;
-                if metadata.len() > limit as u64 {
-                    return Err(FetchError::Failed(format!(
-                        "{} exceeds the {} byte safety limit",
-                        path.display(),
-                        limit
-                    )));
-                }
-                fs::read(path).map_err(|error| {
-                    FetchError::Failed(format!("read {}: {error}", path.display()))
-                })
+                read_registry_body(file, location, limit)
             }
             ResourceLocation::Http(url) => {
-                let mut request = self.client.get(url.clone());
-                if registry == PRO_REGISTRY {
-                    let token = pro_registry_bearer_token()
+                let request =
+                    registry_request(&self.client, url, registry, pro_registry_bearer_token)
                         .map_err(|error| FetchError::Failed(error.to_string()))?;
-                    request = with_registry_bearer_auth(request, registry, token.as_deref());
-                }
                 let response = request
                     .send()
                     .map_err(|error| FetchError::Failed(format!("request {url}: {error}")))?;
-                if response.url().origin() != url.origin() {
-                    return Err(FetchError::Failed(format!(
-                        "request {url} redirected across origins to {}",
-                        response.url()
-                    )));
-                }
                 let status = response.status();
                 if status == StatusCode::NOT_FOUND {
                     return Err(FetchError::NotFound(format!("{url} returned {status}")));
@@ -1393,15 +1384,7 @@ impl<'a> Resolver<'a> {
                         "{url} exceeds the {limit} byte safety limit"
                     )));
                 }
-                let bytes = response.bytes().map_err(|error| {
-                    FetchError::Failed(format!("read response body from {url}: {error}"))
-                })?;
-                if bytes.len() > limit {
-                    return Err(FetchError::Failed(format!(
-                        "{url} exceeds the {limit} byte safety limit"
-                    )));
-                }
-                Ok(bytes.to_vec())
+                read_registry_body(response, location, limit)
             }
         }
     }
@@ -1650,6 +1633,13 @@ fn registry_manifest_location(root: &Path, template: &str, slug: &str) -> Result
     } else {
         root.join(path)
     }))
+}
+
+fn same_registry_origin(source: &Url, target: &Url) -> bool {
+    matches!(source.scheme(), "https" | "http")
+        && source.scheme() == target.scheme()
+        && source.host() == target.host()
+        && source.port_or_known_default() == target.port_or_known_default()
 }
 
 fn ensure_supported_http_url(url: &Url) -> Result<()> {
@@ -2775,18 +2765,43 @@ fn canonical_project_root(root: &Path) -> Result<PathBuf> {
         .with_context(|| format!("canonicalize project root {}", root.display()))
 }
 
-fn with_registry_bearer_auth(
-    request: RequestBuilder,
+fn read_registry_body(
+    reader: impl Read,
+    location: &ResourceLocation,
+    limit: usize,
+) -> std::result::Result<Vec<u8>, FetchError> {
+    let mut bytes = Vec::new();
+    reader
+        .take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| FetchError::Failed(format!("read {}: {error}", location.display())))?;
+    if bytes.len() > limit {
+        return Err(FetchError::Failed(format!(
+            "{} exceeds the {limit} byte safety limit",
+            location.display()
+        )));
+    }
+    Ok(bytes)
+}
+
+fn registry_request(
+    client: &Client,
+    url: &Url,
     registry: &str,
-    token: Option<&str>,
-) -> RequestBuilder {
-    if registry != PRO_REGISTRY {
-        return request;
+    token: impl FnOnce() -> Result<Option<String>>,
+) -> Result<RequestBuilder> {
+    let request = client.get(url.clone());
+    // Project configuration can override catalog URLs. Only this origin owns the Pro credential.
+    if registry == PRO_REGISTRY
+        && url.scheme() == "https"
+        && url.host_str() == Some("console.proa.so")
+        && url.port_or_known_default() == Some(443)
+    {
+        if let Some(token) = token()? {
+            return Ok(request.bearer_auth(token));
+        }
     }
-    match token.map(str::trim).filter(|token| !token.is_empty()) {
-        Some(token) => request.bearer_auth(token),
-        None => request,
-    }
+    Ok(request)
 }
 
 fn pro_registry_bearer_token() -> Result<Option<String>> {
