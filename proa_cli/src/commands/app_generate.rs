@@ -146,7 +146,7 @@ pub fn page(
     let files = vec![
         (
             PathBuf::from(format!("src/pages/{}.rs", route.module)),
-            page_source(&route, markdown),
+            crate::scaffold::format_generated_rust(&module_path, &page_source(&route, markdown))?,
         ),
         (PathBuf::from("src/pages/mod.rs"), modules),
         (PathBuf::from("src/routes.rs"), routes),

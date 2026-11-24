@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated pages, components, and layouts pass the formatting check during `proa build`, including Markdown components with children.
 - *(axum)* follow up on the Axum 0.8 upgrade ([#108](https://github.com/Proa-Labs/proa/pull/108))
 - generate application modules through the Proa facade ([#82](https://github.com/Proa-Labs/proa/pull/82))
 - *(cli)* wait for dev readiness before opening browser ([#28](https://github.com/Proa-Labs/proa/pull/28))

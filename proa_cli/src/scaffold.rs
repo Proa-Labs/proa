@@ -113,7 +113,7 @@ pub fn generate_component(options: GenerateComponentOptions) -> Result<()> {
                 )
             },
         );
-        plan.write_file(
+        plan.write_template(
             dir.join(format!("{}.rs", target.leaf)),
             component_source(
                 &struct_name,
@@ -123,12 +123,12 @@ pub fn generate_component(options: GenerateComponentOptions) -> Result<()> {
                 options.markdown,
                 options.recipe,
             ),
-        );
+        )?;
         if options.recipe {
             plan.write_file(dir.join("recipe.rs"), component_recipe_source(&struct_name));
         }
     } else {
-        plan.write_file(
+        plan.write_template(
             target.file_path,
             component_source(
                 &struct_name,
@@ -138,7 +138,7 @@ pub fn generate_component(options: GenerateComponentOptions) -> Result<()> {
                 options.markdown,
                 false,
             ),
-        );
+        )?;
     }
 
     finish_plan(plan, options.dry_run, options.force)
@@ -187,7 +187,7 @@ pub fn generate_layout(options: GenerateLayoutOptions) -> Result<()> {
     } else {
         section_layout_source(&struct_name)
     };
-    plan.write_file(target.file_path, source);
+    plan.write_template(target.file_path, source)?;
 
     finish_plan(plan, options.dry_run, options.force || options.replace_root)
 }
@@ -645,6 +645,12 @@ impl ScaffoldPlan {
         });
     }
 
+    fn write_template(&mut self, path: PathBuf, source: String) -> Result<()> {
+        let formatted = format_generated_rust(&path, &source)?;
+        self.write_file(path, formatted);
+        Ok(())
+    }
+
     fn append_line(&mut self, path: PathBuf, line: String, description: impl Into<String>) {
         self.operations.push(PlanOperation::AppendLine {
             path,
@@ -652,6 +658,26 @@ impl ScaffoldPlan {
             description: description.into(),
         });
     }
+}
+
+pub(crate) fn format_generated_rust(path: &Path, source: &str) -> Result<String> {
+    let formatted = crate::fmt::format_file(path, source)?;
+    if !formatted.diagnostics.is_empty() {
+        bail!(
+            "Proa formatting failed for generated {}: {:?}",
+            path.display(),
+            formatted.diagnostics
+        );
+    }
+    let verification = crate::fmt::verify_render_preserving(path, source, &formatted.output);
+    if !verification.is_empty() {
+        bail!(
+            "Proa formatting changed render semantics for generated {}: {:?}",
+            path.display(),
+            verification
+        );
+    }
+    Ok(formatted.output)
 }
 
 fn finish_plan(plan: ScaffoldPlan, dry_run: Option<DryRunFormat>, force: bool) -> Result<()> {
@@ -1062,7 +1088,7 @@ impl<C> __STRUCT__<C> {
 impl<L, C> WebRender<L> for __STRUCT__<C>
 where
     L: DataLoader,
-    C: WebRender<L> + Send + 'static,
+    C: WebRender<L>,
 {
     fn render(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
@@ -1105,9 +1131,10 @@ impl<L: DataLoader> WebRender<L> for __STRUCT__ {
     fn render(self, cx: &mut WebContext<L>) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             let classes = ClassList::<2>::new().add(BASE_CLASS).add_opt(self.class);
-            let content = proa::await_component(async { proa::text::text("__STRUCT__") });
             html! {
-                <div __DATA__ class={classes}>{content}</div>
+                <div __DATA__ class={classes}>
+                    {proa::await_component(async { proa::text::text("__STRUCT__") })}
+                </div>
             }
             .render(cx)
             .resolve()
@@ -1132,10 +1159,10 @@ where
 {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"
-### __STRUCT__
+            ### __STRUCT__
 
-{self.children}
-"###
+            {self.children}
+            "###
         }
         .render_md(cx)
     }
@@ -1208,9 +1235,7 @@ where
 {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         html_sync! {
-            <section class="mx-auto max-w-5xl px-6 py-12">
-                {self.content}
-            </section>
+            <section class="mx-auto max-w-5xl px-6 py-12">{self.content}</section>
         }
         .render(cx)
     }
@@ -1365,6 +1390,58 @@ mod tests {
         assert!(source.contains("impl<L, C> WebRenderSync<L> for MarketingCard<C>"));
         assert!(source.contains("C: WebRenderSync<L>"));
         syn::parse_file(&source).expect("generated child component must be valid Rust syntax");
+    }
+
+    #[test]
+    fn generated_modules_pass_build_source_checks() {
+        let project = tempfile::tempdir().unwrap();
+        let root = Some(project.path().to_path_buf());
+        fs::write(
+            project.path().join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        for (name, children) in [
+            ("notice", false),
+            (
+                "account-settings-preferences-notification-subscription-panel",
+                true,
+            ),
+        ] {
+            generate_component(GenerateComponentOptions {
+                name: name.into(),
+                root: root.clone(),
+                folder: children,
+                recipe: children,
+                children,
+                asynchronous: true,
+                markdown: true,
+                dry_run: None,
+                force: false,
+            })
+            .unwrap();
+        }
+        generate_layout(GenerateLayoutOptions {
+            name: "section".into(),
+            root,
+            section: true,
+            document: false,
+            replace_root: false,
+            dry_run: None,
+            force: false,
+        })
+        .unwrap();
+        let paths = [project.path().join("src")];
+        fs::write(paths[0].join("lib.rs"), "mod components;\nmod layouts;\n").unwrap();
+        let checked = crate::fmt::format_paths_with_options(&paths, true, true).unwrap();
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(checked.changed.is_empty(), "{:?}", checked.changed);
+        let lint = crate::lint::lint_paths(&paths, Default::default()).unwrap();
+        assert!(
+            lint.iter()
+                .all(|diagnostic| diagnostic.severity == crate::diagnostic::Severity::Info),
+            "{lint:?}"
+        );
     }
 
     #[test]
