@@ -108,8 +108,8 @@ pub fn tool_definitions() -> Vec<Tool> {
 }
 
 impl ServerHandler for IncidentServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
     }
 
     async fn list_tools(

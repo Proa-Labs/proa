@@ -72,7 +72,7 @@ steps:
         record_cargo_units() {
           awk -v fingerprints="$$fingerprints" -f /workspace/deploy/marketing/cargo-fingerprints.awk
         }
-        export CARGO_LOG=cargo::core::compiler::fingerprint=debug
+        export CARGO_LOG=cargo::compiler::fingerprint=debug,cargo::core::compiler::fingerprint=debug
         cargo build --profile release-fast --locked -p proa-cli --bin proa 2>&1 | record_cargo_units
         export CARGO_PROFILE_RELEASE_OPT_LEVEL=3 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
         export CARGO_PROFILE_RELEASE_LTO=thin

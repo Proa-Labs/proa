@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use proa_bench::streaming_marketplace::{
     MarketplaceBufferedPage, MarketplaceLoadedSyncPage, MarketplaceStreamPage,
 };
@@ -15,6 +15,7 @@ use proa_core::{
     LoadValue, RenderBuffer, RenderMode, StreamChunkFlusher, StreamChunkView, WebContext,
     WebRender, WebRenderSync, WriteBuf, WriteError, ZeroCopyBuf,
 };
+use std::hint::black_box;
 
 #[derive(Debug, Default)]
 struct ImmediateLoader;

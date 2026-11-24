@@ -90,7 +90,7 @@ pub unsafe extern "C" fn render_airbnb_listing_json(
 
     let mut buf = Vec::new();
     let mut cx = WebContext::with_buffer(&mut buf);
-    let _ = airbnb::listing::render_into(&mut cx, &data, None);
+    let _ = airbnb::listing::render_into(&mut cx, &data);
     let html = String::from_utf8(buf).unwrap_or_default();
 
     unsafe { render_into_out(html, out_ptr, out_len) }

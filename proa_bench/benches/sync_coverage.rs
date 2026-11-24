@@ -22,12 +22,13 @@
 //! Output sizes are printed at the start of each group so callers can
 //! sanity-check that the pages are doing non-trivial work.
 use criterion::measurement::WallTime;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkGroup, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkGroup, Criterion};
 use futures::executor::block_on;
 use proa_core::{
     render_into_async, to_async, RenderOutcome, SafeText, WebContext, WebRenderSync, WriteBuf,
 };
 use proa_macros::html_sync;
+use std::hint::black_box;
 const TABLE_ROWS: usize = 1000;
 struct LargeTablePage;
 impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for LargeTablePage {

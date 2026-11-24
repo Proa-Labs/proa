@@ -116,60 +116,6 @@ pub struct LinkedCargoOutput {
     pub final_root_inputs: Option<Vec<PathBuf>>,
 }
 
-/// Whether every local build script behind `executable` declared its inputs
-/// with `rerun-if-changed`. One that did not reruns on any package change,
-/// which Cargo's dep-info cannot express.
-fn local_build_scripts_declare_inputs(
-    executable: &Path,
-    artifacts: &[CargoCompilerArtifact],
-) -> bool {
-    let Some(build) = executable.parent().map(|profile| profile.join("build")) else {
-        return false;
-    };
-    artifacts
-        .iter()
-        .filter(|artifact| {
-            artifact.package_id.starts_with("path+file://")
-                && artifact.target.kind.contains("custom-build")
-        })
-        .all(|artifact| {
-            // `path+file:///dir#name@version`, or `path+file:///name#version`.
-            let Some((source, fragment)) = artifact.package_id.rsplit_once('#') else {
-                return false;
-            };
-            let name = match fragment.split_once('@') {
-                Some((name, _)) => name,
-                None => source.rsplit('/').next().unwrap_or_default(),
-            };
-            let Ok(entries) = fs::read_dir(&build) else {
-                return false;
-            };
-            // Cargo may retain several runs of one script. Require all of them.
-            let mut declared = false;
-            for entry in entries.flatten() {
-                let is_run = entry
-                    .file_name()
-                    .to_str()
-                    .and_then(|directory| directory.strip_prefix(name)?.strip_prefix('-'))
-                    .is_some_and(|hash| hash.bytes().all(|byte| byte.is_ascii_hexdigit()));
-                let Ok(output) = fs::read_to_string(entry.path().join("output")) else {
-                    continue;
-                };
-                if !is_run {
-                    continue;
-                }
-                if !output.lines().any(|line| {
-                    line.starts_with("cargo:rerun-if-changed=")
-                        || line.starts_with("cargo::rerun-if-changed=")
-                }) {
-                    return false;
-                }
-                declared = true;
-            }
-            declared
-        })
-}
-
 /// Read Cargo's `<artifact>.d` beside a final executable: one
 /// `target: dep dep ...` rule per line, with spaces and backslashes in paths
 /// escaped by a backslash. This is not rustc's dep-info dialect (no phony
@@ -437,9 +383,7 @@ fn finish_prepared_linked_cargo(
     let final_root_inputs = final_root_artifact
         .executable
         .as_deref()
-        .filter(|executable| {
-            local_build_scripts_declare_inputs(executable, final_cargo_run.cargo_artifacts())
-        })
+        .filter(|_| final_cargo_run.local_scripts_declare_inputs)
         .and_then(cargo_dep_info_inputs);
     let final_root_artifact = snapshot_final_artifact(
         &request.descriptor.source_exclusion_directory,

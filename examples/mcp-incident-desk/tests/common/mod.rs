@@ -9,7 +9,7 @@ use mcp_incident_desk::{
     security::{digest, random},
 };
 use rmcp::{
-    model::ClientInfo,
+    model::ClientConfig,
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
     },
@@ -226,13 +226,13 @@ impl Harness {
     pub async fn sdk(
         &self,
         token: &str,
-    ) -> rmcp::service::RunningService<rmcp::RoleClient, ClientInfo> {
+    ) -> rmcp::service::RunningService<rmcp::RoleClient, ClientConfig> {
         let transport = StreamableHttpClientTransport::with_client(
             self.browser(),
             StreamableHttpClientTransportConfig::with_uri(self.state.config.resource())
                 .auth_header(token),
         );
-        ClientInfo::default().serve(transport).await.unwrap()
+        ClientConfig::default().serve(transport).await.unwrap()
     }
 }
 impl Drop for Harness {

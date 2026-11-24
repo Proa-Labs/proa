@@ -13,8 +13,9 @@
 //! generates. ZeroCopyBuf's value proposition is avoiding memcpy on those
 //! large consolidated statics.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use proa_core::shared::write_buf::Part;
+use std::hint::black_box;
 
 // ---------------------------------------------------------------------------
 // ZeroCopyBuf clone with configurable threshold

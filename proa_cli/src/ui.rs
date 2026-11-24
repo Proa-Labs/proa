@@ -2854,7 +2854,7 @@ fn pro_registry_bearer_token_from_sources(
                 ));
             }
         };
-        let credentials: toml::Value = contents.parse().map_err(|_| {
+        let credentials: toml::Value = toml::from_str(&contents).map_err(|_| {
             // Do not attach the parser's source excerpt: this file contains secrets.
             anyhow::anyhow!("parse Cargo credentials file {}", path.display())
         })?;

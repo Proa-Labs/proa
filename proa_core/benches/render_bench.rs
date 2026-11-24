@@ -1,14 +1,10 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use proa_core::{
-    el, render_into, text, void, Attr, AttrKey, Ctx, Render, RenderBuffer, Tag, WriteBuf,
-    WriteError,
+    el, render_into, text, void, Attr, AttrKey, Ctx, Render, RenderBuffer, Tag, WriteError,
 };
-use proa_react::react_island;
-
-const RENDERS_PER_ITER: usize = 16;
 
 #[derive(Clone, Copy)]
 struct SamplePage;
@@ -103,17 +99,14 @@ impl Render for SamplePage {
                 )
                 .render(cx)?;
 
-                react_island("StatsPanel", "island-stats", "{\"latency\":120}", |cx| {
-                    el(
-                        Tag::Div,
-                        [Attr::Str {
-                            k: AttrKey::Class,
-                            v: "frame",
-                        }],
-                        |cx| text("Loading...").render(cx),
-                    )
-                    .render(cx)
-                })
+                el(
+                    Tag::Div,
+                    [Attr::Str {
+                        k: AttrKey::Class,
+                        v: "frame",
+                    }],
+                    |cx| text("Loading...").render(cx),
+                )
                 .render(cx)
             },
         )
@@ -219,10 +212,7 @@ impl Render for LargePage {
                     .render(cx)?;
                 }
 
-                react_island("PerfViz", "island-perf", "{\"metrics\":[1,2,3,4]}", |cx| {
-                    el(Tag::Div, [], |cx| text("Loading charts...").render(cx)).render(cx)
-                })
-                .render(cx)
+                el(Tag::Div, [], |cx| text("Loading charts...").render(cx)).render(cx)
             },
         )
         .render(cx)
@@ -234,18 +224,16 @@ fn bench_render(c: &mut Criterion) {
     let configs = [("sample", false), ("large", true)];
 
     for (name, large) in configs {
-        group.throughput(Throughput::Elements(RENDERS_PER_ITER as u64));
+        group.throughput(Throughput::Elements(1));
         group.bench_with_input(BenchmarkId::new(name, name), &large, |b, large| {
-            let mut buffer = RenderBuffer::new();
-            b.iter(|| {
-                for _ in 0..RENDERS_PER_ITER {
-                    if *large {
-                        render_into(&mut buffer, LargePage);
-                    } else {
-                        render_into(&mut buffer, SamplePage);
-                    }
+            b.iter_with_large_drop(|| {
+                let mut buffer = RenderBuffer::new();
+                if *large {
+                    render_into(&mut buffer, LargePage);
+                } else {
+                    render_into(&mut buffer, SamplePage);
                 }
-                black_box(buffer.len());
+                buffer
             });
         });
     }

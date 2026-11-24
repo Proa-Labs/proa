@@ -374,7 +374,7 @@ impl ObjectCatalog {
 fn catalog_method(owner: String, method: syn::ImplItemFn) -> Result<ObjectMethod, ExpansionError> {
     if method.sig.constness.is_some()
         || method.sig.asyncness.is_some()
-        || method.sig.unsafety.is_some()
+        || matches!(method.sig.safety, syn::Safety::Unsafe(_))
         || method.sig.abi.is_some()
         || method.sig.variadic.is_some()
         || !method.sig.generics.params.is_empty()
@@ -394,7 +394,7 @@ fn catalog_method(owner: String, method: syn::ImplItemFn) -> Result<ObjectMethod
     });
     let kind = match receiver {
         Some(receiver) => {
-            if receiver.reference.is_none() || receiver.colon_token.is_some() {
+            let syn::ReceiverKind::Reference(_, _, mutability) = &receiver.kind else {
                 return Err(Diagnostic::new(
                     receiver.span(),
                     "client value-object methods must borrow their receiver",
@@ -402,9 +402,9 @@ fn catalog_method(owner: String, method: syn::ImplItemFn) -> Result<ObjectMethod
                     "the linked method receives a shared helper-internal object carrier",
                 )
                 .into());
-            }
+            };
             MethodKind::Receiver {
-                mutable: receiver.mutability.is_some(),
+                mutable: mutability.is_some(),
             }
         }
         None => MethodKind::Constructor,

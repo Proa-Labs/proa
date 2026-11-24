@@ -120,7 +120,7 @@ cx.head_mut().title("Trail Jacket")?;
 <title>Trail Jacket | Acme</title>
 ```
 
-Dynamic routes work the same way: a Page at `/products/:id` or `/blog/:slug` uses `cx.param(...)` to load its display title and passes it to `title(...)` or `metadata(...)`. The template formats that title; it does not infer a title from the URL.
+Dynamic routes work the same way: a Page at `/products/{id}` or `/blog/{slug}` uses `cx.param(...)` to load its display title and passes it to `title(...)` or `metadata(...)`. The template formats that title; it does not infer a title from the URL.
 
 A template must contain exactly one `%s`. The nearest ancestor template applies once. A template set in a hook applies to descendants, not to a title set in that same hook.
 

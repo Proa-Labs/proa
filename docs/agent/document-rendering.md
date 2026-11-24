@@ -389,7 +389,7 @@ status/content negotiation. Do not pin prose copied from the implementation.
 ### Markdown compiler dependencies
 
 The `markdown` feature on `proa` is enabled by default.
-HTML/XML-only consumers can set `proa = { version = "0.4", default-features = false }`
+HTML/XML-only consumers can set `default-features = false` on their existing `proa` dependency
 to omit the Markdown parsers. Enable `features = ["markdown"]` explicitly when
 using `md!` or `md_sync!` with default features disabled. Cargo unifies features:
 if another dependency enables Markdown, its parser dependencies are still built.

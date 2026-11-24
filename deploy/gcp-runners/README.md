@@ -335,7 +335,7 @@ content store; the registry cache supplies those layers instead.
 The Railway job does not install gcloud.
 
 Two private, digest-pinned tools images replace per-release package installation.
-The compile image includes Rust 1.95, Clippy/rustfmt requested by the workspace,
+The compile image Dockerfile installs the pinned workspace Rust toolchain and Clippy/rustfmt,
 build-essential, OpenSSL headers, Python, time, zstd, and checksum-verified
 Tailwind 3.4.18. The cache/package image extends the minimal Cloud SDK `stable`
 image with OS CA certificates, zstd, Docker CLI, and buildx 0.29.1, which supports the worker's

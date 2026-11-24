@@ -6,7 +6,7 @@
 #   docker build -f proa_marketing/Dockerfile .
 
 ARG BUILD_ARTIFACTS=builder
-FROM rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082 AS builder
+FROM rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS builder
 
 ARG TARGETARCH
 ARG TAILWIND_VERSION=3.4.18

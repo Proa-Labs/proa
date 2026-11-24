@@ -16,9 +16,9 @@ pub fn router(state: AppState) -> Router {
         // proa:route-specs:start
         Route::endpoint("/", get(pages::home::handler)),
         Route::endpoint("/issues", get(pages::issues)),
-        Route::endpoint("/issues/:id", get(pages::issue)),
-        Route::endpoint("/issues/:id/resolve", post(pages::resolve)),
-        Route::endpoint("/runbooks/:id", get(pages::runbook)),
+        Route::endpoint("/issues/{id}", get(pages::issue)),
+        Route::endpoint("/issues/{id}/resolve", post(pages::resolve)),
+        Route::endpoint("/runbooks/{id}", get(pages::runbook)),
         Route::endpoint("/connections", get(pages::connections)),
         Route::endpoint("/connections/revoke", post(pages::revoke)),
         Route::endpoint("/connect", get(pages::connect)),

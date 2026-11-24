@@ -87,7 +87,7 @@ impl<L: DataLoader> WebRender<L> for ProductPage {
     }
 }
 
-// 3. Add the layout and expose `/products/:id`.
+// 3. Add the layout and expose `/products/{id}`.
 struct ShopLayout {
     page: ProductPage,
 }
@@ -129,7 +129,7 @@ fn shop_router<L: DataLoader + 'static>(
 ) -> Result<Router, WriteError> {
     let head = shop_head(public_origin)?;
     let routes = Router::new().route(
-        "/products/:id",
+        "/products/{id}",
         get(move |Path(id): Path<u64>| {
             // Fresh cache for each request; the catalog itself can be shared.
             let loader = DataResolver::request_scope(Arc::clone(&catalog));

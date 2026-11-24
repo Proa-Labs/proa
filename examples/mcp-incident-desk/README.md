@@ -56,7 +56,7 @@ Native browser forms require the `same-origin` referrer policy used here: `no-re
 
 ## What it demonstrates
 
-- SQLite through SQLx 0.8, generated migrations, WAL, foreign-key enforcement, bounded cleanup, and transactional seed/mutation paths.
+- SQLite through SQLx 0.9, generated migrations, WAL, foreign-key enforcement, bounded cleanup, and transactional seed/mutation paths.
 - OAuth/OIDC-shaped authorization code flow with S256 PKCE, OIDC nonce/state checks for the website, RSA-3072 RS256 signing, Argon2id passwords, opaque hashed sessions/codes/refresh tokens, rotation, replay revocation, and separate browser/MCP grants.
 - Tenant-qualified queries and reauthorization at request and write boundaries. A viewer can read Aster issues but cannot resolve them; Harbor data never appears in an Aster projection.
 - A request-local `DataResolver` that deduplicates keyed project loads before synchronous HTML or Markdown rendering. The async Markdown test lifts a sync report with `to_md_async` without carrying `WebContext` across an await in an MCP handler.

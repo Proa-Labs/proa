@@ -294,7 +294,7 @@ async fn route_render_installs_request_location_on_context() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn route_render_installs_route_params_on_context() {
     let routes = vec![Route::endpoint(
-        "/products/:id",
+        "/products/{id}",
         get(|| async { RouteResponse::ssr(RouteParamEcho) }),
     )];
 

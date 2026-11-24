@@ -3715,13 +3715,13 @@ mod tests {
         // COFF short-import header, followed by symbol and DLL name strings.
         let payload = b"GetLastError\0kernel32.dll\0";
         let mut bytes = Vec::new();
-        for field in [0_u16, 0xffff, 0, object::pe::IMAGE_FILE_MACHINE_AMD64] {
+        for field in [0_u16, 0xffff, 0, object::pe::IMAGE_FILE_MACHINE_AMD64.0] {
             bytes.extend_from_slice(&field.to_le_bytes());
         }
         bytes.extend_from_slice(&0_u32.to_le_bytes());
         bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&0_u16.to_le_bytes());
-        bytes.extend_from_slice(&(object::pe::IMPORT_OBJECT_NAME << 2).to_le_bytes());
+        bytes.extend_from_slice(&(object::pe::IMPORT_OBJECT_NAME.0 << 2).to_le_bytes());
         bytes.extend_from_slice(payload);
         bytes
     }

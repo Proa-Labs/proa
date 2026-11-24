@@ -23,6 +23,7 @@ CACHE_OVER_BUDGET = 3
 HASH_CHUNK_SIZE = 1024 * 1024
 
 UNIT_DIR_RE = re.compile(r"^(?P<pkg>.+)-(?P<hash>[0-9a-f]{16})$")
+UNIT_HASH_RE = re.compile(r"[0-9a-f]{16}")
 DEPS_HASH_RE = re.compile(r"-(?P<hash>[0-9a-f]{16})(?:\..+)?$")
 
 PROA_RSJS_STRUCTURAL_DIRS = frozenset(
@@ -52,13 +53,11 @@ class PruneStats:
 
 @dataclass
 class CargoUnit:
-    profile_dir: Path
     pkg: str
     hash_hex: str
     kind_key: tuple[str, ...]
     fingerprint_dir: Path
-    build_dir: Path | None
-    deps_files: list[Path]
+    paths: list[Path]
     mtime_ns: int
     size_bytes: int
 
@@ -373,10 +372,48 @@ def find_cargo_profile_dirs(cargo_target_dir: Path) -> list[Path]:
     for subdir in list_subdirs(cargo_target_dir):
         if subdir.name in {"proa-rsjs", "proa-config", "proa-output", "cargo-timings"}:
             continue
-        deps_dir = subdir / "deps"
-        if deps_dir.is_dir() and not deps_dir.is_symlink():
+        if any(p.is_dir() and not p.is_symlink() for p in (subdir / "deps", subdir / "build")):
             profiles.append(subdir)
     return profiles
+
+
+def fingerprint_markers(directory: Path) -> tuple[str, ...]:
+    if directory.is_symlink():
+        return ()
+    try:
+        with os.scandir(directory) as entries:
+            return tuple(sorted(entry.name for entry in entries if entry.name.endswith(".json")))
+    except (FileNotFoundError, NotADirectoryError):
+        return ()
+
+
+def contains_package_units(path: Path) -> bool:
+    # A modern package name can itself look like a legacy <package>-<hash>.
+    return any(UNIT_HASH_RE.fullmatch(child.name) for child in list_subdirs(path))
+
+
+def scan_package_build_units(build_root: Path) -> list[CargoUnit]:
+    # Cargo 1.100 stores all outputs for one unit under build/<package>/<hash>/.
+    units: list[CargoUnit] = []
+    for package in list_subdirs(build_root):
+        for unit_dir in list_subdirs(package):
+            if not UNIT_HASH_RE.fullmatch(unit_dir.name):
+                continue
+            fingerprint = unit_dir / "fingerprint"
+            markers = fingerprint_markers(fingerprint)
+            if markers:
+                units.append(
+                    CargoUnit(
+                        pkg=package.name,
+                        hash_hex=unit_dir.name,
+                        kind_key=markers,
+                        fingerprint_dir=fingerprint,
+                        paths=[unit_dir],
+                        mtime_ns=tree_max_mtime_ns(unit_dir),
+                        size_bytes=entry_size_bytes(unit_dir),
+                    )
+                )
+    return units
 
 
 def scan_profile_units(profile_dir: Path) -> tuple[list[CargoUnit], set[str]]:
@@ -384,8 +421,10 @@ def scan_profile_units(profile_dir: Path) -> tuple[list[CargoUnit], set[str]]:
     deps_root = profile_dir / "deps"
     build_root = profile_dir / "build"
 
+    units = scan_package_build_units(build_root)
+    # A restored profile can also contain the older .fingerprint/ and deps/ layout.
     if not fingerprint_root.is_dir() or fingerprint_root.is_symlink():
-        return [], set()
+        return units, set()
 
     deps_by_hash: dict[str, list[Path]] = {}
     if deps_root.is_dir() and not deps_root.is_symlink():
@@ -400,9 +439,10 @@ def scan_profile_units(profile_dir: Path) -> tuple[list[CargoUnit], set[str]]:
         with os.scandir(build_root) as entries:
             for entry in entries:
                 if UNIT_DIR_RE.match(entry.name):
-                    build_by_name[entry.name] = Path(entry.path)
+                    path = Path(entry.path)
+                    if not contains_package_units(path):
+                        build_by_name[entry.name] = path
 
-    units: list[CargoUnit] = []
     live_hashes: set[str] = set()
     with os.scandir(fingerprint_root) as entries:
         for entry in entries:
@@ -418,23 +458,18 @@ def scan_profile_units(profile_dir: Path) -> tuple[list[CargoUnit], set[str]]:
             hash_hex = match.group("hash")
             live_hashes.add(hash_hex)
             fp_dir = Path(entry.path)
-            json_markers: list[str] = []
-            try:
-                with os.scandir(fp_dir) as fp_entries:
-                    for fp_entry in fp_entries:
-                        if fp_entry.name.endswith(".json"):
-                            json_markers.append(fp_entry.name)
-            except FileNotFoundError:
-                continue
+            json_markers = fingerprint_markers(fp_dir)
             if not json_markers:
                 continue
 
             build_dir = build_by_name.get(entry.name)
             deps_files = deps_by_hash.get(hash_hex, [])
+            paths = [fp_dir, *deps_files]
 
             mtime_ns = shallow_max_mtime_ns(fp_dir)
             size_bytes = entry_size_bytes(fp_dir)
             if build_dir is not None:
+                paths.append(build_dir)
                 mtime_ns = max(mtime_ns, shallow_max_mtime_ns(build_dir))
                 size_bytes += entry_size_bytes(build_dir)
             for dep_file in deps_files:
@@ -448,13 +483,11 @@ def scan_profile_units(profile_dir: Path) -> tuple[list[CargoUnit], set[str]]:
 
             units.append(
                 CargoUnit(
-                    profile_dir=profile_dir,
                     pkg=pkg,
                     hash_hex=hash_hex,
-                    kind_key=tuple(sorted(json_markers)),
+                    kind_key=json_markers,
                     fingerprint_dir=fp_dir,
-                    build_dir=build_dir,
-                    deps_files=deps_files,
+                    paths=paths,
                     mtime_ns=mtime_ns,
                     size_bytes=size_bytes,
                 )
@@ -463,11 +496,8 @@ def scan_profile_units(profile_dir: Path) -> tuple[list[CargoUnit], set[str]]:
 
 
 def remove_cargo_unit(unit: CargoUnit, stats: PruneStats) -> None:
-    remove_path(unit.fingerprint_dir, stats)
-    if unit.build_dir is not None:
-        remove_path(unit.build_dir, stats)
-    for dep_file in unit.deps_files:
-        remove_path(dep_file, stats)
+    for path in unit.paths:
+        remove_path(path, stats)
 
 
 def prune_superseded_profile_units(
@@ -478,9 +508,6 @@ def prune_superseded_profile_units(
     used_fingerprints: set[Path],
 ) -> None:
     units, live_hashes = scan_profile_units(profile_dir)
-    if not live_hashes:
-        return
-
     grouped: dict[tuple[str, tuple[str, ...]], list[CargoUnit]] = {}
     for unit in units:
         grouped.setdefault((unit.pkg, unit.kind_key), []).append(unit)
@@ -495,11 +522,11 @@ def prune_superseded_profile_units(
         for unit in group_units:
             if unit.fingerprint_dir not in used_fingerprints and unit.mtime_ns < since_ns:
                 remove_cargo_unit(unit, stats)
-                live_hashes.discard(unit.hash_hex)
                 stats.superseded_units += 1
 
-    # Remove orphaned deps/ and build/ entries whose hash has no .fingerprint dir
-    # and was not created by the current build.
+    # Only the legacy layout has detached deps/ and build/ entries.
+    if not live_hashes:
+        return
     deps_root = profile_dir / "deps"
     if deps_root.is_dir() and not deps_root.is_symlink():
         with os.scandir(deps_root) as entries:
@@ -523,6 +550,8 @@ def prune_superseded_profile_units(
                 if not match or match.group("hash") in live_hashes:
                     continue
                 path = Path(entry.path)
+                if contains_package_units(path):
+                    continue
                 if tree_max_mtime_ns(path) < since_ns:
                     if remove_path(path, stats):
                         stats.orphan_entries += 1

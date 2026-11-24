@@ -91,11 +91,11 @@ exist, and `proa run dev --open` shows the atlas.
 
 Generated sites use the `proa` crate for their application API. Common types and
 macros come from `proa::`; the Axum integration is `proa::axum` and loaders live
-under `proa::stream`. To add Proa to an existing application:
+under `proa::stream`. To use the framework facade in an existing application, select the Proa Labs repository as its Cargo source.
 
 ```toml
 [dependencies]
-proa = { version = "0.4", features = ["axum"] }
+proa = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
 ```
 
 You do not have to build the common UI yourself: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of ready-made Proa components, and `proa ui add button` vendors the source into `src/components/` where you own and edit it like any other file. Worth knowing before you write your first card, dialog, or form by hand.

@@ -519,12 +519,10 @@ fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteCont
         return true;
     };
     let pattern = pattern.as_str();
-    let has_named = pattern.split('/').any(|part| part.starts_with(':'));
-    let has_wildcard = pattern.split('/').any(|part| part.starts_with('*'));
-    if !has_named && !has_wildcard {
+    if !pattern.contains('{') {
         return true;
     }
-    if has_wildcard {
+    if pattern.contains("{*") || pattern.contains("{{") || pattern.contains("}}") {
         return false;
     }
     let current = req.uri().path();

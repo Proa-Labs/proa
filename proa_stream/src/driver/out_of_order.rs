@@ -629,7 +629,7 @@ pub struct OutOfOrderBoundaryChunk {
     pub id: u64,
     /// Complete swap/timeout transport bytes for this boundary.
     ///
-    /// Any React bootstrap, query seed, SharedState seed, or runtime-plan
+    /// Any query seed, SharedState seed, or runtime-plan
     /// metadata derived from `artifacts` must be emitted before these bytes,
     /// never
     /// appended after them.
@@ -651,8 +651,7 @@ where
 ///
 /// The callback receives one structured chunk per successful, failed, or
 /// timed-out boundary. Only a successful rendered boundary carries non-empty
-/// `artifacts`. The callback must write the corresponding React bootstrap,
-/// query seed, SharedState seed, and runtime-plan metadata immediately before
+/// `artifacts`. The callback must write the corresponding query seed, SharedState seed, and runtime-plan metadata immediately before
 /// `chunk.bytes`; writing it after the swap frame is too late because that
 /// frame dispatches `proa:boundary-ready`.
 pub async fn drain_pending_boundaries_with_nonce_and_artifacts<F, Fut>(
@@ -967,7 +966,6 @@ mod tests {
                 boundary_html,
                 RenderArtifacts {
                     rsjs: artifacts.clone(),
-                    react_islands: vec!["DeferredChart".to_owned()],
                 },
             )))),
         ));
@@ -983,7 +981,6 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].id, 11);
         assert_eq!(chunks[0].artifacts.rsjs, artifacts);
-        assert_eq!(chunks[0].artifacts.react_islands, ["DeferredChart"]);
         let island_id = chunks[0].artifacts.rsjs.rendered_islands().next().unwrap();
         let mut ordered_wire = format!("<!--rsjs-metadata:{island_id}-->").into_bytes();
         let metadata_end = ordered_wire.len();

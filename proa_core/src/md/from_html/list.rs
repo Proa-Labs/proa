@@ -2,21 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use htmd::{
-    element_handler::{HandlerResult, Handlers},
-    Element, Node,
+    element_handler::{Context, HandlerResult, Handlers},
+    node::Node,
+    Element,
 };
-use markup5ever_rcdom::NodeData;
 
 fn integer(node: &Node, name: &str) -> Option<i64> {
-    let NodeData::Element { attrs, .. } = &node.data else {
-        return None;
-    };
-    let attrs = attrs.borrow();
-    let value = attrs
-        .iter()
-        .find(|attr| attr.name.local.as_ref() == name)?
-        .value
-        .as_ref();
+    let value = node.attr(name)?;
     let value = value.trim_start_matches([' ', '\t', '\r', '\n', '\u{000C}']);
     let sign = usize::from(value.starts_with(['+', '-']));
     let digits = value.as_bytes()[sign..]
@@ -30,17 +22,17 @@ fn integer(node: &Node, name: &str) -> Option<i64> {
 }
 
 fn is_item(node: &Node) -> bool {
-    matches!(&node.data, NodeData::Element { name, .. } if name.local.as_ref() == "li")
+    node.tag_name() == Some("li")
 }
 
 // proa-perf-ok(scope): ordered list conversion owns marker and indented Markdown buffers
-pub(super) fn ordered_list(handlers: &dyn Handlers, element: Element<'_>) -> Option<HandlerResult> {
-    let children = element.node.children.borrow();
+pub(super) fn ordered_list(
+    handlers: &dyn Handlers,
+    element: &Element<'_>,
+) -> Option<HandlerResult> {
+    let children = element.node.children();
     let count = children.iter().filter(|node| is_item(node)).count() as i64;
-    let reversed = element
-        .attrs
-        .iter()
-        .any(|attr| attr.name.local.as_ref() == "reversed");
+    let reversed = element.node.attr("reversed").is_some();
     let start = integer(element.node, "start").unwrap_or(if reversed { count } else { 1 });
     // CommonMark renumbers an ordered list after its first marker. Explicit
     // item values/reversed order therefore need labels in an unordered list.
@@ -49,12 +41,12 @@ pub(super) fn ordered_list(handlers: &dyn Handlers, element: Element<'_>) -> Opt
         || start + count.saturating_sub(1) > 999_999_999
         || children
             .iter()
-            .any(|node| is_item(node) && integer(node, "value").is_some());
+            .any(|node| is_item(&node) && integer(&node, "value").is_some());
     let mut output = String::from("\n\n");
     let mut current = start;
     for child in children.iter() {
-        if !is_item(child) {
-            if let Some(result) = handlers.handle(child) {
+        if !is_item(&child) {
+            if let Some(result) = handlers.handle(&child, Context::BLOCK) {
                 if !result.content.trim().is_empty() {
                     output.push_str(&result.content);
                     output.push_str("\n\n");
@@ -62,14 +54,14 @@ pub(super) fn ordered_list(handlers: &dyn Handlers, element: Element<'_>) -> Opt
             }
             continue;
         }
-        current = integer(child, "value").unwrap_or(current);
+        current = integer(&child, "value").unwrap_or(current);
         let marker = if labelled {
             format!("- {current}: ")
         } else {
             format!("{current}. ")
         };
         let indent = if labelled { 2 } else { marker.len() };
-        let content = handlers.walk_children(child).content;
+        let content = handlers.walk_children(&child, Context::BLOCK).content;
         let content = content
             .trim_matches('\n')
             .trim_start_matches([' ', '\r', '\t']);

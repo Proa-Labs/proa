@@ -389,7 +389,7 @@ let (router, metadata) = router_from_spec(vec![
     // proa:route-specs:start
     Route::endpoint("/", get(pages::home::handler)),
     Route::endpoint("/products", get(pages::products::handler)),
-    Route::endpoint("/products/:slug", get(pages::product::handler)),
+    Route::endpoint("/products/{slug}", get(pages::product::handler)),
     Route::endpoint("/cart", post(endpoints::cart::add_to_cart)),
     // proa:route-specs:end
 ]);

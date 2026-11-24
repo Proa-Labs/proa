@@ -40,7 +40,7 @@ edition = "2021"
 islands = []
 
 [dependencies]
-axum = "0.7.9"
+axum = "0.8.9"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 '''
     for name, relative in dependencies.items():

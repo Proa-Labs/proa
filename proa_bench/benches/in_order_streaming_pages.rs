@@ -13,6 +13,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
 use std::future::Future;
+use std::hint::black_box;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -20,7 +21,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
+    criterion_group, criterion_main, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use proa_bench::complex_page::ComplexPage;
 use proa_bench::proa_page::SafeTextBenchmarkPage;
@@ -209,7 +210,7 @@ impl PageCase for AirbnbListingCase {
 
     fn render<B: WriteBuf, L: DataLoader>(cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let data = proa_showcase::airbnb::listing::ListingData::malibu();
-        proa_showcase::airbnb::listing::render_into(cx, &data, None)
+        proa_showcase::airbnb::listing::render_into(cx, &data)
     }
 }
 

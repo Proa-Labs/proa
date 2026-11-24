@@ -11,8 +11,7 @@
 //! ```
 //!
 //! Rendering types and template macros are available at the root. Enable
-//! `axum` for Axum integration, `actions` for action data and derives,
-//! or `react` for React interoperability. The default `stream` feature exposes
+//! `axum` for Axum integration or `actions` for action data and derives. The default `stream` feature exposes
 //! loaders and streaming components without selecting a runtime; `rt-tokio`
 //! enables eager Tokio loads. RSJS and build-time font tools remain separate
 //! dependencies.
@@ -31,15 +30,13 @@ pub use proa_actions as actions;
 pub use proa_framework_axum as axum;
 #[cfg(feature = "framework")]
 pub use proa_framework_core as framework;
-#[cfg(feature = "react")]
-pub use proa_react as react;
 #[cfg(feature = "stream")]
 pub use proa_stream as stream;
 
 #[doc(hidden)]
 pub mod __private {
-    #[cfg(any(feature = "actions", feature = "react"))]
+    #[cfg(feature = "actions")]
     pub use serde;
-    #[cfg(any(feature = "actions", feature = "react"))]
+    #[cfg(feature = "actions")]
     pub use serde_json;
 }

@@ -26,7 +26,7 @@ anyhow = { workspace = true }
 clap = { version = "4.5", features = ["derive", "cargo"] }
 clap_complete = { version = "4.5" }
 # Live-reload session secret for `proa dev`.
-getrandom = { version = "0.3" }
+getrandom = { version = "0.4.3" }
 glob = { version = "0.3" }
 proa_dsl = { workspace = true, features = ["markdown"] }
 proa_assets = { workspace = true, features = ["build"] }
@@ -42,13 +42,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 semver = { version = "1" }
 sha2 = { workspace = true }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "sqlite", "migrate"] }
 syn = { workspace = true, features = ["full", "visit"] }
 thiserror = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 toml = { workspace = true }
-toml_edit = { version = "0.22" }
+toml_edit = { version = "0.25.20" }
 walkdir = { workspace = true }
 
 # Dev-loop process-group teardown

@@ -11,7 +11,7 @@ use crate::config;
 
 pub(crate) fn cargo_package_name(root: &Path) -> Option<String> {
     let source = std::fs::read_to_string(root.join("Cargo.toml")).ok()?;
-    let manifest = source.parse::<toml::Value>().ok()?;
+    let manifest = toml::from_str::<toml::Value>(&source).ok()?;
     Some(manifest.get("package")?.get("name")?.as_str()?.to_owned())
 }
 

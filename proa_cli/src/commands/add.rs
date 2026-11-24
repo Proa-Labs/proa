@@ -312,7 +312,7 @@ fn add_sqlx_dependency(root: &Path, files: &mut Vec<(PathBuf, String)>) -> Resul
         }
     } else {
         let mut table = InlineTable::new();
-        table.insert("version", Value::from("0.8"));
+        table.insert("version", Value::from("0.9.1"));
         let mut features = Array::new();
         for feature in required {
             features.push(feature);

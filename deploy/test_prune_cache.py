@@ -316,9 +316,12 @@ class PruneCacheTests(unittest.TestCase):
                 )
             for directory in ("v1", "v2"):
                 (root / directory / "src/lib.rs").write_text("pub fn value() -> u32 { 1 }")
+            with (root / "v2/Cargo.toml").open("a") as manifest:
+                manifest.write("[features]\nprevious = []\n")
             app = root / "app"
             with (app / "Cargo.toml").open("a") as manifest:
                 manifest.write(
+                    '[features]\nprevious = ["v2/previous"]\n'
                     '[dependencies]\n'
                     'v1={package="shared",path="../v1"}\n'
                     'v2={package="shared",path="../v2"}\n'
@@ -327,16 +330,16 @@ class PruneCacheTests(unittest.TestCase):
             target = root / "target"
             fingerprints = root / "cargo-fingerprints"
 
-            def build() -> dict[str, bool]:
+            def build(*flags: str) -> dict[str, bool]:
                 result = subprocess.run(
                     [
                         "cargo", "build", "--offline", "--release", "--manifest-path",
-                        str(app / "Cargo.toml"), "--message-format=json-render-diagnostics",
+                        str(app / "Cargo.toml"), "--message-format=json-render-diagnostics", *flags,
                     ],
                     cwd=repo,
                     env={
                         **os.environ, "CARGO_TARGET_DIR": str(target), "CARGO_TERM_COLOR": "never",
-                        "CARGO_LOG": "cargo::core::compiler::fingerprint=debug",
+                        "CARGO_LOG": "cargo::compiler::fingerprint=debug,cargo::core::compiler::fingerprint=debug",
                     },
                     check=True, capture_output=True, text=True,
                 )
@@ -354,16 +357,29 @@ class PruneCacheTests(unittest.TestCase):
                     if message["reason"] == "compiler-artifact"
                 }
 
+            def shared_fingerprints() -> set[Path]:
+                return {
+                    path.parent for path in map(Path, fingerprints.read_text().splitlines())
+                    if path.name == "lib-shared"
+                }
+
+            build("--features", "previous")
+            previous = shared_fingerprints()
             build()
             marker = root / "compile-start"
             marker.touch()
             (root / "v2/src/lib.rs").write_text("pub fn value() -> u32 { 2 }")
             self.assertEqual(build(), {"v1": True, "v2": False, "app": False})
-            used = [Path(line) for line in fingerprints.read_text().splitlines()]
-            self.assertEqual(len({path.parent for path in used if path.name == "lib-shared"}), 2)
+            current = shared_fingerprints()
+            self.assertEqual(len(current), 2)
+            superseded = previous - current
+            self.assertEqual(len(superseded), 1)
+            self.assertTrue(all(path.is_dir() for path in previous | current))
             self.assertEqual(prune_cache.main([
                 str(target), "--since-file", str(marker), "--cargo-fingerprints", str(fingerprints)
             ]), 0)
+            self.assertFalse(any(path.exists() for path in superseded))
+            self.assertTrue(all(path.is_dir() for path in current))
             self.assertEqual(build(), {"v1": True, "v2": True, "app": True})
 
     def test_budget_evicts_unused_units_before_warm_dependencies(self) -> None:
@@ -412,6 +428,31 @@ class PruneCacheTests(unittest.TestCase):
             self.assertTrue((profile / "deps" / "liboldest_crate-1111111111111111.rlib").exists())
             self.assertFalse((profile / "deps" / "libmiddle_crate-2222222222222222.rlib").exists())
             self.assertTrue((profile / "deps" / "libfresh_crate-3333333333333333.rlib").exists())
+
+    def test_modern_package_directory_survives_legacy_unit_and_orphan_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            target = root / "target"
+            profile = target / "release"
+            for unit_hash, mtime in (("1111111111111111", T_OLD), ("2222222222222222", T_FRESH)):
+                make_cargo_unit(
+                    profile, "demo", unit_hash, kind_json="lib-demo.json", mtime_ns=mtime,
+                    dep_files=[(f"libdemo-{unit_hash}.rlib", 64)],
+                )
+            # Cargo 1.100 can legitimately use the old unit's build/ path as a package name.
+            unit = profile / "build" / "demo-1111111111111111" / "3333333333333333"
+            write_bytes(unit / "fingerprint" / "lib-other.json", b"{}", T_OLD)
+            artifact = write_bytes(unit / "out" / "libother.rlib", b"live", T_OLD)
+            current = root / "cargo-fingerprints"
+            current.write_text(
+                f"{profile}/.fingerprint/demo-2222222222222222/lib-demo\n"
+                f"{unit}/fingerprint/lib-other\n"
+            )
+            stats = prune_cache.prune_target_directory(target, since_ns=T_SINCE, cargo_fingerprints=current)
+            self.assertEqual(stats.superseded_units, 1)
+            self.assertFalse((profile / ".fingerprint" / "demo-1111111111111111").exists())
+            prune_cache.prune_target_directory(target, since_ns=T_SINCE, cargo_fingerprints=current)
+            self.assertEqual(artifact.read_bytes(), b"live")
 
     def test_over_budget_resets_descriptor_generations_and_matching_target_together(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

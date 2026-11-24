@@ -197,7 +197,7 @@ fn cargo_toml(package: &str, has_database: bool) -> String {
     let proa = super::scaffold_version("proa");
 
     let database = if has_database {
-        "sqlx = { version = \"0.8\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
+        "sqlx = { version = \"0.9.1\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
     } else {
         ""
     };
@@ -206,17 +206,17 @@ fn cargo_toml(package: &str, has_database: bool) -> String {
 name = "{package}"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.93"
+rust-version = "1.98"
 
 [dependencies]
 proa = {{ version = "{proa}", features = ["axum", "rt-tokio"] }}
 anyhow = "1"
-axum = "0.7.9"
+axum = "0.8.9"
 dotenvy = "0.15"
 serde = {{ version = "1", features = ["derive"] }}
 {database}thiserror = "2"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
-tower-http = {{ version = "0.6", features = ["fs", "trace"] }}
+tower-http = {{ version = "0.7.1", features = ["fs", "trace"] }}
 tracing = "0.1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 
@@ -409,7 +409,7 @@ jobs:
           persist-credentials: false
 
       # Download immutable release artifacts and verify them before execution.
-      # Cargo.toml declares rust-version = "1.93"; CI uses the runner's installed Rust toolchain.
+      # Cargo.toml declares rust-version = "1.98"; CI uses the runner's installed Rust toolchain.
       - name: Install the Proa CLI and Tailwind
         shell: bash
         run: |
@@ -761,7 +761,7 @@ fn cli_download_base(version: &str) -> String {
 fn deployment_dockerfile(migration_copy: &str, cli_version: &str) -> String {
     let cli_download_base = cli_download_base(cli_version);
     format!(
-        r#"FROM rust:1.93-bookworm AS rust-toolchain
+        r#"FROM rust:1.98-bookworm AS rust-toolchain
 FROM ubuntu:24.04 AS build
 ENV RUSTUP_HOME="/usr/local/rustup" CARGO_HOME="/usr/local/cargo" PATH="/usr/local/cargo/bin:$PATH" DEBIAN_FRONTEND="noninteractive"
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
@@ -837,7 +837,7 @@ mod tests {
             cargo_toml("app", true),
             origin::manifest("atlas"),
         ] {
-            let manifest: toml::Value = source.parse().unwrap();
+            let manifest: toml::Value = toml::from_str(&source).unwrap();
             for section in ["dependencies", "build-dependencies"] {
                 if let Some(dependencies) = manifest.get(section).and_then(toml::Value::as_table) {
                     for (name, dependency) in dependencies {

@@ -128,7 +128,6 @@ fn canonical_facade_path(path: String) -> String {
         ("axum", "proa_framework_axum"),
         ("framework", "proa_framework_core"),
         ("actions", "proa_actions"),
-        ("react", "proa_react"),
     ] {
         if let Some(suffix) = rest.strip_prefix(&format!("{module}::")) {
             return format!("{package}::{suffix}");
@@ -739,7 +738,7 @@ pub(super) fn lint_parsed(
         };
         for item in &context.items {
             if let Item::Impl(item) = item {
-                let Some((_, trait_path, _)) = &item.trait_ else {
+                let Some((trait_path, _)) = &item.trait_ else {
                     let (_, range) = policy(&item.attrs, &resolver, &context, &mut diagnostics);
                     if let Some(range) = range {
                         diagnostics.push(Diagnostic::new(
@@ -883,7 +882,7 @@ pub(super) fn lint_parsed(
     for context in &contexts {
         for item in &context.items {
             if let Item::Impl(item) = item {
-                if let Some((_, trait_path, _)) = &item.trait_ {
+                if let Some((trait_path, _)) = &item.trait_ {
                     let mut name = trait_path
                         .segments
                         .iter()
@@ -1116,7 +1115,7 @@ pub(super) fn lint_parsed(
                 if !include_tests && is_test(&item.attrs) {
                     continue;
                 }
-                let Some((_, trait_path, _)) = &item.trait_ else {
+                let Some((trait_path, _)) = &item.trait_ else {
                     let (_, range) = policy(&item.attrs, &resolver, &context, &mut diagnostics);
                     if let Some(range) = range {
                         diagnostics.push(Diagnostic::new(
