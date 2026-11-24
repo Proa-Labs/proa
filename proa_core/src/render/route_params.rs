@@ -33,7 +33,7 @@ impl RouteParam {
 /// adapting their routing model into this collection before render begins.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RouteParams {
-    entries: Arc<[RouteParam]>,
+    entries: Option<Arc<[RouteParam]>>,
 }
 
 impl RouteParams {
@@ -46,28 +46,27 @@ impl RouteParams {
             Self::default()
         } else {
             Self {
-                entries: Arc::from(entries.into_boxed_slice()),
+                entries: Some(Arc::from(entries)),
             }
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_none()
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.iter().len()
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.entries
-            .iter()
+        self.iter()
             .find(|entry| entry.key() == key)
             .map(RouteParam::value)
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, RouteParam> {
-        self.entries.iter()
+        self.entries.as_deref().unwrap_or_default().iter()
     }
 }
 

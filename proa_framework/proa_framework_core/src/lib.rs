@@ -49,7 +49,7 @@ pub use proa_core::{
     drive_dyn_render, drive_dyn_send_render, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
     DynWebRenderSend,
 };
-pub use route_snapshot::{extract_route_params, FrameworkRouteSnapshot};
+pub use route_snapshot::{extract_route_params, has_named_route_params, FrameworkRouteSnapshot};
 pub use route_spec::{
     compute_metadata_map, resolve_route_path, resolve_route_specs, ResolvedRouteSpec, RouteMode,
     RouteSpec, StaticPathsFn,

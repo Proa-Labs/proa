@@ -9,7 +9,7 @@ use axum::Router;
 use proa_framework_core::{compute_metadata_map, resolve_route_specs, ResolvedRouteSpec};
 pub use proa_framework_core::{RouteMode, RouteSpec, StaticPathsFn};
 
-use super::context::{EndpointContextLayer, Stack};
+use super::context::EndpointContextLayer;
 use super::layout::LayoutRef;
 use super::metadata::{ComputedRouteMeta, MetadataRef};
 
@@ -232,8 +232,6 @@ where
         page_cache,
     } = route;
 
-    let metadata_stack_arc = Stack::from_slice(&resolved.metadata_stack);
-
     let mut router = Router::new();
 
     if let Some(method_router) = endpoint {
@@ -242,7 +240,7 @@ where
             None => method_router,
         };
         let method_router = method_router.layer(EndpointContextLayer::new(
-            metadata_stack_arc.clone(),
+            Arc::from(resolved.metadata_stack),
             Arc::from(resolved.full_path.as_str()),
         ));
         router = router.route(resolved.full_path.as_str(), method_router);

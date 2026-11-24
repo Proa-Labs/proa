@@ -17,8 +17,8 @@ use crate::metadata::{resolve_metadata_stack, ComputedRouteMeta, MetadataRef, Re
 /// their server stack uses.
 #[derive(Clone)]
 pub struct FrameworkRouteSnapshot {
-    metadata: Arc<[MetadataRef]>,
-    resolved_metadata: Option<ResolvedMetadata>,
+    metadata: Option<Arc<[MetadataRef]>>,
+    resolved_metadata: Option<Box<ResolvedMetadata>>,
     computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
     current_uri: Option<Uri>,
     current_route_params: RouteParams,
@@ -28,7 +28,7 @@ pub struct FrameworkRouteSnapshot {
 impl FrameworkRouteSnapshot {
     pub fn new(computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>) -> Self {
         Self {
-            metadata: Arc::from([]),
+            metadata: None,
             resolved_metadata: None,
             computed_metadata,
             current_uri: None,
@@ -73,12 +73,19 @@ impl FrameworkRouteSnapshot {
         self.current_route_params = route_params;
     }
 
+    /// Whether there are endpoint metadata providers in the current scope.
+    pub fn has_metadata(&self) -> bool {
+        self.metadata
+            .as_ref()
+            .is_some_and(|metadata| !metadata.is_empty())
+    }
+
     pub fn swap_metadata(
         &mut self,
         metadata: Arc<[MetadataRef]>,
     ) -> (Arc<[MetadataRef]>, Option<ResolvedMetadata>) {
-        let previous_metadata = mem::replace(&mut self.metadata, metadata);
-        let previous_resolved = self.resolved_metadata.take();
+        let previous_metadata = self.metadata.replace(metadata).unwrap_or_default();
+        let previous_resolved = self.resolved_metadata.take().map(|metadata| *metadata);
         (previous_metadata, previous_resolved)
     }
 
@@ -87,21 +94,19 @@ impl FrameworkRouteSnapshot {
         metadata: Arc<[MetadataRef]>,
         resolved: Option<ResolvedMetadata>,
     ) {
-        self.metadata = metadata;
-        self.resolved_metadata = resolved;
+        self.metadata = Some(metadata);
+        self.resolved_metadata = resolved.map(Box::new);
     }
 
     pub fn resolve_metadata(&mut self) -> Option<ResolvedMetadata> {
-        if self.metadata.is_empty() {
+        let providers = self.metadata.as_deref()?;
+        if providers.is_empty() {
             return None;
         }
-
-        if let Some(meta) = &self.resolved_metadata {
-            return Some(meta.clone());
+        if self.resolved_metadata.is_none() {
+            self.resolved_metadata = resolve_metadata_stack(providers).map(Box::new);
         }
-
-        self.resolved_metadata = resolve_metadata_stack(self.metadata.as_ref());
-        self.resolved_metadata.clone()
+        self.resolved_metadata.as_deref().cloned()
     }
 }
 
@@ -109,6 +114,26 @@ impl FrameworkRouteSnapshot {
 /// against a concrete request path.
 pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RouteParams {
     let mut params = Vec::new();
+    if visit_route_params(route_pattern, request_path, |name, value| {
+        params.push(RouteParam::new(name, value));
+    }) {
+        RouteParams::from_vec(params)
+    } else {
+        RouteParams::default()
+    }
+}
+
+/// Whether the pattern matches this path and captures at least one named segment.
+pub fn has_named_route_params(route_pattern: &str, request_path: &str) -> bool {
+    let mut found = false;
+    visit_route_params(route_pattern, request_path, |_, _| found = true) && found
+}
+
+fn visit_route_params(
+    route_pattern: &str,
+    request_path: &str,
+    mut visit: impl FnMut(&str, &str),
+) -> bool {
     let mut pattern_segments = route_pattern
         .split('/')
         .filter(|segment| !segment.is_empty());
@@ -118,7 +143,7 @@ pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RoutePar
 
     loop {
         match (pattern_segments.next(), request_segments.next()) {
-            (None, None) => break,
+            (None, None) => return true,
             (Some(pattern_segment), Some(request_segment)) => {
                 let name = pattern_segment
                     .strip_prefix('{')
@@ -126,20 +151,15 @@ pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RoutePar
                     .filter(|s| !s.is_empty() && !s.contains(['{', '}', '*']))
                     .or_else(|| pattern_segment.strip_prefix(':'));
                 if let Some(name) = name {
-                    params.push(RouteParam::new(
-                        name.to_owned().into_boxed_str(),
-                        request_segment.to_owned().into_boxed_str(),
-                    ));
+                    visit(name, request_segment);
                 } else if pattern_segment != request_segment || pattern_segment.contains(['{', '}'])
                 {
-                    return RouteParams::default();
+                    return false;
                 }
             }
-            _ => return RouteParams::default(),
+            _ => return false,
         }
     }
-
-    RouteParams::from_vec(params)
 }
 
 #[cfg(test)]

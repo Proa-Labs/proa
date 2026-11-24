@@ -388,6 +388,15 @@ pub(super) async fn prepare_deferred_framework_stream(
     else {
         return response;
     };
+    // Keep stream preparation storage out of ordinary response futures.
+    Box::pin(prepare_deferred_response(response, executor, deferred)).await
+}
+
+async fn prepare_deferred_response(
+    mut response: Response,
+    executor: LocalStreamExecutor,
+    deferred: DeferredFrameworkStream,
+) -> Response {
     let Some(factory) = deferred.take() else {
         error!("framework stream factory was already consumed");
         return framework_response_to_axum(FrameworkResponse::plain_text(
@@ -564,7 +573,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     if let Some(method) = ctx.current_method().cloned() {
         request.set_method(method);
     }
-    request.set_headers(ctx.current_headers().clone());
+    request.set_headers(ctx.current_headers());
     if let Some(location) = request_location.clone() {
         request.set_original_pathname(location.path());
         request.set_location(location);

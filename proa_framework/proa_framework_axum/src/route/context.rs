@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use axum::body::Body;
@@ -16,7 +16,8 @@ use axum::response::{IntoResponse, Response};
 use pin_project::{pin_project, pinned_drop};
 use proa_core::{CspNonce, PublicAssetUrls, RouteParam, RouteParams};
 use proa_framework_core::{
-    extract_route_params, ComputedRouteMeta, FrameworkRouteSnapshot, MetadataRef, ResolvedMetadata,
+    extract_route_params, has_named_route_params, ComputedRouteMeta, FrameworkRouteSnapshot,
+    MetadataRef, ResolvedMetadata,
 };
 use tower::layer::Layer;
 use tower::Service;
@@ -34,13 +35,57 @@ tokio::task_local! {
 pub struct RouteContext {
     snapshot: FrameworkRouteSnapshot,
     request_method: Option<http::Method>,
-    request_headers: http::HeaderMap,
+    request_headers: CapturedHeaders,
+    matched_params: Option<MatchedParams>,
     csp_nonce: Option<CspNonce>,
     base_path: proa_core::BasePath,
     public_asset_urls: Option<PublicAssetUrls>,
     framework_assets: Option<proa_core::FrameworkAssets>,
     asset_prefix: Option<Arc<str>>,
     head: Option<proa_core::HeadConfig>,
+}
+
+#[derive(Clone)]
+struct MatchedParams {
+    pattern: MatchedPath,
+    uri: http::Uri,
+    parsed: OnceLock<RouteParams>,
+}
+
+// A render may inspect any original header, including repeated values, after
+// middleware has changed the request. Avoid a second hash table on small requests.
+#[derive(Clone)]
+enum CapturedHeaders {
+    Inline(arrayvec::ArrayVec<(http::HeaderName, http::HeaderValue), 4>),
+    Map(http::HeaderMap),
+}
+
+impl CapturedHeaders {
+    fn capture(headers: &http::HeaderMap) -> Self {
+        if headers.len() <= 4 {
+            Self::Inline(
+                headers
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            )
+        } else {
+            Self::Map(headers.clone())
+        }
+    }
+
+    fn to_header_map(&self) -> http::HeaderMap {
+        match self {
+            Self::Inline(entries) => {
+                let mut headers = http::HeaderMap::with_capacity(entries.len());
+                for (name, value) in entries {
+                    headers.append(name, value.clone());
+                }
+                headers
+            }
+            Self::Map(headers) => headers.clone(),
+        }
+    }
 }
 
 impl RouteContext {
@@ -50,7 +95,8 @@ impl RouteContext {
         Self {
             snapshot: FrameworkRouteSnapshot::new(computed_metadata),
             request_method: None,
-            request_headers: http::HeaderMap::new(),
+            request_headers: CapturedHeaders::Inline(Default::default()),
+            matched_params: None,
             csp_nonce: None,
             base_path: proa_core::BasePath::default(),
             public_asset_urls: None,
@@ -104,10 +150,10 @@ impl RouteContext {
         self.snapshot.current_uri()
     }
 
-    pub(super) fn set_current_request_parts(
+    fn set_current_request_parts(
         &mut self,
         method: http::Method,
-        headers: http::HeaderMap,
+        headers: CapturedHeaders,
         uri: http::Uri,
     ) {
         self.request_method = Some(method);
@@ -119,8 +165,8 @@ impl RouteContext {
         self.request_method.as_ref()
     }
 
-    pub(super) fn current_headers(&self) -> &http::HeaderMap {
-        &self.request_headers
+    pub(super) fn current_headers(&self) -> http::HeaderMap {
+        self.request_headers.to_header_map()
     }
 
     pub(super) fn set_csp_nonce(&mut self, nonce: Option<CspNonce>) {
@@ -132,11 +178,23 @@ impl RouteContext {
     }
 
     pub(super) fn current_route_params(&self) -> &RouteParams {
-        self.snapshot.current_route_params()
+        if let Some(params) = &self.matched_params {
+            params
+                .parsed
+                .get_or_init(|| extract_route_params(params.pattern.as_str(), params.uri.path()))
+        } else {
+            self.snapshot.current_route_params()
+        }
     }
 
     pub(super) fn swap_route_params(&mut self, route_params: RouteParams) -> RouteParams {
-        self.snapshot.swap_route_params(route_params)
+        let previous = self.snapshot.swap_route_params(route_params);
+        self.matched_params.take().map_or(previous, |params| {
+            params
+                .parsed
+                .into_inner()
+                .unwrap_or_else(|| extract_route_params(params.pattern.as_str(), params.uri.path()))
+        })
     }
 
     pub(super) fn restore_route_params(&mut self, route_params: RouteParams) {
@@ -163,34 +221,15 @@ impl RouteContext {
     }
 }
 
-/// Helper type for managing metadata stacks.
-#[derive(Clone)]
-pub(super) struct Stack<T>(Arc<[T]>);
-
-impl<T: Copy> Stack<T> {
-    pub(super) fn from_slice(items: &[T]) -> Self {
-        if items.is_empty() {
-            Self(Arc::from([]))
-        } else {
-            let owned: Vec<T> = items.to_vec();
-            Self(Arc::from(owned.into_boxed_slice()))
-        }
-    }
-
-    pub(super) fn arc(&self) -> Arc<[T]> {
-        self.0.clone()
-    }
-}
-
 /// Tower layer for managing endpoint-specific metadata and route params.
 #[derive(Clone)]
 pub(super) struct EndpointContextLayer {
-    metadata: Stack<MetadataRef>,
+    metadata: Arc<[MetadataRef]>,
     route_pattern: Arc<str>,
 }
 
 impl EndpointContextLayer {
-    pub(super) fn new(metadata: Stack<MetadataRef>, route_pattern: Arc<str>) -> Self {
+    pub(super) fn new(metadata: Arc<[MetadataRef]>, route_pattern: Arc<str>) -> Self {
         Self {
             metadata,
             route_pattern,
@@ -213,7 +252,7 @@ impl<S> Layer<S> for EndpointContextLayer {
 #[derive(Clone)]
 pub(super) struct EndpointContextService<S> {
     inner: S,
-    metadata: Stack<MetadataRef>,
+    metadata: Arc<[MetadataRef]>,
     route_pattern: Arc<str>,
 }
 
@@ -232,29 +271,40 @@ where
     }
 
     fn call(&mut self, req: axum::http::Request<Body>) -> Self::Future {
-        let uri = req.uri().clone();
-        let (previous_metadata, previous_resolved, previous_route_params) =
-            ROUTE_CONTEXT.with(|ctx| {
-                let mut ctx = ctx.borrow_mut();
-                // Prefer Axum's decoded captures, including nested and wildcard
-                // parameters. Keep pattern extraction for non-router adapters.
-                let route_params = if ctx.current_route_params().is_empty() {
-                    extract_route_params(self.route_pattern.as_ref(), uri.path())
-                } else {
-                    ctx.current_route_params().clone()
-                };
-                ctx.set_current_uri(uri);
-                let (previous_metadata, previous_resolved) = ctx.swap_metadata(self.metadata.arc());
-                let previous_route_params = ctx.swap_route_params(route_params);
-                (previous_metadata, previous_resolved, previous_route_params)
-            });
+        let previous = ROUTE_CONTEXT.with(|ctx| {
+            let mut ctx = ctx.borrow_mut();
+            let uri = req.uri();
+            // The outer layer already owns Axum's captures on normal routes.
+            // A custom, outer router can reach this endpoint before matching.
+            let route_params = if ctx.matched_params.is_none()
+                && ctx.snapshot.current_route_params().is_empty()
+                && self.route_pattern.contains(['{', ':'])
+            {
+                let params = extract_route_params(&self.route_pattern, uri.path());
+                (!params.is_empty()).then(|| ctx.swap_route_params(params))
+            } else {
+                None
+            };
+            ctx.set_current_uri(uri.clone());
+            if self.metadata.is_empty() && !ctx.snapshot.has_metadata() {
+                return route_params.map(|params| PreviousContext {
+                    metadata: None,
+                    route_params: Some(params),
+                });
+            }
 
+            let (metadata, resolved) = ctx.swap_metadata(self.metadata.clone());
+            Some(PreviousContext {
+                metadata: Some(PreviousMetadata {
+                    providers: metadata,
+                    resolved: resolved.map(Box::new),
+                }),
+                route_params,
+            })
+        });
         EndpointContextFuture {
             future: self.inner.call(req),
-            previous_metadata,
-            previous_resolved,
-            previous_route_params,
-            restored: false,
+            previous,
             _marker: PhantomData,
         }
     }
@@ -267,10 +317,7 @@ where
 {
     #[pin]
     future: F,
-    previous_metadata: Arc<[MetadataRef]>,
-    previous_resolved: Option<ResolvedMetadata>,
-    previous_route_params: RouteParams,
-    restored: bool,
+    previous: Option<PreviousContext>,
     _marker: PhantomData<E>,
 }
 
@@ -284,13 +331,8 @@ where
         let this = self.project();
         match this.future.poll(cx) {
             Poll::Ready(result) => {
-                if !*this.restored {
-                    restore_context(
-                        this.previous_metadata.clone(),
-                        this.previous_resolved.clone(),
-                        this.previous_route_params.clone(),
-                    );
-                    *this.restored = true;
+                if let Some(previous) = this.previous.take() {
+                    previous.restore();
                 }
                 Poll::Ready(result)
             }
@@ -306,26 +348,34 @@ where
 {
     fn drop(self: Pin<&mut Self>) {
         let this = self.project();
-        if !*this.restored {
-            restore_context(
-                this.previous_metadata.clone(),
-                this.previous_resolved.clone(),
-                this.previous_route_params.clone(),
-            );
+        if let Some(previous) = this.previous.take() {
+            previous.restore();
         }
     }
 }
 
-fn restore_context(
-    previous_metadata: Arc<[MetadataRef]>,
-    previous_resolved: Option<ResolvedMetadata>,
-    previous_route_params: RouteParams,
-) {
-    ROUTE_CONTEXT.with(|ctx| {
-        let mut ctx = ctx.borrow_mut();
-        ctx.restore_metadata(previous_metadata, previous_resolved);
-        ctx.restore_route_params(previous_route_params);
-    });
+struct PreviousMetadata {
+    providers: Arc<[MetadataRef]>,
+    resolved: Option<Box<ResolvedMetadata>>,
+}
+
+struct PreviousContext {
+    metadata: Option<PreviousMetadata>,
+    route_params: Option<RouteParams>,
+}
+
+impl PreviousContext {
+    fn restore(self) {
+        ROUTE_CONTEXT.with(|ctx| {
+            let mut ctx = ctx.borrow_mut();
+            if let Some(metadata) = self.metadata {
+                ctx.restore_metadata(metadata.providers, metadata.resolved.map(|value| *value));
+            }
+            if let Some(params) = self.route_params {
+                ctx.restore_route_params(params);
+            }
+        });
+    }
 }
 
 /// Tower layer for establishing the route context for each request
@@ -439,7 +489,7 @@ where
             .and_then(|v| v.to_str().ok())
             .is_some();
         let current_method = req.method().clone();
-        let current_headers = req.headers().clone();
+        let current_headers = CapturedHeaders::capture(req.headers());
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
 
@@ -518,32 +568,28 @@ fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteCont
     let Some(pattern) = req.extensions().get::<MatchedPath>() else {
         return true;
     };
-    let pattern = pattern.as_str();
-    if !pattern.contains('{') {
+    let pattern_str = pattern.as_str();
+    if !pattern_str.contains('{') {
         return true;
     }
-    if pattern.contains("{*") || pattern.contains("{{") || pattern.contains("}}") {
+    if pattern_str.contains("{*") || pattern_str.contains("{{") || pattern_str.contains("}}") {
         return false;
     }
-    let current = req.uri().path();
-    let path = match req
-        .extensions()
-        .get::<OriginalUri>()
-        .map(|uri| uri.0.path())
-    {
+    let current = req.uri();
+    let uri = match req.extensions().get::<OriginalUri>() {
         None => current,
-        Some(original) if original == current => current,
-        Some(original) if original.ends_with(current) => original,
+        Some(original) if original.0.path() == current.path() => current,
+        Some(original) if original.0.path().ends_with(current.path()) => &original.0,
         Some(_) => return false,
     };
-    if path.contains('%') {
+    if uri.path().contains('%') || !has_named_route_params(pattern_str, uri.path()) {
         return false;
     }
-    let params = extract_route_params(pattern, path);
-    if params.is_empty() {
-        return false;
-    }
-    context.swap_route_params(params);
+    context.matched_params = Some(MatchedParams {
+        pattern: pattern.clone(),
+        uri: uri.clone(),
+        parsed: OnceLock::new(),
+    });
     true
 }
 
@@ -566,6 +612,60 @@ mod perf_tests {
         sync::atomic::{AtomicUsize, Ordering},
     };
     use tower::ServiceExt;
+
+    #[test]
+    fn header_capture_preserves_repeated_sensitive_values_after_request_mutation() {
+        for extra in [0, 2, 3, 8] {
+            let mut original = http::HeaderMap::new();
+            let mut secret = http::HeaderValue::from_static("second");
+            secret.set_sensitive(true);
+            original.append("x-test", http::HeaderValue::from_static("first"));
+            original.append("x-test", secret);
+            for _ in 0..extra {
+                original.append("x-extra", http::HeaderValue::from_static("value"));
+            }
+            let captured = CapturedHeaders::capture(&original);
+            original.clear();
+            let headers = captured.to_header_map();
+            let values: Vec<_> = headers.get_all("x-test").iter().collect();
+            assert_eq!(values.len(), 2);
+            assert_eq!(values[0], "first");
+            assert_eq!(values[1], "second");
+            assert!(values[1].is_sensitive());
+            assert_eq!(headers.get_all("x-extra").iter().count(), extra);
+        }
+    }
+
+    #[tokio::test]
+    async fn named_params_are_materialized_on_first_read_inside_the_endpoint() {
+        async fn handler() {
+            ROUTE_CONTEXT.with(|context| {
+                let context = context.borrow();
+                let captures = context.matched_params.as_ref().unwrap();
+                assert!(captures.parsed.get().is_none());
+                assert_eq!(context.current_route_params().get("album"), Some("sea"));
+                assert_eq!(context.current_route_params().get("id"), Some("07"));
+                assert!(std::ptr::eq(
+                    captures.parsed.get().unwrap(),
+                    context.current_route_params()
+                ));
+            });
+        }
+        let (router, metadata) = crate::router_from_spec(vec![crate::Route::endpoint(
+            "/albums/{album}/{id}",
+            axum::routing::get(handler),
+        )]);
+        let response = router
+            .layer(RouteContextLayer::new(metadata))
+            .oneshot(
+                http::Request::get("/albums/sea/07")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), http::StatusCode::OK);
+    }
 
     struct ReadyService(Arc<AtomicUsize>);
     impl Clone for ReadyService {
