@@ -7,14 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.0](https://github.com/Proa-Labs/proa/compare/rsjs_macros-v0.2.0...rsjs_macros-v0.3.0) - 2026-11-11
+## [0.3.0](https://github.com/Proa-Labs/proa/releases/tag/rsjs_macros-v0.3.0) - 2026-11-24
+
+### Added
+
+- expose RSJS through Proa and expand default features
 
 ### Fixed
 
+- *(rsjs)* resolve browser-read placeholders through the facade and keep rewritten path spans
 - *(rsjs)* compile linked lookups for unused components ([#41](https://github.com/Proa-Labs/proa/pull/41))
 
 ### Other
 
+- Secure registry credentials, client responses, and renderer output ([#106](https://github.com/Proa-Labs/proa/pull/106))
+- Upgrade Rust dependencies and retire React interop ([#107](https://github.com/Proa-Labs/proa/pull/107))
+- DX improvements: metadata cx.url helpers, env PORT/HOST, live public assets, primitive renders, and docs search ([#97](https://github.com/Proa-Labs/proa/pull/97))
+- Add Rust project config and fingerprinted public assets ([#90](https://github.com/Proa-Labs/proa/pull/90))
 - Add the proa facade and migrate application entrypoints ([#79](https://github.com/Proa-Labs/proa/pull/79))
 - Retire unused framework features and redundant tests ([#77](https://github.com/Proa-Labs/proa/pull/77))
 - Clarify RSJS URL opt-in and request diagnostics ([#70](https://github.com/Proa-Labs/proa/pull/70))

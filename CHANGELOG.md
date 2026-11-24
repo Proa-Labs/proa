@@ -6,6 +6,8 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
 
 ## Unreleased
 
+## 0.4.0
+
 - Breaking: the minimum supported Rust version is 1.98 (was 1.93).
 - Breaking: the Axum adapter uses Axum 0.8. Routes registered directly on an
   `axum::Router` use `/{id}` and `/{*path}`; `/:id` and `/*path` panic when the
@@ -463,8 +465,7 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
 
 ## 0.3.0
 
-Initial public source release. This is the baseline the Unreleased entries
-above build on: the `proa_core` / `proa_macros` / `proa_framework` 0.3.0
+Initial public source release of the `proa_core` / `proa_macros` / `proa_framework` 0.3.0
 workspace with compiled `html_sync!` / `html!` / `md_sync!` / `md!` templates,
 RSJS islands with the linked `cargo proa` pipeline, streaming SSR, the
 `proa-cli` developer tooling (`fmt`, `lint`, `check`, `chunks`, scaffolding,

@@ -10,11 +10,11 @@ Cargo installs both `proa` and `cargo-proa`.
 
 ## Application dependencies
 
-The workspace provides a 0.4 facade named `proa`. The registry release [`proa` 0.1.3](https://crates.io/crates/proa/0.1.3) is a Kubernetes utility. Use the Proa Labs Git source for the framework facade and keep the resolved revision in your application's `Cargo.lock`.
+For Proa 0.4, depend on the `proa` crate and enable the features your application uses. The `axum` feature adds HTTP routing and responses. The framework requires Rust 1.98 or newer.
 
 ```toml
 [dependencies]
-proa = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
+proa = { version = "0.4", features = ["axum"] }
 ```
 
 Rendering traits, buffers, metadata, and macros are exported from `proa::`.

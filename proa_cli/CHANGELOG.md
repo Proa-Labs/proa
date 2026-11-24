@@ -7,19 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.1.3...proa-cli-v0.2.0) - 2026-11-11
+## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.1.3...proa-cli-v0.2.0) - 2026-11-24
 
 ### Added
 
+- *(framework)* serve linked RSJS assets by default in FrameworkBuilder ([#104](https://github.com/Proa-Labs/proa/pull/104))
 - *(framework)* default the island manifest and add RouteResponse::render_to_bytes ([#76](https://github.com/Proa-Labs/proa/pull/76))
 
 ### Fixed
 
+- *(axum)* follow up on the Axum 0.8 upgrade ([#108](https://github.com/Proa-Labs/proa/pull/108))
 - generate application modules through the Proa facade ([#82](https://github.com/Proa-Labs/proa/pull/82))
 - *(cli)* wait for dev readiness before opening browser ([#28](https://github.com/Proa-Labs/proa/pull/28))
 
 ### Other
 
+- Secure registry credentials, client responses, and renderer output ([#106](https://github.com/Proa-Labs/proa/pull/106))
+- Upgrade Rust dependencies and retire React interop ([#107](https://github.com/Proa-Labs/proa/pull/107))
+- Make the build output a complete, host-servable mirror of every asset URL ([#101](https://github.com/Proa-Labs/proa/pull/101))
+- Bundle the public asset catalog beside the exported executable ([#100](https://github.com/Proa-Labs/proa/pull/100))
+- Improve proa ui CLI DX and extend asset-URL / missing-public-file lints ([#98](https://github.com/Proa-Labs/proa/pull/98))
+- Polish P2 DX: expression-anchored macro hints, idiomatic home Markdown, single asset mount, and no rust-toolchain pin ([#96](https://github.com/Proa-Labs/proa/pull/96))
+- DX improvements: metadata cx.url helpers, env PORT/HOST, live public assets, primitive renders, and docs search ([#97](https://github.com/Proa-Labs/proa/pull/97))
+- Improve P1 onboarding DX: persistent config cache, fast public/CSS dev reload, Markdown alt coverage, and scaffold cleanup ([#94](https://github.com/Proa-Labs/proa/pull/94))
+- Fix P0 onboarding DX: shared Cargo targets, zero-flag build->start, md URL slots, and clean scaffold ([#92](https://github.com/Proa-Labs/proa/pull/92))
+- Add Rust project config and fingerprinted public assets ([#90](https://github.com/Proa-Labs/proa/pull/90))
 - Validate UTF-8 at the write and stop zero-filling render pages ([#83](https://github.com/Proa-Labs/proa/pull/83))
 - Add the proa facade and migrate application entrypoints ([#79](https://github.com/Proa-Labs/proa/pull/79))
 - Retire unused framework features and redundant tests ([#77](https://github.com/Proa-Labs/proa/pull/77))

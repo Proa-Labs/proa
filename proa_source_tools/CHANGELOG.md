@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0](https://github.com/Proa-Labs/proa/releases/tag/proa_source_tools-v0.1.0) - 2026-11-11
+## [0.1.0](https://github.com/Proa-Labs/proa/releases/tag/proa_source_tools-v0.1.0) - 2026-11-24
 
 ### Other
 
+- Upgrade Rust dependencies and retire React interop ([#107](https://github.com/Proa-Labs/proa/pull/107))
+- Make the build output a complete, host-servable mirror of every asset URL ([#101](https://github.com/Proa-Labs/proa/pull/101))
+- Improve proa ui CLI DX and extend asset-URL / missing-public-file lints ([#98](https://github.com/Proa-Labs/proa/pull/98))
+- Improve P1 onboarding DX: persistent config cache, fast public/CSS dev reload, Markdown alt coverage, and scaffold cleanup ([#94](https://github.com/Proa-Labs/proa/pull/94))
+- Generalize asset-URL linter across structs, constructors, Markdown, render_head, and public/ catalog ([#93](https://github.com/Proa-Labs/proa/pull/93))
+- Add Rust project config and fingerprinted public assets ([#90](https://github.com/Proa-Labs/proa/pull/90))
 - Validate UTF-8 at the write and stop zero-filling render pages ([#83](https://github.com/Proa-Labs/proa/pull/83))
 - Add the proa facade and migrate application entrypoints ([#79](https://github.com/Proa-Labs/proa/pull/79))
 - Retire unused framework features and redundant tests ([#77](https://github.com/Proa-Labs/proa/pull/77))

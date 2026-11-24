@@ -14,7 +14,7 @@ cargo proa check
 
 With no file selection, `cargo proa check` checks template formatting, runs the lints, and checks the linked RSJS application. In a workspace, select the application with `-p <package> --bin <binary>`.
 
-## Unreleased changes
+## Changes in 0.4.0
 
 Proa now requires Rust 1.98 or later; the previous minimum was 1.93.
 
@@ -27,13 +27,13 @@ router for `with_static_service` with `Router::new().fallback_service(..)`. See
 
 Applications using the React bridge should remove the `react` feature from their `proa` dependency and migrate `#[island]` components to RSJS. The workspace removes `proa_react` and the TSX attribute macro. See [RSJS islands](/docs/guides/islands).
 
-## Using the 0.4 facade from source
+## Using the 0.4 facade
 
-The 0.4 framework facade is available from the Proa Labs repository. The published [`proa` 0.1.3](https://crates.io/crates/proa/0.1.3) is a Kubernetes utility. Select the Proa Labs Git source in your manifest and keep the resolved revision in your application's `Cargo.lock`.
+Applications moving from the individual 0.3 framework crates can depend on `proa` 0.4 and enable the integrations they use. For an Axum application, add the following entry to `Cargo.toml`.
 
 ```toml
 [dependencies]
-proa = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
+proa = { version = "0.4", features = ["axum"] }
 ```
 
 Import common types and macros from `proa::`, loaders from `proa::stream`, and

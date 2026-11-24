@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0](https://github.com/Proa-Labs/proa/compare/proa-v0.1.3...proa-v0.4.0) - 2026-11-11
+## [0.4.0](https://github.com/Proa-Labs/proa/releases/tag/proa-v0.4.0) - 2026-11-24
+
+### Added
+
+- expose RSJS through Proa and expand default features
 
 ### Other
 
+- Upgrade Rust dependencies and retire React interop ([#107](https://github.com/Proa-Labs/proa/pull/107))
 - Add the proa facade and migrate application entrypoints ([#79](https://github.com/Proa-Labs/proa/pull/79))

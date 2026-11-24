@@ -2,11 +2,11 @@
 
 Proa compiles Rust-authored HTML and Markdown templates into efficient rendering
 code. Most applications use this crate for rendering traits, buffers, metadata,
-and template macros. Use the Proa Labs repository as the Cargo dependency source.
+and template macros. Proa 0.4 requires Rust 1.98 or newer.
 
 ```toml
 [dependencies]
-proa = { git = "https://github.com/Proa-Labs/proa.git" }
+proa = "0.4"
 ```
 
 ```rust

@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa_dsl-v0.1.3...proa_dsl-v0.2.0) - 2026-11-11
+## [0.2.0](https://github.com/Proa-Labs/proa/releases/tag/proa_dsl-v0.2.0) - 2026-11-24
+
+### Added
+
+- expose RSJS through Proa and expand default features
 
 ### Other
 
+- Upgrade Rust dependencies and retire React interop ([#107](https://github.com/Proa-Labs/proa/pull/107))
+- Polish P2 DX: expression-anchored macro hints, idiomatic home Markdown, single asset mount, and no rust-toolchain pin ([#96](https://github.com/Proa-Labs/proa/pull/96))
+- Generalize asset-URL linter across structs, constructors, Markdown, render_head, and public/ catalog ([#93](https://github.com/Proa-Labs/proa/pull/93))
+- Fix P0 onboarding DX: shared Cargo targets, zero-flag build->start, md URL slots, and clean scaffold ([#92](https://github.com/Proa-Labs/proa/pull/92))
 - Add the proa facade and migrate application entrypoints ([#79](https://github.com/Proa-Labs/proa/pull/79))
 - Remove content_part and infer content coverage from inputs ([#66](https://github.com/Proa-Labs/proa/pull/66))
 - Remove obsolete code and repair standalone site scaffolds ([#67](https://github.com/Proa-Labs/proa/pull/67))
