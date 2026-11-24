@@ -483,11 +483,11 @@ impl PublicAssets {
     pub fn router(&self) -> Router {
         Router::new()
             .route(
-                &format!("{PUBLIC_ROUTE}/{IMMUTABLE_DIRECTORY}/*path"),
+                &format!("{PUBLIC_ROUTE}/{IMMUTABLE_DIRECTORY}/{{*path}}"),
                 get(serve_immutable),
             )
             .route(
-                &format!("{PUBLIC_ROUTE}/{MUTABLE_DIRECTORY}/*path"),
+                &format!("{PUBLIC_ROUTE}/{MUTABLE_DIRECTORY}/{{*path}}"),
                 get(serve_mutable),
             )
             .with_state(self.clone())

@@ -158,17 +158,17 @@ pub fn router_with_config(config: ShowcaseWebConfig) -> Router {
         .route("/showcase/sentry-otel", get(sentry_otel))
         .route("/rsjs-runtime.js", get(serve_rsjs_runtime))
         .route("/rsjs-runtime-query.js", get(serve_rsjs_runtime_query))
-        .route("/rsjs-runtime.:hash.js", get(serve_rsjs_runtime_hashed))
+        .route("/rsjs-runtime.{file}", get(serve_rsjs_runtime_hashed))
         .route(
-            "/rsjs-runtime-query.:hash.js",
+            "/rsjs-runtime-query.{file}",
             get(serve_rsjs_runtime_query_hashed),
         )
-        .route("/rsjs/island/:file", get(serve_rsjs_island))
+        .route("/rsjs/island/{file}", get(serve_rsjs_island))
         .route("/proa.css", get(serve_proa_css))
         .route("/proa.js", get(serve_proa_js))
-        .route("/assets/*path", get(serve_asset))
-        .route("/fonts/*path", get(serve_font))
-        .route("/images/*path", get(serve_image))
+        .route("/assets/{*path}", get(serve_asset))
+        .route("/fonts/{*path}", get(serve_font))
+        .route("/images/{*path}", get(serve_image))
         .with_state(config)
 }
 
@@ -272,12 +272,20 @@ async fn serve_rsjs_runtime_query() -> impl IntoResponse {
     )
 }
 
-async fn serve_rsjs_runtime_hashed(AxumPath(_hash): AxumPath<String>) -> impl IntoResponse {
-    serve_rsjs_runtime().await
+async fn serve_rsjs_runtime_hashed(AxumPath(file): AxumPath<String>) -> Response {
+    hashed_runtime_response(&file, rsjs::runtime_assets::CORE_JS)
 }
 
-async fn serve_rsjs_runtime_query_hashed(AxumPath(_hash): AxumPath<String>) -> impl IntoResponse {
-    serve_rsjs_runtime_query().await
+async fn serve_rsjs_runtime_query_hashed(AxumPath(file): AxumPath<String>) -> Response {
+    hashed_runtime_response(&file, rsjs::runtime_assets::QUERY_JS)
+}
+
+fn hashed_runtime_response(file: &str, source: &'static str) -> Response {
+    if file.strip_suffix(".js").is_some_and(is_short_hash) {
+        javascript_response(source)
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
 }
 
 async fn serve_rsjs_island(AxumPath(file): AxumPath<String>) -> Response {

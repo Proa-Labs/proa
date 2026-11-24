@@ -71,11 +71,10 @@ complete page, loader, and layout in context.
 | Crate | Purpose |
 |-------|---------|
 | `proa_core` | Rendering primitives: `WebRenderSync`, `WebRender`, `WriteBuf`, `ClassList`, HTML elements |
-| `proa_macros` | Proc macros: `html!`, `html_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]`, `#[island]` |
+| `proa_macros` | Proc macros: `html!`, `html_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]` |
 | `proa_framework_axum` | Axum/Tokio adapter with routing, static serving, and HTTP response integration |
 | `proa_ir` | Intermediate representation for reactive attrs, bindings, and lower-level client/runtime glue |
 | `proa_actions` | Action data structures for event handlers |
-| `proa_react` | React/JSX interop |
 | `proa_fonts` | Runtime for self-hosted, metric-matched web fonts: `Font`/`FontFace`, zero-alloc `Font::head` |
 | `proa_fonts_build` | Build-time font pipeline: parse metrics, compute fallbacks, content-hash, generate `proa_fonts::Font` modules (drives `cargo proa font`) |
 | `proa_bench` | Proa-only render and streaming regression benchmarks |

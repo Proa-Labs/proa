@@ -135,7 +135,7 @@ pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBu
     let (router, metadata) = router_from_spec(vec![Route::endpoint("/", get(index))]);
     let router = router
         .route("/index.md", get(markdown))
-        .route("/site/:file", get(site_markdown))
+        .route("/site/{file}", get(site_markdown))
         .route("/lab/rows", get(lab_rows))
         .route("/healthz", get(health))
         .route("/readyz", get(ready))

@@ -92,7 +92,7 @@ async fn docs_page(Path(path): Path<String>) -> impl IntoResponse {
 pub fn router() -> Router {
     Router::new()
         .route("/docs", get(|| async { docs_page(Path(String::new())).await }))
-        .route("/docs/*path", get(docs_page))
+        .route("/docs/{*path}", get(docs_page))
 }
 ```
 

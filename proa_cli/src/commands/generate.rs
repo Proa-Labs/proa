@@ -36,7 +36,7 @@ enum GenerateCommand {
 
 #[derive(Debug, Args)]
 struct GeneratePageArgs {
-    /// Canonical route path, such as about or blog/:slug.
+    /// Canonical route path, such as about or blog/{slug}.
     path: String,
     #[arg(long)]
     root: Option<PathBuf>,

@@ -849,9 +849,10 @@ fn infer_roles_in_item(
                 return;
             }
             let self_type = extract_inner_type_ident(&item_impl.self_ty);
-            let is_render_impl = item_impl.trait_.as_ref().is_some_and(|(_, path, _)| {
-                is_render_trait(path) || is_markdown_render_trait(path)
-            });
+            let is_render_impl = item_impl
+                .trait_
+                .as_ref()
+                .is_some_and(|(path, _)| is_render_trait(path) || is_markdown_render_trait(path));
             for impl_item in &item_impl.items {
                 let ImplItem::Fn(method) = impl_item else {
                     continue;
@@ -1813,7 +1814,7 @@ impl<'ast> Visit<'ast> for FileAssetChecker<'_> {
         let is_render_impl = item_impl
             .trait_
             .as_ref()
-            .is_some_and(|(_, path, _)| is_render_trait(path) || is_markdown_render_trait(path));
+            .is_some_and(|(path, _)| is_render_trait(path) || is_markdown_render_trait(path));
         for item in &item_impl.items {
             match item {
                 ImplItem::Fn(method) => {
@@ -2626,6 +2627,10 @@ fn binding_id(ident: &syn::Ident) -> BindingId {
 fn pat_bindings(pat: &Pat) -> Vec<&syn::Ident> {
     struct Collect<'p>(Vec<&'p syn::Ident>);
     impl<'p> Visit<'p> for Collect<'p> {
+        // Syn 3 includes the guard expression in Pat::Guard. Only names in
+        // the pattern introduce bindings in the arm's body.
+        fn visit_expr(&mut self, _: &'p Expr) {}
+
         fn visit_pat_ident(&mut self, pat: &'p syn::PatIdent) {
             self.0.push(&pat.ident);
             visit::visit_pat_ident(self, pat);
@@ -2753,8 +2758,12 @@ fn reassigned_bindings<'p>(
             }
         }
         fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-            self.scoped(Some(&arm.pat), |resolver| {
-                if let Some((_, guard)) = &arm.guard {
+            let (pat, guard) = match &arm.pat {
+                syn::Pat::Guard(guard) => (&*guard.pat, Some(&*guard.guard)),
+                pat => (pat, None),
+            };
+            self.scoped(Some(pat), |resolver| {
+                if let Some(guard) = guard {
                     resolver.visit_expr(guard);
                 }
                 resolver.visit_expr(&arm.body);

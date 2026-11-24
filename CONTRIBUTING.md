@@ -71,14 +71,13 @@ Run `corepack enable && corepack prepare pnpm@9.15.2 --activate` to enable the
 pinned package manager. CI rejects competing lockfiles and package scripts that
 use another manager, including in nested projects.
 
-Changes to streamed boundary framing, CSP propagation, or React integration
-also require the locked real-browser checks:
+Changes to streamed boundary framing or CSP propagation also require the
+locked browser check.
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec playwright install chromium
 pnpm run stream:boundary-smoke
-pnpm run react:csp-smoke
 ```
 
 ## AI-Assisted And Generated Changes

@@ -611,7 +611,7 @@ fn lint_head_role(
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     let Some(segment) = trait_path.segments.last() else {
@@ -680,7 +680,7 @@ fn lint_render_impl(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match &item_impl.trait_ {
-        Some((_, trait_path, _)) if is_render_trait(trait_path) => {}
+        Some((trait_path, _)) if is_render_trait(trait_path) => {}
         _ => return,
     }
 
@@ -719,7 +719,7 @@ fn lint_markdown_render_impl(
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if !is_markdown_render_trait(trait_path) {
@@ -764,7 +764,7 @@ fn check_markdown_render_api_perf(
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if path_last_ident(trait_path).as_deref() != Some("MdRender") {
@@ -2918,7 +2918,7 @@ fn lint_attr_value_impl(
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if !is_attr_value_trait(trait_path) {
@@ -3138,7 +3138,7 @@ impl<'ast> Visit<'ast> for ConstructorUseCounter {
 }
 
 fn attr_value_impl_self_name(item_impl: &ItemImpl) -> Option<String> {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return None;
     };
     if !is_attr_value_trait(trait_path) {
@@ -3305,7 +3305,7 @@ fn render_component_type_names(items: &[Item]) -> HashSet<String> {
 }
 
 fn render_impl_self_name(item_impl: &ItemImpl) -> Option<String> {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return None;
     };
     if !is_render_trait(trait_path) {
@@ -3427,7 +3427,7 @@ fn check_render_api_perf(
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if trait_path

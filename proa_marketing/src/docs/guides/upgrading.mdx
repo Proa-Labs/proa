@@ -3,29 +3,32 @@ title: Upgrading
 description: Move between Proa versions and find what broke.
 ---
 
-Proa is pre-1.0. Minor versions carry breaking changes. Each is listed in [`CHANGELOG.md`](https://github.com/proa-labs/proa/blob/main/CHANGELOG.md), with larger ones under a **Breaking** marker and a guide under `docs/migrations/` ([0.3 standalone](https://github.com/proa-labs/proa/blob/main/docs/migrations/0.3-standalone.md), [shared `WebContext`](https://github.com/proa-labs/proa/blob/main/docs/migrations/web-context.md)).
+Check `Cargo.lock` for the versions of the Proa crates your application uses. The facade, RSJS, fonts, and CLI can have different versions. Review the changes for the packages you use in the [release notes](https://github.com/proa-labs/proa/releases).
 
-Read the changelog first, then upgrade one minor version at a time:
+For a registry dependency such as `proa_core = "0.3"`, Cargo can update the lockfile within the 0.3 series. To move to another published minor, first change the requirement in `Cargo.toml`, then update that package and check your application.
 
 ```bash
-cargo update -p proa
+cargo update -p proa_core
 cargo proa check
 ```
 
-`cargo proa check` runs the template lints and the RSJS linker together, which is where most upgrade breakage surfaces. A plain `cargo check` will miss link-time errors.
+With no file selection, `cargo proa check` checks template formatting, runs the lints, and checks the linked RSJS application. In a workspace, select the application with `-p <package> --bin <binary>`.
 
-## Upgrading to 0.4
+## Unreleased changes
 
-Applications can replace direct rendering and framework dependencies with the
-`proa` facade:
+Applications using the React bridge should remove the `react` feature from their `proa` dependency and migrate `#[island]` components to RSJS. The workspace removes `proa_react` and the TSX attribute macro. See [RSJS islands](/docs/guides/islands).
+
+## Using the 0.4 facade from source
+
+The 0.4 framework facade is available from the Proa Labs repository. The published [`proa` 0.1.3](https://crates.io/crates/proa/0.1.3) is a Kubernetes utility. Select the Proa Labs Git source in your manifest and keep the resolved revision in your application's `Cargo.lock`.
 
 ```toml
 [dependencies]
-proa = { version = "0.4", features = ["axum"] }
+proa = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
 ```
 
 Import common types and macros from `proa::`, loaders from `proa::stream`, and
-Axum integration from `proa::axum`. Add `actions` or `react` only when needed.
+Axum integration from `proa::axum`. Enable `actions` for action data and derives.
 RSJS and build-time font dependencies retain their own package versions.
 Direct implementation-crate dependencies remain supported for advanced uses.
 
@@ -37,7 +40,7 @@ removed. Review which outgoing URLs need the application mount and use
 
 ## Upgrading to 0.3
 
-0.3 was a consolidation release. Six surfaces were removed and one buffer became the standard.
+The 0.3 release moved the compiled-template framework into a standalone workspace. See the [0.3 migration guide](https://github.com/proa-labs/proa/blob/main/docs/migrations/0.3-standalone.md).
 
 | Change | What to do |
 |---|---|
@@ -59,7 +62,7 @@ Breaking changes since 0.3 affect how components are authored and linked, how fo
 - **`MdContext` is gone.** `MdRenderSync` and `MdRender` now take the same `WebContext<L, B>` as the HTML traits, with the loader first and no lifetime parameters, and Markdown helpers are named `md_*` / `write_md_*`. See [Markdown](/docs/core/markdown) and the [migration guide](https://github.com/proa-labs/proa/blob/main/docs/migrations/web-context.md).
 - **`RouteResponse` is an opaque deferred-render plan** and `Layout` carries metadata only; the crate is `proa_framework_axum`. See [Responses](/docs/framework/responses) and the changelog for the smaller entries (event-handler parameters, `RenderOptions`, `mdx!`, client IR v3).
 - **Managed metadata uses component roles and head hooks.** Select one `ROLE = PAGE`, mark ancestor metadata layouts as `LAYOUT`, and place one `{cx.head()}` outlet in the document. Async hooks use native `async fn render_head(...) -> Result<(), WriteError>`. The former `head()` inspection getter is `head_state()`; mutations go through the checked `head_mut()` writer. Enable managed mode with `FrameworkBuilder::with_head(...)`, or use `.without_head()` while migrating a manual document. See [Metadata](/docs/framework/metadata).
-- **`FrameworkBuilder::new()` and `RouteContextLayer::new(metadata)` take no manifest, and the manifest-driven React island bootstrap is gone.** Removed: `IslandManifest` and its entry types, `RouteResponse::with_islands` and `with_bootstrap`, `render_bootstrap_for_islands`, `css_asset_path`, `render_css_link`, and the router's `Extension<Arc<IslandManifest>>`. The finalizers (`finalize_route_response*`, `render_*_html_response`, `into_framework_response`) lose their manifest parameter. Link a stylesheet from the layout with `cx.url(..)`. `proa_react` islands keep rendering through `proa::react::react_bootstrap` directly. `RouteResponse::render_to_bytes` renders a finalized document with no server or runtime. See [Configuration](/docs/framework/configuration) and [Route responses](/docs/framework/responses#rendering-without-a-server).
+- **`FrameworkBuilder::new()` and `RouteContextLayer::new(metadata)` take no manifest, and the manifest-driven React island bootstrap is gone.** Removed: `IslandManifest` and its entry types, `RouteResponse::with_islands` and `with_bootstrap`, `render_bootstrap_for_islands`, `css_asset_path`, `render_css_link`, and the router's `Extension<Arc<IslandManifest>>`. The finalizers (`finalize_route_response*`, `render_*_html_response`, `into_framework_response`) lose their manifest parameter. Link a stylesheet from the layout with `cx.url(..)`. `RouteResponse::render_to_bytes` renders a finalized document with no server or runtime. See [Configuration](/docs/framework/configuration) and [Route responses](/docs/framework/responses#rendering-without-a-server).
 - **Application URL composition now lives on `cx.url(path)`.** Move outgoing URL construction off `cx.request()`. The helper explicitly applies the configured base path and writes directly into HTML attributes or Markdown links; plain URL strings stay unchanged. See [Linking](/docs/framework/linking).
 - **Project configuration moved from `proa.config.json` to `proa.config.rs`.** Export `pub async fn config() -> Result<Config>` returning a `proa::config::Config` literal. Run configured lifecycle scripts with `proa run dev` and `proa run build`; `proa dev` and `proa build` enter the built-in workflows directly. Managed public assets are enabled for `public/` by default via `PROA_PUBLIC_ASSETS` and `cx.url("public/...")`. `FrameworkBuilder::try_build()` now returns `Result<Router, FrameworkBuildError>`. See [proa.config.rs](/docs/framework/project-config) and [Static assets](/docs/framework/static-assets#managed-public-assets).
 - **The unused legacy effect IR and fluent expression builder are gone.** Browser effects use RSJS. The `proa_ir` expression/value model, bounded evaluator, reactive bindings, and component trees remain available.
@@ -76,13 +79,9 @@ Breaking changes since 0.3 affect how components are authored and linked, how fo
 
 ## When an upgrade breaks the build
 
-Work in this order, because each step rules out the next:
-
-1. **Read the changelog entry** for every version you crossed. Breaking changes are marked.
-2. **Run `cargo proa check`**, not `cargo check`. Template lints and linker errors only appear in the former.
-3. **Check the RSJS boundary.** Most post-0.3 breakage is a component that used to be implicitly analysed and now needs an explicit `#[rsjs(component)]` or `#[rsjs(component, client)]`.
-4. **Check your buffer.** If a custom writer stopped compiling, move to `RenderBuffer`.
-5. **Search [Troubleshooting](/docs/guides/troubleshooting)** for the exact diagnostic text.
+- Run `cargo proa check` from the application directory to capture template and RSJS linker diagnostics.
+- If a render trait no longer compiles, compare its signature with the [rendering reference](/docs/core/html-rendering). For the Markdown context change, follow the [shared WebContext migration](https://github.com/proa-labs/proa/blob/main/docs/migrations/web-context.md).
+- Look up the diagnostic in [Troubleshooting](/docs/guides/troubleshooting).
 
 ## Next steps
 

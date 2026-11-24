@@ -6,11 +6,10 @@
 //! `WebContext` deliberately supports request-local `Rc` state and therefore
 //! remains the compatibility surface for local futures. This companion keeps
 //! ordinary request state and mutable branch deltas owned, shares only
-//! immutable request data plus the response-local id allocator, and uses
+//! immutable request data, and uses
 //! `Send + Sync` extension points for streaming. A future borrowing this
 //! context can therefore carry a real compiler-checked `Send` proof.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -32,8 +31,7 @@ use crate::{RenderBuffer, WriteBuf, WriteError};
 ///
 /// Ordinary accumulators are cloned into the branch. Browser artifacts start
 /// empty and travel back with the completed boundary, while the immutable
-/// request and monotonic React id allocator retain response identity through
-/// cheap `Arc` clones.
+/// request is shared through an `Arc`.
 #[doc(hidden)]
 #[derive(Clone, Debug)]
 pub struct SendWebContextParts {
@@ -45,7 +43,6 @@ pub struct SendWebContextParts {
     locals: Locals,
     csp_nonce: Option<CspNonce>,
     artifacts: RenderArtifacts,
-    next_react_island_id: Arc<AtomicU64>,
 }
 
 impl Default for SendWebContextParts {
@@ -59,7 +56,6 @@ impl Default for SendWebContextParts {
             locals: Locals::new(),
             csp_nonce: None,
             artifacts: RenderArtifacts::default(),
-            next_react_island_id: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -75,7 +71,6 @@ impl SendWebContextParts {
             locals: self.locals.clone(),
             csp_nonce: self.csp_nonce.clone(),
             artifacts: RenderArtifacts::default(),
-            next_react_island_id: Arc::clone(&self.next_react_island_id),
         }
     }
 }
@@ -320,16 +315,6 @@ impl<L: DataLoader, B: WriteBuf + Send> SendWebContext<L, B> {
             .record_query_seed_json(key_json, state_json);
     }
 
-    pub fn react_island_used(&mut self, name: &str) {
-        self.parts.artifacts.record_react_island(name);
-    }
-
-    pub fn next_react_island_id(&self) -> u64 {
-        self.parts
-            .next_react_island_id
-            .fetch_add(1, Ordering::Relaxed)
-    }
-
     pub fn rsjs_artifacts_snapshot(&self) -> RsjsRenderArtifacts {
         self.parts.artifacts.rsjs.clone()
     }
@@ -483,18 +468,27 @@ mod tests {
         assert_send::<SendWebContext>();
 
         let mut root = SendWebContext::new();
-        root.react_island_used("Root");
+        root.rsjs_island_used("Root");
         let parts = root.context_parts();
         let mut child = SendWebContext::with_loader_buffer_and_context_parts(
             RenderBuffer::new(),
             Arc::new(NoLoader),
             parts,
         );
-        child.react_island_used("Child");
+        child.rsjs_island_used("Child");
 
-        assert_eq!(root.render_artifacts_snapshot().react_islands, ["Root"]);
-        assert_eq!(child.render_artifacts_snapshot().react_islands, ["Child"]);
-        assert_eq!(root.next_react_island_id(), 0);
-        assert_eq!(child.next_react_island_id(), 1);
+        assert_eq!(
+            root.rsjs_artifacts_snapshot()
+                .rendered_islands()
+                .collect::<Vec<_>>(),
+            ["Root"]
+        );
+        assert_eq!(
+            child
+                .rsjs_artifacts_snapshot()
+                .rendered_islands()
+                .collect::<Vec<_>>(),
+            ["Child"]
+        );
     }
 }

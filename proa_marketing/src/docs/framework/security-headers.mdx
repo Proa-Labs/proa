@@ -26,7 +26,7 @@ let app = FrameworkBuilder::new()
 
 ## Use a nonce, not a static policy
 
-A static policy can authorize fixed inline scripts with hashes. Framework-generated scripts can contain response-specific state, so a fresh nonce per response is the convenient policy for RSJS islands, React islands, and out-of-order streaming:
+A static policy can authorize fixed inline scripts with hashes. Framework-generated scripts can contain response-specific state, so a fresh nonce per response is the convenient policy for RSJS islands and out-of-order streaming:
 
 ```rust filename="src/main.rs"
 let app = FrameworkBuilder::new()

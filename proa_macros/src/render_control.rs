@@ -29,12 +29,8 @@ pub(crate) fn lower(expr: &Expr, render: &impl Fn(&Expr) -> TokenStream) -> Toke
             let arms = e.arms.iter().map(|arm| {
                 let attrs = &arm.attrs;
                 let pat = &arm.pat;
-                let guard = arm
-                    .guard
-                    .as_ref()
-                    .map(|(token, expr)| quote! { #token #expr });
                 let body = lower(&arm.body, render);
-                quote! { #(#attrs)* #pat #guard => { #body } }
+                quote! { #(#attrs)* #pat => { #body } }
             });
             quote! { #(#attrs)* match #value { #(#arms),* } }
         }

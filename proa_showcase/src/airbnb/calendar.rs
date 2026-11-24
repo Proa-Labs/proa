@@ -44,7 +44,7 @@ const DAY_CLASS: &str = "size-9 rounded-md text-sm inline-flex items-center just
 
 const CELL_COUNT: u8 = 42;
 
-/// Static date-grid renderer used by the non-React listing fallback.
+/// Static date-grid renderer used by the static listing benchmark.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct AirbnbCalendar {
     year: u16,

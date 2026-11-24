@@ -102,7 +102,7 @@ pub async fn product(Path(id): Path<String>) -> Response {
 Register the path with Axum-style parameters:
 
 ```rust filename="src/routes/mod.rs"
-Route::endpoint("/api/products/:id", get(product));
+Route::endpoint("/api/products/{id}", get(product));
 ```
 
 Form posts use the same extractor pattern with a different body type.

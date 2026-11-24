@@ -58,12 +58,11 @@ For example, the `proa_framework_axum` package sources are under
 | `proa_build` | Linked RSJS compiler orchestration, descriptor caches, and semantic linking |
 | `proa_source_tools` | Source discovery, linting, formatting, and artifact inspection |
 | `proa_core` | Rendering primitives: `WebRenderSync`, `WebRender`, `WriteBuf`, `ClassList`, HTML elements |
-| `proa_macros` | Proc macros: `html!`, `html_sync!`, `md!`, `md_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]`, `#[island]` |
+| `proa_macros` | Proc macros: `html!`, `html_sync!`, `md!`, `md_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]` |
 | `proa_stream` | Streaming SSR substrate: loaders, stream handles, `Suspense`, out-of-order driver |
 | `proa_framework_axum` | Axum/Tokio adapter with routing, static serving, and HTTP response integration |
 | `proa_ir` | Intermediate representation for reactive attrs, bindings, and lower-level client/runtime glue |
 | `proa_actions` | Action data structures for event handlers |
-| `proa_react` | React/JSX interop |
 | `proa_framework_core` | Server/runtime-agnostic framework core: manifest, bootstrap, portable response/body finalizers |
 | `proa_bench` | Proa-only render and streaming regression benchmarks |
 | `rsjs_web` | Generated zero-cost DOM markers, capabilities, and event-interface witnesses for RSJS JavaScript lowering |

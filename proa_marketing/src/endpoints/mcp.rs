@@ -68,8 +68,8 @@ pub(crate) fn server_info(origin: &str) -> Implementation {
 }
 
 impl ServerHandler for DocumentationServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().enable_resources().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().enable_resources().build())
             .with_server_info(server_info(public_site_url()))
             .with_instructions("Public Proa Rust framework documentation. Search for a focused phrase, then read the returned page. All tools and resources are read-only and require no credentials. Cite the returned canonical documentation paths. Pagination cursors apply to this deployment; restart after an update.")
     }

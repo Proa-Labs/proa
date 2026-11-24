@@ -240,13 +240,13 @@ impl OAuthClient {
         }
         Ok(c.tokens.access_token.clone())
     }
-    pub async fn connect(&self) -> anyhow::Result<RunningService<RoleClient, ClientInfo>> {
+    pub async fn connect(&self) -> anyhow::Result<RunningService<RoleClient, ClientConfig>> {
         let token = self.token().await?;
         let transport = StreamableHttpClientTransport::with_client(
             self.http.clone(),
             StreamableHttpClientTransportConfig::with_uri(self.resource.clone()).auth_header(token),
         );
-        Ok(ClientInfo::default().serve(transport).await?)
+        Ok(ClientConfig::default().serve(transport).await?)
     }
 }
 #[derive(Clone)]
@@ -285,8 +285,8 @@ pub struct DesktopBridge {
     pub client: OAuthClient,
 }
 impl rmcp::ServerHandler for DesktopBridge {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
     }
     async fn list_tools(
         &self,

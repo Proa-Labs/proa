@@ -580,9 +580,9 @@ fn import_groups(modules: &[Module<'_>]) -> Vec<Vec<usize>> {
 fn minify_module(source: &str) -> Result<String, String> {
     let allocator = Allocator::default();
     let mut parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
-    if parsed.panicked || !parsed.errors.is_empty() {
+    if parsed.fatal_error || !parsed.diagnostics.is_empty() {
         return Err(parsed
-            .errors
+            .diagnostics
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>()
@@ -594,12 +594,11 @@ fn minify_module(source: &str) -> Result<String, String> {
     Minifier::new(MinifierOptions {
         compress: Some(CompressOptions::safest()),
         mangle: None,
+        mangle_properties: None,
     })
-    .build(&allocator, &mut parsed.program);
-    let codegen = CodegenOptions {
-        legal_comments: LegalComment::Inline,
-        ..CodegenOptions::minify()
-    };
+    .minify(&allocator, &mut parsed.program);
+    let mut codegen = CodegenOptions::minify();
+    codegen.comments.legal = LegalComment::Inline;
     Ok(Codegen::new()
         .with_options(codegen)
         .build(&parsed.program)
@@ -839,7 +838,11 @@ mod tests {
             );
             let allocator = Allocator::default();
             let parsed = Parser::new(&allocator, compact, SourceType::mjs()).parse();
-            assert!(parsed.errors.is_empty(), "{logical}: {:?}", parsed.errors);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "{logical}: {:?}",
+                parsed.diagnostics
+            );
         }
         let counter = text(file(&minified, "rsjs/island/counter.js"));
         assert!(counter.contains(name(file(&minified, "rsjs-runtime.js"))));

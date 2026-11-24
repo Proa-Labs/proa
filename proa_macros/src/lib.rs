@@ -22,7 +22,6 @@ mod action_derive;
 mod component_derive;
 mod const_recipe;
 mod content;
-mod island_attr;
 #[cfg(feature = "markdown")]
 mod md;
 mod parse;
@@ -30,9 +29,6 @@ mod render_control;
 mod static_consolidation;
 mod text_macro;
 mod tree_codegen;
-mod tsconfig;
-mod tsx_parser;
-mod tsx_resolve;
 mod variant_derive;
 
 use parse::{HtmlRoot, XmlRoot};
@@ -720,52 +716,6 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(ProaVariant, attributes(variant))]
 pub fn derive_proa_variant(input: TokenStream) -> TokenStream {
     variant_derive::derive_proa_variant(input)
-}
-
-/// Attribute macro for declaring typed React islands.
-///
-/// Reads a TSX file at compile time, extracts the component's props interface,
-/// and generates a typed Rust props struct + `IslandDef` static.
-///
-/// # Basic Usage
-///
-/// ```rust,ignore
-/// use proa_macros::island;
-///
-/// #[island]
-/// pub struct Counter;
-/// // expands to:
-/// //   #[derive(serde::Serialize)]
-/// //   pub struct CounterProps { pub initial_count: f64, pub label: String, ... }
-/// //   pub static Counter: IslandDef<CounterProps> = IslandDef::new("Counter");
-/// ```
-///
-/// # Attributes
-///
-/// - `module = "..."` — Resolve via tsconfig path aliases (e.g. `"@components/Counter"`)
-/// - `export = "..."` — Export name if different from the struct name
-/// - `path = "..."` — Explicit relative path to the TSX file
-/// - `strategy = "..."` — Default hydration strategy (`"immediate"`, `"idle"`, `"visible"`)
-///
-/// # Example with explicit path
-///
-/// ```rust,ignore
-/// #[island(path = "client/Counter.tsx")]
-/// pub struct Counter;
-/// ```
-///
-/// # Example with module
-///
-/// ```rust,ignore
-/// #[island(module = "@components/Forms", export = "TextInput")]
-/// pub struct TextInput;
-/// ```
-#[proc_macro_attribute]
-pub fn island(args: TokenStream, input: TokenStream) -> TokenStream {
-    match island_attr::island_attr(args.into(), input.into()) {
-        Ok(tokens) => tokens.into(),
-        Err(err) => err.to_compile_error().into(),
-    }
 }
 
 /// Experimental explicitly identified sync template for `proa dev --hot-static`.

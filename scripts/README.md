@@ -115,12 +115,9 @@ corepack enable
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm exec playwright install chromium
 pnpm run stream:boundary-smoke
-pnpm run react:csp-smoke
 ```
 
-CI runs both checks in Chromium. The first exercises adversarial streamed
-boundary framing; the second hydrates a real React 19 component under a strict
-nonce-based content security policy.
+The Chromium check exercises streamed boundary framing.
 
 ## Release flow
 
@@ -150,7 +147,7 @@ cargo build -p proa-cli --bins
 python3 scripts/check_quickstart.py --cli target/debug/proa --work-dir /tmp/proa-quickstart-acceptance
 ```
 
-This requires Rust 1.93 or newer, Cargo registry access, and the standalone
+This requires Rust 1.98 or newer, Cargo registry access, and the standalone
 Tailwind CLI on PATH. It creates a new project, applies the documented edits,
 runs formatting, strict lint, site checks, generated integration tests, and a
 linked build. HTTP checks cover HTML, both Markdown entry points, the About

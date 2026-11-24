@@ -22,7 +22,6 @@ pub const DOCUMENT_HEAD_START_RAW: &str = r##"<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="turbo-refresh-method" content="morph"/>
 <meta name="turbo-refresh-scroll" content="preserve"/>
-<script type="importmap">{"imports":{"react":"https://esm.sh/react@19","react/jsx-runtime":"https://esm.sh/react@19/jsx-runtime","react-dom":"https://esm.sh/react-dom@19","react-dom/client":"https://esm.sh/react-dom@19/client"}}</script>
 "##;
 const DOCUMENT_HEAD_START: &str = DOCUMENT_HEAD_START_RAW;
 pub const DOCUMENT_HEAD_END_RAW: &str = r##"

@@ -1055,23 +1055,16 @@ pub struct RsjsRenderArtifacts {
 }
 
 /// Deterministic browser-runtime artifacts recorded by a rendered subtree.
-///
-/// React island names share the same request-local ownership transactions as
-/// rsjs artifacts. A detached Suspense branch therefore publishes both sets
-/// together only after its HTML is ready, while cancellation and error
-/// fallback rollback discard both sets together.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RenderArtifacts {
     /// rsjs modules and serialized seed state required by the subtree.
     pub rsjs: RsjsRenderArtifacts,
-    /// React island manifest names used by the subtree, sorted and deduplicated.
-    pub react_islands: Vec<String>,
 }
 
 impl RenderArtifacts {
     /// Whether this snapshot carries no browser-runtime work.
     pub fn is_empty(&self) -> bool {
-        self.rsjs.is_empty() && self.react_islands.is_empty()
+        self.rsjs.is_empty()
     }
 
     /// Merge another committed branch snapshot into this owned snapshot.
@@ -1082,20 +1075,6 @@ impl RenderArtifacts {
     #[doc(hidden)]
     pub fn merge_committed(&mut self, other: Self) {
         self.rsjs.merge_committed(other.rsjs);
-        self.react_islands.extend(other.react_islands);
-        self.react_islands.sort_unstable();
-        self.react_islands.dedup();
-    }
-
-    #[doc(hidden)]
-    pub fn record_react_island(&mut self, name: &str) {
-        match self
-            .react_islands
-            .binary_search_by(|candidate| candidate.as_str().cmp(name))
-        {
-            Ok(_) => {}
-            Err(index) => self.react_islands.insert(index, name.to_owned()),
-        }
     }
 }
 
@@ -1269,12 +1248,6 @@ struct RsjsIslandArtifactContribution {
 }
 
 #[derive(Debug, Clone)]
-struct ReactIslandArtifactContribution {
-    name: String,
-    owner: Option<Rc<RsjsArtifactTransaction>>,
-}
-
-#[derive(Debug, Clone)]
 struct RsjsQuerySeedContribution {
     seed: RsjsQuerySeedArtifact,
     owner: Option<Rc<RsjsArtifactTransaction>>,
@@ -1345,10 +1318,8 @@ fn owner_resolves_to_transaction(
 struct RsjsArtifactPage {
     islands: HashSet<&'static str>,
     island_contributions: Vec<RsjsIslandArtifactContribution>,
-    react_island_contributions: Vec<ReactIslandArtifactContribution>,
     query_seed_contributions: Vec<RsjsQuerySeedContribution>,
     shared_state_seed_contributions: Vec<RsjsSharedStateSeedContribution>,
-    next_react_island_id: u64,
 }
 
 impl RsjsArtifactPage {
@@ -1372,31 +1343,6 @@ impl RsjsArtifactPage {
         self.island_contributions
             .push(RsjsIslandArtifactContribution { asset_id, owner });
         self.islands.insert(asset_id);
-    }
-
-    fn record_react_island(&mut self, name: &str, owner: Option<Rc<RsjsArtifactTransaction>>) {
-        if matches!(
-            resolve_rsjs_artifact_owner(owner.clone()),
-            ResolvedRsjsArtifactOwner::RolledBack
-        ) {
-            return;
-        }
-        if self.react_island_contributions.iter().any(|contribution| {
-            contribution.name == name && same_rsjs_artifact_owner(&contribution.owner, &owner)
-        }) {
-            return;
-        }
-        self.react_island_contributions
-            .push(ReactIslandArtifactContribution {
-                name: name.to_owned(),
-                owner,
-            });
-    }
-
-    fn next_react_island_id(&mut self) -> u64 {
-        let id = self.next_react_island_id;
-        self.next_react_island_id = self.next_react_island_id.wrapping_add(1);
-        id
     }
 
     fn record_query_seed(
@@ -1489,12 +1435,9 @@ impl RsjsArtifactPage {
     }
 
     fn render_snapshot(&self) -> RenderArtifacts {
-        self.render_snapshot_matching(|owner| {
-            matches!(
-                resolve_rsjs_artifact_owner(owner),
-                ResolvedRsjsArtifactOwner::Root
-            )
-        })
+        RenderArtifacts {
+            rsjs: self.snapshot(),
+        }
     }
 
     fn snapshot_for_transaction(
@@ -1508,25 +1451,8 @@ impl RsjsArtifactPage {
         &self,
         transaction: &Rc<RsjsArtifactTransaction>,
     ) -> RenderArtifacts {
-        self.render_snapshot_matching(|owner| owner_resolves_to_transaction(owner, transaction))
-    }
-
-    fn render_snapshot_matching(
-        &self,
-        mut include: impl FnMut(Option<Rc<RsjsArtifactTransaction>>) -> bool,
-    ) -> RenderArtifacts {
-        let rsjs = self.snapshot_matching(&mut include);
-        let mut react_islands: Vec<_> = self
-            .react_island_contributions
-            .iter()
-            .filter(|contribution| include(contribution.owner.clone()))
-            .map(|contribution| contribution.name.clone())
-            .collect();
-        react_islands.sort_unstable();
-        react_islands.dedup();
         RenderArtifacts {
-            rsjs,
-            react_islands,
+            rsjs: self.snapshot_for_transaction(transaction),
         }
     }
 
@@ -1586,12 +1512,6 @@ impl RsjsArtifactPage {
             )
         });
         self.query_seed_contributions.retain(|contribution| {
-            !matches!(
-                resolve_rsjs_artifact_owner(contribution.owner.clone()),
-                ResolvedRsjsArtifactOwner::RolledBack
-            )
-        });
-        self.react_island_contributions.retain(|contribution| {
             !matches!(
                 resolve_rsjs_artifact_owner(contribution.owner.clone()),
                 ResolvedRsjsArtifactOwner::RolledBack
@@ -2085,7 +2005,7 @@ impl RsjsArtifactBranch {
             .snapshot_for_transaction(&checkpoint.transaction)
     }
 
-    /// Deterministic React and rsjs artifacts owned by this branch.
+    /// Deterministic RSJS artifacts owned by this branch.
     pub fn render_artifacts_snapshot(&self) -> RenderArtifacts {
         let checkpoint = self
             .checkpoint
@@ -3525,32 +3445,6 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             .ensure_page()
             .borrow_mut()
             .record_island(asset_id, owner);
-    }
-
-    /// Record a React island manifest name in this request's artifact ledger.
-    ///
-    /// The contribution is owned by the active render transaction, if any,
-    /// so a cancelled or rolled-back Suspense/ErrorBoundary subtree cannot
-    /// leak client bootstrap work into the response.
-    pub fn react_island_used(&self, name: &str) {
-        let owner = self.current_rsjs_artifact_transaction();
-        self.ensure_context_parts()
-            .rsjs_artifacts
-            .ensure_page()
-            .borrow_mut()
-            .record_react_island(name, owner);
-    }
-
-    /// Allocate the next unnamed React island id for this request.
-    ///
-    /// Counters are shared by detached contexts belonging to the same
-    /// response, but never by unrelated responses or threads.
-    pub fn next_react_island_id(&self) -> u64 {
-        self.ensure_context_parts()
-            .rsjs_artifacts
-            .ensure_page()
-            .borrow_mut()
-            .next_react_island_id()
     }
 
     /// Read-only view of the set of rsjs island asset ids that have
@@ -5037,44 +4931,6 @@ mod tests {
             ["open-island"]
         );
         assert_eq!(committed.query_seeds().len(), 1);
-    }
-
-    #[test]
-    fn react_artifacts_share_transaction_commit_and_rollback() {
-        let mut out = Vec::new();
-        let cx = WebContext::with_buffer(&mut out);
-
-        cx.react_island_used("Shell");
-        let committed = cx.rsjs_artifact_checkpoint();
-        cx.react_island_used("CommittedBoundary");
-        cx.rsjs_artifact_commit(committed);
-
-        let rolled_back = cx.rsjs_artifact_checkpoint();
-        cx.react_island_used("DiscardedBoundary");
-        cx.rsjs_artifact_rollback(rolled_back);
-
-        assert_eq!(
-            cx.render_artifacts_snapshot().react_islands,
-            ["CommittedBoundary".to_owned(), "Shell".to_owned()]
-        );
-    }
-
-    #[test]
-    fn detached_contexts_share_ids_only_with_their_own_request() {
-        let mut first_out = Vec::new();
-        let mut first = WebContext::with_buffer(&mut first_out);
-        let first_parts = first.context_parts();
-        let mut first_child_out = Vec::new();
-        let first_child =
-            WebContext::with_buffer(&mut first_child_out).with_context_parts(first_parts);
-
-        let mut second_out = Vec::new();
-        let second = WebContext::with_buffer(&mut second_out);
-
-        assert_eq!(first.next_react_island_id(), 0);
-        assert_eq!(second.next_react_island_id(), 0);
-        assert_eq!(first_child.next_react_island_id(), 1);
-        assert_eq!(second.next_react_island_id(), 1);
     }
 
     #[test]

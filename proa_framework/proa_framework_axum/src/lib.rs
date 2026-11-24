@@ -416,7 +416,7 @@ impl FrameworkBuilder {
     /// **OFF by default**, because a strict policy has to match what the
     /// app's own markup loads. Turning it on mints a fresh 128-bit nonce per
     /// request, applies it to every Proa-emitted script tag (rsjs seed
-    /// state, React island / import-map / bootstrap tags, the streaming
+    /// state and runtime tags, the streaming
     /// bootstrap, and out-of-order boundary swaps), and sends:
     ///
     /// ```text

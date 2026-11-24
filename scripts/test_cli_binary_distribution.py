@@ -255,7 +255,7 @@ class InstallerContractTests(unittest.TestCase):
             binaries.mkdir()
             cargo = binaries / "cargo"
             cargo.write_text("""#!/bin/sh
-if [ "$1" = --version ]; then echo 'cargo 1.93.0'; exit 0; fi
+if [ "$1" = --version ]; then echo 'cargo 1.98.0'; exit 0; fi
 [ "$*" = 'install --locked proa-cli --registry crates-io' ] || exit 91
 [ -z "${CARGO_REGISTRIES_PROA_INDEX+x}" ] || exit 92
 mkdir -p "$CARGO_HOME/bin"
@@ -286,7 +286,7 @@ chmod +x "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
             binaries.mkdir()
             fixtures = {
                 "cargo": """#!/bin/sh
-if [ "$1" = --version ]; then echo 'cargo 1.93.0'; exit 0; fi
+if [ "$1" = --version ]; then echo 'cargo 1.98.0'; exit 0; fi
 printf '%s\\n' "$@" >> "$FIXTURE_ARGUMENTS"
 [ "$FIXTURE_CARGO_STATUS" = 0 ] || exit "$FIXTURE_CARGO_STATUS"
 mkdir -p "$CARGO_HOME/bin"
@@ -294,7 +294,7 @@ printf '#!/bin/sh\\necho proa 9.8.7\\n' > "$CARGO_HOME/bin/proa"
 cp "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
 chmod +x "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
 """,
-                "rustc": "#!/bin/sh\necho 'rustc 1.93.0'\n",
+                "rustc": "#!/bin/sh\necho 'rustc 1.98.0'\n",
                 "uname": "#!/bin/sh\ncase \"$1\" in -s) echo Linux ;; -m) echo \"$FIXTURE_ARCH\" ;; *) echo Linux ;; esac\n",
                 "curl": """#!/usr/bin/env python3
 import json, os, pathlib, sys

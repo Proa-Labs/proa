@@ -20,7 +20,6 @@ pub fn runtime(package: &str) -> TokenStream {
             "proa_core" | "proa_macros" => facade,
             "proa_ir" => quote!(#facade::ir),
             "proa_actions" => quote!(#facade::actions),
-            "proa_react" => quote!(#facade::react),
             "serde" => quote!(#facade::__private::serde),
             "serde_json" => quote!(#facade::__private::serde_json),
             _ => direct_path(package),

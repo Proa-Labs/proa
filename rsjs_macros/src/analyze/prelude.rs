@@ -1368,9 +1368,10 @@ impl<'ast> Visit<'ast> for OpaqueServerStatementValidator<'_> {
     }
 
     fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-        self.with_pattern_scope(&arm.pat, |this| {
-            if let Some((_, guard)) = &arm.guard {
-                this.visit_expr(guard);
+        let (pat, guard) = crate::parse::match_arm_parts(arm);
+        self.with_pattern_scope(pat, |this| {
+            if let Some(guard) = guard {
+                this.visit_expr(&guard.guard);
             }
             this.visit_expr(&arm.body);
         });

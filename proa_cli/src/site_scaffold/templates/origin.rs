@@ -546,24 +546,24 @@ pub fn manifest(package: &str) -> String {
 name = "{package}"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.93"
+rust-version = "1.98"
 description = "ORIGIN: a live routing atlas built with Proa and RIPE data"
 
 [dependencies]
 proa = {{ version = "{proa}", features = ["axum", "actions", "rt-tokio"] }}
 anyhow = {{ version = "1" }}
-axum = {{ version = "0.7.9" }}
+axum = {{ version = "0.8.9" }}
 const_format = {{ version = "0.2" }}
-heapless = {{ version = "0.8" }}
+heapless = {{ version = "0.9.4" }}
 proa_fonts = {{ version = "{proa_fonts}" }}
 proa_fonts_macros = {{ version = "{proa_fonts_macros}" }}
-reqwest = {{ version = "0.12", features = ["json"] }}
+reqwest = {{ version = "0.13.5", features = ["json"] }}
 rsjs = {{ version = "{rsjs}" }}
 serde = {{ version = "1", features = ["derive"] }}
 serde_json = {{ version = "1" }}
 thiserror = {{ version = "2" }}
 tokio = {{ version = "1", features = ["macros", "net", "rt-multi-thread", "time"] }}
-tower-http = {{ version = "0.6", features = ["fs", "trace"] }}
+tower-http = {{ version = "0.7.1", features = ["fs", "trace"] }}
 tracing = {{ version = "0.1" }}
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 

@@ -1553,10 +1553,7 @@ impl Analyzer<'_> {
                         return self.boundary(expr,"render outcome's future is opaque; expose its render path or name the content",None);
                     }
                     let mut path = p.path.clone();
-                    let method = path
-                        .segments
-                        .pop()
-                        .map(|s| s.into_value().ident.to_string());
+                    let method = path.segments.pop().map(|s| s.ident.to_string());
                     let trait_name = self.resolver.path(&path);
                     if method.is_some_and(|m| self.target.methods.contains(&m))
                         && self.target.traits.contains(&trait_name)

@@ -20,7 +20,7 @@ pub(crate) const FAQS: &[Faq] = &[
     },
     Faq {
         question: "Can Proa run alongside an existing application?",
-        answer: "Yes. Route part of an existing application to Proa and adopt it incrementally. The framework also supports React interop when an existing client component needs to remain in use.",
+        answer: "Yes. Route part of an existing application to Proa and adopt it incrementally.",
     },
     Faq {
         question: "Can coding agents read Proa documentation?",

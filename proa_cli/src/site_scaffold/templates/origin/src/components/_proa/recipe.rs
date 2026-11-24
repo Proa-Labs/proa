@@ -13,7 +13,7 @@
 
 #![allow(deprecated)]
 
-use heapless::FnvIndexMap;
+use heapless::index_map::FnvIndexMap;
 
 /// Recipe variant enums must implement a `classes()` method.
 ///

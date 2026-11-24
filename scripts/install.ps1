@@ -133,7 +133,7 @@ $script:DefaultDownloadBase = 'https://proa.so/downloads/cli'
 # Release tags are proa-cli-v<version>. Nothing builds a URL from this any more;
 # it is here so -Version accepts a whole tag and strips it back to a version.
 $script:TagPrefix = 'proa-cli-v'
-$script:Msrv = '1.93.0'
+$script:Msrv = '1.98.0'
 # Sent on every request. Hosts in front of a release, github.com included,
 # answer 403 to requests without a User-Agent, and it is what identifies an
 # installer run in the download logs.
@@ -1547,7 +1547,7 @@ WHAT IT DOES
     1. Detects your CPU and picks the matching release archive.
     2. Checks for cargo and rustc. Proa builds your project with cargo, so a
        missing toolchain stops the install; a toolchain older than Rust
-       1.93.0 is reported as a warning.
+       1.98.0 is reported as a warning.
     3. Downloads the archive and its SHA256SUMS file over HTTPS from
        PROA_DOWNLOAD_BASE and verifies the checksum before anything is
        unpacked.

@@ -434,7 +434,7 @@ routes:
 ```rust
 .route("/rsjs-runtime.js", get(serve_rsjs_runtime))
 .route("/rsjs-runtime-query.js", get(serve_rsjs_runtime_query))
-.route("/rsjs/island/:asset_id", get(serve_rsjs_island))
+.route("/rsjs/island/{asset_id}", get(serve_rsjs_island))
 ```
 
 Where `serve_rsjs_island` looks up the asset id in `rsjs::manifest().islands`

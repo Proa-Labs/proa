@@ -54,11 +54,6 @@ name = "proa_docs_build"
 release = true
 
 [[package]]
-name = "proa_react"
-release = true
-version_group = "proa-ssr-0-3"
-
-[[package]]
 name = "proa_actions"
 release = true
 version_group = "proa-ssr-0-3"

@@ -29,7 +29,7 @@ pub fn app() -> Router {
         .route("/webmcp-bridge.js", get(assets::webmcp_bridge))
         .route("/rsjs-runtime.js", get(assets::rsjs_runtime))
         .route("/rsjs-runtime-query.js", get(assets::rsjs_query_runtime))
-        .route("/rsjs/island/:file", get(assets::rsjs_asset))
+        .route("/rsjs/island/{file}", get(assets::rsjs_asset))
 }
 
 async fn index() -> Html<String> {
