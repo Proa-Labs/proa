@@ -4,7 +4,6 @@
 //! Application-aware generators that own route and migration conventions.
 
 use std::{
-    collections::HashSet,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -13,9 +12,11 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
-use syn::visit::{self, Visit};
 
 use crate::{config, util::resolve_config_root};
+
+mod registered_routes;
+use registered_routes::ensure_routes_unregistered;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -272,88 +273,6 @@ fn route_name(raw: &str) -> Result<RouteName> {
         canonical,
         module,
     })
-}
-
-fn ensure_routes_unregistered(source: &str, canonical: &str, alias: Option<&str>) -> Result<()> {
-    let file = syn::parse_file(source).context("parse src/routes.rs before registering a route")?;
-    let mut registrations = RegisteredRoutes::default();
-    registrations.visit_file(&file);
-    for path in std::iter::once(canonical).chain(alias) {
-        if registrations.paths.contains(path) {
-            bail!("route path is already registered: {path}");
-        }
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct RegisteredRoutes {
-    paths: HashSet<String>,
-}
-
-impl RegisteredRoutes {
-    fn record(&mut self, argument: Option<&syn::Expr>) {
-        match argument {
-            Some(syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Str(path),
-                ..
-            })) => {
-                self.paths.insert(canonical_route(&path.value()));
-            }
-            Some(syn::Expr::Paren(expr)) => self.record(Some(&expr.expr)),
-            _ => {}
-        }
-    }
-}
-
-fn axum_route_method(method: &syn::Ident) -> bool {
-    matches!(
-        method.to_string().as_str(),
-        "route" | "route_service" | "nest" | "nest_service"
-    )
-}
-
-impl<'ast> Visit<'ast> for RegisteredRoutes {
-    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(function) = call.func.as_ref() {
-            let mut segments = function.path.segments.iter().rev();
-            if let (Some(method), Some(owner)) = (segments.next(), segments.next()) {
-                if owner.ident == "Route"
-                    && matches!(
-                        method.ident.to_string().as_str(),
-                        "endpoint" | "page" | "page_with_metadata" | "layout"
-                    )
-                {
-                    self.record(call.args.first());
-                } else if owner.ident == "Router" && axum_route_method(&method.ident) {
-                    self.record(call.args.iter().nth(1));
-                }
-            }
-        }
-        visit::visit_expr_call(self, call);
-    }
-
-    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-        if axum_route_method(&call.method) {
-            self.record(call.args.first());
-        }
-        visit::visit_expr_method_call(self, call);
-    }
-
-    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        // The scaffold passes its route specs in vec![...]. Syn leaves macro bodies as tokens.
-        if mac
-            .path
-            .segments
-            .last()
-            .is_some_and(|name| name.ident == "vec")
-        {
-            let tokens = &mac.tokens;
-            if let Ok(elements) = syn::parse2::<syn::Expr>(quote::quote!([#tokens])) {
-                self.visit_expr(&elements);
-            }
-        }
-    }
 }
 
 /// Spell `/:id` and `/*path` captures as `/{id}` and `/{*path}`.
@@ -845,38 +764,6 @@ mod tests {
             let route = route_name(input).unwrap();
             assert_eq!(route.canonical, "/files/{*rest}");
             assert_eq!(route.module, "files_rest");
-        }
-    }
-
-    #[test]
-    fn detects_registered_route_literals_and_ignores_unrelated_text() {
-        let routes = r##"
-            fn routes() {
-                // Accept a literal " in the query.
-                let help = "Try \"/help\"";
-                let example = r#".route("/example", get(handler))"#;
-                let specs = vec![
-                    Route::endpoint("/blog/:slug", get(handler)),
-                    Route::endpoint("/files/*rest", get(handler)),
-                    proa::axum::Route::page(r#"/shop/{id}"#, "/title", get(handler)),
-                ];
-                let router = Router::new()
-                    .route("/he\u{61}lthz", get(handler))
-                    .route_service(r#"/feed"#, service);
-            }
-        "##;
-        for canonical in [
-            "/blog/{slug}",
-            "/files/{*rest}",
-            "/shop/{id}",
-            "/healthz",
-            "/feed",
-        ] {
-            let error = ensure_routes_unregistered(routes, canonical, None).unwrap_err();
-            assert!(error.to_string().contains("already registered"), "{error}");
-        }
-        for available in ["/blog", "/blog/{slug}/edit", "/help", "/example", "/title"] {
-            ensure_routes_unregistered(routes, available, None).unwrap();
         }
     }
 
