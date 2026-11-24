@@ -32,7 +32,6 @@ STANDALONE_BOOTSTRAP_BASELINES = {
     "proa_ir": "0.1.2",
     "proa_macros": "0.3.0",
     "proa_og": "0.1.2",
-    "proa_react": "0.3.0",
     "proa_stream": "0.3.0",
     "rsjs": "0.2.0",
     "rsjs_ir": "0.2.0",

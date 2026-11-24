@@ -91,7 +91,7 @@ Attribute values are always double-quoted. There is no code path that emits an u
 
 This is defense in depth, not permission. The compile-time warning still fires. The masking exists so a value that slips through a suppressed warning cannot escape the element.
 
-**Island hydration payloads are masked too.** RSJS and React islands serialize props into `<script type="application/json">`. That content is raw text and `textContent` does not decode entities, so HTML-escaping it would corrupt the JSON. Instead `</` becomes `<\/` (a valid JSON escape for `/`) so the HTML parser cannot match a closing tag inside the payload, and U+2028 / U+2029 become their six-character escapes, since before ES2019 those acted as line terminators inside inline scripts and allowed breakout from a JSON string literal.
+**Island hydration payloads are masked too.** RSJS islands serialize props into `<script type="application/json">`. That content is raw text and `textContent` does not decode entities, so HTML-escaping it would corrupt the JSON. Instead `</` becomes `<\/` (a valid JSON escape for `/`) so the HTML parser cannot match a closing tag inside the payload, and U+2028 / U+2029 become their six-character escapes, since before ES2019 those acted as line terminators inside inline scripts and allowed breakout from a JSON string literal.
 
 ### In the browser
 

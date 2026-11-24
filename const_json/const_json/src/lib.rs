@@ -16,12 +16,13 @@
 /// keys must be string literals. Runtime expressions and duplicate keys are
 /// rejected; use `ConstJson` or a runtime serializer for typed values instead.
 /// Rust raw strings, comments, and trailing commas are accepted in the input.
+/// Object key order depends on the serializer configuration.
 /// Integers must fit `i64`/`u64`; floating-point literals must fit finite `f64`.
 ///
 /// ```
 /// use const_json::const_json;
-/// const SCHEMA: &str = const_json!({"type": "object", "required": ["name"]});
-/// assert_eq!(SCHEMA, r#"{"required":["name"],"type":"object"}"#);
+/// const SCHEMA: &str = const_json!({"required": ["name"]});
+/// assert_eq!(SCHEMA, r#"{"required":["name"]}"#);
 /// ```
 ///
 /// ```compile_fail

@@ -20,10 +20,6 @@ captured artifact should have a clear owner and regeneration path.
 `proa_showcase_web/public/assets/airbnb-showcase.js` is source-owned browser
 code, not a generated bundle. Edit it directly and validate it with
 `node --check proa_showcase_web/public/assets/airbnb-showcase.js`.
-The legacy travel listing still consumes the checked-in
-`DatePickerIsland.js`, `BookingCardIsland.js`, and their one imported Calendar
-chunk. Do not hand-edit those generated modules; remove them when the listing's
-`build_islands` path is replaced.
 Rust-authored `rsjs` island assets are generated from the checked-in Rust
 sources at compile time and served through the island manifest; they are not
 checked into `public/assets`.

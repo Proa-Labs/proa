@@ -8,7 +8,7 @@ use const_format::concatcp;
 pub const HOME: &str = "/";
 pub const DOCS: &str = "/docs";
 pub const DOCS_PREFIX: &str = concatcp!(DOCS, "/");
-pub const DOCS_PATTERN: &str = concatcp!(DOCS, "/*path");
+pub const DOCS_PATTERN: &str = concatcp!(DOCS, "/{*path}");
 pub const API_GUIDE: &str = concatcp!(DOCS, "/api");
 pub const API_GUIDE_MARKDOWN: &str = concatcp!(API_GUIDE, ".md");
 pub const DOCS_INDEX: &str = concatcp!(DOCS, "/llms.txt");
@@ -38,7 +38,7 @@ pub const API_SEARCH: &str = concatcp!(API_V1, "/search");
 pub const API_DOCS: &str = concatcp!(API_V1, "/docs");
 pub const API_PAGE: &str = concatcp!(API_DOCS, "/page");
 pub const INDEXNOW_KEY: &str = "/indexnow-key.txt";
-pub const API_PATTERN: &str = concatcp!(API_V1, "/*path");
+pub const API_PATTERN: &str = concatcp!(API_V1, "/{*path}");
 pub const LEGACY_SEARCH: &str = concatcp!(API, "/search");
 pub const MCP: &str = "/mcp";
 pub const MCP_CARD: &str = concatcp!(MCP, "/server-card");
@@ -55,7 +55,7 @@ pub const AI_CATALOG: &str = "/.well-known/ai-catalog.json";
 pub const API_CATALOG: &str = "/.well-known/api-catalog";
 pub const SKILLS_ROOT: &str = "/.well-known/agent-skills";
 pub const SKILLS_INDEX: &str = concatcp!(SKILLS_ROOT, "/index.json");
-pub const SKILL_PATTERN: &str = concatcp!(SKILLS_ROOT, "/:name/SKILL.md");
+pub const SKILL_PATTERN: &str = concatcp!(SKILLS_ROOT, "/{name}/SKILL.md");
 
 pub const STATIC_ROUTES: &[&str] = &[
     HOME,

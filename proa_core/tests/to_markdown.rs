@@ -47,7 +47,7 @@ fn fragment_converts_semantic_html_without_styling() {
     });
     assert_eq!(
         output,
-        "## Proa & Rust\n\nCompiled templates with **fast rendering**&#46;\n\n[Learn more](/docs?target=rust&mode=sync)"
+        "## Proa \\& Rust\n\nCompiled templates with **fast rendering**&#46;\n\n[Learn more](/docs?target=rust&mode=sync)"
     );
 }
 

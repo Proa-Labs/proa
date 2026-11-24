@@ -364,8 +364,8 @@ pub(crate) fn parse_island_item(
     //    generated associated witness, which lets ordinary imports, aliases,
     //    and re-exports resolve through rustc instead of token-name matching.
     let trait_ref = match &item.trait_ {
-        Some((bang, path, _)) => {
-            if let Some(b) = bang {
+        Some((path, _)) => {
+            if let Some(b) = &item.modifiers.polarity {
                 return Err(syn::Error::new(
                     b.span(),
                     "`#[rsjs]` does not support negative trait impls (`impl !Trait for ...`)",
@@ -1384,5 +1384,13 @@ mod tests {
             msg.contains("reserved for future client-only"),
             "got: {msg}"
         );
+    }
+}
+
+/// The outer guard in a match arm is part of the pattern in Syn 3.
+pub(crate) fn match_arm_parts(arm: &syn::Arm) -> (&syn::Pat, Option<&syn::PatGuard>) {
+    match &arm.pat {
+        syn::Pat::Guard(guard) => (&guard.pat, Some(guard)),
+        pat => (pat, None),
     }
 }

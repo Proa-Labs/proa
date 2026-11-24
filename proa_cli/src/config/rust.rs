@@ -150,16 +150,26 @@ impl CachedRunner {
         // Use rustc's dependency list: even an SVG can be an include_bytes!
         // input. Cargo retains one variant per profile or flag set, and the
         // executable is a hard link to the current one, so they share a stamp.
-        let deps = executable.parent()?.join("deps");
+        let profile = executable.parent()?;
+        let units = profile.join("build/proa-config-runner");
+        let directory = if units.is_dir() {
+            units
+        } else {
+            profile.join("deps")
+        };
         let current = stamp(executable).ok()??;
-        let mut listings = fs::read_dir(deps).ok()?.filter_map(|entry| {
-            let path = entry.ok()?.path();
-            let name = path.file_name()?.to_str()?;
-            let variant = name.strip_suffix(".d")?;
-            let binary = path.with_file_name(format!("{variant}{}", env::consts::EXE_SUFFIX));
-            (name.starts_with("proa_config_runner-") && stamp(&binary).ok()? == Some(current))
-                .then_some(path)
-        });
+        let mut listings = walkdir::WalkDir::new(directory)
+            .max_depth(3)
+            .into_iter()
+            .filter_map(|entry| {
+                let path = entry.ok()?.into_path();
+                let variant = path.file_name()?.to_str()?.strip_suffix(".d")?;
+                if variant != "proa_config_runner" && !variant.starts_with("proa_config_runner-") {
+                    return None;
+                }
+                let binary = path.with_file_name(format!("{variant}{}", env::consts::EXE_SUFFIX));
+                (stamp(&binary).ok()? == Some(current)).then_some(path)
+            });
         let listing = listings.next()?;
         if listings.next().is_some() {
             return None;

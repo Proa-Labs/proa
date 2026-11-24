@@ -10,9 +10,10 @@
 //! - Mix of static (&'static [u8]) and dynamic (short escaped strings)
 
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use proa_core::shared::write_buf::{Part, ZeroCopyBuf};
 use proa_core::WriteBuf;
+use std::hint::black_box;
 use std::io::{IoSlice, Write};
 
 // ---------------------------------------------------------------------------

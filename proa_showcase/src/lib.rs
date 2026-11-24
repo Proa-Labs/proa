@@ -39,6 +39,13 @@ pub(crate) fn finalize_rsjs_document(
         .page_runtime_plan(artifacts.rendered_islands())
         .expect("rendered showcase islands must exist in the linked rsjs manifest");
     let mut tags = Vec::new();
+    if let Some(seed) = artifacts.shared_state_seed_table_json() {
+        use proa_core::{csp_nonce_attr, UnsafeRaw, WebContext, WebRenderSync};
+        // The artifact serializer masks HTML script terminators before exposing the JSON.
+        proa_macros::html_sync! {
+            <script type="application/json" id="rsjs-shared-state-seed-table" nonce={csp_nonce_attr(nonce)}>{UnsafeRaw(&seed)}</script>
+        }.render(&mut WebContext::with_buffer(&mut tags))?;
+    }
     plan.write_html(&mut tags, nonce)?;
 
     const DOCUMENT_END: &str = "</body></html>";

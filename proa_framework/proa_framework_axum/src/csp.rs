@@ -4,7 +4,7 @@
 //! Per-request CSP nonce generation and a strict `Content-Security-Policy`.
 //!
 //! Proa can already stamp a validated [`CspNonce`] onto every script tag it
-//! emits (rsjs seed state, React island / import-map / bootstrap tags, the
+//! emits (RSJS seed state and runtime tags, the
 //! streaming bootstrap, and every out-of-order boundary swap). What it cannot
 //! do on its own is mint the per-response
 //! random value and write the matching header, because that is HTTP-level
@@ -39,7 +39,7 @@ use base64::engine::general_purpose::STANDARD_NO_PAD;
 use base64::Engine as _;
 use bytes::Bytes;
 use pin_project::pin_project;
-use rand::RngCore as _;
+use rand::Rng as _;
 use tower::{Layer, Service};
 
 use proa_core::CspNonce;

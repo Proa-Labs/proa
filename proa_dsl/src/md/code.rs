@@ -127,7 +127,16 @@ fn code_ranges(source: &str) -> Vec<CodeRange> {
     let mut options = comrak::Options::default();
     options.extension.table = true;
     let arena = comrak::Arena::new();
-    let tree = comrak::parse_document(&arena, source, &options);
+    // Authored Proa tables and the editor treat any backslash immediately
+    // before a pipe as a cell escape. Comrak 1.x pairs backslashes before
+    // testing the pipe. Mask these literal pipes for block discovery only,
+    // keeping every source offset and the original inline text.
+    let table_source = if source.contains(r"\\|") {
+        Cow::Owned(source.replace(r"\\|", r"\\x"))
+    } else {
+        Cow::Borrowed(source)
+    };
+    let tree = comrak::parse_document(&arena, &table_source, &options);
     let mut lines = vec![0];
     for (index, byte) in source.bytes().enumerate() {
         if byte == b'\n' || (byte == b'\r' && source.as_bytes().get(index + 1) != Some(&b'\n')) {
@@ -155,7 +164,7 @@ fn code_ranges(source: &str) -> Vec<CodeRange> {
                 let end = lines[node.sourcepos.end.line - 1] + node.sourcepos.end.column;
                 // Read authored cells, including extra cells a renderer may
                 // discard. Autocompleted cells have no source, and Comrak's
-                // inline columns shift after escaped pipes. GFM only splits
+                // inline columns shift after escaped pipes. Proa only splits
                 // pipes not immediately preceded by a backslash.
                 let mut cell = start;
                 for offset in start..end {

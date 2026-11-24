@@ -1173,7 +1173,7 @@ impl Analyzer {
         let mut true_arm: Option<&Expr> = None;
         let mut false_arm: Option<&Expr> = None;
         for arm in &match_expr.arms {
-            if arm.guard.is_some() {
+            if matches!(arm.pat, syn::Pat::Guard(_)) {
                 return Err(unsupported_handler_control_flow_error(
                     match_expr.match_token.span,
                     "match",
@@ -1256,16 +1256,17 @@ impl Analyzer {
         let mut literal_arms = Vec::new();
         let mut default_body = None;
         for (idx, arm) in match_expr.arms.iter().enumerate() {
-            if matches!(arm.pat, Pat::Wild(_)) {
-                if let Some((if_token, _)) = &arm.guard {
+            let (pat, guard) = crate::parse::match_arm_parts(arm);
+            if matches!(pat, Pat::Wild(_)) {
+                if let Some(guard) = guard {
                     return Err(syn::Error::new(
-                        if_token.span,
+                        guard.if_token.span,
                         "`#[rsjs]` handler literal `match` fallback `_` must be unguarded",
                     ));
                 }
                 if idx + 1 != match_expr.arms.len() {
                     return Err(syn::Error::new(
-                        arm.pat.span(),
+                        pat.span(),
                         "`#[rsjs]` handler literal `match` fallback `_` must be the final arm",
                     ));
                 }
@@ -1274,8 +1275,7 @@ impl Analyzer {
                 continue;
             }
 
-            let pattern =
-                handler_literal_match_pattern(match_local, &arm.pat, match_integer_domain)?;
+            let pattern = handler_literal_match_pattern(match_local, pat, match_integer_domain)?;
             let mut condition = pattern.condition;
             let mut arm_scope = match_scope.clone();
             let mut guard_scope = match_scope.clone();
@@ -1292,7 +1292,7 @@ impl Analyzer {
                     ClientType::U64 => Some(IntegerDomain::U64),
                     _ => None,
                 };
-                self.validate_handler_match_binding(&binding, arm.pat.span(), &match_scope)?;
+                self.validate_handler_match_binding(&binding, pat.span(), &match_scope)?;
                 guard_scope.handler_locals.push(HandlerLocalBinding {
                     name: binding.clone(),
                     id: match_local,
@@ -1313,19 +1313,17 @@ impl Analyzer {
                     constant: None,
                 });
                 prelude_statements.push(HandlerHirStmt::new(
-                    arm.pat.span(),
+                    pat.span(),
                     HandlerHirStmtKind::Let {
                         local: id,
                         name: binding,
                         ty: binding_ty,
-                        value: HandlerHirExpr::new(
-                            arm.pat.span(),
-                            FrontendExpr::Local(match_local),
-                        ),
+                        value: HandlerHirExpr::new(pat.span(), FrontendExpr::Local(match_local)),
                     },
                 ));
             }
-            if let Some((_, guard_expr)) = &arm.guard {
+            if let Some(guard) = guard {
+                let guard_expr = &guard.guard;
                 let guard = self.lower_handler_payload_hir_expr(guard_expr, &guard_scope)?;
                 self.require_bool_condition(
                     &guard.expr,
@@ -2771,7 +2769,7 @@ pub(super) fn handler_match_is_exact_bool(match_expr: &ExprMatch) -> bool {
     let mut true_arm = false;
     let mut false_arm = false;
     for arm in &match_expr.arms {
-        if arm.guard.is_some() {
+        if matches!(arm.pat, syn::Pat::Guard(_)) {
             return false;
         }
         match bool_match_arm(&arm.pat) {

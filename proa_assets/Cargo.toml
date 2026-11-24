@@ -18,7 +18,7 @@ build = ["dep:cssparser", "dep:mime_guess", "dep:percent-encoding", "dep:tempfil
 [dependencies]
 base16ct = { workspace = true }
 base64 = { workspace = true }
-cssparser = { version = "0.35", optional = true }
+cssparser = { version = "0.38.0", optional = true }
 percent-encoding = { version = "2", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

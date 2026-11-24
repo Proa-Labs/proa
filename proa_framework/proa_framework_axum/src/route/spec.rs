@@ -184,7 +184,7 @@ where
     ///     "ok"
     /// }
     ///
-    /// let _route = Route::<()>::page("/blog/:slug", "Blog Post", get(blog_handler))
+    /// let _route = Route::<()>::page("/blog/{slug}", "Blog Post", get(blog_handler))
     ///     .with_route_mode(RouteMode::Static)
     ///     .with_static_paths(get_blog_slugs);
     /// ```

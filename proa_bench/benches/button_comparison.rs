@@ -6,11 +6,12 @@
 //! Old: heapless::String class building + multiple UnsafeRaw calls
 //! New: ClassList direct buffer writes
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use proa_bench::button_bench::{
     ButtonColor, ButtonRadius, ButtonSize, ButtonType, ButtonVariant, NewButton, OldButton,
 };
 use proa_core::{text::text, RenderBuffer, WebContext, WebRenderSync, WriteBuf};
+use std::hint::black_box;
 
 const ITERATIONS: usize = 1000;
 

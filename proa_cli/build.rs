@@ -5,10 +5,8 @@ use std::{collections::BTreeMap, env, fs, path::Path};
 
 fn manifest(path: &Path) -> toml::Value {
     println!("cargo:rerun-if-changed={}", path.display());
-    fs::read_to_string(path)
-        .expect("read Cargo manifest")
-        .parse()
-        .expect("parse Cargo manifest")
+    let source = fs::read_to_string(path).expect("read Cargo manifest");
+    toml::from_str(&source).expect("parse Cargo manifest")
 }
 
 fn main() {

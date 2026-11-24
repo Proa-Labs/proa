@@ -1241,10 +1241,10 @@ fn router_with(bridge: Arc<DownloadBridge>) -> Router {
         .route("/downloads/cli/latest.json", get(latest_handler))
         .route("/downloads/cli/main/latest.json", get(main_latest_handler))
         .route(
-            "/downloads/cli/main/:version/:filename",
+            "/downloads/cli/main/{version}/{filename}",
             get(main_asset_handler),
         )
-        .route("/downloads/cli/:version/:filename", get(asset_handler))
+        .route("/downloads/cli/{version}/{filename}", get(asset_handler))
         .with_state(bridge)
 }
 
@@ -2398,7 +2398,7 @@ mod tests {
 
         let app = Router::new()
             .route(
-                "/repos/:owner/:name/releases",
+                "/repos/{owner}/{name}/releases",
                 get(
                     |State(up): State<Arc<Upstream>>,
                      OriginalUri(uri): OriginalUri,
@@ -2412,7 +2412,7 @@ mod tests {
                 ),
             )
             .route(
-                "/repos/:owner/:name/releases/tags/:tag",
+                "/repos/{owner}/{name}/releases/tags/{tag}",
                 get(
                     |State(up): State<Arc<Upstream>>,
                      OriginalUri(uri): OriginalUri,
@@ -2426,7 +2426,7 @@ mod tests {
                 ),
             )
             .route(
-                "/repos/:owner/:name/releases/assets/:id",
+                "/repos/{owner}/{name}/releases/assets/{id}",
                 get(
                     |State(up): State<Arc<Upstream>>,
                      OriginalUri(uri): OriginalUri,

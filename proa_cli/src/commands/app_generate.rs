@@ -116,14 +116,19 @@ pub fn page(
     add_module(&mut modules, &route.module);
     let routes_path = root.join("src/routes.rs");
     let mut routes = fs::read_to_string(&routes_path)?;
+    let handler = if markdown && route.canonical.ends_with('}') {
+        "handler_with_markdown_alias"
+    } else {
+        "handler"
+    };
     add_route_spec(
         &mut routes,
         &format!(
-            "        Route::endpoint(\"{}\", get(pages::{}::handler)),",
+            "        Route::endpoint(\"{}\", get(pages::{}::{handler})),",
             route.canonical, route.module
         ),
     )?;
-    if markdown {
+    if markdown && !route.canonical.ends_with('}') {
         add_explicit_route(
             &mut routes,
             &format!(
@@ -248,13 +253,23 @@ fn route_name(raw: &str) -> Result<RouteName> {
         bail!("route path must contain safe, nonempty segments");
     }
     let mut module_parts = Vec::new();
+    let mut canonical = String::new();
     for part in trimmed.split('/') {
-        let part = part.trim_start_matches(':');
-        let normalized = snake_name(part)?;
-        module_parts.push(normalized);
+        canonical.push('/');
+        let name = if let Some(name) = part.strip_prefix(':') {
+            canonical.push('{');
+            canonical.push_str(name);
+            canonical.push('}');
+            name
+        } else {
+            canonical.push_str(part);
+            part.strip_prefix('{')
+                .and_then(|name| name.strip_suffix('}'))
+                .unwrap_or(part)
+        };
+        module_parts.push(snake_name(name)?);
     }
     let module = module_parts.join("_");
-    let canonical = format!("/{trimmed}");
     Ok(RouteName {
         markdown_alias: format!("{canonical}.md"),
         rust_type: format!("{}Page", rust_type_name(&module)),
@@ -324,11 +339,25 @@ fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result
 // proa-perf-ok(scope): CLI generator assembles trusted Rust source, not response HTML
 fn page_source(route: &RouteName, markdown: bool) -> String {
     let imports = if markdown {
-        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};\nuse proa::{html_sync, md_sync};"
+        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa::axum::{negotiate, MarkdownAlternate, RouteResponse};\nuse proa::{html_sync, md_sync};"
     } else {
         "use axum::response::IntoResponse;\nuse proa::{DataLoader, WebContext, WebRenderSync, WriteError};\nuse proa::axum::RouteResponse;\nuse proa::html_sync;"
     };
     let markdown_impl = if markdown {
+        // Axum matches an entire captured segment. A single route must serve
+        // both /blog/example and /blog/example.md.
+        let alias_handler = if route.canonical.ends_with('}') {
+            r#"
+pub async fn handler_with_markdown_alias(uri: axum::http::Uri, headers: HeaderMap) -> Result<impl IntoResponse, AppError> {
+    if uri.path().ends_with(".md") {
+        return Ok(markdown().await?.into_response());
+    }
+    Ok(handler(headers).await?.into_response())
+}
+"#
+        } else {
+            ""
+        };
         format!(
             r####"
 impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
@@ -343,18 +372,20 @@ impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
     }}
 }}
 
+const MARKDOWN_ALTERNATE: MarkdownAlternate = MarkdownAlternate::new("{alias}");
+
 pub async fn handler(headers: HeaderMap) -> Result<impl IntoResponse, AppError> {{
     let html = RouteResponse::ssr_async(RootDocument {{
         title: "{title}",
         content: proa::to_async({ty}),
     }});
-    Ok(negotiate(&headers, html, {ty}, MarkdownAlternate::new("{alias}"))?)
+    Ok(negotiate(&headers, html, {ty}, MARKDOWN_ALTERNATE)?)
 }}
 
 pub async fn markdown() -> Result<impl IntoResponse, AppError> {{
-    Ok(explicit_markdown({ty})?)
+    Ok(MARKDOWN_ALTERNATE.render_explicit({ty})?)
 }}
-"####,
+{alias_handler}"####,
             ty = route.rust_type,
             title = route.title,
             path = route.canonical,
@@ -707,6 +738,19 @@ mod tests {
     fn normalizes_migration_names() {
         assert_eq!(snake_name("CreatePosts").unwrap(), "create_posts");
         assert_eq!(snake_name("add posts-slug").unwrap(), "add_posts_slug");
+    }
+
+    #[test]
+    fn generates_axum_capture_syntax_for_both_route_spellings() {
+        for input in ["blog/:slug", "blog/{slug}"] {
+            let route = route_name(input).unwrap();
+            assert_eq!(route.canonical, "/blog/{slug}");
+            assert_eq!(route.markdown_alias, "/blog/{slug}.md");
+            assert_eq!(route.module, "blog_slug");
+            let source = page_source(&route, true);
+            syn::parse_file(&source).unwrap();
+            assert!(source.contains("fn handler_with_markdown_alias("));
+        }
     }
 
     #[test]

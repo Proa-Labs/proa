@@ -17,7 +17,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Uri};
-use criterion::{black_box, criterion_group, Criterion, Throughput};
+use criterion::{criterion_group, Criterion, Throughput};
 use proa_bench::{CARDS_PER_SECTION, ITEMS_PER_CARD, NUM_SECTIONS};
 use proa_core::{
     render_in_context_async, DataLoader, RenderBuffer, RenderMode, RenderOutcome, RequestContext,
@@ -26,6 +26,7 @@ use proa_core::{
 };
 use proa_macros::{html, html_sync};
 use proa_stream::{drain_pending_boundaries_with_artifacts, StreamContext, Suspense};
+use std::hint::black_box;
 
 struct ThreadCountingAllocator;
 

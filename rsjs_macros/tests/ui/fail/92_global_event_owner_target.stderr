@@ -6,21 +6,25 @@ error[E0277]: event current-target marker `rsjs::elem::Any` does not match bindi
    |
    = help: the trait `EventCurrentTargetFor<Document>` is not implemented for `rsjs::elem::Any`
    = note: parameterize the event type with `rsjs::web::dom::Document` for `on_document_*`, `rsjs::web::dom::Window` for `on_window_*`, or the bound element marker for a local handler; `dom::Any` is element-local only
-   = help: the following other types implement trait `EventCurrentTargetFor<Target>`:
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<HTMLElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::Element>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlDialogElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlFormElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlInputElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlSelectElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlTextAreaElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::elem::Any>`
-           and $N others
+   = help: `rsjs::elem::Any` implements trait `EventCurrentTargetFor<Target>`:
+             EventCurrentTargetFor<HTMLElement>
+             EventCurrentTargetFor<rsjs::Element>
+             EventCurrentTargetFor<rsjs::HtmlDialogElement>
+             EventCurrentTargetFor<rsjs::HtmlFormElement>
+             EventCurrentTargetFor<rsjs::HtmlInputElement>
+             EventCurrentTargetFor<rsjs::HtmlSelectElement>
+             EventCurrentTargetFor<rsjs::HtmlTextAreaElement>
+             EventCurrentTargetFor<rsjs::elem::Any>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlAnchorElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlButtonElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlDivElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlLabelElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlOptionElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlSpanElement>
 note: required by a bound in `rsjs::__private::assert_event_type`
   --> $WORKSPACE/rsjs/src/lib.rs
    |
    |     pub fn assert_event_type<Target, Interface, E>()
-   |            ----------------- required by a bound in this function
 ...
    |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
    |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`
@@ -43,7 +47,6 @@ note: required by a bound in `rsjs::__private::assert_event_type`
   --> $WORKSPACE/rsjs/src/lib.rs
    |
    |     pub fn assert_event_type<Target, Interface, E>()
-   |            ----------------- required by a bound in this function
 ...
    |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
    |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`
@@ -56,21 +59,25 @@ error[E0277]: event current-target marker `rsjs::elem::Any` does not match bindi
    |
    = help: the trait `EventCurrentTargetFor<Window>` is not implemented for `rsjs::elem::Any`
    = note: parameterize the event type with `rsjs::web::dom::Document` for `on_document_*`, `rsjs::web::dom::Window` for `on_window_*`, or the bound element marker for a local handler; `dom::Any` is element-local only
-   = help: the following other types implement trait `EventCurrentTargetFor<Target>`:
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<HTMLElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::Element>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlDialogElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlFormElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlInputElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlSelectElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::HtmlTextAreaElement>`
-             `rsjs::elem::Any` implements `EventCurrentTargetFor<rsjs::elem::Any>`
-           and $N others
+   = help: `rsjs::elem::Any` implements trait `EventCurrentTargetFor<Target>`:
+             EventCurrentTargetFor<HTMLElement>
+             EventCurrentTargetFor<rsjs::Element>
+             EventCurrentTargetFor<rsjs::HtmlDialogElement>
+             EventCurrentTargetFor<rsjs::HtmlFormElement>
+             EventCurrentTargetFor<rsjs::HtmlInputElement>
+             EventCurrentTargetFor<rsjs::HtmlSelectElement>
+             EventCurrentTargetFor<rsjs::HtmlTextAreaElement>
+             EventCurrentTargetFor<rsjs::elem::Any>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlAnchorElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlButtonElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlDivElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlLabelElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlOptionElement>
+             EventCurrentTargetFor<rsjs::web::dom::HtmlSpanElement>
 note: required by a bound in `rsjs::__private::assert_event_type`
   --> $WORKSPACE/rsjs/src/lib.rs
    |
    |     pub fn assert_event_type<Target, Interface, E>()
-   |            ----------------- required by a bound in this function
 ...
    |         <E as crate::EventParamStub>::CurrentTarget: EventCurrentTargetFor<Target>,
    |                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_event_type`

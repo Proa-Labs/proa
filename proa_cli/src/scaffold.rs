@@ -555,7 +555,8 @@ pub fn site_routes(root: Option<PathBuf>) -> Result<Vec<RouteInfo>> {
             };
             let markdown_alias = format!("{route_path}.md");
             let has_markdown = kind == "page"
-                && generated_routes.contains(&format!(".route(\"{markdown_alias}\""));
+                && (trimmed.contains("::handler_with_markdown_alias)")
+                    || generated_routes.contains(&format!(".route(\"{markdown_alias}\"")));
             routes.push(RouteInfo {
                 method,
                 path: route_path.to_string(),

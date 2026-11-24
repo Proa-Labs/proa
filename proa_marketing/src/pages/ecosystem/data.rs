@@ -317,21 +317,6 @@ const ECOSYSTEM_TOOLS: &[EcosystemTool<'static>] = &[
         visual: ToolVisual::Markdown,
     },
     EcosystemTool {
-        category: "interop",
-        href: routes::FRAMEWORK_DOCS,
-        name: "proa_react",
-        version: "v0.3.0",
-        version_tone: ToolVersionTone::Default,
-        description: "React/JSX interop helpers for island bootstrapping, serialized props, and compatibility surfaces.",
-        kind: "crate",
-        detail: "React bridge",
-        cta_label: "Docs",
-        visual: ToolVisual::Crate {
-            initial: "R",
-            command: "React island boundary",
-        },
-    },
-    EcosystemTool {
         category: "tooling",
         href: "https://github.com/hariria/wellformed",
         name: "wellformed",

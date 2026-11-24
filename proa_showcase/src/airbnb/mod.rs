@@ -1,6 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(feature = "rsjs-pages")]
+mod booking;
 mod calendar;
 pub mod home;
 mod image;

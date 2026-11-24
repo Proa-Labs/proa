@@ -14,7 +14,7 @@ Multi-stage: install the Proa CLI beside the Rust toolchain, build through the l
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.93-bookworm AS build
+FROM rust:1.98-bookworm AS build
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git jq \

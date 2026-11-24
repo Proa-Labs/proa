@@ -371,12 +371,7 @@ html! {
 
 ### Disabling all hints
 
-To disable performance hints project-wide (e.g., during early prototyping):
-
-```toml
-[dependencies]
-proa = { version = "0.4", features = ["no-perf-hints"] }
-```
+Enable the `no-perf-hints` feature on your existing `proa` dependency to disable performance hints across the project.
 
 Remove the feature flag when you're ready to optimize.
 

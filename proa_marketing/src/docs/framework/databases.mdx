@@ -72,7 +72,7 @@ use crate::{data::loader::AppLoader, db::connect_database};
 let db = connect_database().await?;
 let loader = Arc::new(AppLoader { db });
 
-let router = Router::new().route("/products/:id", get(product));
+let router = Router::new().route("/products/{id}", get(product));
 
 let app = FrameworkBuilder::new()
     .with_dynamic_routes(router)

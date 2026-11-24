@@ -400,7 +400,7 @@ mod tests {
         assert!(!root.join("src/islands").exists());
         assert!(!root.join("rust-toolchain.toml").exists());
         let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(cargo_toml.contains("rust-version = \"1.93\""));
+        assert!(cargo_toml.contains("rust-version = \"1.98\""));
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
         let parsed_home = syn::parse_file(&home).unwrap();
         let mut saw_non_use_item = false;

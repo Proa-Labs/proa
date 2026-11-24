@@ -29,10 +29,11 @@ use std::cell::Cell;
 use std::mem::{align_of, size_of};
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, BenchmarkId, Criterion, Throughput};
 use proa_core::stack::WriteCursor;
 use proa_core::{ClassList, DataLoader, NoLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::{html_sync, ProaComponent};
+use std::hint::black_box;
 
 const BUFFER_SIZE: usize = 512;
 const CARD_ID: &str = "profile&summary";

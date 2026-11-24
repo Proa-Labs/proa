@@ -228,10 +228,16 @@ fn unrelated_owner_stays_fresh_and_shared_changes_refresh_every_consumer() {
         .split('.')
         .next()
         .unwrap();
-    let dep_info = unchanged.final_cargo.target_directory.join("debug/deps");
-    let b_dep = fs::read_dir(dep_info)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
+    let profile = unchanged.final_cargo.target_directory.join("debug");
+    let package_units = profile.join("build/projection_owner_b");
+    let dep_info = if package_units.is_dir() {
+        package_units
+    } else {
+        profile.join("deps")
+    };
+    let b_dep = walkdir::WalkDir::new(dep_info)
+        .into_iter()
+        .map(|entry| entry.unwrap().into_path())
         .find(|path| {
             path.file_name()
                 .unwrap()

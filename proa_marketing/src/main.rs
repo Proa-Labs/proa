@@ -142,7 +142,7 @@ fn app() -> Router {
                 .with_managed_images(static_assets::get().render_urls()),
         ))
         .merge(static_assets::get().router())
-        .route("/static/*path", get(static_assets::legacy_url))
+        .route("/static/{*path}", get(static_assets::legacy_url))
         .fallback(endpoints::not_found::handler)
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
         .layer(TraceLayer::new_for_http())

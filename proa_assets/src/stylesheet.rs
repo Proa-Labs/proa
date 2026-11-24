@@ -11,7 +11,7 @@
 
 use std::ops::Range;
 
-use cssparser::{ParseError, Parser, ParserInput, Token};
+use cssparser::{ParseError, Parser, Token};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
 const PATH_ENCODING: &AsciiSet = &NON_ALPHANUMERIC
@@ -44,13 +44,13 @@ pub(crate) enum Target {
 
 pub(crate) fn references(source: &str) -> Result<Vec<Reference>, ()> {
     fn visit<'i>(
-        parser: &mut Parser<'i, '_>,
+        parser: &mut Parser<'i>,
         found: &mut Vec<Reference>,
         depth: usize,
         image_set: bool,
-    ) -> Result<(), ParseError<'i, ()>> {
+    ) -> Result<(), ParseError<()>> {
         if depth > 128 {
-            return Err(parser.new_custom_error(()));
+            return Err(cssparser::ParseError::custom(()));
         }
         let mut import = false;
         loop {
@@ -81,7 +81,7 @@ pub(crate) fn references(source: &str) -> Result<Vec<Reference>, ()> {
                             .ok()
                             .filter(|_| nested.is_exhausted());
                         while nested.next_including_whitespace_and_comments().is_ok() {}
-                        Ok::<_, ParseError<'i, ()>>(url)
+                        Ok::<_, ParseError<()>>(url)
                     })?;
                     reference = url.map(|url| (url.to_string(), true));
                 }
@@ -110,8 +110,7 @@ pub(crate) fn references(source: &str) -> Result<Vec<Reference>, ()> {
         }
         Ok(())
     }
-    let mut input = ParserInput::new(source);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Parser::new(source);
     let mut found = Vec::new();
     visit(&mut parser, &mut found, 0, false).map_err(|_| ())?;
     Ok(found)

@@ -20,7 +20,8 @@
 
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 
 // ---------------------------------------------------------------------------
 // Simulated component data
