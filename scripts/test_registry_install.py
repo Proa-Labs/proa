@@ -2,14 +2,32 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import chdir, redirect_stderr, redirect_stdout
 import io
+import os
 from pathlib import Path
 import subprocess
+import tempfile
+import tomllib
 import unittest
 from unittest.mock import call, patch
 
-from check_registry_install import registry_metadata
+from check_registry_install import registry_environment, registry_metadata
+
+
+class RegistryEnvironmentTests(unittest.TestCase):
+    def test_external_project_uses_checkout_toolchain(self):
+        pin = Path(__file__).resolve().parents[1] / "rust-toolchain.toml"
+        expected = tomllib.loads(pin.read_text())["toolchain"]["channel"]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, clear=True):
+            work = Path(directory)
+            (work / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
+            with chdir(work):
+                self.assertEqual(registry_environment(work)["RUSTUP_TOOLCHAIN"], expected)
+
+    def test_explicit_toolchain_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, RUSTUP_TOOLCHAIN="nightly"):
+            self.assertEqual(registry_environment(Path(directory))["RUSTUP_TOOLCHAIN"], "nightly")
 
 
 class RegistryMetadataTests(unittest.TestCase):
