@@ -11,10 +11,10 @@ It enables you to create extremely fast, scalable applications and services in
 Rust by bringing compiled components, streaming, data
 loading, and fine-grained interactive islands into one framework.
 
-[![Axum adapter](https://img.shields.io/badge/proa__framework__axum-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_framework/proa_framework_axum/README.md)
-[![Core](https://img.shields.io/badge/proa__core-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_core)
-[![Macros](https://img.shields.io/badge/proa__macros-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_macros/README.md)
-[![RSJS](https://img.shields.io/badge/rsjs-0.2.0-DD7627?style=flat-square&logo=rust&logoColor=white)](rsjs/README.md)
+[![Axum adapter](https://img.shields.io/badge/proa__framework__axum-0.4.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_framework/proa_framework_axum/README.md)
+[![Core](https://img.shields.io/badge/proa__core-0.4.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_core)
+[![Macros](https://img.shields.io/badge/proa__macros-0.4.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_macros/README.md)
+[![RSJS](https://img.shields.io/badge/rsjs-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](rsjs/README.md)
 [![License](https://img.shields.io/badge/license-Apache--2.0-DD7627?style=flat-square)](LICENSE)
 [![X](https://img.shields.io/badge/X-DD7627?style=flat-square&logo=x&logoColor=white)](https://x.com/drewhariri)
 [![Reddit](https://img.shields.io/badge/Reddit-DD7627?style=flat-square&logo=reddit&logoColor=white)](https://www.reddit.com/r/proa_rs/)
@@ -54,12 +54,15 @@ create a site, edit its first route, and run Proa's checks.
 
 ## Your first page is a typed Rust component
 
-Add the application-facing crate from the Proa Labs repository.
+Add the Proa 0.4 application dependency to `Cargo.toml`. It requires Rust 1.98 or newer.
 
 ```toml
 [dependencies]
-proa = { git = "https://github.com/Proa-Labs/proa.git" }
+proa = "0.4"
 ```
+
+Markdown, streaming, the portable framework API, and RSJS are enabled by default.
+Use `default-features = false` to select a smaller feature set.
 
 Use `WebRenderSync` and `html_sync!` for the normal fast path:
 
@@ -100,7 +103,7 @@ for that island:
 ```rust
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
 use proa::html_sync;
-use rsjs::{rsjs, signal};
+use proa::rsjs::{rsjs, signal};
 
 struct Counter {
     initial: i32,

@@ -105,25 +105,9 @@ fn format_rust(staging: &Path, plan: &SitePlan) -> Result<()> {
         let target = staging.join(&file.path);
         let source = fs::read_to_string(&target)
             .with_context(|| format!("read generated {}", file.path.display()))?;
-        let formatted = crate::fmt::format_file(&file.path, &source)?;
-        if !formatted.diagnostics.is_empty() {
-            bail!(
-                "Proa formatting failed for generated {}: {:?}",
-                file.path.display(),
-                formatted.diagnostics
-            );
-        }
-        let verification =
-            crate::fmt::verify_render_preserving(&file.path, &source, &formatted.output);
-        if !verification.is_empty() {
-            bail!(
-                "Proa formatting changed render semantics for generated {}: {:?}",
-                file.path.display(),
-                verification
-            );
-        }
-        if formatted.output != source {
-            fs::write(&target, &formatted.output)
+        let formatted = crate::scaffold::format_generated_rust(&file.path, &source)?;
+        if formatted != source {
+            fs::write(&target, &formatted)
                 .with_context(|| format!("format generated {}", file.path.display()))?;
         }
         let status = match Command::new("rustfmt")

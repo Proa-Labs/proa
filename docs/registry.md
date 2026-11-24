@@ -10,11 +10,11 @@ Cargo installs both `proa` and `cargo-proa`.
 
 ## Application dependencies
 
-The workspace provides a 0.4 facade named `proa`. The registry release [`proa` 0.1.3](https://crates.io/crates/proa/0.1.3) is a Kubernetes utility. Use the Proa Labs Git source for the framework facade and keep the resolved revision in your application's `Cargo.lock`.
+For Proa 0.4, depend on the `proa` crate and enable the features your application uses. The `axum` feature adds HTTP routing and responses. The framework requires Rust 1.98 or newer.
 
 ```toml
 [dependencies]
-proa = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
+proa = { version = "0.4", features = ["axum"] }
 ```
 
 Rendering traits, buffers, metadata, and macros are exported from `proa::`.
@@ -25,14 +25,16 @@ Streaming components and loaders live under `proa::stream`; the Axum adapter is
 | --- | --- |
 | `markdown` (default) | `md!` and `md_sync!` compilation |
 | `stream` (default) | Runtime-independent loaders and streaming components |
+| `rsjs` (default) | Browser-language macros and types through `proa::rsjs` |
 | `axum` | Axum adapter, portable framework API, and streaming |
-| `framework` | Portable framework API without the HTTP adapter |
+| `framework` (default) | Portable framework API without the HTTP adapter |
 | `rt-tokio` | Eager Tokio loader execution |
 | `actions` | Action data and the `Action` derive |
 | `html-to-markdown` | Explicit HTML-to-Markdown conversion |
 | `no-perf-hints` | Disable compiler performance hints |
 
-RSJS remains a separately versioned browser-language dependency. Font collectors
+RSJS retains its own package version and is re-exported by the default `rsjs`
+feature; applications need no separate RSJS dependency. Font collectors
 remain build dependencies. Advanced integrations may continue to depend directly
 on implementation crates; the facade re-exports the same types and introduces
 no additional rendering layer. Renamed facade dependencies are supported by the

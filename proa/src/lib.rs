@@ -13,8 +13,9 @@
 //! Rendering types and template macros are available at the root. Enable
 //! `axum` for Axum integration or `actions` for action data and derives. The default `stream` feature exposes
 //! loaders and streaming components without selecting a runtime; `rt-tokio`
-//! enables eager Tokio loads. RSJS and build-time font tools remain separate
-//! dependencies.
+//! enables eager Tokio loads. Markdown, streaming, framework, and RSJS are enabled
+//! by default; RSJS is available through `proa::rsjs`. Build-time font tools remain
+//! separate dependencies.
 
 #![deny(unsafe_code)]
 
@@ -23,6 +24,8 @@ extern crate self as proa;
 pub use proa_core::*;
 pub use proa_ir as ir;
 pub use proa_macros::*;
+#[cfg(feature = "rsjs")]
+pub use rsjs;
 
 #[cfg(feature = "actions")]
 pub use proa_actions as actions;

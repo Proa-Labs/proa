@@ -2,7 +2,11 @@
 
 All notable public changes are tracked here.
 
+For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/releases/0.4.0.md).
+
 ## Unreleased
+
+## 0.4.0
 
 - Breaking: the minimum supported Rust version is 1.98 (was 1.93).
 - Breaking: the Axum adapter uses Axum 0.8. Routes registered directly on an
@@ -12,6 +16,13 @@ All notable public changes are tracked here.
   for `with_static_service` uses `Router::new().fallback_service(..)`.
 - Breaking: removed React interop: the `proa/react` feature, the `proa_react`
   crate, and the `#[island]` TSX attribute macro. Migrate islands to RSJS.
+- Rendering performance: validate raw bytes as UTF-8 at the write, use trusted
+  `&str` writes for template text, remove final output scans, and allocate
+  `RenderBuffer` pages without zero-filling. See [the performance results and
+  migration notes](docs/releases/0.4.0.md#rendering-performance) from
+  [#83](https://github.com/Proa-Labs/proa/pull/83). Breaking for custom writers:
+  implement `WriteBuf::extend_str`; `extend_with` is now unsafe; text-related
+  signatures take `&str`; and the `try_render_to_string` helpers are removed.
 - Breaking: published public files moved from `/_proa/assets/` to two prefixes
   split by cache policy. `/_proa/immutable/<path>.<16 hex>.<ext>` holds
   content-hashed images, media, fonts, other opaque files, and now stylesheets,
@@ -454,8 +465,7 @@ All notable public changes are tracked here.
 
 ## 0.3.0
 
-Initial public source release. This is the baseline the Unreleased entries
-above build on: the `proa_core` / `proa_macros` / `proa_framework` 0.3.0
+Initial public source release of the `proa_core` / `proa_macros` / `proa_framework` 0.3.0
 workspace with compiled `html_sync!` / `html!` / `md_sync!` / `md!` templates,
 RSJS islands with the linked `cargo proa` pipeline, streaming SSR, the
 `proa-cli` developer tooling (`fmt`, `lint`, `check`, `chunks`, scaffolding,
