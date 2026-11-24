@@ -995,6 +995,55 @@ async fn buffered_local_and_send_use_the_same_head_values_and_status() {
 }
 
 #[tokio::test]
+async fn buffered_client_responses_preserve_body_decisions_without_managed_head() {
+    struct Created;
+    impl Created {
+        fn stage(response: &mut proa_core::ResponseContext) {
+            response.set_status(StatusCode::CREATED);
+            response.insert_header(http::header::LOCATION, HeaderValue::from_static("/new"));
+            response.append_set_cookie(HeaderValue::from_static("a=1"));
+            response.append_set_cookie(HeaderValue::from_static("b=2"));
+        }
+    }
+    impl proa_core::WebRenderSync for Created {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            Self::stage(cx.response_mut());
+            Ok(())
+        }
+    }
+    impl proa_core::WebRenderSendSync for Created {
+        fn render_send_sync(self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+            Self::stage(cx.response_mut());
+            Ok(())
+        }
+    }
+
+    for route in [
+        CoreRouteResponse::ssr(Created),
+        CoreRouteResponse::ssr_async(proa_core::to_async(Created)),
+        CoreRouteResponse::ssr_async_send(proa_core::to_send(Created)),
+    ] {
+        let response = route
+            .into_client_payload_framework_response(None, &Default::default())
+            .await;
+        assert_eq!(response.status, StatusCode::CREATED);
+        assert_eq!(response.headers[http::header::LOCATION], "/new");
+        assert_eq!(
+            response
+                .headers
+                .get_all(http::header::SET_COOKIE)
+                .iter()
+                .count(),
+            2
+        );
+        assert_eq!(
+            response.headers[http::header::CONTENT_TYPE],
+            "application/json; charset=utf-8"
+        );
+    }
+}
+
+#[tokio::test]
 async fn client_payload_preserves_dynamic_title_status_cookies_and_cache_policy() {
     for send in [false, true] {
         let (release, body) = oneshot::channel();

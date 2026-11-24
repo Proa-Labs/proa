@@ -432,11 +432,16 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
         } = attr_field;
         let expr = accessor.to_expr(field, AccessTarget::Attr);
         let prefix = LitStr::new(&format!(" {}=\"", name.value()), name.span());
+        let bare = LitStr::new(&format!(" {}", name.value()), name.span());
+        let render = if proa_dsl::consolidate::is_url_attr_name(&name.value()) {
+            quote!(render_url_attr)
+        } else {
+            quote!(render_attr)
+        };
         quote! {
             if let Some(value) = { #expr } {
-                #proa_core::WebRenderSync::render(UnsafeRaw(#prefix), cx)?;
-                #proa_core::shared::escape::escape_attr_value(&mut cx.out, value)?;
-                #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                let value: &str = value;
+                #proa_core::shared::attr_value::AttrValue::#render(&value, #prefix, #bare, cx)?;
             }
         }
     });
@@ -456,41 +461,29 @@ pub fn derive_proa_component(input: TokenStream) -> TokenStream {
         }
     });
 
-    let class_render_block = if let Some((field, accessor)) = &class_field {
-        let expr = accessor.to_expr(field, AccessTarget::Class);
-        quote! {
-            let class_slice = &classes[..class_count];
-            let custom_class = { #expr };
-            if !class_slice.is_empty() || custom_class.is_some() {
-                #proa_core::WebRenderSync::render(UnsafeRaw(" class=\""), cx)?;
-                for (idx, class) in class_slice.iter().enumerate() {
-                    if idx > 0 {
-                        #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
-                    }
-                    #proa_core::WebRenderSync::render(UnsafeRaw(class), cx)?;
+    let custom_class = class_field.as_ref().map_or_else(
+        || quote!(::core::option::Option::<&str>::None),
+        |(field, accessor)| accessor.to_expr(field, AccessTarget::Class),
+    );
+    let class_render_block = quote! {
+        let class_slice = &classes[..class_count];
+        let custom_class = #custom_class;
+        if !class_slice.is_empty() || custom_class.is_some() {
+            let dialect = cx.__proa_current_escape_dialect();
+            #proa_core::WebRenderSync::render(UnsafeRaw(" class=\""), cx)?;
+            for (idx, class) in class_slice.iter().enumerate() {
+                if idx > 0 {
+                    #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
                 }
-                if let Some(custom) = custom_class {
-                    if !class_slice.is_empty() {
-                        #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
-                    }
-                    #proa_core::WebRenderSync::render(UnsafeRaw(custom), cx)?;
-                }
-                #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                #proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, class, dialect)?;
             }
-        }
-    } else {
-        quote! {
-            let class_slice = &classes[..class_count];
-            if !class_slice.is_empty() {
-                #proa_core::WebRenderSync::render(UnsafeRaw(" class=\""), cx)?;
-                for (idx, class) in class_slice.iter().enumerate() {
-                    if idx > 0 {
-                        #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
-                    }
-                    #proa_core::WebRenderSync::render(UnsafeRaw(class), cx)?;
+            if let Some(custom) = custom_class {
+                if !class_slice.is_empty() {
+                    #proa_core::WebRenderSync::render(UnsafeRaw(" "), cx)?;
                 }
-                #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
+                #proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, custom, dialect)?;
             }
+            #proa_core::WebRenderSync::render(UnsafeRaw("\""), cx)?;
         }
     };
 
