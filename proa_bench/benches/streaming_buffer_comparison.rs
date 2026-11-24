@@ -1,11 +1,12 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use proa_bench::proa_page::SafeTextBenchmarkPage;
 use proa_core::{
     RenderBuffer, StreamingZeroCopyBuf, WebContext, WebRenderSync, WriteBuf, ZeroCopyBuf,
 };
+use std::hint::black_box;
 
 #[derive(Clone, Copy)]
 enum Op {

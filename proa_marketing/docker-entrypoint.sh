@@ -48,4 +48,4 @@ if [ "${PROA_COMPANIONS:-1}" != "0" ]; then
     start_companion "react-hono-bun" "${PROA_BUN_SSR_PORT:-5200}" bun
 fi
 
-exec /usr/local/bin/proa_marketing
+exec /app/proa_marketing

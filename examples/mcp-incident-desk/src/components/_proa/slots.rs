@@ -12,7 +12,7 @@
 
 #![allow(deprecated)]
 
-use heapless::FnvIndexMap;
+use heapless::index_map::FnvIndexMap;
 
 /// Maximum number of slots in a recipe (e.g., root, header, body, footer)
 const MAX_SLOTS: usize = 8;

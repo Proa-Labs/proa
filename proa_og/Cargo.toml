@@ -22,8 +22,8 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [build-dependencies]
-bindgen = { version = "0.71" }
+bindgen = { version = "0.73.2" }
 pkg-config = { version = "0.3" }
 
 [dev-dependencies]
-png = { version = "0.17" }
+png = { version = "0.18.1" }

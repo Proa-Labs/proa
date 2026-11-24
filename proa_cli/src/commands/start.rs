@@ -23,8 +23,8 @@ pub(crate) struct StartArgs {
     #[arg(long)]
     bin: Option<PathBuf>,
     /// Published public catalog directory. Relative paths resolve from the project root.
-    /// Defaults to `PROA_PUBLIC_ASSETS`, then to the catalog recorded by the
-    /// `proa build` that exported the selected executable.
+    /// Only needed for a catalog kept apart from the executable: by default the
+    /// server loads the one `proa build` wrote beside it (`<bin>.assets`).
     #[arg(long, value_name = "DIR")]
     public_assets: Option<PathBuf>,
     #[arg(long)]
@@ -140,7 +140,7 @@ pub(crate) fn run(args: StartArgs) -> Result<()> {
         let directory = root.join(directory);
         if !directory.join(MANIFEST_FILE).is_file() {
             bail!(
-                "public asset catalog is missing at {}; pass the directory reported by proa build",
+                "public asset catalog is missing at {}; pass a directory published by proa build",
                 directory.display()
             );
         }

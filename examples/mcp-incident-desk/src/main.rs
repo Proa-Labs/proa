@@ -68,8 +68,12 @@ async fn main() -> anyhow::Result<()> {
 async fn cleanup_expired(s: &AppState) -> anyhow::Result<()> {
     let now = mcp_incident_desk::security::now();
     let mut tx = s.db.begin().await?;
-    for table in ["pending", "sessions", "codes"] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} WHERE expires<? LIMIT 500)")).bind(now).execute(&mut *tx).await?;
+    for statement in [
+        "DELETE FROM pending WHERE rowid IN (SELECT rowid FROM pending WHERE expires<? LIMIT 500)",
+        "DELETE FROM sessions WHERE rowid IN (SELECT rowid FROM sessions WHERE expires<? LIMIT 500)",
+        "DELETE FROM codes WHERE rowid IN (SELECT rowid FROM codes WHERE expires<? LIMIT 500)",
+    ] {
+        sqlx::query(statement).bind(now).execute(&mut *tx).await?;
     }
     sqlx::query("DELETE FROM refresh_tokens WHERE hash IN (SELECT r.hash FROM refresh_tokens r JOIN grants g ON g.id=r.grant_id WHERE g.expires<? LIMIT 500)").bind(now).execute(&mut *tx).await?;
     tx.commit().await?;

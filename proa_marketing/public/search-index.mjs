@@ -6,14 +6,7 @@
 // small post-processing helpers below; keep it that way so a tuning run can
 // override the config without touching the UI.
 //
-// Orama is loaded through a dynamic import so the `?v=` cache-busting version
-// on this module's own URL propagates to the vendored bundle (static assets are
-// served with a one-year immutable cache).
-
-const VERSION = new URL(import.meta.url).searchParams.get('v');
-const oramaUrl = new URL('./vendor/orama.mjs', import.meta.url);
-if (VERSION) oramaUrl.searchParams.set('v', VERSION);
-const orama = await import(oramaUrl.href);
+import * as orama from './vendor/orama.mjs';
 
 export const DEFAULT_CONFIG = {
   // Fields searched, in the order Orama walks them.

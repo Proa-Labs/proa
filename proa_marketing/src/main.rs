@@ -7,16 +7,13 @@ use crate::data::routes;
 
 use std::env;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use axum::http::header::{HeaderValue, CACHE_CONTROL, LINK, X_CONTENT_TYPE_OPTIONS};
+use axum::http::header::{HeaderValue, LINK};
 use axum::routing::{get, post};
 use axum::Router;
-use tower::ServiceBuilder;
 use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 use tower_http::compression::CompressionLayer;
-use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -40,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    static_assets::load()?;
     let app = app();
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -139,8 +137,12 @@ fn app() -> Router {
         // as a router rather than as two bare handlers.
         .merge(endpoints::downloads::router())
         .merge(proa_demo::playground::marketing_router())
-        .merge(proa_showcase_web::router())
-        .nest_service("/static", static_service())
+        .merge(proa_showcase_web::router_with_config(
+            proa_showcase_web::ShowcaseWebConfig::default()
+                .with_managed_images(static_assets::get().render_urls()),
+        ))
+        .merge(static_assets::get().router())
+        .route("/static/{*path}", get(static_assets::legacy_url))
         .fallback(endpoints::not_found::handler)
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
         .layer(TraceLayer::new_for_http())
@@ -152,26 +154,6 @@ fn app() -> Router {
 /// and makes the payload larger, so those are excluded by content type.
 fn compression_predicate() -> impl Predicate {
     DefaultPredicate::new().and(NotForContentType::const_new("application/octet-stream"))
-}
-
-fn static_service() -> Router {
-    let static_dir = env::var_os("STATIC_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"));
-
-    Router::new().nest_service(
-        "/",
-        ServiceBuilder::new()
-            .layer(SetResponseHeaderLayer::if_not_present(
-                CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=31536000, immutable"),
-            ))
-            .layer(SetResponseHeaderLayer::if_not_present(
-                X_CONTENT_TYPE_OPTIONS,
-                HeaderValue::from_static("nosniff"),
-            ))
-            .service(ServeDir::new(static_dir)),
-    )
 }
 
 #[cfg(test)]
@@ -191,6 +173,43 @@ mod tests {
             listen_addr("::", 5555).unwrap(),
             "[::]:5555".parse().unwrap()
         );
+    }
+
+    /// A deployed binary has no source tree beside it: the showcase routes
+    /// answer from the copies embedded in the binary, with nothing staged.
+    #[tokio::test]
+    async fn showcase_files_are_served_without_a_directory_on_disk() {
+        let app = proa_showcase_web::router_with_config(proa_showcase_web::ShowcaseWebConfig::new(
+            "/nonexistent/showcase/public",
+        ));
+        for (path, content_type) in [
+            ("/assets/airbnb-showcase.js", "application/javascript"),
+            ("/images/espn/dodger-stadium.jpg", "image/jpeg"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert!(
+                response.headers()["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with(content_type),
+                "{path}"
+            );
+        }
+        let missing = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/missing.js")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

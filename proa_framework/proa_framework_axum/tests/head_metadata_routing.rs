@@ -78,13 +78,15 @@ fn app(spec: bool, streaming: bool) -> Router {
     let routes = if spec {
         Route::endpoint("/products/:id", handler.clone())
             .into_router()
-            .merge(Route::endpoint("/blog/:slug", handler.clone()).into_router())
+            .merge(Route::endpoint("/blog/{slug}", handler.clone()).into_router())
             .merge(Route::endpoint("/files/*path", handler.clone()).into_router())
+            .merge(Route::endpoint("/articles/by-{slug}", handler.clone()).into_router())
     } else {
         Router::new()
-            .route("/products/:id", handler.clone())
-            .route("/blog/:slug", handler.clone())
-            .route("/files/*path", handler.clone())
+            .route("/products/{id}", handler.clone())
+            .route("/blog/{slug}", handler.clone())
+            .route("/files/{*path}", handler.clone())
+            .route("/articles/by-{slug}", handler.clone())
     };
     let routes = Router::new()
         .nest("/shop", routes)
@@ -109,6 +111,7 @@ async fn dynamic_titles_use_decoded_captures_and_inherit_templates() {
                 ("/blog/a%2Fb", "a/b"),
                 ("/blog/caf%C3%A9", "café"),
                 ("/files/a/b.txt", "a/b.txt"),
+                ("/articles/by-first", "first"),
             ] {
                 let response = app
                     .clone()
@@ -164,9 +167,9 @@ async fn params_survive_an_inner_context_layer_and_an_original_uri_override() {
     use std::sync::Arc;
     for spec in [false, true] {
         let routes = if spec {
-            Route::endpoint("/blog/:slug", get(page)).into_router()
+            Route::endpoint("/blog/{slug}", get(page)).into_router()
         } else {
-            Router::new().route("/blog/:slug", get(page))
+            Router::new().route("/blog/{slug}", get(page))
         };
         let layer =
             RouteContextLayer::new(Arc::new(Default::default())).with_head(HeadConfig::default());
@@ -252,11 +255,11 @@ async fn robots_file_and_page_directives_are_independent_in_buffered_and_streame
         .with_dynamic_routes(
             Router::new()
                 .route(
-                    "/search/:slug",
+                    "/search/{slug}",
                     get(|| async { RouteResponse::ssr(SearchPage) }),
                 )
                 .route(
-                    "/stream/:slug",
+                    "/stream/{slug}",
                     get(|| async { RouteResponse::ssr_stream(proa_core::to_async(SearchPage)) }),
                 ),
         )

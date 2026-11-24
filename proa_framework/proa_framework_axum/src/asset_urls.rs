@@ -250,16 +250,16 @@ fn apply_edits(source: &str, mut edits: Vec<Edit>) -> String {
 }
 
 pub(crate) fn rewrite_css(source: &str, base: &BasePath) -> Result<String, String> {
-    use cssparser::{Parser, ParserInput, Token};
+    use cssparser::{Parser, Token};
     fn visit<'i>(
-        parser: &mut Parser<'i, '_>,
+        parser: &mut Parser<'i>,
         base: &BasePath,
         edits: &mut Vec<Edit>,
         depth: usize,
         image_set: bool,
-    ) -> Result<(), cssparser::ParseError<'i, ()>> {
+    ) -> Result<(), cssparser::ParseError<()>> {
         if depth > 128 {
-            return Err(parser.new_custom_error(()));
+            return Err(cssparser::ParseError::custom(()));
         }
         let mut import = false;
         loop {
@@ -321,8 +321,7 @@ pub(crate) fn rewrite_css(source: &str, base: &BasePath) -> Result<String, Strin
         }
         Ok(())
     }
-    let mut input = ParserInput::new(source);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Parser::new(source);
     let mut edits = Vec::new();
     visit(&mut parser, base, &mut edits, 0, false)
         .map_err(|_| "invalid or excessively nested CSS URL syntax".to_string())?;
@@ -334,14 +333,14 @@ pub(crate) fn rewrite_js(source: &str, base: &BasePath) -> Result<String, String
     let mut parsed = oxc_parser::Parser::new(&allocator, source, SourceType::unambiguous()).parse();
     // Oxc's unambiguous mode parses with script context before deciding the
     // module kind, so valid top-level await needs an explicit module retry.
-    if !parsed.errors.is_empty() {
+    if !parsed.diagnostics.is_empty() {
         parsed = oxc_parser::Parser::new(&allocator, source, SourceType::mjs()).parse();
     }
-    if !parsed.errors.is_empty() {
+    if !parsed.diagnostics.is_empty() {
         return Err("invalid JavaScript asset".to_string());
     }
     let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program);
-    if !semantic.errors.is_empty() {
+    if !semantic.diagnostics.is_empty() {
         return Err("invalid JavaScript bindings".to_string());
     }
     let mut helper = format!(
@@ -352,9 +351,12 @@ pub(crate) fn rewrite_js(source: &str, base: &BasePath) -> Result<String, String
         helper.push('_');
     }
     let mut visitor = JsUrls {
-        base,
+        base: Some(base),
+        modules: None,
         scoping: semantic.semantic.scoping(),
         edits: Vec::new(),
+        imports: Vec::new(),
+        unresolved: Vec::new(),
         helper,
         dynamic: false,
     };
@@ -367,10 +369,108 @@ pub(crate) fn rewrite_js(source: &str, base: &BasePath) -> Result<String, String
     Ok(out)
 }
 
+/// A module whose URLs are settled later, so its bytes hold no deployment
+/// setting. See [`portable_js`].
+pub(crate) struct PortableJs {
+    edits: Vec<Edit>,
+    /// Import specifiers that name another module of the same set, by the
+    /// index `modules` gave them. Their text depends on that module's final
+    /// name, which is not known until it has been hashed.
+    pub(crate) imports: Vec<(Span, usize)>,
+    /// Name of the function every application URL is passed through at run
+    /// time, when the module has any.
+    pub(crate) helper: Option<String>,
+    /// Static imports by path that name no module of the set. A static
+    /// import cannot be routed through the helper, and once the module is
+    /// published under another directory or host the path leads nowhere.
+    pub(crate) unresolved: Vec<String>,
+}
+
+impl PortableJs {
+    /// A module that is published exactly as written.
+    pub(crate) fn verbatim() -> Self {
+        Self {
+            edits: Vec::new(),
+            imports: Vec::new(),
+            helper: None,
+            unresolved: Vec::new(),
+        }
+    }
+
+    /// Write the module with `specifier(index)` in place of each import of
+    /// another module of the set.
+    pub(crate) fn apply(&self, source: &str, specifier: impl Fn(usize) -> String) -> String {
+        let mut edits: Vec<Edit> = self
+            .edits
+            .iter()
+            .map(|edit| Edit {
+                span: edit.span,
+                text: edit.text.clone(),
+            })
+            .collect();
+        edits.extend(self.imports.iter().map(|(span, module)| Edit {
+            span: *span,
+            text: serde_json::to_string(&specifier(*module)).expect("serialize import specifier"),
+        }));
+        apply_edits(source, edits)
+    }
+}
+
+/// Prepare a generated module to be served unchanged in every deployment.
+///
+/// The base path is a runtime setting, so it cannot be written into a file
+/// whose name is a hash of its bytes. Each URL operation that
+/// [`rewrite_js`] would prefix is routed through a helper function here, and
+/// the caller defines that helper in terms of the base path the page carries.
+/// `modules` maps an import specifier to the module of the same set it names.
+pub(crate) fn portable_js(
+    source: &str,
+    modules: &dyn Fn(&str) -> Option<usize>,
+) -> Result<PortableJs, String> {
+    let allocator = Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, SourceType::mjs()).parse();
+    if !parsed.diagnostics.is_empty() {
+        return Err("invalid JavaScript module".to_string());
+    }
+    let semantic = oxc_semantic::SemanticBuilder::new().build(&parsed.program);
+    if !semantic.diagnostics.is_empty() {
+        return Err("invalid JavaScript bindings".to_string());
+    }
+    let mut helper = format!(
+        "__proa_url_{:x}",
+        HexDisplay(&Sha256::digest(source.as_bytes()))
+    );
+    while source.contains(&helper) {
+        helper.push('_');
+    }
+    let mut visitor = JsUrls {
+        base: None,
+        modules: Some(modules),
+        scoping: semantic.semantic.scoping(),
+        edits: Vec::new(),
+        imports: Vec::new(),
+        unresolved: Vec::new(),
+        helper,
+        dynamic: false,
+    };
+    visitor.visit_program(&parsed.program);
+    Ok(PortableJs {
+        edits: visitor.edits,
+        imports: visitor.imports,
+        helper: visitor.dynamic.then_some(visitor.helper),
+        unresolved: visitor.unresolved,
+    })
+}
+
 struct JsUrls<'s> {
-    base: &'s BasePath,
+    /// Write this base path into the source. `None` defers every URL to the
+    /// helper, for a module that must not contain one.
+    base: Option<&'s BasePath>,
+    modules: Option<&'s dyn Fn(&str) -> Option<usize>>,
     scoping: &'s oxc_semantic::Scoping,
     edits: Vec<Edit>,
+    imports: Vec<(Span, usize)>,
+    unresolved: Vec<String>,
     helper: String,
     dynamic: bool,
 }
@@ -400,8 +500,10 @@ impl JsUrls<'_> {
         }
         match expression.get_inner_expression() {
             Expression::StaticMemberExpression(member) if member.property.name == "url" => {
-                matches!(member.object.get_inner_expression(), Expression::MetaProperty(meta)
-                    if meta.meta.name == "import" && meta.property.name == "meta")
+                matches!(
+                    member.object.get_inner_expression(),
+                    Expression::ImportMeta(_)
+                )
             }
             Expression::StaticMemberExpression(member)
                 if matches!(member.property.name.as_str(), "href" | "origin") =>
@@ -411,18 +513,66 @@ impl JsUrls<'_> {
             _ => false,
         }
     }
+    /// Record an import of another module of the set.
+    fn import(&mut self, literal: &StringLiteral<'_>) -> bool {
+        let module = self
+            .modules
+            .and_then(|resolve| literal.value.as_str().and_then(resolve));
+        if let Some(module) = module {
+            self.imports.push((literal.span, module));
+        }
+        module.is_some()
+    }
+    /// A static import or export source. It has to stay a literal, so a
+    /// portable module can only follow it to another module of its set.
     fn literal(&mut self, literal: &StringLiteral<'_>) {
-        if let Some(url) = application_url(self.base, &literal.value) {
+        if self.import(literal) {
+            return;
+        }
+        // Browser URLs use Unicode scalar values, replacing any lone UTF-16 surrogate.
+        let value = literal.value.as_str().map_or_else(
+            || {
+                std::borrow::Cow::Owned(
+                    literal
+                        .value
+                        .chars()
+                        .map(|ch| ch.to_char().unwrap_or(char::REPLACEMENT_CHARACTER))
+                        .collect(),
+                )
+            },
+            std::borrow::Cow::Borrowed,
+        );
+        let by_path = value.starts_with("./")
+            || value.starts_with("../")
+            || (value.starts_with('/') && !value.starts_with("//"));
+        if self.modules.is_some() && by_path {
+            self.unresolved.push(value.to_string());
+        }
+        if let Some(url) = self.base.and_then(|base| application_url(base, &value)) {
             self.edits.push(Edit {
                 span: literal.span,
                 text: serde_json::to_string(&url).expect("serialize URL literal"),
             });
         }
     }
-    fn url(&mut self, expression: &Expression<'_>) {
+    /// The argument of a call that fetches a URL. `module` marks a dynamic
+    /// `import(...)`: it is the only such call whose literal can name another
+    /// module of the set, because only an import resolves a relative
+    /// specifier against the importing module. Everything else resolves
+    /// against the document.
+    fn url(&mut self, expression: &Expression<'_>, module: bool) {
         if let Expression::StringLiteral(literal) = expression.get_inner_expression() {
-            self.literal(literal);
-            return;
+            if self.base.is_some() {
+                self.literal(literal);
+                return;
+            }
+            // Only a path from the origin root can gain a base path.
+            if (module && self.import(literal))
+                || !literal.value.starts_with('/')
+                || literal.value.starts_with("//")
+            {
+                return;
+            }
         }
         let span = expression.span();
         self.edits.push(Edit {
@@ -441,7 +591,7 @@ impl<'a> Visit<'a> for JsUrls<'_> {
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         if self.native(&call.callee, "fetch") {
             if let Some(argument) = call.arguments.first().and_then(Argument::as_expression) {
-                self.url(argument);
+                self.url(argument, false);
             }
         }
         walk::walk_call_expression(self, call);
@@ -469,24 +619,22 @@ impl<'a> Visit<'a> for JsUrls<'_> {
                 .first()
                 .and_then(Argument::as_expression)
             {
-                self.url(argument);
+                self.url(argument, false);
             }
         }
         walk::walk_new_expression(self, expression);
     }
     fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
-        self.url(&expression.source);
+        self.url(&expression.source, true);
         walk::walk_import_expression(self, expression);
     }
     fn visit_import_declaration(&mut self, declaration: &ImportDeclaration<'a>) {
         self.literal(&declaration.source);
         walk::walk_import_declaration(self, declaration);
     }
-    fn visit_export_named_declaration(&mut self, declaration: &ExportNamedDeclaration<'a>) {
-        if let Some(source) = &declaration.source {
-            self.literal(source);
-        }
-        walk::walk_export_named_declaration(self, declaration);
+    fn visit_export_from_declaration(&mut self, declaration: &ExportFromDeclaration<'a>) {
+        self.literal(&declaration.source);
+        walk::walk_export_from_declaration(self, declaration);
     }
     fn visit_export_all_declaration(&mut self, declaration: &ExportAllDeclaration<'a>) {
         self.literal(&declaration.source);
@@ -595,7 +743,11 @@ function local(fetch, window, Request) { fetch('/local'); window.fetch('/local')
         assert!(result.contains("function __proa_url_"));
         let alloc = Allocator::default();
         let parsed = oxc_parser::Parser::new(&alloc, &result, SourceType::mjs()).parse();
-        assert!(parsed.errors.is_empty(), "{:?}: {result}", parsed.errors);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "{:?}: {result}",
+            parsed.diagnostics
+        );
         assert!(rewrite_js("const =", &base()).is_err());
     }
 

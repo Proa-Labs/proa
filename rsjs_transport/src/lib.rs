@@ -75,3 +75,21 @@ pub use wire::{
     SHARED_STATE_SCHEMA_HEADER_SIZE, TRANSPORT_FORMAT_MAGIC, TRANSPORT_FORMAT_VERSION,
     TRANSPORT_RECORD_SIZE, UNASSIGNED_CARGO_UNIT_ID,
 };
+
+/// The request a build tool makes of an executable it just built: write the
+/// framework's own browser modules into a directory, then exit.
+///
+/// The executable answers before its `main` runs (see `rsjs::export`), so
+/// none of the application's startup code is part of a build.
+pub mod framework_export {
+    /// Names the directory to export into.
+    pub const ENV: &str = "PROA_EXPORT_FRAMEWORK_ASSETS";
+    /// Present in the bytes of every executable that answers [`ENV`]. A
+    /// build tool looks for it first and never starts one without it.
+    pub const SENTINEL: &[u8] = b"proa-framework-asset-export-v1\0";
+    /// Written into the directory last. It is a JSON array with one object
+    /// per exporting host: `source` identifies the linked sources, and
+    /// `files` lists `[name, path]` pairs with `path` relative to the
+    /// directory.
+    pub const INDEX_FILE: &str = "index.json";
+}

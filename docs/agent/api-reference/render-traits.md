@@ -388,11 +388,7 @@ without authored Markdown through a tuple, which adds no boundaries. See
 
 ### Convert existing HTML components to Markdown
 
-Enable the optional converter on the core dependency:
-
-```toml
-proa = { version = "0.4", features = ["html-to-markdown"] }
-```
+Enable the `html-to-markdown` feature on your existing `proa` dependency.
 
 A synchronous HTML component can delegate its Markdown implementation without
 maintaining a second template:

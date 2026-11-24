@@ -318,8 +318,9 @@ fn page_inputs() {
     );
     let first_css = &first_catalog.manifest().assets["styles.css"];
     let second_css = &second_catalog.manifest().assets["styles.css"];
-    assert_eq!(first_css.public_path, "styles.css");
-    assert_eq!(second_css.public_path, first_css.public_path);
+    // A stylesheet is named after its bytes like any other hashed file.
+    assert!(first_css.public_path.starts_with("styles."));
+    assert_ne!(second_css.public_path, first_css.public_path);
     assert_ne!(first_css.object, second_css.object);
     fs::write(root.join("public/logo.svg"), "updated logo").unwrap();
     let third = watch.wait_for(&log, waiting, 3);
@@ -1180,4 +1181,184 @@ exec "$REAL_CARGO" "$@"
         5,
         "CARGO_TERM_* settings must not invalidate the persisted stamp cache"
     );
+}
+
+#[test]
+fn build_bundles_the_public_catalog_beside_the_exported_executable() {
+    let temp = fixture();
+    let root = temp.path();
+    let exported_bin = temp.path().join("release-export/app");
+    let bundled = temp.path().join("release-export/app.assets");
+    let build = |extra: &[&str]| {
+        let mut args = vec!["build", "--offline", "--no-check", "--artifact-out"];
+        args.push(exported_bin.to_str().unwrap());
+        args.extend_from_slice(extra);
+        cli(root, &args)
+    };
+
+    // No flag and no environment variable: the catalog follows the executable.
+    let first = success(&build(&[]));
+    assert!(first.contains(" public assets in "), "{first}");
+    let catalog = AssetCatalog::load(&bundled).unwrap();
+    let first_url = catalog.manifest().assets["logo.svg"].public_path.clone();
+    assert_eq!(
+        fs::read(catalog.object_path("logo.svg").unwrap()).unwrap(),
+        b"first"
+    );
+    drop(catalog);
+    // The bundle holds each file at the path of its URL, the manifest, and
+    // the marker that says Proa wrote it. A static host can serve `public/`.
+    assert_eq!(
+        fs::read(bundled.join("public/_proa/immutable").join(&first_url)).unwrap(),
+        b"first"
+    );
+    let mut entries: Vec<_> = fs::read_dir(&bundled)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, [".proa-assets", "manifest.json", "public"]);
+
+    // The directory is self-contained: it still loads after the pair is moved.
+    let moved = temp.path().join("deployed");
+    fs::create_dir(&moved).unwrap();
+    fs::copy(&exported_bin, moved.join("app")).unwrap();
+    copy_tree(&bundled, &moved.join("app.assets"));
+    let relocated = AssetCatalog::load(moved.join("app.assets")).unwrap();
+    assert_eq!(
+        relocated.manifest().assets["logo.svg"].public_path,
+        first_url
+    );
+    drop(relocated);
+
+    // A rebuild to the same path updates the bundled catalog in place.
+    fs::write(root.join("public/logo.svg"), b"second").unwrap();
+    success(&build(&[]));
+    let updated = AssetCatalog::load(&bundled).unwrap();
+    let second_url = updated.manifest().assets["logo.svg"].public_path.clone();
+    assert_ne!(first_url, second_url);
+    drop(updated);
+
+    // `proa start` hands the bundled catalog to the executable it starts.
+    let started = success(&cli(
+        root,
+        &["start", "--bin", exported_bin.to_str().unwrap()],
+    ));
+    let manifest: AssetManifest = serde_json::from_str(
+        started
+            .lines()
+            .find_map(|line| line.strip_prefix("MAIN||"))
+            .expect("started executable"),
+    )
+    .unwrap();
+    assert_eq!(manifest.assets["logo.svg"].public_path, second_url);
+
+    // A directory that belongs to something else is refused and left untouched.
+    let blocked_bin = temp.path().join("blocked/app");
+    let blocked = temp.path().join("blocked/app.assets");
+    fs::create_dir_all(&blocked).unwrap();
+    fs::write(blocked.join("existing.txt"), "keep").unwrap();
+    let refused = cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            blocked_bin.to_str().unwrap(),
+        ],
+    );
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("is in the way"), "{stderr}");
+    assert_eq!(fs::read_dir(&blocked).unwrap().count(), 1);
+    assert!(!blocked_bin.exists());
+
+    // An export inside the public directory is refused before anything is
+    // written there for a later build to publish.
+    let inside = root.join("public/app");
+    let overlapping = cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            inside.to_str().unwrap(),
+        ],
+    );
+    assert!(!overlapping.status.success());
+    let stderr = String::from_utf8_lossy(&overlapping.stderr);
+    assert!(stderr.contains("overlaps the public directory"), "{stderr}");
+    assert!(!root.join("public/app.assets").exists());
+    assert!(!inside.exists());
+
+    // A directory is not an executable path: nothing is bundled beside it.
+    let directory = temp.path().join("release-dir");
+    fs::create_dir(&directory).unwrap();
+    let not_a_file = cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            directory.to_str().unwrap(),
+        ],
+    );
+    assert!(!not_a_file.status.success());
+    assert!(!temp.path().join("release-dir.assets").exists());
+
+    // An empty leftover directory is adopted, and one holding only the lock
+    // of an interrupted build is not mistaken for someone else's.
+    let interrupted_bin = temp.path().join("interrupted/app");
+    let interrupted = temp.path().join("interrupted/app.assets");
+    fs::create_dir_all(&interrupted).unwrap();
+    fs::write(interrupted.join(".writer.lock"), "").unwrap();
+    success(&cli(
+        root,
+        &[
+            "build",
+            "--offline",
+            "--no-check",
+            "--artifact-out",
+            interrupted_bin.to_str().unwrap(),
+        ],
+    ));
+    drop(AssetCatalog::load(&interrupted).unwrap());
+
+    // A build that publishes nothing leaves the catalog alone while a server
+    // is still reading it.
+    let reader = AssetCatalog::load(&bundled).unwrap();
+    let installed = fs::metadata(&exported_bin).unwrap().modified().unwrap();
+    let in_use = build(&["--no-assets"]);
+    assert!(!in_use.status.success());
+    // The refusal comes before the executable is replaced.
+    assert_eq!(
+        fs::metadata(&exported_bin).unwrap().modified().unwrap(),
+        installed
+    );
+    let stderr = String::from_utf8_lossy(&in_use.stderr);
+    assert!(stderr.contains("still being read"), "{stderr}");
+    assert!(reader.object_path("logo.svg").unwrap().is_file());
+    drop(reader);
+
+    // Otherwise it removes the catalog an earlier export left there, so the
+    // executable cannot start with stale files.
+    success(&build(&["--no-assets"]));
+    assert!(exported_bin.is_file());
+    assert!(!bundled.exists());
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
 }

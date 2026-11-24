@@ -2932,7 +2932,6 @@ fn component_abi_impl_generics(
         .map(|mut param| {
             match &mut param {
                 syn::GenericParam::Type(param) => {
-                    param.eq_token = None;
                     param.default = None;
                     param.bounds = param
                         .bounds
@@ -2954,7 +2953,6 @@ fn component_abi_impl_generics(
                         .collect();
                 }
                 syn::GenericParam::Const(param) => {
-                    param.eq_token = None;
                     param.default = None;
                 }
             }

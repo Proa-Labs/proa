@@ -105,7 +105,7 @@ impl FrameworkRouteSnapshot {
     }
 }
 
-/// Extract route params by matching a declarative `:param` route pattern
+/// Extract route params by matching a declarative `{param}` route pattern
 /// against a concrete request path.
 pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RouteParams {
     let mut params = Vec::new();
@@ -120,12 +120,18 @@ pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RoutePar
         match (pattern_segments.next(), request_segments.next()) {
             (None, None) => break,
             (Some(pattern_segment), Some(request_segment)) => {
-                if let Some(name) = pattern_segment.strip_prefix(':') {
+                let name = pattern_segment
+                    .strip_prefix('{')
+                    .and_then(|s| s.strip_suffix('}'))
+                    .filter(|s| !s.is_empty() && !s.contains(['{', '}', '*']))
+                    .or_else(|| pattern_segment.strip_prefix(':'));
+                if let Some(name) = name {
                     params.push(RouteParam::new(
                         name.to_owned().into_boxed_str(),
                         request_segment.to_owned().into_boxed_str(),
                     ));
-                } else if pattern_segment != request_segment {
+                } else if pattern_segment != request_segment || pattern_segment.contains(['{', '}'])
+                {
                     return RouteParams::default();
                 }
             }
@@ -143,14 +149,14 @@ mod tests {
     #[test]
     fn extract_route_params_matches_named_segments() {
         let params =
-            extract_route_params("/products/:id/reviews/:slug", "/products/42/reviews/top");
+            extract_route_params("/products/{id}/reviews/{slug}", "/products/42/reviews/top");
         assert_eq!(params.get("id"), Some("42"));
         assert_eq!(params.get("slug"), Some("top"));
     }
 
     #[test]
     fn extract_route_params_returns_empty_for_non_match() {
-        let params = extract_route_params("/products/:id", "/categories/42");
+        let params = extract_route_params("/products/{id}", "/categories/42");
         assert!(params.is_empty());
     }
 }

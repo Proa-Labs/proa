@@ -7,8 +7,9 @@
 //! benchmark intentionally retains only the full-page render and the cache-hot
 //! memcpy floor for the exact same bytes.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use proa_bench::proa_page;
+use std::hint::black_box;
 
 /// Write the exact bytes used by the CI performance fixture when requested.
 ///

@@ -16,6 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 axum = { workspace = true }
+include_dir = { version = "0.7" }
 proa_core = { workspace = true }
 proa_showcase = { workspace = true, features = ["rsjs-pages"] }
 rsjs = { workspace = true }

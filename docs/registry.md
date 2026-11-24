@@ -1,23 +1,20 @@
 # Package distribution
 
-Install the CLI and framework libraries from crates.io. No private Cargo
-registry, GitHub credential, or registry token is required to install or build
-Proa.
+Released framework crates and the CLI are available on crates.io. Install the CLI with Cargo.
 
 ```bash
 cargo install proa-cli --locked
 ```
 
-Cargo installs both `proa` and `cargo-proa`. Generated projects use compatible
-crates.io versions and commit their `Cargo.lock` for reproducible builds.
+Cargo installs both `proa` and `cargo-proa`.
 
 ## Application dependencies
 
-Most applications start with `proa`:
+The workspace provides a 0.4 facade named `proa`. The registry release [`proa` 0.1.3](https://crates.io/crates/proa/0.1.3) is a Kubernetes utility. Use the Proa Labs Git source for the framework facade and keep the resolved revision in your application's `Cargo.lock`.
 
 ```toml
 [dependencies]
-proa = { version = "0.4", features = ["axum"] }
+proa = { git = "https://github.com/Proa-Labs/proa.git", features = ["axum"] }
 ```
 
 Rendering traits, buffers, metadata, and macros are exported from `proa::`.
@@ -33,7 +30,6 @@ Streaming components and loaders live under `proa::stream`; the Axum adapter is
 | `framework` (default) | Portable framework API without the HTTP adapter |
 | `rt-tokio` | Eager Tokio loader execution |
 | `actions` | Action data and the `Action` derive |
-| `react` | React interoperability and the `island` attribute |
 | `html-to-markdown` | Explicit HTML-to-Markdown conversion |
 | `no-perf-hints` | Disable compiler performance hints |
 

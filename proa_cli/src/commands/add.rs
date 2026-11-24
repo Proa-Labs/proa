@@ -312,7 +312,7 @@ fn add_sqlx_dependency(root: &Path, files: &mut Vec<(PathBuf, String)>) -> Resul
         }
     } else {
         let mut table = InlineTable::new();
-        table.insert("version", Value::from("0.8"));
+        table.insert("version", Value::from("0.9.1"));
         let mut features = Array::new();
         for feature in required {
             features.push(feature);
@@ -358,14 +358,15 @@ fn deployment_files(
     package: &str,
     has_database: bool,
 ) -> Vec<(PathBuf, String)> {
-    let migration_copy = if has_database {
-        "COPY --from=build /app/migrations ./migrations\n"
-    } else {
-        ""
-    };
     let mut files = vec![
-        (PathBuf::from("Dockerfile"), format!("FROM rust:1.93-bookworm AS build\nWORKDIR /app\nCOPY . .\nRUN --mount=type=secret,id=proa_token cargo build --release --locked\nFROM debian:bookworm-slim\nWORKDIR /app\nCOPY --from=build /app/target/release/{package} /usr/local/bin/app\nCOPY --from=build /app/public ./public\n{migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000\nEXPOSE 3000\nCMD [\"/usr/local/bin/app\"]\n")),
-        (PathBuf::from(".dockerignore"), "target\n.git\ndata/*.db*\n.env\n".to_string()),
+        (
+            PathBuf::from("Dockerfile"),
+            crate::site_scaffold::deployment_dockerfile(has_database),
+        ),
+        (
+            PathBuf::from(".dockerignore"),
+            "target\n.git\ndata/*.db*\n.env\n".to_string(),
+        ),
     ];
     if matches!(provider, Deployment::Railway) {
         files.push((PathBuf::from("railway.json"), "{\n  \"$schema\": \"https://railway.com/railway.schema.json\",\n  \"build\": { \"builder\": \"DOCKERFILE\" },\n  \"deploy\": { \"healthcheckPath\": \"/readyz\", \"healthcheckTimeout\": 120, \"restartPolicyType\": \"ON_FAILURE\" }\n}\n".to_string()));

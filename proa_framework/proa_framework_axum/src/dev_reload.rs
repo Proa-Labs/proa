@@ -303,7 +303,7 @@ impl DevReloadLayer {
                         async move {
                             // Compare the literal path rather than registering a
                             // route pattern: valid mount segments may start with
-                            // `:` or `*`, which Axum interprets as route parameters.
+                            // `:` or `*`, which Axum reserves in route declarations.
                             if request.uri().path() == public_path.as_ref() {
                                 relay.oneshot(request).await.expect("infallible dev relay")
                             } else {

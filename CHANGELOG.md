@@ -6,6 +6,9 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
 
 ## Unreleased
 
+- Breaking: removed `proa_react`, the `proa` facade's `react` feature, and
+  the TSX `#[island]` macro. Use RSJS for browser interactivity. Axum is now
+  on the 0.8 series, and the workspace requires Rust 1.98 or newer.
 - Rendering performance: validate raw bytes as UTF-8 at the write, use trusted
   `&str` writes for template text, remove final output scans, and allocate
   `RenderBuffer` pages without zero-filling. See [the performance results and
@@ -13,6 +16,57 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
   [#83](https://github.com/Proa-Labs/proa/pull/83). Breaking for custom writers:
   implement `WriteBuf::extend_str`; `extend_with` is now unsafe; text-related
   signatures take `&str`; and the `try_render_to_string` helpers are removed.
+- Breaking: published public files moved from `/_proa/assets/` to two prefixes
+  split by cache policy. `/_proa/immutable/<path>.<16 hex>.<ext>` holds
+  content-hashed images, media, fonts, other opaque files, and now stylesheets,
+  served with `public, max-age=31536000, immutable`. `/_proa/mutable/<path>`
+  holds public JS, HTML, JSON, web manifests, source maps, text, and XML under
+  their own names, served with `public, no-cache` and a strong ETag. File-name
+  hashes are 16 hex characters (were 8), and a hashed file has exactly one URL:
+  aliases at the logical path (the old stable `styles.css` URL, for example)
+  are gone, so take every
+  URL from `cx.url("public/...")`. A public directory may not contain a
+  top-level `_proa/` directory.
+- Breaking: stylesheets are rewritten at publication so relative `url(...)`,
+  `@import`, and `image-set(...)` references point at the published files, then
+  hashed. References that cannot follow (a missing file, a root-relative URL, a
+  stylesheet that is not valid UTF-8 CSS, a reference cycle) are build
+  warnings, and so is a path from a file that keeps its name to a hashed one. Catalog CSS and JS are no longer rewritten for a
+  base path at startup: files are served byte for byte as built. Pages with
+  RSJS islands under a non-empty base path carry
+  `<script type="application/json" id="__proa">{"basePath":"..."}</script>`,
+  which the runtime's `app_url` reads. Hand-written JS takes its URLs from
+  the page, rendered with `cx.url(...)`.
+- `FrameworkBuilder::new()` now serves the linked RSJS runtimes and generated
+  modules under `/_proa/immutable/rsjs/` by default, so applications no longer
+  need to call `.with_rsjs_assets()`. Call `.without_rsjs_assets()` when an
+  application serves its own copies at the canonical paths.
+- Breaking: `FrameworkBuilder` serves the RSJS runtimes and
+  generated modules at content-hashed names under `/_proa/immutable/rsjs/`,
+  cached for a year, in place of `/rsjs-runtime.js`, `/rsjs-runtime-query.js`,
+  and `/rsjs/island/<file>.js`. `rsjs_assets_router` and
+  `try_rsjs_assets_router` are removed; a custom router uses
+  `proa::axum::RsjsAssets::prepare()?`, merges its `router()`, and calls
+  `RouteContextLayer::with_rsjs_assets(&rsjs)`. Every RSJS script and
+  `modulepreload` tag now carries the CSP nonce and an `integrity` attribute.
+- Breaking: `proa_fonts_build` names vendored files `<stem>.<16 hex>.woff2`
+  (was 8) and defaults the URL prefix to `/_proa/immutable/fonts` (was
+  `/fonts`). The asset catalog serves the files from `public/fonts`, so apps no
+  longer mount `/fonts` and the generated Dockerfile no longer copies
+  `public/fonts`. Run `cargo proa font sync` once to rename existing files
+  without fetching again.
+- `proa build --artifact-out` writes a read-only bundle beside the executable:
+  `manifest.json` plus a `public/` directory that mirrors browser URLs
+  (`_proa/immutable/`, `_proa/mutable/`, and root icons), including the RSJS
+  modules exported from the built executable. It is moved into place whole and
+  holds no locks, `objects/`, or `staging/`.
+- `PROA_ASSET_PREFIX` links published files, fonts, and bundled RSJS modules
+  from a static host that the bundle's `public/` directory was uploaded to.
+  With a nonce CSP, `FrameworkBuilder` adds the asset origin to `style-src`,
+  `img-src`, `font-src`, `media-src`, and `connect-src`. Also available as
+  `proa::axum::AssetPrefix` and `PublicAssets::load_hosted`.
+- `favicon.ico`, `apple-touch-icon.png`, and `apple-touch-icon-precomposed.png`
+  at the top of `public/` are also answered at the origin root.
 
 - Generated applications now select the 0.4 framework APIs used by their
   templates, with scaffold dependency versions derived from Cargo declarations.

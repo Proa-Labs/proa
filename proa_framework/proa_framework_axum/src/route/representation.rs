@@ -24,12 +24,41 @@ pub struct MarkdownAlternate {
 }
 
 impl MarkdownAlternate {
+    /// Named route captures in the alternate path expand to percent-encoded segments.
     pub const fn new(path: &'static str) -> Self {
         Self { path }
     }
 
     pub const fn path(self) -> &'static str {
         self.path
+    }
+
+    /// Render an explicit alias sharing its canonical route's final capture.
+    /// For `/guides/{slug}.md`, the renderer sees the same `slug` as on the HTML page.
+    pub fn render_explicit<M: MdRenderSync>(
+        self,
+        markdown: M,
+    ) -> Result<RepresentationResponse<proa_core::NoLoader>, WriteError> {
+        let mut request = current_framework_request_context();
+        let capture = self
+            .path
+            .rsplit('/')
+            .next()
+            .and_then(|segment| segment.strip_prefix('{'))
+            .and_then(|segment| segment.strip_suffix("}.md"));
+        if let (Some(key), Some(params)) = (capture, &request.route_params) {
+            let params = proa_core::RouteParams::from_vec(
+                params
+                    .iter()
+                    .map(|param| match param.value().strip_suffix(".md") {
+                        Some(value) if param.key() == key => proa_core::RouteParam::new(key, value),
+                        _ => param.clone(),
+                    })
+                    .collect(),
+            );
+            request.route_params = Some(params);
+        }
+        render_explicit_markdown(markdown, &request)
     }
 }
 
@@ -145,8 +174,15 @@ pub fn explicit_markdown<M>(
 where
     M: MdRenderSync,
 {
+    render_explicit_markdown(markdown, &current_framework_request_context())
+}
+
+fn render_explicit_markdown<M: MdRenderSync>(
+    markdown: M,
+    request: &proa_framework_core::FrameworkRequestContext,
+) -> Result<RepresentationResponse<proa_core::NoLoader>, WriteError> {
     Ok(RepresentationResponse::Markdown {
-        response: render_sync_markdown_response(markdown, &current_framework_request_context())?,
+        response: render_sync_markdown_response(markdown, request)?,
         canonical: false,
     })
 }
@@ -315,9 +351,30 @@ fn merge_accept_vary(headers: &mut HeaderMap) {
 }
 
 fn alternate_link(alternate: MarkdownAlternate) -> HeaderValue {
+    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+    use std::borrow::Cow;
+    const SEGMENT: &percent_encoding::AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'.')
+        .remove(b'_')
+        .remove(b'~');
+    let mut path = Cow::Borrowed(alternate.path());
+    if path.contains('{') {
+        let _ = super::context::ROUTE_CONTEXT.try_with(|ctx| {
+            for param in ctx.borrow().current_route_params() {
+                let capture = format!("{{{}}}", param.key());
+                if path.contains(&capture) {
+                    path = Cow::Owned(path.replace(
+                        &capture,
+                        &utf8_percent_encode(param.value(), SEGMENT).to_string(),
+                    ));
+                }
+            }
+        });
+    }
     HeaderValue::from_str(&format!(
         "<{}>; rel=\"alternate\"; type=\"text/markdown\"",
-        super::app_url(alternate.path())
+        super::app_url(&path)
     ))
     .expect("Markdown alternate paths must be valid header values")
 }
@@ -414,6 +471,59 @@ mod tests {
             "</index.md>; rel=\"alternate\"; type=\"text/markdown\""
         );
         assert_eq!(response.headers()[CONTENT_TYPE], "text/html; charset=utf-8");
+    }
+
+    #[tokio::test]
+    async fn alternate_link_encodes_each_captured_segment() {
+        let app = Router::new()
+            .route(
+                "/guides/{slug}",
+                get(|| async {
+                    negotiate(
+                        &headers(None),
+                        RouteResponse::ssr(StaticRaw("HTML")),
+                        MarkdownPage,
+                        MarkdownAlternate::new("/guides/{slug}.md"),
+                    )
+                    .unwrap()
+                }),
+            )
+            .layer(RouteContextLayer::new(Arc::new(HashMap::new())));
+        let request = Request::builder()
+            .uri("/guides/a%2Fb%20c")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(
+            response.headers()[LINK],
+            "</guides/a%2Fb%20c.md>; rel=\"alternate\"; type=\"text/markdown\""
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_alias_strips_one_suffix_from_only_the_final_capture() {
+        struct Page;
+        impl MdRenderSync for Page {
+            fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+                let params = cx.route_params().unwrap();
+                assert_eq!(params.get("section"), Some("a.md"));
+                assert_eq!(params.get("slug"), Some("b/c.md"));
+                Ok(())
+            }
+        }
+        const ALTERNATE: MarkdownAlternate = MarkdownAlternate::new("/{section}/{slug}.md");
+        let app = Router::new()
+            .route(
+                "/{section}/{slug}",
+                get(|| async { ALTERNATE.render_explicit(Page).unwrap() }),
+            )
+            .layer(RouteContextLayer::new(Arc::new(HashMap::new())));
+        let request = Request::builder()
+            .uri("/a.md/b%2Fc.md.md")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

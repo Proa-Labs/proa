@@ -256,14 +256,14 @@ Use `--version "=<published-version>"` to pin a release. Main snapshots require
 a prebuilt archive. If the snapshot archive is unavailable for your platform,
 select a published version instead.
 
-That build takes several minutes and needs Rust 1.93.0 or newer plus a C
+That build takes several minutes and needs Rust 1.98.0 or newer plus a C
 toolchain. On Alpine, install the toolchain first:
 
 ```bash
 apk add build-base
 ```
 
-Alpine's packaged Rust lags the 1.93.0 minimum on some releases. Run
+Alpine's packaged Rust lags the 1.98.0 minimum on some releases. Run
 `rustc --version`, and install the toolchain with
 [rustup](https://rustup.rs) when the packaged one is older. The installer
 does not install Rust for you: it stops and prints the rustup command
@@ -367,8 +367,7 @@ Then confirm:
 
 - The island has a matching server-rendered placeholder.
 - The route serves static assets from the same origin during development.
-- Event handlers live inside the `#[island]` or
-  `#[rsjs(component, client)]` boundary.
+- Event handlers live inside the `#[rsjs(component, client)]` boundary.
 - Async query helpers use an async `WebRender` component, not a sync render implementation.
 
 See [RSJS](/docs/guides/islands).

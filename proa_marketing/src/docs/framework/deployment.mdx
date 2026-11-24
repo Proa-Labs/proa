@@ -56,7 +56,7 @@ Whatever you pick, the app must:
 
 - Read `PORT` from the environment. Never hardcode it.
 - Bind `0.0.0.0`, or `::` for dual-stack traffic, including legacy IPv6-only private networks.
-- Serve static assets from `public/` beside the binary (the generated server reads them relative to its working directory).
+- Ship the public asset catalog beside the binary. `proa build` writes it there (`app` and `app.assets/`), and the server loads it from there, so copy the two together.
 - Answer `200` on a cheap `/healthz`, with dependency checks on a separate `/readyz`.
 
 Verify these before you deploy anywhere:
@@ -64,10 +64,59 @@ Verify these before you deploy anywhere:
 ```bash
 docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site
 curl -fsS http://127.0.0.1:3000/healthz
-curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
+curl -fsS http://127.0.0.1:3000/readyz
+curl -fsS http://127.0.0.1:3000/ -o /dev/null
 ```
 
-Build a release binary with `proa build --locked --artifact-out <path>`, which runs the asset build and the linked RSJS pipeline (a plain `cargo build --release` skips the assets and fails at link time on any crate with islands). Public Proa dependencies resolve from crates.io without credentials. The exported binary and `public/` are the deployable artifact.
+Build with `proa build --locked --artifact-out <path>`, which runs the asset build and the linked RSJS pipeline (a plain `cargo build --release` skips the assets and fails at link time on any crate with islands). Public Proa dependencies resolve from crates.io without credentials. The build writes the binary to `<path>` and its public asset bundle to `<path>.assets/`. Those two are the deployable artifact: copy them to the same directory on the host and run the binary. Nothing else needs to be staged, and no environment variable points at the assets.
+
+The bundle is read-only and mirrors browser URLs under `public/` (names are illustrative):
+
+```text
+/out/
+  app
+  app.assets/
+    .proa-assets                          marker: Proa wrote this directory
+    manifest.json                         server-only: logical path -> URL, hashes, cache policy
+    public/                               mirrors browser URLs exactly
+      favicon.ico                         root files, always served by the origin
+      _proa/
+        immutable/
+          styles.6ca57fe9e41b02d7.css
+          images/hero.1234abcd5e6f7a8b.webp
+          fonts/geist-latin-400-normal.9f2c1a3b7d4e5f60.woff2
+          rsjs/runtime.9a8b7c6d5e4f3a2b.js
+          rsjs/query.2b3c4d5e6f7a8b9c.js
+          rsjs/island/search.4e5f6a7b8c9d0e1f.js
+        mutable/
+          search-index.mjs
+          data.json
+```
+
+Files under `_proa/immutable/` carry a content hash and are cached for a year. Files under `_proa/mutable/` keep their names and are revalidated on every load. The bundle is assembled beside its destination and moved into place whole, so an export that fails while building leaves the previous bundle untouched. An export is refused, before it compiles anything, while a running server is reading the bundle it would replace.
+
+To put the RSJS modules in the bundle, `proa build` starts the executable it just built with `PROA_EXPORT_FRAMEWORK_ASSETS=<dir>`. The framework answers before `main` runs, writes the modules, and exits, so no application startup code (database, configuration, ports) runs during a build. An executable that does not link the RSJS runtime is never started; one that links it is, even if it serves its own copies of the modules. If the export fails, the build warns and writes the bundle without them. A cross-compiled executable that cannot run on the build machine is skipped with a note, and the server then prepares and serves the modules itself.
+
+## Serving assets from a static host
+
+The server serves everything in the bundle itself, so this step is optional. To move published files to a static host or CDN bucket, upload `app.assets/public/_proa/` as two syncs:
+
+| Directory | Sync | `Cache-Control` |
+| --- | --- | --- |
+| `_proa/immutable/` | Additive. Never delete old files. | `public, max-age=31536000, immutable` |
+| `_proa/mutable/` | Overwrite. | `public, no-cache` |
+
+Finish the upload before the new server version takes traffic. Keeping old files under `immutable/` lets pages from the previous deploy keep working during a rollout. The host must send CORS headers (`Access-Control-Allow-Origin`), because module scripts and fonts are fetched in CORS mode.
+
+Then set `PROA_ASSET_PREFIX` to the URL the bundle's `public/` directory was uploaded to, such as `https://cdn.example.com/site`, or to a root-relative path such as `/static-host`:
+
+```bash
+PROA_ASSET_PREFIX=https://cdn.example.com/site ./app
+```
+
+The variable is read at startup and ignored under `proa dev`. With it set, every `cx.url("public/...")` URL, every font URL from `Font::head`, and (when the bundle holds them) every RSJS module URL starts with that prefix instead of the base path. Application routes such as `cx.url("/pricing")` keep using `PROA_BASE_PATH`. RSJS script and preload tags get `crossorigin`. The root icons (`/favicon.ico` and the Apple touch icons) are always answered by the app server.
+
+The server keeps serving the same files itself, so the prefix can be removed at any time. With a nonce CSP, the builder adds the asset origin to the policy for you; see [Headers and CSP](/docs/framework/security-headers#assets-on-another-origin). Code that builds its own router can use `proa::axum::AssetPrefix::new(...)` with `PublicAssets::load_hosted(output, &base_path, Some(&prefix))`.
 
 ## Serving behind a URL path prefix
 
@@ -83,7 +132,6 @@ let base_path = BasePath::new(
 )?;
 let app = FrameworkBuilder::new()
     .with_base_path(base_path) // <-- new: set the public URL prefix
-    .with_rsjs_assets() // <-- new: serve assets with matching runtime imports
     .with_static_service(static_router)
     .with_dynamic_routes(router)
     .build();
@@ -98,16 +146,20 @@ The APIs are also covered in
 [FrameworkBuilder configuration](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
 and [linked island asset serving](/docs/framework/static-assets#serving-linked-island-assets).
 
-`with_rsjs_assets()` installs the linked runtime and generated module routes.
-It rewrites runtime imports once at startup. Use it instead of registering your
-own `/rsjs-runtime.js`, `/rsjs-runtime-query.js`, and `/rsjs/island/:file` handlers.
+`FrameworkBuilder` serves the linked runtime and generated modules by default at
+content-hashed names under `/_proa/immutable/rsjs/`. The modules import each
+other by relative path and contain no base path, so the same files work under
+every prefix. You do not need to register your own runtime and island handlers
+(call `.without_rsjs_assets()` to opt out).
 Runtime scripts, preloads, query runtime, dependency modules, and deferred island
 loading use the same prefix, including islands arriving in streamed boundaries.
 HTML responses remain streamed.
 
-For a custom Axum router, merge `rsjs_assets_router(&base_path)` and apply
-`RouteContextLayer::new(metadata).with_base_path(base_path)`. Custom
-asset pipelines can retain their handlers and call
+For a custom Axum router, call `proa::axum::RsjsAssets::prepare()?`, merge its
+`router()`, and apply
+`RouteContextLayer::new(metadata).with_base_path(base_path).with_rsjs_assets(&rsjs)`.
+Custom asset pipelines that serve their own copies at the canonical paths
+(`/rsjs-runtime.js` and so on) can retain their handlers and call
 `rsjs::rewrite_runtime_import_specifiers` with the two public runtime URLs.
 Non-Axum adapters can use
 `proa::framework::response::append_rsjs_runtime_plan_with_base_path` and
@@ -145,8 +197,8 @@ The framework's CSS manifest URLs, React manifest URLs, and Markdown alternate
 links also follow the configured prefix. The basic Axum site (including its
 docs/blog shell), application scaffold, and ORIGIN template read `PROA_BASE_PATH`.
 
-`proa_fonts::Font::head(cx)` uses the request prefix for both preload links and
-the generated `@font-face` URLs. It writes CSS segments directly without
+`proa_fonts::Font::head(cx)` uses the request prefix (or `PROA_ASSET_PREFIX`,
+when set) for both preload links and the generated `@font-face` URLs. It writes CSS segments directly without
 allocating a replacement stylesheet; the build-time font files stay unchanged.
 Pass the page's context to `head`, rather than caching a rendered font fragment
 from a context without the deployment setting.
@@ -162,7 +214,7 @@ proa_docs::adapter::axum::response_with_base_path(&DOCS, "/docs/start", &base_pa
 The collection's build-time `.base_path("/docs")` remains its internal route.
 Non-Axum callers can use `proa_docs::render_with_base_path`. ORIGIN serves linked
 islands through the shared asset router and resolves its browser-side lab
-request against the URL of its JavaScript module.
+request against the base path it reads from the page.
 
 ### Coverage and limitations
 
@@ -174,8 +226,13 @@ starter. `proa dev` uses a prefixed same-origin event stream when
 The relay accepts both stripped incoming paths and preserved paths when the
 application router is nested under that prefix.
 
+Files published from `public/` (under `/_proa/immutable/` and
+`/_proa/mutable/`) are served byte for byte as built under every base path.
+They are never rewritten: stylesheets refer to other public files by relative
+path, and public JS reads the base path from the page (below).
+
 `with_static_service(...)` automatically composes recognized URL syntax in
-CSS and JavaScript assets when a prefix is configured. This includes CSS
+the CSS and JavaScript assets of its `/static` router when a prefix is configured. This includes CSS
 `url(...)`, `image-set(...)`, and `@import`, JavaScript module imports, and native browser `fetch`,
 `Request`, `Worker`, `SharedWorker`, `EventSource`, and `WebSocket` URL arguments.
 `new URL` arguments also follow the mount when their base is `import.meta.url`
@@ -196,15 +253,31 @@ const endpoint = "/api/items";
 const response = await fetch(endpoint);
 ```
 
-For handwritten browser code using a custom client library, compose its URL
-explicitly with the helper exported by either linked runtime:
+For handwritten browser code using a custom client library, render the URL it
+needs into the page and read it from there. `cx.url(...)` already includes the
+base path, and this works on every page:
+
+```rust
+html_sync! {
+    <div id="items" data-endpoint={cx.url("/api/items")}></div>
+}
+```
 
 ```javascript
-import { app_url } from "/rsjs-runtime.js";
-
-// The managed asset service prefixes the import above.
-client.load(app_url("/api/items")); // /apps/demo/api/items
+client.load(document.getElementById("items").dataset.endpoint); // /apps/demo/api/items
 ```
+
+Public files are served as written under every mount, so a root-relative URL
+typed into one is not adjusted. Pages with RSJS islands also carry
+`<script type="application/json" id="__proa">{"basePath":"/apps/demo"}</script>`
+when the base path is not empty, which is where the linked runtime's `app_url`
+reads it. A page without islands does not have that element, so handwritten
+code should not depend on it.
+
+The runtime is served at a content-hashed URL, so handwritten code cannot
+`import` it from `/rsjs-runtime.js`. When handwritten code needs the URL of a
+hashed file, render it into the page with `cx.url("public/...")` (a `data-`
+attribute, for example) instead of hard-coding a path.
 
 Custom static routers can use `base_path_assets(router, base_path)`; install
 compression outside that router. Transformations are cached by content with a

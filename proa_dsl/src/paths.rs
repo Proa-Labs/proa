@@ -21,7 +21,6 @@ pub fn runtime(package: &str) -> TokenStream {
             "rsjs" => quote!(#facade::rsjs),
             "proa_ir" => quote!(#facade::ir),
             "proa_actions" => quote!(#facade::actions),
-            "proa_react" => quote!(#facade::react),
             "serde" => quote!(#facade::__private::serde),
             "serde_json" => quote!(#facade::__private::serde_json),
             _ => direct_path(package),

@@ -2,11 +2,11 @@
 
 Proa compiles Rust-authored HTML and Markdown templates into efficient rendering
 code. Most applications use this crate for rendering traits, buffers, metadata,
-and template macros.
+and template macros. Use the Proa Labs repository as the Cargo dependency source.
 
 ```toml
 [dependencies]
-proa = "0.4"
+proa = { git = "https://github.com/Proa-Labs/proa.git" }
 ```
 
 ```rust
@@ -23,8 +23,8 @@ provide Markdown macros, `proa::stream` loaders/components, the portable
 For example, use `proa::rsjs::{rsjs, signal, event_handler}` without a separate
 RSJS dependency.
 
-Enable `axum` for `proa::axum`, `actions` for `proa::actions`, or `react` for
-`proa::react`. `rt-tokio` enables eager Tokio loads.
+Enable `axum` for `proa::axum` or `actions` for `proa::actions`. The `rt-tokio`
+feature enables eager Tokio loads.
 
 Use `default-features = false` for minimal HTML/XML templates, then enable only
 the features you need. `html-to-markdown` enables the explicit conversion

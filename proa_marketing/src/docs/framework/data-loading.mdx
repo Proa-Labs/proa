@@ -684,7 +684,7 @@ pub fn router(documents: HashMap<String, Vec<u8>>) -> Router {
     let loader = Arc::new(AppLoader::new(documents, crypto));
 
     Router::new()
-        .route("/documents/:id", get(document))
+        .route("/documents/{id}", get(document))
         .with_state(loader)
 }
 

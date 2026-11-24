@@ -23,6 +23,10 @@ use crate::{
 
 pub use plan::{PlannedFile, SitePlan};
 
+pub(crate) fn deployment_dockerfile(has_database: bool) -> String {
+    templates::current_deployment_dockerfile(has_database)
+}
+
 #[derive(Debug, Clone)]
 pub struct NewSiteOptions {
     pub path: PathBuf,
@@ -396,7 +400,7 @@ mod tests {
         assert!(!root.join("src/islands").exists());
         assert!(!root.join("rust-toolchain.toml").exists());
         let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(cargo_toml.contains("rust-version = \"1.93\""));
+        assert!(cargo_toml.contains("rust-version = \"1.98\""));
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
         let parsed_home = syn::parse_file(&home).unwrap();
         let mut saw_non_use_item = false;
@@ -416,7 +420,7 @@ mod tests {
         assert!(!home.contains("Rust\\."));
         assert!(!home.contains("multi\\-target"));
         let routes = std::fs::read_to_string(root.join("src/routes.rs")).unwrap();
-        assert!(routes.contains("PROA_PUBLIC_ASSETS"));
+        assert!(routes.contains("PublicAssets::configured()"));
     }
 
     #[test]

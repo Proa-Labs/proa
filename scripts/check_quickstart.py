@@ -86,13 +86,20 @@ def verify_http(binary: Path, project: Path, environment: dict[str, str],
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
+            # The stylesheet's name carries a hash of its bytes, so the page is
+            # the only place its URL can be read from.
+            with urllib.request.urlopen(base + "/", timeout=30) as response:
+                stylesheet = re.search(
+                    r'href="(/_proa/immutable/styles\.[0-9a-f]{16}\.css)"', response.read().decode()
+                )
+                assert stylesheet, "the page links no hashed stylesheet"
             for path, accept, content_type in [
                 ("/", "text/html", "text/html"),
                 ("/index.md", "text/markdown", "text/markdown"),
                 ("/", "text/markdown", "text/markdown"),
                 ("/about", "text/html", "text/html"),
                 ("/readyz", "*/*", None),
-                ("/static/styles.css", "text/css", "text/css"),
+                (stylesheet.group(1), "text/css", "text/css"),
             ]:
                 request = urllib.request.Request(base + path, headers={"Accept": accept})
                 with urllib.request.urlopen(request, timeout=30) as response:

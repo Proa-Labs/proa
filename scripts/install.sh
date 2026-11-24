@@ -47,7 +47,7 @@ set_defaults() {
 
     # Minimum supported Rust version, kept in sync with [workspace.package]
     # rust-version in the repository root Cargo.toml.
-    MSRV="1.93.0"
+    MSRV="1.98.0"
 
     # Bump this when the installer itself changes. It is the only thing in a
     # pasted log that identifies which installer produced it, since the script

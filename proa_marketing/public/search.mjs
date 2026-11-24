@@ -17,7 +17,6 @@
 // The ranking itself lives in ./search-index.mjs so scripts/search_battery.mjs
 // can score it in Node without a browser.
 
-const VERSION = new URL(import.meta.url).searchParams.get('v');
 const MANIFEST_URL = '/docs/_search/manifest.json';
 const DEBOUNCE_MS = 60;
 
@@ -27,12 +26,6 @@ const status = document.getElementById('search-status');
 
 if (input && results) {
   init();
-}
-
-function versioned(path) {
-  const url = new URL(path, import.meta.url);
-  if (VERSION) url.searchParams.set('v', VERSION);
-  return url.href;
 }
 
 function init() {
@@ -95,7 +88,7 @@ function init() {
 
   async function load() {
     const [{ buildIndex, searchIndex }, documents] = await Promise.all([
-      import(versioned('./search-index.mjs')),
+      import('./search-index.mjs'),
       fetchDocuments(),
     ]);
     const db = await buildIndex(documents);

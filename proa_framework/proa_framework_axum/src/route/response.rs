@@ -169,15 +169,37 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
 
     /// Render a complete document using the catalog's public URLs and base path.
     /// This performs the same buffered render as [`render_to_bytes`](Self::render_to_bytes).
+    ///
+    /// A page with RSJS islands links their modules at the canonical
+    /// `/rsjs-runtime.js` paths here. When
+    /// [`RsjsAssets`](crate::RsjsAssets) serves them, use
+    /// [`render_to_bytes_with_assets`](Self::render_to_bytes_with_assets) so
+    /// the page links the names it publishes.
     pub fn render_to_bytes_with_public_assets(
         self,
         assets: &crate::PublicAssets,
+    ) -> Result<bytes::Bytes, FrameworkError> {
+        self.render_to_bytes_with_assets(assets, None)
+    }
+
+    /// [`render_to_bytes_with_public_assets`](Self::render_to_bytes_with_public_assets),
+    /// linking RSJS modules by the names `rsjs` publishes them under.
+    pub fn render_to_bytes_with_assets(
+        self,
+        assets: &crate::PublicAssets,
+        rsjs: Option<&crate::RsjsAssets>,
     ) -> Result<bytes::Bytes, FrameworkError> {
         let mut context = FrameworkRequestContext::default();
         context.request.set_base_path(assets.base_path().clone());
         context
             .request
             .set_public_asset_urls(Some(assets.render_urls()));
+        context
+            .request
+            .set_asset_prefix(assets.asset_prefix().map(crate::AssetPrefix::shared));
+        context
+            .request
+            .set_framework_assets(rsjs.map(|rsjs| rsjs.published().clone()));
         self.0.render_to_bytes_with_context(&context)
     }
 
@@ -537,6 +559,8 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
     let route_params = Some(ctx.current_route_params().clone());
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
     request.set_public_asset_urls(ctx.public_asset_urls());
+    request.set_framework_assets(ctx.framework_assets());
+    request.set_asset_prefix(ctx.asset_prefix());
     if let Some(method) = ctx.current_method().cloned() {
         request.set_method(method);
     }

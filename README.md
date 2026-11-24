@@ -54,11 +54,11 @@ create a site, edit its first route, and run Proa's checks.
 
 ## Your first page is a typed Rust component
 
-Add the application-facing crate:
+Add the application-facing crate from the Proa Labs repository.
 
 ```toml
 [dependencies]
-proa = "0.4"
+proa = { git = "https://github.com/Proa-Labs/proa.git" }
 ```
 
 Markdown, streaming, the portable framework API, and RSJS are enabled by default.
@@ -265,7 +265,7 @@ host, so rerun on an idle machine before using the absolute times for planning.
 
 Prerequisites:
 
-- Rust 1.93.0 or newer
+- Rust 1.98.0 or newer
 - Python 3 for repository lint scripts
 - Node.js 22 or newer for browser conformance tests and JavaScript comparison
   engines

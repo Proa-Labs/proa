@@ -38,6 +38,8 @@ pub struct RouteContext {
     csp_nonce: Option<CspNonce>,
     base_path: proa_core::BasePath,
     public_asset_urls: Option<PublicAssetUrls>,
+    framework_assets: Option<proa_core::FrameworkAssets>,
+    asset_prefix: Option<Arc<str>>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -52,6 +54,8 @@ impl RouteContext {
             csp_nonce: None,
             base_path: proa_core::BasePath::default(),
             public_asset_urls: None,
+            framework_assets: None,
+            asset_prefix: None,
             head: None,
         }
     }
@@ -66,6 +70,14 @@ impl RouteContext {
 
     pub(super) fn public_asset_urls(&self) -> Option<PublicAssetUrls> {
         self.public_asset_urls.clone()
+    }
+
+    pub(super) fn framework_assets(&self) -> Option<proa_core::FrameworkAssets> {
+        self.framework_assets.clone()
+    }
+
+    pub(super) fn asset_prefix(&self) -> Option<Arc<str>> {
+        self.asset_prefix.clone()
     }
 
     pub(super) fn set_is_client_request(&mut self, is_client: bool) {
@@ -323,6 +335,7 @@ pub struct RouteContextLayer {
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
     public_assets: Option<crate::PublicAssets>,
+    framework_assets: Option<proa_core::FrameworkAssets>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -336,6 +349,7 @@ impl RouteContextLayer {
             local_stream_executor: LocalStreamExecutor::new(LocalStreamExecutorConfig::default()),
             base_path: proa_core::BasePath::default(),
             public_assets: None,
+            framework_assets: None,
             head: None,
         }
     }
@@ -361,6 +375,13 @@ impl RouteContextLayer {
         self
     }
 
+    /// Link the RSJS modules by the names `assets` publishes them under.
+    /// Merge [`RsjsAssets::router`](crate::RsjsAssets::router) to serve them.
+    pub fn with_rsjs_assets(mut self, assets: &crate::RsjsAssets) -> Self {
+        self.framework_assets = Some(assets.published().clone());
+        self
+    }
+
     /// Configure the bounded executor used only for genuinely local streams.
     pub fn with_local_stream_executor_config(mut self, config: LocalStreamExecutorConfig) -> Self {
         self.local_stream_executor = LocalStreamExecutor::new(config);
@@ -378,6 +399,7 @@ impl<S> Layer<S> for RouteContextLayer {
             local_stream_executor: self.local_stream_executor.clone(),
             base_path: self.base_path.clone(),
             public_assets: self.public_assets.clone(),
+            framework_assets: self.framework_assets.clone(),
             head: self.head.clone(),
         }
     }
@@ -390,6 +412,7 @@ pub struct RouteContextService<S> {
     local_stream_executor: LocalStreamExecutor,
     base_path: proa_core::BasePath,
     public_assets: Option<crate::PublicAssets>,
+    framework_assets: Option<proa_core::FrameworkAssets>,
     head: Option<proa_core::HeadConfig>,
 }
 
@@ -426,12 +449,14 @@ where
         context.set_current_request_parts(current_method, current_headers, current_uri);
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
+        context.framework_assets = self.framework_assets.clone();
         if let Some(assets) = &self.public_assets {
             // One generation per request: the URLs rendered into the page and
             // the cache key a later layer reads from the extension must agree,
             // even when `proa dev` republishes between the two.
             let assets = assets.current();
             context.public_asset_urls = Some(assets.render_urls());
+            context.asset_prefix = assets.asset_prefix().map(crate::AssetPrefix::shared);
             req.extensions_mut().insert(assets);
         }
 
@@ -494,12 +519,10 @@ fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteCont
         return true;
     };
     let pattern = pattern.as_str();
-    let has_named = pattern.split('/').any(|part| part.starts_with(':'));
-    let has_wildcard = pattern.split('/').any(|part| part.starts_with('*'));
-    if !has_named && !has_wildcard {
+    if !pattern.contains('{') {
         return true;
     }
-    if has_wildcard {
+    if pattern.contains("{*") || pattern.contains("{{") || pattern.contains("}}") {
         return false;
     }
     let current = req.uri().path();

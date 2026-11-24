@@ -50,7 +50,8 @@ dependency trees.
 
 For build-time fingerprinting of public images, media and downloads, see
 [managed public assets](../../docs/build-output.md). `FrameworkBuilder`
-mounts the catalog from `PROA_PUBLIC_ASSETS` at startup and enables
+mounts the catalog at startup, from `PROA_PUBLIC_ASSETS` or else from the
+directory `proa build` wrote beside the executable, and enables
 `cx.url("public/...")` in components, including detached streams.
 
 ## Route responses
@@ -149,6 +150,10 @@ let app = FrameworkBuilder::new()
 let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
 proa_framework_axum::serve(listener, app, Duration::from_secs(30)).await?;
 ```
+
+Proa uses Axum 0.8. Use `/{id}` for a capture and `/{*path}` for a catch-all
+when registering routes on an `axum::Router`. Proa's declarative `Route`
+also accepts the earlier `/:id` and `/*path` spellings.
 
 `FrameworkBuilder::build()` returns an `axum::Router`, so anything downstream of it (middleware, nesting under another router, tracing, CORS) works via the standard Axum / tower ecosystem.
 

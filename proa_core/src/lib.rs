@@ -108,7 +108,10 @@ pub use shared::write_buf::{
     StreamingChunk, StreamingChunkPart, StreamingZeroCopyBuf, WriteBuf, WriteError, ZeroCopyBuf,
     ZeroCopyCheckpoint, DEFAULT_CHAINED_BUMP_PAGE_SIZE,
 };
-pub use web::base_path::{AppUrl, BasePath, InvalidBasePath, PublicAssetUrls, TryIntoHeadUrl};
+pub use web::base_path::{
+    AppUrl, BasePath, FrameworkAsset, FrameworkAssets, InvalidBasePath, PublicAssetUrls,
+    TryIntoHeadUrl,
+};
 pub use web::base_path_html::BasePathHtml;
 pub use web::{csp_nonce_attr, CspNonce, CspNonceAttr, InvalidCspNonce};
 pub use web::{RsjsSharedStateSeedCheckpoint, StandardWebContext, STANDARD_PAGE_SIZE};

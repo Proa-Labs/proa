@@ -510,9 +510,6 @@ pub fn expr_to_js(expr: &Expr) -> String {
 /// * `U+2028` (LINE SEPARATOR) -> ` ` and `U+2029` (PARAGRAPH
 ///   SEPARATOR) -> ` `. Before ES2019 these were line terminators inside
 ///   string literals on many JS parsers, allowing string breakout.
-///
-/// This mirrors the canonical script-context masking in
-/// `proa_react/src/island.rs` (see the "CVE review Gap M" comment block).
 fn escape_string(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")

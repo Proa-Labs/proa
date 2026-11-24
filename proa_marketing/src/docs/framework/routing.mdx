@@ -12,7 +12,7 @@ Start with an Axum `Router`. This route sends `/shop/products/42` to the `produc
 use axum::{routing::get, Router};
 
 let routes = Router::new()
-    .route("/shop/products/:id", get(product));
+    .route("/shop/products/{id}", get(product));
 ```
 
 The handler composes the document, shared shop layout, and selected Page:
@@ -30,7 +30,7 @@ async fn product() -> RouteResponse {
 }
 ```
 
-![The file tree and explicitly composed layouts lead to one selected Page.](/static/images/docs/nested-layouts.svg?v=2)
+![The file tree and explicitly composed layouts lead to one selected Page.](/static/images/docs/nested-layouts.svg)
 
 `RootDocument` and `ShopLayout` declare `const ROLE: ComponentRole = ComponentRole::LAYOUT`; `ProductPage` declares `PAGE`. See [Layouts and Pages](/docs/framework/layouts-and-pages) for their full implementations and document markup.
 
@@ -59,8 +59,8 @@ A segment beginning with `:` captures a path value:
 
 | Route | Request | Read through cx |
 | --- | --- | --- |
-| `/shop/products/:id` | `/shop/products/42` | `cx.param("id")` → `Some("42")` |
-| `/blog/:slug` | `/blog/red-shoes` | `cx.param("slug")` → `Some("red-shoes")` |
+| `/shop/products/{id}` | `/shop/products/42` | `cx.param("id")` → `Some("42")` |
+| `/blog/{slug}` | `/blog/red-shoes` | `cx.param("slug")` → `Some("red-shoes")` |
 
 These are URL patterns, registered explicitly; Rust filenames organize the source code.
 
@@ -129,14 +129,14 @@ Chain `.route(...)` calls to add Pages. Use Axum's `.nest(...)` to share a URL p
 ```rust filename="More routes"
 let shop = Router::new()
     .route("/", get(shop_index))
-    .route("/products/:id", get(product));
+    .route("/products/{id}", get(product));
 
 let routes = Router::new()
     .route("/about", get(about))
     .nest("/shop", shop);
 ```
 
-This registers `/about`, `/shop`, and `/shop/products/:id`; Axum maps the nested `/` route to the prefix itself. Each handler explicitly composes its layout and Page. URL nesting does not add HTML wrappers.
+This registers `/about`, `/shop`, and `/shop/products/{id}`; Axum maps the nested `/` route to the prefix itself. Each handler explicitly composes its layout and Page. URL nesting does not add HTML wrappers.
 
 ### Route specifications
 
@@ -146,7 +146,7 @@ Use Proa's `Route::endpoint` when you also need route modes, static-path declara
 use proa::axum::{Route, RouteMode};
 
 let routes = Router::new().merge(
-    Route::endpoint("/shop/products/:id", get(product))
+    Route::endpoint("/shop/products/{id}", get(product))
         .with_route_mode(RouteMode::Server)
         .into_router(),
 );

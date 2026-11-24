@@ -197,7 +197,7 @@ fn cargo_toml(package: &str, has_database: bool) -> String {
     let proa = super::scaffold_version("proa");
 
     let database = if has_database {
-        "sqlx = { version = \"0.8\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
+        "sqlx = { version = \"0.9.1\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
     } else {
         ""
     };
@@ -206,17 +206,17 @@ fn cargo_toml(package: &str, has_database: bool) -> String {
 name = "{package}"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.93"
+rust-version = "1.98"
 
 [dependencies]
 proa = {{ version = "{proa}", features = ["axum", "rt-tokio"] }}
 anyhow = "1"
-axum = "0.7.9"
+axum = "0.8.9"
 dotenvy = "0.15"
 serde = {{ version = "1", features = ["derive"] }}
 {database}thiserror = "2"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
-tower-http = {{ version = "0.6", features = ["fs", "trace"] }}
+tower-http = {{ version = "0.7.1", features = ["fs", "trace"] }}
 tracing = "0.1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 
@@ -409,7 +409,7 @@ jobs:
           persist-credentials: false
 
       # Download immutable release artifacts and verify them before execution.
-      # Cargo.toml declares rust-version = "1.93"; CI uses the runner's installed Rust toolchain.
+      # Cargo.toml declares rust-version = "1.98"; CI uses the runner's installed Rust toolchain.
       - name: Install the Proa CLI and Tailwind
         shell: bash
         run: |
@@ -620,12 +620,14 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     assert_eq!(html.headers()[header::VARY], "Accept");
     assert!(html.headers()[header::LINK].to_str().unwrap().contains("/apps/demo/index.md"));
     let document = String::from_utf8(body(html).await).unwrap();
+    // A published stylesheet is named after its bytes, so read its URL from the page.
     let stylesheet = if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
-        "/_proa/assets/styles.css"
+        let start = document.find("href=\"/apps/demo/_proa/immutable/styles.").expect("hashed stylesheet link") + "href=\"/apps/demo".len();
+        &document[start..start + document[start..].find('"').unwrap()]
     } else {
+        assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
         "/static/styles.css"
     };
-    assert!(document.contains(&format!("href=\"/apps/demo{stylesheet}\"")));
     let css = app.clone().oneshot(Request::builder().uri(stylesheet).body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(css.status(), StatusCode::OK);
     assert!(css.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/css"));
@@ -694,15 +696,7 @@ fn add_deploy(
     if deploy == DeployChoice::None {
         return Ok(());
     }
-    let migration_copy = if has_database {
-        "COPY --from=build /app/migrations ./migrations\n"
-    } else {
-        ""
-    };
-    plan.write(
-        "Dockerfile",
-        deployment_dockerfile(migration_copy, CLI_DISTRIBUTION_VERSION),
-    )?;
+    plan.write("Dockerfile", current_deployment_dockerfile(has_database))?;
     plan.write(".dockerignore", "target\n.git\n.env\ndata/*.db*\n")?;
     let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies resolve from crates.io without credentials:\n\n```bash\ndocker build .\n```\n\nUse `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
     if has_database {
@@ -744,6 +738,15 @@ fn add_deploy(
     Ok(())
 }
 
+/// The Dockerfile `proa new site` and `proa add <deployment>` both write.
+pub(super) fn current_deployment_dockerfile(has_database: bool) -> String {
+    let mut copies = String::new();
+    if has_database {
+        copies.push_str("COPY --from=build /app/migrations ./migrations\n");
+    }
+    deployment_dockerfile(&copies, CLI_DISTRIBUTION_VERSION)
+}
+
 fn cli_download_base(version: &str) -> String {
     let snapshot = version
         .split_once('-')
@@ -758,7 +761,7 @@ fn cli_download_base(version: &str) -> String {
 fn deployment_dockerfile(migration_copy: &str, cli_version: &str) -> String {
     let cli_download_base = cli_download_base(cli_version);
     format!(
-        r#"FROM rust:1.93-bookworm AS rust-toolchain
+        r#"FROM rust:1.98-bookworm AS rust-toolchain
 FROM ubuntu:24.04 AS build
 ENV RUSTUP_HOME="/usr/local/rustup" CARGO_HOME="/usr/local/cargo" PATH="/usr/local/cargo/bin:$PATH" DEBIAN_FRONTEND="noninteractive"
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
@@ -766,42 +769,59 @@ COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl git libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PROA_CLI_VERSION="{cli_version}"
+# Proa publishes a prebuilt CLI for x86-64 only. An ARM64 build compiles the
+# same published version from crates.io, so the image matches its builder.
 RUN set -eux; \
     install_dir="/usr/local/bin"; \
     temp_dir="$(mktemp -d)"; \
-    target="x86_64-unknown-linux-gnu"; \
-    archive="proa-cli-$PROA_CLI_VERSION-$target.tar.gz"; \
-    sums="proa-cli-$PROA_CLI_VERSION-SHA256SUMS"; \
-    base="{cli_download_base}"; \
-    curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$archive" "$base/$archive"; \
-    curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$sums" "$base/$sums"; \
-    awk -v archive="$archive" '($2 == archive || $2 == "*" archive) && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {{ print tolower($1) "  " archive; found = 1 }} END {{ exit found ? 0 : 1 }}' "$temp_dir/$sums" > "$temp_dir/selected-SHA256SUMS"; \
-    (cd "$temp_dir" && sha256sum --check --strict selected-SHA256SUMS); \
-    tar -xzf "$temp_dir/$archive" -C "$temp_dir"; \
-    release_dir="$temp_dir/proa-cli-$PROA_CLI_VERSION-$target"; \
-    install -m 0755 "$release_dir/proa" "$install_dir/proa"; \
+    case "$(uname -m)" in \
+        x86_64) \
+            target="x86_64-unknown-linux-gnu"; \
+            archive="proa-cli-$PROA_CLI_VERSION-$target.tar.gz"; \
+            sums="proa-cli-$PROA_CLI_VERSION-SHA256SUMS"; \
+            base="{cli_download_base}"; \
+            curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$archive" "$base/$archive"; \
+            curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$sums" "$base/$sums"; \
+            awk -v archive="$archive" '($2 == archive || $2 == "*" archive) && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {{ print tolower($1) "  " archive; found = 1 }} END {{ exit found ? 0 : 1 }}' "$temp_dir/$sums" > "$temp_dir/selected-SHA256SUMS"; \
+            (cd "$temp_dir" && sha256sum --check --strict selected-SHA256SUMS); \
+            tar -xzf "$temp_dir/$archive" -C "$temp_dir"; \
+            release_dir="$temp_dir/proa-cli-$PROA_CLI_VERSION-$target"; \
+            install -m 0755 "$release_dir/proa" "$install_dir/proa"; \
+            tailwind_asset="tailwindcss-linux-x64"; \
+            tailwind_sha256="dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a"; \
+            ;; \
+        aarch64) \
+            case "$PROA_CLI_VERSION" in \
+                *-main.*) echo "Proa main snapshots have no ARM64 CLI. Build this image with --platform linux/amd64, or use a published Proa version." >&2; exit 1 ;; \
+            esac; \
+            cargo install --locked proa-cli --registry crates-io --version "=$PROA_CLI_VERSION" --root "$temp_dir/cargo"; \
+            install -m 0755 "$temp_dir/cargo/bin/proa" "$install_dir/proa"; \
+            tailwind_asset="tailwindcss-linux-arm64"; \
+            tailwind_sha256="55fd0b241214eff3de1e8ee4f22796662f2d2e7a49bcfca7477cfd0bac398195"; \
+            ;; \
+        *) echo "Proa has no CLI for $(uname -m)." >&2; exit 1 ;; \
+    esac; \
     tailwind_version="4.3.3"; \
-    tailwind_asset="tailwindcss-linux-x64"; \
     curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$tailwind_asset" "https://github.com/tailwindlabs/tailwindcss/releases/download/v$tailwind_version/$tailwind_asset"; \
-    printf '%s  %s\n' "dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a" "$tailwind_asset" > "$temp_dir/tailwind-SHA256SUMS"; \
+    printf '%s  %s\n' "$tailwind_sha256" "$tailwind_asset" > "$temp_dir/tailwind-SHA256SUMS"; \
     (cd "$temp_dir" && sha256sum --check --strict tailwind-SHA256SUMS); \
     install -m 0755 "$temp_dir/$tailwind_asset" "$install_dir/tailwindcss"; \
     rm -rf "$temp_dir"
 COPY . .
 RUN set -eu; \
     if [ -f Cargo.lock ]; then \
-        proa build --locked --artifact-out /tmp/proa-app; \
+        proa build --locked --artifact-out /out/app; \
     else \
-        proa build --artifact-out /tmp/proa-app; \
+        proa build --artifact-out /out/app; \
     fi
 FROM ubuntu:24.04
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 && rm -rf /var/lib/apt/lists/*
-COPY --from=build /tmp/proa-app /usr/local/bin/app
-COPY --from=build /app/public ./public
+# The build output is the executable and its public asset catalog, side by side.
+COPY --from=build /out/ /app/
 {migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000
 EXPOSE 3000
-CMD ["/usr/local/bin/app"]
+CMD ["/app/app"]
 "#
     )
 }
@@ -817,7 +837,7 @@ mod tests {
             cargo_toml("app", true),
             origin::manifest("atlas"),
         ] {
-            let manifest: toml::Value = source.parse().unwrap();
+            let manifest: toml::Value = toml::from_str(&source).unwrap();
             for section in ["dependencies", "build-dependencies"] {
                 if let Some(dependencies) = manifest.get(section).and_then(toml::Value::as_table) {
                     for (name, dependency) in dependencies {
@@ -883,9 +903,22 @@ mod tests {
             "base=\"https://proa.so/downloads/cli/main/{version}\""
         )));
         assert!(dockerfile.contains("sha256sum --check --strict"));
-        assert!(dockerfile.contains("proa build --locked --artifact-out /tmp/proa-app"));
-        assert!(dockerfile.contains("proa build --artifact-out /tmp/proa-app"));
-        assert!(dockerfile.contains("COPY --from=build /tmp/proa-app /usr/local/bin/app"));
+        // The builder's own architecture decides how the CLI is obtained.
+        assert!(dockerfile.contains("case \"$(uname -m)\" in"));
+        assert!(dockerfile.contains(
+            "cargo install --locked proa-cli --registry crates-io --version \"=$PROA_CLI_VERSION\""
+        ));
+        assert!(dockerfile.contains("tailwindcss-linux-arm64"));
+        assert!(dockerfile.contains("proa build --locked --artifact-out /out/app;"));
+        assert!(dockerfile.contains("proa build --artifact-out /out/app;"));
+        // One copy carries the executable and the catalog bundled beside it,
+        // and the server finds that catalog without being told where it is.
+        assert!(dockerfile.contains("COPY --from=build /out/ /app/"));
+        assert!(dockerfile.contains("CMD [\"/app/app\"]"));
+        assert!(!dockerfile.contains("PROA_PUBLIC_ASSETS"));
+        assert!(!dockerfile.contains("COPY --from=build /app/public ./public"));
+        // Vendored fonts are in the catalog with every other public file.
+        assert!(!dockerfile.contains("/app/public/fonts"));
         assert!(!dockerfile.contains("cargo build --release"));
         assert!(!dockerfile.contains("/app/target/release/"));
         assert!(!dockerfile.contains("install.sh"));

@@ -31,6 +31,9 @@ pub fn text(value: &str) -> Result<(), WriteError> {
 pub struct HeadUrlPolicy {
     base: Url,
     allowed_resources: Vec<url::Origin>,
+    /// Path on this origin where a static host serves the published files,
+    /// with a trailing slash. It is not under the mount.
+    asset_path: Option<String>,
 }
 impl HeadUrlPolicy {
     pub fn new(origin: &str, mount: &str) -> Result<Self, WriteError> {
@@ -51,7 +54,28 @@ impl HeadUrlPolicy {
         Ok(Self {
             allowed_resources: vec![base.origin()],
             base,
+            asset_path: None,
         })
+    }
+    /// Accept managed public asset URLs under `path`, a path from the origin
+    /// root where a static host serves the published files in place of this
+    /// application. Those URLs arrive complete and do not gain the mount.
+    pub fn allow_asset_path(mut self, path: &str) -> Result<Self, WriteError> {
+        if !path.starts_with('/')
+            || path.starts_with("//")
+            || path.contains(['\\', '?', '#'])
+            || path.chars().any(char::is_control)
+            || path.split('/').any(|p| p == "." || p == "..")
+        {
+            return Err(invalid());
+        }
+        // Stored the way the URL parser writes a path, because that is what
+        // a candidate URL's path is compared against: a prefix with spaces or
+        // non-ASCII characters is percent-encoded on both sides.
+        let mut normalized = self.base.clone();
+        normalized.set_path(&format!("{}/", path.trim_end_matches('/')));
+        self.asset_path = Some(normalized.path().to_owned());
+        Ok(self)
     }
     pub fn allow_resource_origin(mut self, origin: &str) -> Result<Self, WriteError> {
         let url = Url::parse(origin).map_err(|_| invalid())?;
@@ -81,18 +105,26 @@ impl HeadUrlPolicy {
             )));
         }
         let absolute = Url::parse(value).is_ok();
+        let mut hosted = false;
         let url = if absolute {
             Url::parse(value).map_err(|_| invalid())?
         } else {
             let relative = value.trim_start_matches('/');
-            match self.mounted_public_asset(value, relative) {
-                Some(url) => url,
-                None => self.base.join(relative).map_err(|_| invalid())?,
+            if let Some(url) = self.hosted_public_asset(value, relative) {
+                hosted = true;
+                url
+            } else {
+                match self.mounted_public_asset(value, relative) {
+                    Some(url) => url,
+                    None => self.base.join(relative).map_err(|_| invalid())?,
+                }
             }
         };
         validate_url(&url)?;
+        // A file on the static host is on this origin but outside the mount.
         if !absolute
-            && (url.origin() != self.base.origin() || !url.path().starts_with(self.base.path()))
+            && (url.origin() != self.base.origin()
+                || !(hosted || url.path().starts_with(self.base.path())))
         {
             return Err(invalid());
         }
@@ -104,7 +136,28 @@ impl HeadUrlPolicy {
         Ok(value)
     }
 }
+// Mirrors the two directories under `proa_assets::PUBLIC_ROUTE`, which this
+// crate cannot name.
+const PUBLIC_ASSETS: [&str; 2] = ["_proa/immutable/", "_proa/mutable/"];
+
 impl HeadUrlPolicy {
+    /// A managed public asset URL on the static host configured with
+    /// [`allow_asset_path`](Self::allow_asset_path). Like a mounted one it is
+    /// already complete, and it must not gain the mount.
+    fn hosted_public_asset(&self, value: &str, relative: &str) -> Option<Url> {
+        let asset_path = self.asset_path.as_deref()?;
+        if !value.starts_with('/') {
+            return None;
+        }
+        let mut origin = self.base.clone();
+        origin.set_path("/");
+        let url = origin.join(relative).ok()?;
+        url.path()
+            .strip_prefix(asset_path)
+            .is_some_and(|rest| PUBLIC_ASSETS.iter().any(|prefix| rest.starts_with(prefix)))
+            .then_some(url)
+    }
+
     /// A managed public asset URL that already carries this mount.
     ///
     /// Every other application path is written without the mount and gains it
@@ -114,10 +167,11 @@ impl HeadUrlPolicy {
     /// only shows up once a site is deployed under a subpath. Both sides are
     /// compared after URL normalization so an escaped mount still matches.
     fn mounted_public_asset(&self, value: &str, relative: &str) -> Option<Url> {
-        // Mirrors `proa_assets::PUBLIC_ROUTE`, which this crate cannot name.
-        const PUBLIC_ASSETS: &str = "_proa/assets/";
         let mount = self.base.path();
-        if mount == "/" || !value.starts_with('/') || !value.contains(PUBLIC_ASSETS) {
+        if mount == "/"
+            || !value.starts_with('/')
+            || !PUBLIC_ASSETS.iter().any(|prefix| value.contains(prefix))
+        {
             return None;
         }
         let mut origin = self.base.clone();
@@ -125,7 +179,7 @@ impl HeadUrlPolicy {
         let url = origin.join(relative).ok()?;
         url.path()
             .strip_prefix(mount)
-            .is_some_and(|rest| rest.starts_with(PUBLIC_ASSETS))
+            .is_some_and(|rest| PUBLIC_ASSETS.iter().any(|prefix| rest.starts_with(prefix)))
             .then_some(url)
     }
 }
@@ -852,20 +906,26 @@ mod url_policy_tests {
         let resolve = |value: &str| policy.resolve(value, false);
 
         assert_eq!(
-            resolve("/apps/demo/_proa/assets/og.1234abcd.png?v=2#x").unwrap(),
-            "https://shop.example/apps/demo/_proa/assets/og.1234abcd.png?v=2#x"
+            resolve("/apps/demo/_proa/immutable/og.1234abcd.png?v=2#x").unwrap(),
+            "https://shop.example/apps/demo/_proa/immutable/og.1234abcd.png?v=2#x"
         );
         // Every other application path is unprefixed by contract, including
         // one that merely resembles the mount or mentions the asset route.
         for (path, expected) in [
             ("/products", "/apps/demo/products"),
             ("/apps/demo/products", "/apps/demo/apps/demo/products"),
-            ("/_proa/assets/og.png", "/apps/demo/_proa/assets/og.png"),
             (
-                "/docs/_proa/assets/og.png",
-                "/apps/demo/docs/_proa/assets/og.png",
+                "/_proa/immutable/og.png",
+                "/apps/demo/_proa/immutable/og.png",
             ),
-            ("_proa/assets/og.png", "/apps/demo/_proa/assets/og.png"),
+            (
+                "/docs/_proa/immutable/og.png",
+                "/apps/demo/docs/_proa/immutable/og.png",
+            ),
+            (
+                "_proa/immutable/og.png",
+                "/apps/demo/_proa/immutable/og.png",
+            ),
         ] {
             assert_eq!(
                 resolve(path).unwrap(),
@@ -877,10 +937,10 @@ mod url_policy_tests {
         // as a mounted asset cannot use the exception to leave the mount: it
         // is treated like any other application path, or refused.
         assert_eq!(
-            resolve("/apps/demo/_proa/assets/../../../admin").unwrap(),
+            resolve("/apps/demo/_proa/immutable/../../../admin").unwrap(),
             "https://shop.example/apps/demo/apps/admin"
         );
-        assert!(resolve("/apps/demo/_proa/assets/../../../../../../../etc").is_err());
+        assert!(resolve("/apps/demo/_proa/immutable/../../../../../../../etc").is_err());
     }
 
     #[test]
@@ -890,18 +950,77 @@ mod url_policy_tests {
         let policy = HeadUrlPolicy::new("https://shop.example", "/apps/{team}").unwrap();
         assert_eq!(
             policy
-                .resolve("/apps/{team}/_proa/assets/og.png", false)
+                .resolve("/apps/{team}/_proa/immutable/og.png", false)
                 .unwrap(),
-            "https://shop.example/apps/%7Bteam%7D/_proa/assets/og.png"
+            "https://shop.example/apps/%7Bteam%7D/_proa/immutable/og.png"
         );
+    }
+
+    #[test]
+    fn assets_on_a_same_origin_static_host_keep_their_path_under_a_mount() {
+        let policy = HeadUrlPolicy::new("https://shop.example", "/shop")
+            .unwrap()
+            .allow_asset_path("/static-host/")
+            .unwrap();
+        for resource in [false, true] {
+            assert_eq!(
+                policy
+                    .resolve(
+                        "/static-host/_proa/immutable/og.0123456789abcdef.png?v=2",
+                        resource
+                    )
+                    .unwrap(),
+                "https://shop.example/static-host/_proa/immutable/og.0123456789abcdef.png?v=2"
+            );
+        }
+        // Only published files live there. Any other path is an application
+        // route and gains the mount, and nothing escapes through `..`.
+        assert_eq!(
+            policy.resolve("/static-host/pricing", false).unwrap(),
+            "https://shop.example/shop/static-host/pricing"
+        );
+        assert_eq!(
+            policy
+                .resolve("/static-host/_proa/immutable/../../../admin", false)
+                .unwrap(),
+            "https://shop.example/shop/admin"
+        );
+        // A prefix the URL parser escapes still matches its asset URLs,
+        // written either way.
+        let escaped = HeadUrlPolicy::new("https://shop.example", "/shop")
+            .unwrap()
+            .allow_asset_path("/cdn/日本語 a")
+            .unwrap();
+        for written in [
+            "/cdn/日本語 a/_proa/immutable/og.png",
+            "/cdn/%E6%97%A5%E6%9C%AC%E8%AA%9E%20a/_proa/immutable/og.png",
+        ] {
+            assert_eq!(
+                escaped.resolve(written, true).unwrap(),
+                "https://shop.example/cdn/%E6%97%A5%E6%9C%AC%E8%AA%9E%20a/_proa/immutable/og.png",
+                "{written}"
+            );
+        }
+        // Without the setting the same URL is an application path.
+        let plain = HeadUrlPolicy::new("https://shop.example", "/shop").unwrap();
+        assert_eq!(
+            plain
+                .resolve("/static-host/_proa/immutable/og.png", false)
+                .unwrap(),
+            "https://shop.example/shop/static-host/_proa/immutable/og.png"
+        );
+        assert!(HeadUrlPolicy::new("https://shop.example", "/shop")
+            .unwrap()
+            .allow_asset_path("//cdn.example")
+            .is_err());
     }
 
     #[test]
     fn the_origin_root_needs_no_special_case() {
         let policy = HeadUrlPolicy::new("https://shop.example", "/").unwrap();
         assert_eq!(
-            policy.resolve("/_proa/assets/og.png", false).unwrap(),
-            "https://shop.example/_proa/assets/og.png"
+            policy.resolve("/_proa/immutable/og.png", false).unwrap(),
+            "https://shop.example/_proa/immutable/og.png"
         );
     }
 }

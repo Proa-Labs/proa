@@ -423,12 +423,18 @@ their HTML. Replay it with `cx.replay_rsjs_artifacts(&cached.artifacts)` when
 the fragment is reused, so its islands and query seeds participate in the
 outer response plan.
 
-You also need three Axum routes:
+`FrameworkBuilder` serves these files for you by default, at
+content-hashed names under `/_proa/immutable/rsjs/` (call
+`without_rsjs_assets()` to opt out). A custom Axum router gets
+the same files with `proa::axum::RsjsAssets::prepare()?`: merge its `router()`
+and pass it to `RouteContextLayer::with_rsjs_assets(&rsjs)`. An adapter that
+does neither serves its own copies at the canonical paths and needs three
+routes:
 
 ```rust
 .route("/rsjs-runtime.js", get(serve_rsjs_runtime))
 .route("/rsjs-runtime-query.js", get(serve_rsjs_runtime_query))
-.route("/rsjs/island/:asset_id", get(serve_rsjs_island))
+.route("/rsjs/island/{asset_id}", get(serve_rsjs_island))
 ```
 
 Where `serve_rsjs_island` looks up the asset id in `rsjs::manifest().islands`

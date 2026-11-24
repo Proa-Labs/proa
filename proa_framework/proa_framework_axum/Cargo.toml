@@ -18,15 +18,15 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
-cssparser = "0.35"
-oxc_allocator = "0.75"
-oxc_ast = "0.75"
-oxc_ast_visit = "0.75"
-oxc_codegen = "0.75"
-oxc_minifier = "0.75"
-oxc_parser = "0.75"
-oxc_semantic = "0.75"
-oxc_span = "0.75"
+cssparser = "0.38.0"
+oxc_allocator = "0.160.0"
+oxc_ast = "0.160.0"
+oxc_ast_visit = "0.160.0"
+oxc_codegen = "0.160.0"
+oxc_minifier = "0.160.0"
+oxc_parser = "0.160.0"
+oxc_semantic = "0.160.0"
+oxc_span = "0.160.0"
 futures = { workspace = true }
 http = { workspace = true }
 hyper = { workspace = true }
@@ -40,7 +40,7 @@ hyper-util = { version = "0.1", features = [
 ] }
 include_dir = { version = "0.7" }
 mime = { version = "0.3" }
-parking_lot = { version = "0.12" }
+parking_lot = { version = "0.13.0" }
 percent-encoding = "2"
 pin-project = { version = "1.1" }
 proa_assets = { workspace = true }
@@ -51,7 +51,7 @@ rsjs = { workspace = true }
 proa_stream = { workspace = true, features = ["rt-tokio"] }
 # CSP nonce generation: OS-seeded CSPRNG plus base64 encoding.
 rand = { workspace = true }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

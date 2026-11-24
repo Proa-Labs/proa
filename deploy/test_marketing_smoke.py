@@ -24,7 +24,7 @@ RESPONSES = {
     "/healthz": ("text/plain; charset=utf-8", b"ok"),
     "/readyz": ("text/plain; charset=utf-8", b"ready"),
     "/": ("text/html; charset=utf-8", b"<!doctype html><html><title>Proa</title></html>"),
-    "/static/styles.css": ("text/css; charset=utf-8", b".proa{}" * 200),
+    "/_proa/immutable/styles.0123456789abcdef.css": ("text/css; charset=utf-8", b".proa{}" * 200),
     "/showcase/airbnb/proa": (
         "text/html; charset=utf-8",
         b'<!doctype html><html><div class="air-parity-shell">Airbnb</div></html>',
@@ -33,7 +33,7 @@ RESPONSES = {
         "application/javascript; charset=utf-8",
         b"const airbnbShowcase = true;" * 100,
     ),
-    "/images/airbnb/bedroom.jpg": (
+    "/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg": (
         "image/jpeg",
         b"\xff\xd8\xff" + b" " * 2_000,
     ),
@@ -45,6 +45,12 @@ RESPONSES = {
         "application/vnd.oai.openapi+json",
         json.dumps({"openapi": "3.1.0", "paths": {"/api/search": {}}}).encode(),
     ),
+}
+
+# The showcase image URL answers with a redirect into the asset catalog.
+CATALOG_ALIASES = {
+    "/images/airbnb/bedroom.jpg": "/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg",
+    "/static/styles.css": "/_proa/immutable/styles.0123456789abcdef.css",
 }
 
 
@@ -78,6 +84,7 @@ class AgentDiscoveryValidatorTests(unittest.TestCase):
 
 class MarketingHandler(BaseHTTPRequestHandler):
     override: dict[str, tuple[str, bytes]] = {}
+    redirects: dict[str, str] = {}
     revision = EXPECTED_REVISION
     emit_revision = True
     ready_cache_control = "no-store"
@@ -86,6 +93,13 @@ class MarketingHandler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self) -> None:
+        redirect = type(self).redirects.get(self.path)
+        if redirect is not None and self.path not in type(self).override:
+            self.send_response(307)
+            self.send_header("Location", redirect)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         content_type, body = type(self).override.get(self.path, RESPONSES[self.path])
         self.send_response(200)
         self.send_header("Content-Type", content_type)
@@ -101,6 +115,7 @@ class MarketingHandler(BaseHTTPRequestHandler):
 class MarketingSmokeTests(unittest.TestCase):
     def setUp(self) -> None:
         MarketingHandler.override = {}
+        MarketingHandler.redirects = dict(CATALOG_ALIASES)
         MarketingHandler.revision = EXPECTED_REVISION
         MarketingHandler.emit_revision = True
         MarketingHandler.ready_cache_control = "no-store"
@@ -139,7 +154,7 @@ class MarketingSmokeTests(unittest.TestCase):
         invalid_responses = {
             "/showcase/airbnb/proa": ("text/html", b"<html>Airbnb</html>"),
             "/assets/airbnb-showcase.js": ("application/javascript", b"tiny"),
-            "/images/airbnb/bedroom.jpg": (
+            CATALOG_ALIASES["/images/airbnb/bedroom.jpg"]: (
                 "image/jpeg",
                 b"not-a-jpeg" * 200,
             ),
@@ -150,6 +165,22 @@ class MarketingSmokeTests(unittest.TestCase):
                 with self.assertRaises(marketing_smoke.SmokeError):
                     marketing_smoke.run(self.args())
                 MarketingHandler.override = {}
+
+    def test_catalog_alias_must_stay_on_the_host_and_in_the_catalog(self) -> None:
+        for location in (
+            "https://example.com/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg",
+            "//example.com/_proa/immutable/images/airbnb/bedroom.0123456789abcdef.jpg",
+            "/healthz",
+        ):
+            with self.subTest(location=location):
+                MarketingHandler.redirects["/images/airbnb/bedroom.jpg"] = location
+                with self.assertRaisesRegex(marketing_smoke.SmokeError, "outside the asset catalog"):
+                    marketing_smoke.run(self.args())
+
+    def test_other_paths_still_reject_redirects(self) -> None:
+        MarketingHandler.redirects["/openapi.json"] = "/_proa/mutable/openapi.json"
+        with self.assertRaises(marketing_smoke.SmokeError):
+            marketing_smoke.run(self.args())
 
     def test_missing_revision_header_fails(self) -> None:
         MarketingHandler.emit_revision = False

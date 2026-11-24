@@ -131,7 +131,7 @@ fn handle_request() -> (u16, Vec<(String, Vec<u8>)>, Vec<u8>) {
 ```
 
 Route matching comes from `route_spec` / `route_snapshot`
-(`extract_route_params` maps a pattern like `/users/:id` onto a request
+(`extract_route_params` maps a pattern like `/users/{id}` onto a request
 path), async pages add an executor's `block_on`, and streaming routes replace
 step 1 with a `FrameworkStreamFactory` driven according to its nested
 capability above.

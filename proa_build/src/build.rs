@@ -934,14 +934,20 @@ fn identity_rustc_environment(
     Ok(identity)
 }
 
-fn build_script_rustc_env_names(out_dir: &Path) -> io::Result<BTreeSet<String>> {
-    let parent = out_dir.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Cargo OUT_DIR has no build-script output directory",
-        )
+/// Cargo 1.100 keeps build-script stdout under the unit's run directory.
+fn build_script_stdout_path(out_dir: &Path) -> io::Result<PathBuf> {
+    let unit = out_dir.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "Cargo OUT_DIR has no parent")
     })?;
-    let output_path = parent.join("output");
+    Ok(if unit.join("run").try_exists()? {
+        unit.join("run/stdout")
+    } else {
+        unit.join("output")
+    })
+}
+
+fn build_script_rustc_env_names(out_dir: &Path) -> io::Result<BTreeSet<String>> {
+    let output_path = build_script_stdout_path(out_dir)?;
     let output = fs::read_to_string(&output_path)?;
     let mut names = BTreeSet::new();
     for line in output.lines() {
@@ -1818,8 +1824,9 @@ fn emit_without_object(value: &str) -> Option<String> {
 /// false invalidations in exchange for never guessing which package-local
 /// files rustc may observe.
 ///
-/// Symlinks, special files, and non-UTF-8 relative paths fail closed because
-/// following or encoding them would make the identity host-dependent. Files
+/// A package-root LICENSE can link directly to the checkout's regular LICENSE.
+/// Its relative target and bytes are both hashed. Other symlinks, special
+/// files, and non-UTF-8 relative paths fail closed. Files
 /// outside `CARGO_MANIFEST_DIR` are not discoverable from rustc's
 /// pre-compilation argv. The wrapper separately audits rustc-declared
 /// `OUT_DIR` source dependencies from the successful compile's exact dep-info;
@@ -1877,17 +1884,20 @@ fn collect_package_source_files(
             collect_package_source_files(package_root, &entry.path(), excluded_subtree, files)?;
             continue;
         }
-        if !file_type.is_file() {
+        let path = entry.path();
+        let digest = if file_type.is_file() {
+            hash_file(&path, PACKAGE_SOURCE_FILE_HASH_DOMAIN)?
+        } else if file_type.is_symlink() && directory == package_root && name == "LICENSE" {
+            shared_checkout_license_hash(package_root, &path)?
+        } else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "package source closure contains unsupported symlink or special file `{}`",
-                    entry.path().display()
+                    path.display()
                 ),
             ));
-        }
-
-        let path = entry.path();
+        };
         let relative = path.strip_prefix(package_root).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -1909,7 +1919,6 @@ fn collect_package_source_files(
                 format!("package source path is ambiguous in rustc dep-info: `{relative}`"),
             ));
         }
-        let digest = hash_file(&path, PACKAGE_SOURCE_FILE_HASH_DOMAIN)?;
         if files.insert(relative.clone(), digest).is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -1918,6 +1927,45 @@ fn collect_package_source_files(
         }
     }
     Ok(())
+}
+
+/// Cargo git dependencies sometimes share the repository license across crates.
+fn shared_checkout_license_hash(package_root: &Path, link: &Path) -> io::Result<[u8; 32]> {
+    let invalid = || {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "expected a relative link to the checkout's regular LICENSE at {}",
+                link.display()
+            ),
+        )
+    };
+    let root = package_root
+        .ancestors()
+        .find(|ancestor| {
+            fs::symlink_metadata(ancestor.join(".git")).is_ok_and(|m| m.is_dir() || m.is_file())
+        })
+        .ok_or_else(invalid)?;
+    let depth = package_root
+        .strip_prefix(root)
+        .expect("ancestor of package")
+        .components()
+        .count();
+    let expected: PathBuf = std::iter::repeat_n("..", depth)
+        .chain(["LICENSE"])
+        .collect();
+    let target = root.join("LICENSE");
+    if depth == 0 || fs::read_link(link)? != expected || !fs::symlink_metadata(&target)?.is_file() {
+        return Err(invalid());
+    }
+    let contents = hash_file(&target, PACKAGE_SOURCE_FILE_HASH_DOMAIN)?;
+    Ok(hash_canonical(
+        b"proa.rsjs.shared-checkout-license.v1",
+        |hash| {
+            hash.field("parent-count", &(depth as u64).to_le_bytes());
+            hash.field("contents", &contents);
+        },
+    ))
 }
 
 fn package_source_root_vcs_entry_is_excluded(
@@ -5154,6 +5202,7 @@ struct RawCargoTarget {
 pub struct CargoArtifactCollector {
     artifacts: Vec<CargoCompilerArtifact>,
     seen_artifacts: BTreeSet<Vec<u8>>,
+    local_script_runs: BTreeMap<String, BTreeSet<PathBuf>>,
     build_finished: Option<bool>,
     line: usize,
 }
@@ -5268,6 +5317,16 @@ impl CargoArtifactCollector {
                         ("out_dir", JsonFieldKind::NonemptyString),
                     ],
                 )?;
+                if let (Some(package), Some(out_dir)) =
+                    (value["package_id"].as_str(), value["out_dir"].as_str())
+                {
+                    if package.starts_with("path+file://") {
+                        self.local_script_runs
+                            .entry(package.to_owned())
+                            .or_default()
+                            .insert(PathBuf::from(out_dir));
+                    }
+                }
             }
             "future-incompat-report" => {
                 validate_auxiliary_message(
@@ -5285,6 +5344,32 @@ impl CargoArtifactCollector {
             }
         }
         Ok(())
+    }
+
+    /// An untracked local build script makes Cargo's final dep-info incomplete.
+    pub(crate) fn local_build_scripts_declare_inputs(&self) -> bool {
+        self.artifacts
+            .iter()
+            .filter(|artifact| {
+                artifact.package_id.starts_with("path+file://")
+                    && artifact.target.kind.contains("custom-build")
+            })
+            .all(|artifact| {
+                self.local_script_runs
+                    .get(&artifact.package_id)
+                    .is_some_and(|runs| {
+                        runs.iter().all(|out_dir| {
+                            build_script_stdout_path(out_dir)
+                                .and_then(fs::read_to_string)
+                                .is_ok_and(|output| {
+                                    output.lines().any(|line| {
+                                        line.starts_with("cargo:rerun-if-changed=")
+                                            || line.starts_with("cargo::rerun-if-changed=")
+                                    })
+                                })
+                        })
+                    })
+            })
     }
 
     /// Consume a complete Cargo JSON stream.

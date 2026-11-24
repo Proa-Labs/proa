@@ -209,7 +209,7 @@ fn emit_linked_component_impls(
     selection: &FinalComponentSelection,
 ) -> syn::Result<TokenStream> {
     let hidden_trait_path = linked_render_trait_path(parsed)?;
-    let Some((_, hidden_path, _)) = hidden.trait_.as_mut() else {
+    let Some((hidden_path, _)) = hidden.trait_.as_mut() else {
         return Err(syn::Error::new(
             hidden.span(),
             "rsjs internal error: a linked component lost its render trait",

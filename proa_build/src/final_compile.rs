@@ -198,6 +198,7 @@ pub struct FinalCargoOutput {
 /// pipeline consumes this value and releases the lease before execution.
 #[must_use = "final Cargo runs retain their target lease until consumed"]
 pub(crate) struct FinalCargoRun {
+    pub(crate) local_scripts_declare_inputs: bool,
     output: FinalCargoOutput,
     cargo_artifacts: Vec<CargoCompilerArtifact>,
     _target_lease: DescriptorTargetLease,
@@ -359,6 +360,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     if !status.success() {
         return Err(FinalCargoError::CargoFailed(status));
     }
+    let local_scripts_declare_inputs = collector.local_build_scripts_declare_inputs();
     let cargo_artifacts = collector.finish().map_err(FinalCargoError::CargoProtocol)?;
     if cargo_artifacts.is_empty() {
         return Err(FinalCargoError::NoCargoArtifacts);
@@ -370,6 +372,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
 
     timing.mark("final Cargo execution");
     Ok(FinalCargoRun {
+        local_scripts_declare_inputs,
         output: FinalCargoOutput {
             plan_id,
             final_unit_id: FinalUnitId::for_plan(request.root_unit_fingerprint, plan_id),
@@ -1159,6 +1162,7 @@ fn executable_snapshot_dependencies(
         _ => {
             let mut dependencies = ExecutableSnapshotDependencies::default();
             for import in file.imports().map_err(|error| error.to_string())? {
+                let import = import.map_err(|error| error.to_string())?;
                 if import.library().is_empty() {
                     return Err(
                         "an imported symbol has no authoritative library identity".to_string()
@@ -1208,8 +1212,8 @@ where
         .strings(endian, data, strings_index)
         .map_err(|error| error.to_string())?;
     for entry in dynamic {
-        match entry.tag32(endian) {
-            Some(object::elf::DT_NEEDED) => {
+        match entry.tag(endian) {
+            object::elf::DT_NEEDED => {
                 dependencies.libraries.insert(
                     entry
                         .string(endian, strings)
@@ -1217,7 +1221,7 @@ where
                         .to_vec(),
                 );
             }
-            Some(object::elf::DT_RPATH | object::elf::DT_RUNPATH) => {
+            object::elf::DT_RPATH | object::elf::DT_RUNPATH => {
                 dependencies.loader_paths.insert(
                     entry
                         .string(endian, strings)
@@ -2291,7 +2295,7 @@ mod tests {
             major_subsystem_version: 6,
             minor_subsystem_version: 0,
             subsystem: object::pe::IMAGE_SUBSYSTEM_WINDOWS_CUI,
-            dll_characteristics: 0,
+            dll_characteristics: object::pe::DllFlags(0),
             size_of_stack_reserve: 0x100000,
             size_of_stack_commit: 0x1000,
             size_of_heap_reserve: 0x100000,

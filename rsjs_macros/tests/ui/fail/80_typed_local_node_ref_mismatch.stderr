@@ -16,7 +16,6 @@ note: required by a bound in `rsjs::__private::assert_component_node_ref_target`
   --> $WORKSPACE/rsjs/src/lib.rs
    |
    |     pub fn assert_component_node_ref_target<Field, Target>(_field: &crate::NodeRef<Field>)
-   |            -------------------------------- required by a bound in this function
 ...
    |         Field: ComponentNodeRefTarget<Target>,
    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assert_component_node_ref_target`

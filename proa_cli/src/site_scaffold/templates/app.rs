@@ -715,7 +715,7 @@ pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, Fram
         __MARKDOWN_ROUTE__
         // proa:explicit-routes:end
         .with_state(state);
-    let router = if std::env::var_os("PROA_PUBLIC_ASSETS").is_none() {
+    let router = if !proa::axum::PublicAssets::configured() {
         // Fallback when running bare `cargo test` without `proa` publishing `public/`.
         router.nest_service("/static", static_assets::service(base_path.clone()))
     } else {
@@ -723,7 +723,6 @@ pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, Fram
     };
     let app = FrameworkBuilder::new()
         .with_base_path(base_path)
-        .with_rsjs_assets()
         .with_dynamic_routes_and_metadata(router, metadata)
         .try_build()?;
     Ok(app.layer(TraceLayer::new_for_http()))
@@ -831,6 +830,7 @@ pub fn static_assets_rs() -> &'static str {
 pub fn service(base_path: proa::BasePath) -> axum::Router {
     proa::axum::base_path_assets(
         axum::Router::new().fallback_service(
+            // proa-perf-ok: only for a bare `cargo test`; a build serves the catalog
             ServeDir::new("public").append_index_html_on_directories(false),
         ),
         base_path,

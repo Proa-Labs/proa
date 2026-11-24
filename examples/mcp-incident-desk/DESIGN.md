@@ -92,7 +92,7 @@ Document the dependency adaptation in the README. Extend configuration for HTTPS
 
 ### Database and migrations
 
-Use generated **SQLx 0.8**, with Tokio, SQLite, migration support, and explicit `macros` support for derives. Use parameterized queries and typed rows. The default database is `sqlite://data/mcp-incident-desk.db`.
+Use generated **SQLx 0.9**, with Tokio, SQLite, migration support, and explicit `macros` support for derives. Use parameterized queries and typed rows. The default database is `sqlite://data/mcp-incident-desk.db`.
 
 Keep the helper's foreign keys, WAL, five-second busy timeout, five-connection pool, and `sqlx::migrate!()` startup migrations. No additional ORM, database service, migration runner, or `sqlx-cli` is needed.
 
@@ -289,10 +289,10 @@ All routes below use the browser session; the write also requires CSRF protectio
 | Route | Result |
 |---|---|
 | `GET /issues` | HTML issue list. |
-| `GET /issues/:id` | HTML by default; Markdown when explicitly preferred. |
-| `GET /issues/:id.md` | `text/markdown; charset=utf-8`. |
-| `GET /issues/:id.json` | Typed JSON projection. |
-| `POST /issues/:id/resolve` | Shared command, then redirect to issue. |
+| `GET /issues/{id}` | HTML by default; Markdown when explicitly preferred. |
+| `GET /issues/{id}.md` | `text/markdown; charset=utf-8`. |
+| `GET /issues/{id}.json` | Typed JSON projection. |
+| `POST /issues/{id}/resolve` | Shared command, then redirect to issue. |
 
 Use Proa's `explicit_markdown` / `negotiate` helpers for HTML/Markdown; handle JSON separately. Authorize before selecting a representation. Signed-out HTML navigation redirects to login; machine representations return 401. Inaccessible and nonexistent IDs produce the same not-found response. Protected responses use `Cache-Control: private, no-store`; negotiated responses add `Vary: Accept`. Static assets and public metadata have separate cache policies.
 

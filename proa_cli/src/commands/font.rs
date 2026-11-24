@@ -41,7 +41,8 @@ struct FontSyncArgs {
     /// build script's CollectOptions when that is customized.
     #[arg(long, value_name = "DIR")]
     fonts_dir: Option<PathBuf>,
-    /// URL prefix referenced by the generated CSS. Defaults to /fonts.
+    /// URL prefix referenced by the generated CSS. Defaults to the asset
+    /// catalog's fonts directory, /_proa/immutable/fonts.
     #[arg(long, value_name = "PREFIX")]
     url_prefix: Option<String>,
 }

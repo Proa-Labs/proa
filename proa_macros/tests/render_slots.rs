@@ -362,7 +362,6 @@ async fn typed_async_formats_keep_borrowed_writer_support() {
 }
 
 #[test]
-#[deny(dependency_on_unit_never_type_fallback)]
 #[allow(unreachable_code, clippy::never_loop)]
 fn diverging_loops_do_not_require_a_renderable_never_type() {
     use proa_core::WebRenderSync;
@@ -421,7 +420,6 @@ fn diverging_loops_do_not_require_a_renderable_never_type() {
 }
 
 #[tokio::test]
-#[deny(dependency_on_unit_never_type_fallback)]
 #[allow(unreachable_code)]
 async fn diverging_loops_stream_nested_templates_before_propagating_errors() {
     use proa_core::WebRenderSync;

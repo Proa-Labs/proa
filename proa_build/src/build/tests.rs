@@ -697,8 +697,10 @@ fn base_identity_excludes_transport_and_out_dir_bytes_but_binds_build_script_env
         b"cargo::rustc-env=BUILD_MODE=stable\n",
     )
     .unwrap();
+    let second_run = second_out.parent().unwrap().join("run");
+    fs::create_dir(&second_run).unwrap();
     fs::write(
-        second_out.parent().unwrap().join("output"),
+        second_run.join("stdout"),
         b"cargo::rustc-env=BUILD_MODE=stable\n",
     )
     .unwrap();
@@ -871,6 +873,33 @@ fn package_source_closure_is_host_independent_and_tracks_nested_modules() {
         first_input.cargo_unit_id(),
         nested_module_changed.cargo_unit_id()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn shared_license_hash_tracks_the_regular_file_at_the_git_root() {
+    use std::os::unix::fs::symlink;
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("checkout");
+    let package = root.join("crates/sdk");
+    fs::create_dir_all(&package).unwrap();
+    fs::create_dir(root.join(".git")).unwrap();
+    let license = root.join("LICENSE");
+    fs::write(&license, b"license one").unwrap();
+    let link = package.join("LICENSE");
+    symlink("../../LICENSE", &link).unwrap();
+    let first = hash_package_source_closure(&package, None).unwrap();
+    fs::write(&license, b"license two").unwrap();
+    assert_ne!(first, hash_package_source_closure(&package, None).unwrap());
+
+    let outside = temp.path().join("LICENSE");
+    fs::write(&outside, b"outside").unwrap();
+    fs::remove_file(&license).unwrap();
+    symlink(&outside, &license).unwrap();
+    assert!(hash_package_source_closure(&package, None).is_err());
+    fs::remove_file(&link).unwrap();
+    symlink("../../../LICENSE", &link).unwrap();
+    assert!(hash_package_source_closure(&package, None).is_err());
 }
 
 #[test]

@@ -64,6 +64,7 @@ def generate_additions(proa: Path, project: Path, environment: dict[str, str], t
         commands.append(["page", "/generated"])
         if template != "minimal":
             commands.append(["page", "/generated-html", "--no-markdown"])
+            commands.append(["page", "/guides/{slug}", "--markdown"])
     for command in commands:
         run([str(proa), "generate", *command, "--root", str(project)], project, environment)
 
@@ -90,15 +91,22 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-            paths = ["/", "/healthz", "/readyz", "/static/styles.css"]
+            # The stylesheet's name carries a hash of its bytes, so the page is
+            # the only place its URL can be read from.
+            with urllib.request.urlopen(base + "/", timeout=60) as response:
+                stylesheet = re.search(
+                    rb'href="(/_proa/immutable/styles\.[0-9a-f]{16}\.css)"', response.read()
+                )
+                assert stylesheet, "the page links no hashed stylesheet"
+            paths = ["/", "/healthz", "/readyz", stylesheet.group(1).decode()]
             if template != "origin":
                 paths += ["/generated"]
                 if template != "minimal":
-                    paths += ["/generated.md", "/generated-html"]
+                    paths += ["/generated.md", "/generated-html", "/guides/a%2Fb", "/guides/a%2Fb.md"]
             if template != "minimal":
                 paths += ["/index.md"]
             if template == "origin":
-                paths += ["/rsjs-runtime.js", "/rsjs-runtime-query.js", "/static/origin.js"]
+                paths += ["/static/origin.js"]
             for path in paths:
                 with urllib.request.urlopen(base + path, timeout=60) as response:
                     body = response.read()
@@ -106,6 +114,8 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if path == "/":
                         assert "text/html" in response.headers.get("Content-Type", "")
                         assert b"<html" in body and b"</html>" in body
+                    if path == "/guides/a%2Fb":
+                        assert "</guides/a%2Fb.md>" in response.headers.get("Link", "")
                     if path.endswith(".js"):
                         assert "javascript" in response.headers.get("Content-Type", "")
                     if path.endswith(".md"):
