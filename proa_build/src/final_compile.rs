@@ -934,25 +934,66 @@ pub struct FinalSnapshotLease {
     _handle: same_file::Handle,
 }
 
-/// Lock file inside every executable snapshot directory.
-const FINAL_SNAPSHOT_LEASE_FILE: &str = ".lease";
-
-/// Take a shared lease on `directory`, creating it when absent.
+/// Directory name beside [`FINAL_SNAPSHOT_ROOT_NAME`] that holds snapshot lease
+/// files.
 ///
-/// A pruner renames a directory away while holding the lock exclusively, so a
-/// lock acquired on that old file protects nothing. Keep only a lock on the
-/// file still present at the lease path, and retry otherwise.
+/// Keeping lease files outside each snapshot directory allows Windows to rename
+/// a superseded snapshot directory while holding its lease exclusively.
+const FINAL_SNAPSHOT_LEASE_ROOT_NAME: &str = "rsjs-final-artifact-snapshot-leases";
+
+fn final_snapshot_lease_path(snapshot_root: &Path, identity: &OsStr) -> Option<PathBuf> {
+    let mut file_name = identity.to_os_string();
+    file_name.push(".lease");
+    Some(
+        snapshot_root
+            .parent()?
+            .join(FINAL_SNAPSHOT_LEASE_ROOT_NAME)
+            .join(file_name),
+    )
+}
+
+/// Take a shared lease on `directory`, creating its lease file and directory
+/// when absent.
+///
+/// The lease file lives outside `directory` so [`prune_final_artifact_snapshot`]
+/// can hold the exclusive lock across `fs::rename` on Windows without keeping an
+/// open handle inside the directory being renamed.
 fn acquire_final_snapshot_lease(
     source_exclusion: &Path,
     directory: &Path,
 ) -> Result<FinalSnapshotLease, FinalCargoError> {
-    let path = directory.join(FINAL_SNAPSHOT_LEASE_FILE);
+    let Some(snapshot_root) = directory.parent() else {
+        return Err(FinalCargoError::SnapshotArtifactIo {
+            path: directory.to_path_buf(),
+            source: io::Error::other("snapshot directory has no parent"),
+        });
+    };
+    let Some(identity) = directory.file_name() else {
+        return Err(FinalCargoError::SnapshotArtifactIo {
+            path: directory.to_path_buf(),
+            source: io::Error::other("snapshot directory has no identity name"),
+        });
+    };
+    let Some(path) = final_snapshot_lease_path(snapshot_root, identity) else {
+        return Err(FinalCargoError::SnapshotArtifactIo {
+            path: directory.to_path_buf(),
+            source: io::Error::other("snapshot root has no parent for lease storage"),
+        });
+    };
+    let lease_root = path
+        .parent()
+        .expect("final snapshot lease path always has a parent directory");
     let lease_error = |source| FinalCargoError::SnapshotArtifactIo {
         path: path.clone(),
         source,
     };
     for _ in 0..8 {
-        ensure_plain_managed_directory(source_exclusion, directory)?;
+        ensure_plain_managed_directory(source_exclusion, lease_root)?;
+        match fs::symlink_metadata(&path) {
+            Ok(_) => ensure_plain_managed_file(source_exclusion, &path)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(lease_error(error)),
+        }
         let file = match OpenOptions::new()
             .create(true)
             .read(true)
@@ -961,14 +1002,18 @@ fn acquire_final_snapshot_lease(
             .open(&path)
         {
             Ok(file) => file,
-            // Pruned between creating the directory and opening the lease.
+            // Lease directory or file was cleared between validation and open.
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(lease_error(error)),
         };
+        ensure_plain_managed_file(source_exclusion, &path)?;
         let handle = same_file::Handle::from_file(file).map_err(lease_error)?;
         handle.as_file().lock_shared().map_err(lease_error)?;
         match same_file::Handle::from_path(&path) {
             Ok(current) if current == handle => {
+                // Create or verify the snapshot directory only after holding
+                // the shared lease so a concurrent pruner cannot rename it.
+                ensure_plain_managed_directory(source_exclusion, directory)?;
                 return Ok(FinalSnapshotLease { _handle: handle });
             }
             Ok(_) => {}
@@ -977,15 +1022,16 @@ fn acquire_final_snapshot_lease(
         }
     }
     Err(lease_error(io::Error::other(
-        "the snapshot was pruned repeatedly while this command tried to lease it",
+        "the snapshot lease was replaced repeatedly while this command tried to acquire it",
     )))
 }
 
 /// Remove one executable snapshot published by this module unless another
 /// process still holds its lease. Returns whether the snapshot was removed.
 ///
-/// Only `<snapshot root>/<content identity>/<file>` paths that carry a lease
-/// file are eligible; anything else is left untouched.
+/// Only plain `<snapshot root>/<content identity>/<file>` directories whose
+/// sibling lease file exists and can be locked exclusively are eligible;
+/// anything else is left untouched.
 pub fn prune_final_artifact_snapshot(executable: &Path) -> bool {
     let Some(directory) = executable.parent() else {
         return false;
@@ -996,18 +1042,32 @@ pub fn prune_final_artifact_snapshot(executable: &Path) -> bool {
     if snapshot_root.file_name() != Some(OsStr::new(FINAL_SNAPSHOT_ROOT_NAME)) {
         return false;
     }
-    let Ok(lease) = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(directory.join(FINAL_SNAPSHOT_LEASE_FILE))
-    else {
+    if !fs::symlink_metadata(snapshot_root).is_ok_and(|meta| meta.file_type().is_dir())
+        || !fs::symlink_metadata(directory).is_ok_and(|meta| meta.file_type().is_dir())
+    {
+        return false;
+    }
+    let Some(lease_path) = final_snapshot_lease_path(snapshot_root, identity) else {
+        return false;
+    };
+    if !fs::symlink_metadata(&lease_path).is_ok_and(|meta| meta.file_type().is_file()) {
+        return false;
+    }
+    let Ok(lease) = OpenOptions::new().read(true).write(true).open(&lease_path) else {
         return false;
     };
     if lease.try_lock().is_err() {
         return false;
     }
+    // Re-check after taking the exclusive lock in case another pruner just
+    // removed this snapshot before we locked the lease file.
+    if !fs::symlink_metadata(directory).is_ok_and(|meta| meta.file_type().is_dir()) {
+        return false;
+    }
     // Rename first: a publisher that resolves the identity path afterwards
-    // creates a fresh directory, and removal never races its new entries.
+    // waits on the lease and then creates a fresh directory, so removal never
+    // races its new entries. The lease file lives outside `directory`, so
+    // Windows allows renaming while `lease` stays open.
     let nonce = FINAL_SNAPSHOT_NONCE.fetch_add(1, Ordering::Relaxed);
     let mut doomed = OsString::from(format!(".pruned.{}.{nonce}.", std::process::id()));
     doomed.push(identity);
@@ -2815,6 +2875,12 @@ mod tests {
         let (first_path, first_lease) = publish();
         let (second_path, second_lease) = publish();
         assert_eq!(first_path, second_path);
+        // The lease file must live outside the snapshot directory so Windows
+        // can rename the directory while holding its lease exclusively.
+        assert_eq!(
+            fs::read_dir(first_path.parent().unwrap()).unwrap().count(),
+            1
+        );
 
         drop(first_lease);
         assert!(!prune_final_artifact_snapshot(&first_path));
@@ -2849,6 +2915,27 @@ mod tests {
         fs::write(&legacy, b"keep").unwrap();
         assert!(!prune_final_artifact_snapshot(&legacy));
         assert!(legacy.is_file());
+
+        // Symlinked snapshot directories must never be renamed or removed even
+        // when a matching sibling lease file exists.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            let outside = temp.path().join("outside");
+            fs::create_dir_all(&outside).unwrap();
+            fs::write(outside.join("app"), b"keep").unwrap();
+            let symlinked_dir = temp
+                .path()
+                .join(FINAL_SNAPSHOT_ROOT_NAME)
+                .join("symlinked-mode-100755");
+            symlink(&outside, &symlinked_dir).unwrap();
+            let lease_dir = temp.path().join(FINAL_SNAPSHOT_LEASE_ROOT_NAME);
+            fs::create_dir_all(&lease_dir).unwrap();
+            fs::write(lease_dir.join("symlinked-mode-100755.lease"), b"").unwrap();
+            assert!(!prune_final_artifact_snapshot(&symlinked_dir.join("app")));
+            assert!(outside.join("app").is_file());
+        }
     }
 
     /// A launchable host executable in `target_directory` for snapshot tests.
