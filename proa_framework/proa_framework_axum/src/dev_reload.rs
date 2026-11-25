@@ -38,6 +38,8 @@ use axum::{
     },
 };
 use bytes::{BufMut, Bytes, BytesMut};
+use futures::StreamExt;
+use http_body_util::BodyExt;
 use hyper::body::{Body as HttpBody, Frame, SizeHint};
 use tower::{Layer, Service, ServiceExt};
 
@@ -233,12 +235,12 @@ impl DevReloadLayer {
                             upstream = open_dev_event_stream(&authority, &path_and_query) => upstream,
                         };
                         match upstream {
-                            Ok((response, conn_guard)) => {
+                            Some((response, conn_guard)) => {
                                 let (parts, body) = response.into_parts();
                                 let status = parts.status;
                                 let content_type = parts.headers.get(CONTENT_TYPE).cloned();
                                 let stream = futures::stream::try_unfold(
-                                    (body, stopped, conn_guard),
+                                    (body.into_data_stream(), stopped, conn_guard),
                                     |(mut body, mut stopped, conn_guard)| async move {
                                         if *stopped.borrow() {
                                             return Ok::<_, hyper::Error>(None);
@@ -246,9 +248,9 @@ impl DevReloadLayer {
                                         tokio::select! {
                                             biased;
                                             _ = stopped.changed() => Ok(None),
-                                            chunk = next_data_chunk(&mut body) => {
-                                                Ok(chunk?.map(|bytes| (bytes, (body, stopped, conn_guard))))
-                                            }
+                                            chunk = body.next() => Ok(chunk
+                                                .transpose()?
+                                                .map(|bytes| (bytes, (body, stopped, conn_guard)))),
                                         }
                                     },
                                 );
@@ -267,7 +269,7 @@ impl DevReloadLayer {
                                 );
                                 response
                             }
-                            Err(()) => Response::builder()
+                            None => Response::builder()
                                 .status(axum::http::StatusCode::BAD_GATEWAY)
                                 .body(Body::empty())
                                 .expect("valid dev relay response"),
@@ -770,44 +772,29 @@ fn relay_authority(host: &str, port: u16) -> String {
 async fn open_dev_event_stream(
     authority: &str,
     path_and_query: &str,
-) -> Result<(hyper::Response<hyper::body::Incoming>, AbortOnDrop), ()> {
+) -> Option<(hyper::Response<hyper::body::Incoming>, AbortOnDrop)> {
     let stream = tokio::time::timeout(
         std::time::Duration::from_secs(2),
         tokio::net::TcpStream::connect(authority),
     )
     .await
-    .map_err(|_| ())?
-    .map_err(|_| ())?;
+    .ok()?
+    .ok()?;
     let io = hyper_util::rt::TokioIo::new(stream);
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
-        .await
-        .map_err(|_| ())?;
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.ok()?;
     let conn_guard = AbortOnDrop(tokio::spawn(async move {
         let _ = conn.await;
     }));
+    // The low-level connection sends no `Host` of its own, and `proa dev`
+    // rejects a request without one.
     let request = Request::builder()
         .method(Method::GET)
         .uri(path_and_query)
         .header(axum::http::header::HOST, authority)
         .body(Body::empty())
-        .map_err(|_| ())?;
-    let response = sender.send_request(request).await.map_err(|_| ())?;
-    Ok((response, conn_guard))
-}
-
-async fn next_data_chunk(body: &mut hyper::body::Incoming) -> Result<Option<Bytes>, hyper::Error> {
-    loop {
-        let frame = std::future::poll_fn(|cx| Pin::new(&mut *body).poll_frame(cx)).await;
-        match frame {
-            Some(Ok(frame)) => {
-                if let Ok(data) = frame.into_data() {
-                    return Ok(Some(data));
-                }
-            }
-            Some(Err(error)) => return Err(error),
-            None => return Ok(None),
-        }
-    }
+        .ok()?;
+    let response = sender.send_request(request).await.ok()?;
+    Some((response, conn_guard))
 }
 
 #[cfg(test)]
