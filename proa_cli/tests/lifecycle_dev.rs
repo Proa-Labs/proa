@@ -484,8 +484,28 @@ fn main() {{
         std::thread::sleep(Duration::from_millis(25));
     }
 
-    // Give the parent a brief moment after restart to finish pruning the old snapshot.
-    std::thread::sleep(Duration::from_millis(100));
+    // The new server writes its marker before the parent prunes the old
+    // snapshot, so wait for pruning rather than sleeping a fixed time.
+    let snapshot_dirs = || -> Vec<_> {
+        walkdir::WalkDir::new(root.join("target/proa-rsjs/final-target"))
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry.file_type().is_dir()
+                    && entry
+                        .path()
+                        .parent()
+                        .and_then(|parent| parent.file_name())
+                        .and_then(|name| name.to_str())
+                        == Some("rsjs-final-artifact-snapshots")
+            })
+            .map(|entry| entry.into_path())
+            .collect()
+    };
+    let prune_deadline = Instant::now() + Duration::from_secs(10);
+    while snapshot_dirs().len() != 1 && Instant::now() < prune_deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
     drop(dev);
 
     let log_text = fs::read_to_string(&log_path).unwrap();
@@ -497,20 +517,7 @@ fn main() {{
         !root.join("target/proa-rsjs/shared").exists(),
         "zero-island edit rebuild should not create descriptor target directory"
     );
-
-    let snapshot_dirs: Vec<_> = walkdir::WalkDir::new(root.join("target/proa-rsjs/final-target"))
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry.file_type().is_dir()
-                && entry
-                    .path()
-                    .parent()
-                    .and_then(|parent| parent.file_name())
-                    .and_then(|name| name.to_str())
-                    == Some("rsjs-final-artifact-snapshots")
-        })
-        .collect();
+    let snapshot_dirs = snapshot_dirs();
     assert_eq!(
         snapshot_dirs.len(),
         1,

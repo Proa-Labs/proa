@@ -8,7 +8,10 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus},
-    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -46,6 +49,7 @@ use crate::{
         DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION, TOOL_NAMESPACE_DIR,
     },
     rsjs::cache::DESCRIPTOR_CACHE_SCHEMA_VERSION,
+    rsjs::final_compile::{prune_final_artifact_snapshot, FinalSnapshotLease},
     rsjs::pipeline::{
         run_linked_cargo_cached, run_linked_cargo_cached_with_progress,
         try_run_optimistic_empty_linked_cargo, DescriptorRootSelector, LinkedCargoOutput,
@@ -64,7 +68,7 @@ const PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION: u16 = 1;
 const DEV_WATCH_POLL: Duration = Duration::from_millis(50);
 /// Editors write in bursts (temp file, rename, mtime touch) and formatters
 /// rewrite whole trees, so the loop waits for one quiet window before paying
-/// for a Cargo cycle.
+/// for a Cargo cycle. Vite and webpack sit in the same 100-300ms range.
 pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(100);
 /// Refuse debounce windows shorter than one poll interval: they would claim a
 /// precision the poller cannot deliver.
@@ -166,13 +170,19 @@ struct LinkedDevLaunch {
     reused_final_artifacts: usize,
     public_assets: Option<PathBuf>,
     compiled_inputs: Option<BTreeSet<PathBuf>>,
+    /// Keeps `executable` from being pruned by another session while this
+    /// launch is current. Dropped before this session prunes it.
+    _snapshot_lease: Option<Arc<FinalSnapshotLease>>,
 }
 
+/// State that one `proa dev` watch session carries between rebuilds.
+///
+/// Tool versions are deliberately not cached: they run in parallel with
+/// `cargo metadata`, so caching saves no wall time, and a toolchain switch
+/// mid-session would otherwise key new artifacts under the old toolchain.
 #[derive(Debug, Default)]
 struct DevSessionCache {
     allow_optimistic_empty: bool,
-    cargo_versions: BTreeMap<OsString, String>,
-    rustc_version: Option<String>,
     #[cfg(not(windows))]
     wrapper_snapshot: Option<CachedWrapperSnapshot>,
 }
@@ -515,22 +525,28 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 source,
                 Some(&mut session),
                 deferred_assets.as_deref(),
-            )?;
-            if deferred_assets.is_some() {
-                if let Some(public) = source {
-                    // Advance generated public outputs (e.g. Tailwind's CSS)
-                    // produced while Cargo ran so the next poll does not
-                    // immediately schedule a redundant asset-only cycle.
-                    let post_assets = watch_snapshot(&root, &watch_paths)?;
-                    for output in declared_asset_outputs(&next_config) {
-                        if output.starts_with(public) {
-                            if let Some(stamp) = post_assets.get(&output) {
-                                cycle_snapshot.insert(output, *stamp);
+            );
+            if let (Some(_), Some(public)) = (&deferred_assets, source) {
+                // Advance generated public outputs (e.g. Tailwind's CSS)
+                // written while Cargo ran, whether or not Cargo succeeded, so
+                // the next poll does not schedule a cycle for output this one
+                // already produced.
+                match watch_snapshot(&root, &watch_paths) {
+                    Ok(post_assets) => {
+                        for output in declared_asset_outputs(&next_config) {
+                            if output.starts_with(public) {
+                                if let Some(stamp) = post_assets.get(&output) {
+                                    cycle_snapshot.insert(output.clone(), *stamp);
+                                    failure_snapshot.insert(output, *stamp);
+                                }
                             }
                         }
                     }
+                    Err(error) if launch.is_ok() => return Err(error),
+                    Err(_) => {}
                 }
             }
+            let launch = launch?;
             Ok(LinkedDevRebuild {
                 config: next_config,
                 snapshot: cycle_snapshot,
@@ -550,7 +566,6 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan {}",
                     next_launch.plan_id
                 );
-                let previous_executable = launch.executable.clone();
                 child.restart(
                     &root,
                     &next_launch,
@@ -558,11 +573,16 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     next_hot_state.as_mut(),
                     reload.as_ref(),
                 )?;
-                if previous_executable != next_launch.executable {
-                    prune_superseded_dev_snapshot(&previous_executable);
+                // The previous server has exited. Release its snapshot lease,
+                // then remove that snapshot unless another command holds it,
+                // so repeated saves keep one dev executable on disk.
+                let previous = std::mem::replace(&mut launch, next_launch);
+                if previous.executable != launch.executable {
+                    let superseded = previous.executable.clone();
+                    drop(previous);
+                    prune_final_artifact_snapshot(&superseded);
                 }
                 config = next_config;
-                launch = next_launch;
                 retry_catalog_at = Instant::now();
                 last_build_failed = false;
                 hot_state = next_hot_state;
@@ -828,12 +848,24 @@ fn can_defer_assets_for_parallel_cargo(
             |public| !is_css_or_public_or_asset_input(path, public, config),
         )
     });
-    if !has_non_asset_change {
-        return false;
-    }
-    outputs
-        .iter()
-        .all(|output| !is_compiled_input(root, inputs, output))
+    has_non_asset_change
+        && outputs
+            .iter()
+            .all(|output| !is_compiled_input(root, inputs, output))
+}
+
+/// Whether a finished build's recorded inputs prove it embeds no declared
+/// asset output. Unknown inputs prove nothing.
+fn build_excludes_asset_outputs(
+    root: &Path,
+    config: &ProjectConfig,
+    final_root_inputs: Option<&[PathBuf]>,
+) -> bool {
+    collect_compiled_source_inputs_from_paths(final_root_inputs).is_some_and(|inputs| {
+        declared_asset_outputs(config)
+            .iter()
+            .all(|output| !is_compiled_input(root, &inputs, output))
+    })
 }
 
 /// Fast scheduling hint for `proa dev` watch mode: returns true if any `.rs`
@@ -862,23 +894,6 @@ fn project_mentions_rsjs_macros(root: &Path) -> bool {
         }
     }
     false
-}
-
-/// Remove a superseded dev executable's snapshot directory once the previous
-/// server has exited so iterative saves do not accumulate multi-megabyte binaries.
-fn prune_superseded_dev_snapshot(executable: &Path) {
-    let Some(snapshot_dir) = executable.parent() else {
-        return;
-    };
-    let Some(snapshot_root) = snapshot_dir.parent() else {
-        return;
-    };
-    if snapshot_root.file_name() != Some(OsStr::new("rsjs-final-artifact-snapshots")) {
-        return;
-    }
-    if fs::symlink_metadata(snapshot_dir).is_ok_and(|meta| meta.file_type().is_dir()) {
-        let _ = fs::remove_dir_all(snapshot_dir);
-    }
 }
 
 fn start_reload_server(address: (&str, u16), options: &DevOptions) -> Option<ReloadServer> {
@@ -1987,6 +2002,78 @@ fn hot_scan_or_rustc_diagnostics<T>(
     })
 }
 
+enum DevCargoBuild {
+    SinglePass(crate::rsjs::pipeline::OptimisticLinkedCargoOutput),
+    Full(LinkedCargoOutput),
+}
+
+impl DevCargoBuild {
+    fn final_root_inputs(&self) -> Option<&[PathBuf]> {
+        match self {
+            Self::SinglePass(output) => output.final_root_inputs.as_deref(),
+            Self::Full(output) => output.final_root_inputs.as_deref(),
+        }
+    }
+
+    fn executable(&self) -> Option<&Path> {
+        match self {
+            Self::SinglePass(output) => output.final_root_artifact.executable.as_deref(),
+            Self::Full(output) => output.final_root_artifact.executable.as_deref(),
+        }
+    }
+}
+
+/// Build the dev server, trying the single-pass empty-plan build first when
+/// the session allows it and falling back to the full linked pipeline.
+fn run_dev_cargo(
+    prepared: &PreparedLinkedCargo,
+    mut session: Option<&mut DevSessionCache>,
+) -> Result<DevCargoBuild> {
+    let try_optimistic = session
+        .as_deref()
+        .is_some_and(|cache| cache.allow_optimistic_empty);
+    if try_optimistic {
+        dev_ui::stage("Compiling");
+        dev_ui::detail!("Building site: compiling Rust...");
+        match try_run_optimistic_empty_linked_cargo(&prepared.request)
+            .context("linked RSJS dev build failed")?
+        {
+            OptimisticLinkedCargoOutcome::Succeeded(output) => {
+                return Ok(DevCargoBuild::SinglePass(output));
+            }
+            OptimisticLinkedCargoOutcome::NeedsFullLinkedPass => {
+                if let Some(cache) = session.as_deref_mut() {
+                    cache.allow_optimistic_empty = false;
+                }
+                dev_ui::detail!("Browser island detected; running full two-pass linked build...");
+            }
+        }
+    }
+    let output = run_linked_cargo_cached_with_progress(
+        &prepared.request,
+        &prepared.descriptor_cache_directory,
+        |stage| match stage {
+            LinkedCargoStage::Descriptor => {
+                dev_ui::stage("Compiling");
+                dev_ui::detail!("Building site (1/2): resolving dependencies and compiling Rust...")
+            }
+            LinkedCargoStage::Link => {
+                dev_ui::stage("Linking");
+                dev_ui::detail!("Linking browser components...")
+            }
+            LinkedCargoStage::Final => {
+                dev_ui::stage("Finishing");
+                dev_ui::detail!("Building site (2/2): compiling the final server...")
+            }
+        },
+    )
+    .context("linked RSJS dev build failed")?;
+    if let Some(cache) = session {
+        cache.allow_optimistic_empty = output.semantic.is_empty();
+    }
+    Ok(DevCargoBuild::Full(output))
+}
+
 fn run_linked_dev_cycle(
     root: &Path,
     config: &ProjectConfig,
@@ -2013,16 +2100,10 @@ fn run_linked_dev_cycle_with_assets(
     let mut environment = hot.map(|state| state.environment()).unwrap_or_default();
     environment.extend(rsjs_minify_environment(config.build.minify_rsjs));
 
-    enum DevCargoBuild {
-        SinglePass(crate::rsjs::pipeline::OptimisticLinkedCargoOutput),
-        Full(LinkedCargoOutput),
-    }
-
-    let (prepared, build_result, asset_result) = thread::scope(|scope| {
-        let asset_handle = deferred_asset_changes.map(|changed| {
+    let (prepared, build, assets) = thread::scope(|scope| {
+        let assets = deferred_asset_changes.map(|changed| {
             scope.spawn(move || build_assets_for_change(root, config, public_source, changed))
         });
-
         let prepared = prepare_linked_cargo_with_environment_and_session(
             root,
             command,
@@ -2030,72 +2111,44 @@ fn run_linked_dev_cycle_with_assets(
             &environment,
             session.as_deref_mut(),
         );
-        let build_result: Option<Result<DevCargoBuild>> = match prepared.as_ref() {
-            Ok(prepared) => Some((|| -> Result<DevCargoBuild> {
-                let try_optimistic = session
-                    .as_deref()
-                    .is_some_and(|cache| cache.allow_optimistic_empty);
-                if try_optimistic {
-                    dev_ui::stage("Compiling");
-                    dev_ui::detail!("Building site: compiling Rust...");
-                    match try_run_optimistic_empty_linked_cargo(&prepared.request)
-                        .context("linked RSJS dev build failed")?
-                    {
-                        OptimisticLinkedCargoOutcome::Succeeded(output) => {
-                            return Ok(DevCargoBuild::SinglePass(output));
-                        }
-                        OptimisticLinkedCargoOutcome::NeedsFullLinkedPass => {
-                            if let Some(cache) = session.as_deref_mut() {
-                                cache.allow_optimistic_empty = false;
-                            }
-                            dev_ui::detail!(
-                                "Browser island detected; running full two-pass linked build..."
-                            );
-                        }
-                    }
-                }
-                let output = run_linked_cargo_cached_with_progress(
-                    &prepared.request,
-                    &prepared.descriptor_cache_directory,
-                    |stage| match stage {
-                        LinkedCargoStage::Descriptor => {
-                            dev_ui::stage("Compiling");
-                            dev_ui::detail!(
-                                "Building site (1/2): resolving dependencies and compiling Rust..."
-                            )
-                        }
-                        LinkedCargoStage::Link => {
-                            dev_ui::stage("Linking");
-                            dev_ui::detail!("Linking browser components...")
-                        }
-                        LinkedCargoStage::Final => {
-                            dev_ui::stage("Finishing");
-                            dev_ui::detail!("Building site (2/2): compiling the final server...")
-                        }
-                    },
-                )
-                .context("linked RSJS dev build failed")?;
-                if let Some(cache) = session.as_deref_mut() {
-                    cache.allow_optimistic_empty = output.semantic.is_empty();
-                }
-                Ok(DevCargoBuild::Full(output))
-            })()),
-            Err(_) => None,
-        };
-
-        let asset_result = asset_handle.map(|handle| {
+        let build = prepared
+            .as_ref()
+            .ok()
+            .map(|prepared| run_dev_cargo(prepared, session.as_deref_mut()));
+        let assets = assets.map(|handle| {
             handle
                 .join()
                 .map_err(|_| anyhow::anyhow!("background asset build thread panicked"))
-                .and_then(|res| res)
+                .and_then(|result| result)
         });
-        (prepared, build_result, asset_result)
+        (prepared, build, assets)
     });
 
     let prepared = prepared?;
-    let build = build_result.expect("prepared succeeded before build ran")?;
-    if let Some(asset_result) = asset_result {
-        asset_result?;
+    let mut build = build.expect("Cargo runs once preparation succeeds")?;
+    if let Some(assets) = assets {
+        assets?;
+    }
+    // The previous build proved no asset output was compiled in, but this edit
+    // may have added an `include_str!` of one that Cargo read while the asset
+    // command was still writing it. Cargo dates each compilation from its
+    // start, so one more pass rebuilds exactly when that happened.
+    if deferred_asset_changes.is_some()
+        && !build_excludes_asset_outputs(root, config, build.final_root_inputs())
+    {
+        dev_ui::detail!("this build reads a generated asset; rebuilding now that assets are final");
+        let first = std::mem::replace(
+            &mut build,
+            run_dev_cargo(&prepared, session.as_deref_mut())?,
+        );
+        let stale = first
+            .executable()
+            .filter(|path| Some(*path) != build.executable())
+            .map(Path::to_path_buf);
+        drop(first);
+        if let Some(stale) = stale {
+            prune_final_artifact_snapshot(&stale);
+        }
     }
 
     match build {
@@ -2133,6 +2186,7 @@ fn run_linked_dev_cycle_with_assets(
                 reused_final_artifacts,
                 public_assets,
                 compiled_inputs,
+                _snapshot_lease: output.final_root_lease,
             })
         }
         DevCargoBuild::Full(output) => {
@@ -2170,6 +2224,7 @@ fn run_linked_dev_cycle_with_assets(
                 reused_final_artifacts,
                 public_assets,
                 compiled_inputs,
+                _snapshot_lease: output.final_root_lease.clone(),
             })
         }
     }
@@ -2956,52 +3011,26 @@ fn prepare_linked_cargo_with_wrapper_and_environment_and_session(
     }
     let parsed = parse_cargo_command(command, action)?;
     let mut timer = crate::rsjs::timing::StageTimer::new();
-    let cached_cargo_version = session
-        .as_deref()
-        .and_then(|cache| cache.cargo_versions.get(&parsed.cargo).cloned());
-    let cached_rustc_version = session
-        .as_deref()
-        .and_then(|cache| cache.rustc_version.clone());
-    // Query Cargo's authoritative metadata on every cycle; reuse immutable
-    // session tool versions when running inside a single `proa dev` watch loop.
+    // Query every current tool and Cargo's authoritative metadata on each
+    // cycle. They are independent subprocesses; overlapping them avoids
+    // adding their startup costs together without caching mutable tool state.
     let (metadata, cargo_version, rustc_version) = thread::scope(|scope| {
-        let cargo = match &cached_cargo_version {
-            Some(_) => None,
-            None => Some(scope.spawn(|| tool_version(&parsed.cargo, &["-Vv"], "Cargo", root))),
-        };
-        let rustc = match &cached_rustc_version {
-            Some(_) => None,
-            None => Some(scope.spawn(|| selected_rustc_version(root))),
-        };
+        let cargo = scope.spawn(|| tool_version(&parsed.cargo, &["-Vv"], "Cargo", root));
+        let rustc = scope.spawn(|| selected_rustc_version(root));
         let metadata = load_cargo_metadata(root, &parsed);
-        let cargo = match cargo {
-            Some(handle) => handle
-                .join()
-                .map_err(|_| anyhow::anyhow!("Cargo version query thread panicked"))
-                .and_then(|result| result),
-            None => Ok(cached_cargo_version.expect("cached cargo version")),
-        };
-        let rustc = match rustc {
-            Some(handle) => handle
-                .join()
-                .map_err(|_| anyhow::anyhow!("rustc version query thread panicked"))
-                .and_then(|result| result),
-            None => Ok(cached_rustc_version.expect("cached rustc version")),
-        };
+        let cargo = cargo
+            .join()
+            .map_err(|_| anyhow::anyhow!("Cargo version query thread panicked"))
+            .and_then(|result| result);
+        let rustc = rustc
+            .join()
+            .map_err(|_| anyhow::anyhow!("rustc version query thread panicked"))
+            .and_then(|result| result);
         (metadata, cargo, rustc)
     });
     let metadata = metadata?;
     let cargo_version = cargo_version?;
     let rustc_version = rustc_version?;
-    if let Some(cache) = session.as_deref_mut() {
-        cache
-            .cargo_versions
-            .entry(parsed.cargo.clone())
-            .or_insert_with(|| cargo_version.clone());
-        if cache.rustc_version.is_none() {
-            cache.rustc_version = Some(rustc_version.clone());
-        }
-    }
     timer.mark("prepare Cargo metadata and tool versions");
     let selected_root = select_exact_cargo_root(&metadata, &parsed, action)?;
     let public_output_directory =

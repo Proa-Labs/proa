@@ -150,6 +150,7 @@ rsjs_ir = { path = "rsjs_ir", version = "0.3.0" }
 rsjs_macros = { path = "rsjs_macros", version = "0.3.0" }
 rsjs_transport = { path = "rsjs_transport", version = "0.3.0", default-features = false }
 rsjs_web = { path = "rsjs_web", version = "0.3.0" }
+same-file = { version = "1.0.6" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
 # sha2 0.11 dispatches to hardware SHA instructions at runtime on AArch64

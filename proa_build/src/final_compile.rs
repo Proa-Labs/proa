@@ -14,7 +14,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, IsTerminal as _, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -321,8 +321,19 @@ fn run_final_cargo_leased_with_mode<P: FinalCargoPlan>(
         &unit_map.content_hash,
     )?;
     let cargo_args = compile_only_cargo_arguments(&request.cargo_args)?;
+    // Buffered diagnostics are replayed by this process instead of Cargo, so
+    // ask for ANSI renderings exactly when Cargo itself would have colored.
+    let buffered_color = diagnostic_mode == FinalDiagnosticMode::BufferAndDetectUnmapped
+        && match env::var("CARGO_TERM_COLOR").as_deref() {
+            Ok("always") => true,
+            Ok("never") => false,
+            _ => io::stderr().is_terminal(),
+        };
     let message_format = match diagnostic_mode {
         FinalDiagnosticMode::Forward => "--message-format=json-render-diagnostics",
+        FinalDiagnosticMode::BufferAndDetectUnmapped if buffered_color => {
+            "--message-format=json-diagnostic-rendered-ansi"
+        }
         FinalDiagnosticMode::BufferAndDetectUnmapped => "--message-format=json",
     };
     let mut command = Command::new(&request.cargo);
@@ -347,8 +358,18 @@ fn run_final_cargo_leased_with_mode<P: FinalCargoPlan>(
         .env(FINAL_TARGET_DIR_ENV, &target_directory)
         .env_remove("RSJS_DESCRIPTOR_PHASE")
         .env_remove("RSJS_CARGO_UNIT_ID")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
+        .stdout(Stdio::piped());
+    match diagnostic_mode {
+        FinalDiagnosticMode::Forward => {
+            command.stderr(Stdio::inherit());
+        }
+        FinalDiagnosticMode::BufferAndDetectUnmapped => {
+            if buffered_color {
+                command.env("CARGO_TERM_COLOR", "always");
+            }
+            command.stderr(Stdio::piped());
+        }
+    }
     timing.mark("final Cargo setup");
     let mut child = command
         .spawn()
@@ -360,6 +381,13 @@ fn run_final_cargo_leased_with_mode<P: FinalCargoPlan>(
         .stdout
         .take()
         .ok_or(FinalCargoError::MissingCargoStdout)?;
+    // Cargo's own `error:`/`warning:` lines (such as "could not compile") are
+    // held with the buffered diagnostics, so a fallback to the full pipeline
+    // shows nothing. Progress lines stream live.
+    let stderr_relay = child
+        .stderr
+        .take()
+        .map(|stderr| std::thread::spawn(move || relay_cargo_status_lines(stderr)));
     let mut collector = CargoArtifactCollector::default();
     let mut stdout = BufReader::new(stdout);
     let mut cargo_line_number = 0_usize;
@@ -396,14 +424,12 @@ fn run_final_cargo_leased_with_mode<P: FinalCargoPlan>(
                 });
             }
         };
-        if let Some(rendered) = extract_rendered_cargo_diagnostic(line) {
+        if let Some(diagnostic) = extract_cargo_compiler_diagnostic(line) {
             match diagnostic_mode {
-                FinalDiagnosticMode::Forward => eprint!("{rendered}"),
+                FinalDiagnosticMode::Forward => eprint!("{}", diagnostic.rendered),
                 FinalDiagnosticMode::BufferAndDetectUnmapped => {
-                    if is_unmapped_rsjs_unit_diagnostic(&rendered) {
-                        saw_unmapped_rsjs_unit = true;
-                    }
-                    buffered_diagnostics.push(rendered);
+                    saw_unmapped_rsjs_unit |= diagnostic.unmapped_rsjs_unit;
+                    buffered_diagnostics.push(diagnostic.rendered);
                 }
             }
         }
@@ -414,18 +440,20 @@ fn run_final_cargo_leased_with_mode<P: FinalCargoPlan>(
         }
     }
     let status = child.wait().map_err(FinalCargoError::WaitForCargo)?;
-    if !status.success() {
-        if diagnostic_mode == FinalDiagnosticMode::BufferAndDetectUnmapped && saw_unmapped_rsjs_unit
-        {
-            return Ok(OptimisticFinalCargoOutcome::NeedsFullLinkedPass);
-        }
-        for rendered in buffered_diagnostics {
-            eprint!("{rendered}");
-        }
-        return Err(FinalCargoError::CargoFailed(status));
+    let held_cargo_lines = stderr_relay
+        .map(|relay| relay.join().unwrap_or_default())
+        .unwrap_or_default();
+    if !status.success() && saw_unmapped_rsjs_unit {
+        return Ok(OptimisticFinalCargoOutcome::NeedsFullLinkedPass);
     }
     for rendered in buffered_diagnostics {
         eprint!("{rendered}");
+    }
+    if !held_cargo_lines.is_empty() {
+        let _ = io::stderr().write_all(&held_cargo_lines);
+    }
+    if !status.success() {
+        return Err(FinalCargoError::CargoFailed(status));
     }
     let local_scripts_declare_inputs = collector.local_build_scripts_declare_inputs();
     let cargo_artifacts = collector.finish().map_err(FinalCargoError::CargoProtocol)?;
@@ -895,28 +923,131 @@ fn final_target_directory(target_root: &Path, _invocation: InvocationId) -> Path
         .join(format!("wrapper-v{FINAL_WRAPPER_POLICY_VERSION}"))
 }
 
+/// Shared hold on one published executable snapshot.
+///
+/// [`prune_final_artifact_snapshot`] removes a snapshot only after taking the
+/// same lock exclusively, so a holder can always open or spawn its path even
+/// when another command (another `proa dev`, `proa run`, `proa build`) built
+/// identical bytes and later supersedes them.
+#[derive(Debug)]
+pub struct FinalSnapshotLease {
+    _handle: same_file::Handle,
+}
+
+/// Lock file inside every executable snapshot directory.
+const FINAL_SNAPSHOT_LEASE_FILE: &str = ".lease";
+
+/// Take a shared lease on `directory`, creating it when absent.
+///
+/// A pruner renames a directory away while holding the lock exclusively, so a
+/// lock acquired on that old file protects nothing. Keep only a lock on the
+/// file still present at the lease path, and retry otherwise.
+fn acquire_final_snapshot_lease(
+    source_exclusion: &Path,
+    directory: &Path,
+) -> Result<FinalSnapshotLease, FinalCargoError> {
+    let path = directory.join(FINAL_SNAPSHOT_LEASE_FILE);
+    let lease_error = |source| FinalCargoError::SnapshotArtifactIo {
+        path: path.clone(),
+        source,
+    };
+    for _ in 0..8 {
+        ensure_plain_managed_directory(source_exclusion, directory)?;
+        let file = match OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)
+        {
+            Ok(file) => file,
+            // Pruned between creating the directory and opening the lease.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(lease_error(error)),
+        };
+        let handle = same_file::Handle::from_file(file).map_err(lease_error)?;
+        handle.as_file().lock_shared().map_err(lease_error)?;
+        match same_file::Handle::from_path(&path) {
+            Ok(current) if current == handle => {
+                return Ok(FinalSnapshotLease { _handle: handle });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(lease_error(error)),
+        }
+    }
+    Err(lease_error(io::Error::other(
+        "the snapshot was pruned repeatedly while this command tried to lease it",
+    )))
+}
+
+/// Remove one executable snapshot published by this module unless another
+/// process still holds its lease. Returns whether the snapshot was removed.
+///
+/// Only `<snapshot root>/<content identity>/<file>` paths that carry a lease
+/// file are eligible; anything else is left untouched.
+pub fn prune_final_artifact_snapshot(executable: &Path) -> bool {
+    let Some(directory) = executable.parent() else {
+        return false;
+    };
+    let (Some(snapshot_root), Some(identity)) = (directory.parent(), directory.file_name()) else {
+        return false;
+    };
+    if snapshot_root.file_name() != Some(OsStr::new(FINAL_SNAPSHOT_ROOT_NAME)) {
+        return false;
+    }
+    let Ok(lease) = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(directory.join(FINAL_SNAPSHOT_LEASE_FILE))
+    else {
+        return false;
+    };
+    if lease.try_lock().is_err() {
+        return false;
+    }
+    // Rename first: a publisher that resolves the identity path afterwards
+    // creates a fresh directory, and removal never races its new entries.
+    let nonce = FINAL_SNAPSHOT_NONCE.fetch_add(1, Ordering::Relaxed);
+    let mut doomed = OsString::from(format!(".pruned.{}.{nonce}.", std::process::id()));
+    doomed.push(identity);
+    let doomed = snapshot_root.join(doomed);
+    if fs::rename(directory, &doomed).is_err() {
+        return false;
+    }
+    drop(lease);
+    fs::remove_dir_all(&doomed).is_ok()
+}
+
+/// Directory name under each final target root that holds executable snapshots.
+pub(crate) const FINAL_SNAPSHOT_ROOT_NAME: &str = "rsjs-final-artifact-snapshots";
+
 /// Publish every materialized path for one selected root into immutable,
 /// content-addressed storage while the reusable Cargo target is still leased.
+///
+/// The returned lease keeps the executable snapshot from being pruned. Hold it
+/// until the executable has been spawned or copied.
 pub(crate) fn snapshot_final_artifact(
     source_exclusion: &Path,
     snapshot_root: &Path,
     target_directory: &Path,
     artifact: &CargoCompilerArtifact,
-) -> Result<CargoCompilerArtifact, FinalCargoError> {
+) -> Result<(CargoCompilerArtifact, Option<FinalSnapshotLease>), FinalCargoError> {
     ensure_plain_managed_directory(source_exclusion, snapshot_root)?;
 
     let mut snapshots = BTreeMap::new();
+    let mut lease = None;
     if let Some(executable) = &artifact.executable {
         ensure_plain_managed_file(target_directory, executable)?;
-        snapshots.insert(
-            executable.clone(),
-            snapshot_final_file(
-                source_exclusion,
-                snapshot_root,
-                executable,
-                Some(target_directory),
-            )?,
-        );
+        let (snapshot, executable_lease) = snapshot_final_file(
+            source_exclusion,
+            snapshot_root,
+            executable,
+            Some(target_directory),
+            true,
+        )?;
+        lease = executable_lease;
+        snapshots.insert(executable.clone(), snapshot);
     }
     for source in &artifact.filenames {
         if artifact.executable.as_ref() == Some(source) {
@@ -925,7 +1056,7 @@ pub(crate) fn snapshot_final_artifact(
         ensure_plain_managed_file(target_directory, source)?;
         snapshots.insert(
             source.clone(),
-            snapshot_final_file(source_exclusion, snapshot_root, source, None)?,
+            snapshot_final_file(source_exclusion, snapshot_root, source, None, false)?.0,
         );
     }
 
@@ -946,7 +1077,7 @@ pub(crate) fn snapshot_final_artifact(
             .cloned()
             .expect("the final executable was snapshotted")
     });
-    Ok(snapshot)
+    Ok((snapshot, lease))
 }
 
 fn snapshot_final_file(
@@ -954,7 +1085,8 @@ fn snapshot_final_file(
     snapshot_root: &Path,
     source: &Path,
     launch_target_directory: Option<&Path>,
-) -> Result<PathBuf, FinalCargoError> {
+    leased: bool,
+) -> Result<(PathBuf, Option<FinalSnapshotLease>), FinalCargoError> {
     let metadata = fs::symlink_metadata(source).map_err(|source_error| {
         FinalCargoError::SnapshotArtifactIo {
             path: source.to_path_buf(),
@@ -1023,7 +1155,20 @@ fn snapshot_final_file(
     let digest: [u8; 32] = hash.finalize().into();
     let identity = format!("{}-{permission_identity}", hex_sha256(&digest));
     let destination_directory = snapshot_root.join(identity);
-    ensure_plain_managed_directory(source_exclusion, &destination_directory)?;
+    // Lease before publishing or reusing the entry so a concurrent prune
+    // cannot remove it between verification and the caller's launch.
+    let lease = if leased {
+        match acquire_final_snapshot_lease(source_exclusion, &destination_directory) {
+            Ok(lease) => Some(lease),
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(error);
+            }
+        }
+    } else {
+        ensure_plain_managed_directory(source_exclusion, &destination_directory)?;
+        None
+    };
     let destination = destination_directory.join(file_name);
     match fs::hard_link(&temporary, &destination) {
         Ok(()) => {
@@ -1050,7 +1195,7 @@ fn snapshot_final_file(
         }
     }
     ensure_plain_managed_file(source_exclusion, &destination)?;
-    Ok(destination)
+    Ok((destination, lease))
 }
 
 /// Publish the exact wrapper bytes into the generated-output CAS before Cargo
@@ -1102,7 +1247,9 @@ pub fn snapshot_wrapper_executable(
         snapshot_root,
         source,
         Some(source_exclusion),
+        false,
     )
+    .map(|(destination, _)| destination)
 }
 
 #[derive(Debug, Default)]
@@ -1698,22 +1845,84 @@ fn snapshot_permission_identity(permissions: &fs::Permissions) -> String {
     format!("readonly-{}", u8::from(permissions.readonly()))
 }
 
-fn extract_rendered_cargo_diagnostic(line: &str) -> Option<String> {
+/// One rustc diagnostic from Cargo's JSON stream: its rendered form and
+/// whether it is the RSJS unmapped-unit rejection.
+struct CargoCompilerDiagnostic {
+    rendered: String,
+    unmapped_rsjs_unit: bool,
+}
+
+fn extract_cargo_compiler_diagnostic(line: &str) -> Option<CargoCompilerDiagnostic> {
     let value = serde_json::from_str::<Value>(line).ok()?;
     if value.get("reason").and_then(Value::as_str) != Some("compiler-message") {
         return None;
     }
-    value
+    let message = value.get("message")?;
+    let rendered = message.get("rendered").and_then(Value::as_str)?.to_owned();
+    // Match the plain message: `rendered` may carry ANSI styling.
+    let unmapped_rsjs_unit = message
         .get("message")
-        .and_then(|message| message.get("rendered"))
         .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
+        .is_some_and(is_unmapped_rsjs_unit_diagnostic);
+    Some(CargoCompilerDiagnostic {
+        rendered,
+        unmapped_rsjs_unit,
+    })
 }
 
-fn is_unmapped_rsjs_unit_diagnostic(rendered: &str) -> bool {
-    rendered.contains(&format!(
+/// Stream Cargo's progress lines to stderr as they arrive and return every
+/// other stderr line for replay once the optimistic outcome is known.
+fn relay_cargo_status_lines(stderr: impl Read) -> Vec<u8> {
+    let mut reader = BufReader::new(stderr);
+    let mut held = Vec::new();
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if is_cargo_status_line(&line) {
+            let mut stderr = io::stderr().lock();
+            let _ = stderr.write_all(&line);
+            let _ = stderr.flush();
+        } else {
+            held.extend_from_slice(&line);
+        }
+    }
+    held
+}
+
+/// Cargo prints progress as one capitalized verb right-aligned to twelve
+/// columns and followed by a space (`   Compiling`, `    Finished`).
+fn is_cargo_status_line(line: &[u8]) -> bool {
+    let mut plain = Vec::with_capacity(line.len());
+    let mut bytes = line.iter().copied();
+    while let Some(byte) = bytes.next() {
+        if byte == 0x1b {
+            // Skip one CSI sequence such as `ESC [ 1 ; 92 m`.
+            for byte in bytes.by_ref() {
+                if byte.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            plain.push(byte);
+        }
+    }
+    let Some((head, rest)) = plain.split_at_checked(12) else {
+        return false;
+    };
+    let verb = head.trim_ascii_start();
+    rest.first() == Some(&b' ')
+        && verb.first().is_some_and(u8::is_ascii_uppercase)
+        && verb[1..].iter().all(u8::is_ascii_lowercase)
+}
+
+fn is_unmapped_rsjs_unit_diagnostic(message: &str) -> bool {
+    message.contains(&format!(
         "{FINAL_CARGO_UNIT_STATUS_ENV}={FINAL_CARGO_UNIT_STATUS_UNMAPPED}"
-    )) || rendered.contains("could not map this Cargo unit to its descriptor pass")
+    )) || message.contains("could not map this Cargo unit to its descriptor pass")
 }
 
 /// Final-compilation validation or Cargo failure.
@@ -2028,7 +2237,8 @@ mod tests {
             &target_directory,
             &artifact,
         )
-        .unwrap();
+        .unwrap()
+        .0;
         let path_a = snapshot_a.filenames.iter().next().unwrap();
         assert_eq!(fs::read(path_a).unwrap(), b"artifact-a\n");
 
@@ -2039,7 +2249,8 @@ mod tests {
             &target_directory,
             &artifact,
         )
-        .unwrap();
+        .unwrap()
+        .0;
         let path_b = snapshot_b.filenames.iter().next().unwrap();
         assert_ne!(path_a, path_b);
         assert_eq!(fs::read(path_a).unwrap(), b"artifact-a\n");
@@ -2051,7 +2262,8 @@ mod tests {
             &target_directory,
             &artifact,
         )
-        .unwrap();
+        .unwrap()
+        .0;
         assert_eq!(snapshot_b_again.filenames, snapshot_b.filenames);
 
         #[cfg(unix)]
@@ -2144,7 +2356,8 @@ mod tests {
             &target_directory,
             &artifact,
         )
-        .unwrap();
+        .unwrap()
+        .0;
         let published = snapshot.executable.unwrap();
         assert_ne!(published, executable);
         let output = Command::new(published).arg("--list").output().unwrap();
@@ -2174,7 +2387,8 @@ mod tests {
             &target_directory,
             &artifact,
         )
-        .unwrap();
+        .unwrap()
+        .0;
         let published = snapshot.executable.unwrap();
         assert_ne!(published, executable);
         assert!(published.is_file());
@@ -2576,6 +2790,108 @@ mod tests {
             validate_plan_file(&path, &plan),
             Err(FinalCargoError::PlanContentMismatch)
         ));
+    }
+
+    #[test]
+    fn leased_snapshot_survives_prune_until_every_holder_releases_it() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source_exclusion = temp.path().join("generated");
+        let target_directory = source_exclusion.join("reusable-target");
+        let snapshot_root = source_exclusion.join(FINAL_SNAPSHOT_ROOT_NAME);
+        fs::create_dir_all(&target_directory).unwrap();
+        fs::create_dir_all(&snapshot_root).unwrap();
+        let publish = || {
+            snapshot_final_file(
+                &source_exclusion,
+                &snapshot_root,
+                &compile_or_copy_launchable(&target_directory),
+                Some(&target_directory),
+                true,
+            )
+            .unwrap()
+        };
+
+        // Two commands published identical bytes, so they share one entry.
+        let (first_path, first_lease) = publish();
+        let (second_path, second_lease) = publish();
+        assert_eq!(first_path, second_path);
+
+        drop(first_lease);
+        assert!(!prune_final_artifact_snapshot(&first_path));
+        assert!(second_path.is_file(), "a held snapshot was pruned");
+
+        drop(second_lease);
+        assert!(prune_final_artifact_snapshot(&first_path));
+        assert!(!first_path.exists());
+        assert_eq!(fs::read_dir(&snapshot_root).unwrap().count(), 0);
+
+        // A later publisher recreates the identity directory and its lease.
+        let (third_path, _third_lease) = publish();
+        assert_eq!(third_path, first_path);
+        assert!(third_path.is_file());
+    }
+
+    #[test]
+    fn prune_ignores_paths_outside_leased_snapshot_directories() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let unrelated = temp.path().join("other/abc123/app");
+        fs::create_dir_all(unrelated.parent().unwrap()).unwrap();
+        fs::write(&unrelated, b"keep").unwrap();
+        assert!(!prune_final_artifact_snapshot(&unrelated));
+        assert!(unrelated.is_file());
+
+        // A snapshot published before leases existed has no lease file.
+        let legacy = temp
+            .path()
+            .join(FINAL_SNAPSHOT_ROOT_NAME)
+            .join("abc123-mode-100755/app");
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::write(&legacy, b"keep").unwrap();
+        assert!(!prune_final_artifact_snapshot(&legacy));
+        assert!(legacy.is_file());
+    }
+
+    /// A launchable host executable in `target_directory` for snapshot tests.
+    fn compile_or_copy_launchable(target_directory: &Path) -> PathBuf {
+        #[cfg(windows)]
+        {
+            let executable = target_directory.join("fixture.exe");
+            if !executable.is_file() {
+                fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
+            }
+            executable
+        }
+        #[cfg(not(windows))]
+        {
+            let executable = target_directory.join("static-fixture");
+            if executable.is_file() {
+                executable
+            } else {
+                compile_snapshot_fixture(target_directory, false)
+            }
+        }
+    }
+
+    #[test]
+    fn only_cargo_progress_lines_stream_while_optimistic_output_is_held() {
+        for line in [
+            "   Compiling proa_ui v0.4.0 (/work/proa_ui)\n",
+            "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.2s\n",
+            "  Downloaded serde v1.0.0\n",
+            "\x1b[1m\x1b[92m   Compiling\x1b[0m site v0.1.0\n",
+        ] {
+            assert!(is_cargo_status_line(line.as_bytes()), "{line:?}");
+        }
+        for line in [
+            "error: could not compile `proa_ui` (lib) due to 2 previous errors\n",
+            "warning: build failed, waiting for other jobs to finish...\n",
+            "\x1b[1m\x1b[91merror\x1b[0m: could not compile `site`\n",
+            "Caused by:\n",
+            "  process didn't exit successfully: `build-script-build`\n",
+            "\n",
+        ] {
+            assert!(!is_cargo_status_line(line.as_bytes()), "{line:?}");
+        }
     }
 
     #[test]

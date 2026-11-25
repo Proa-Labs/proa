@@ -15,6 +15,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+use std::sync::Arc;
 
 use rsjs_ir::abi::{AbiVersion, InvocationId, LinkUnitId, ProducerVersion, SemanticHash};
 use rsjs_ir::build::ArtifactRole;
@@ -37,7 +38,8 @@ use crate::final_compile::FinalCargoArtifactReport;
 use crate::final_compile::{
     ensure_plain_managed_directory, ensure_plain_managed_file, run_final_cargo_leased,
     run_final_cargo_leased_optimistic, snapshot_final_artifact, FinalCargoError, FinalCargoOutput,
-    FinalCargoRequest, ManagedPathError, OptimisticFinalCargoOutcome,
+    FinalCargoRequest, FinalCargoRun, FinalSnapshotLease, ManagedPathError,
+    OptimisticFinalCargoOutcome, FINAL_SNAPSHOT_ROOT_NAME,
 };
 use crate::link::{link_transport_manifest, TransportLinkError, TransportLinkPlan};
 use crate::semantic_link::{
@@ -114,6 +116,9 @@ pub struct LinkedCargoOutput {
     /// has no executable, its dep-info is unavailable, or a local build script
     /// declares no inputs (Cargo then treats its whole package as an input).
     pub final_root_inputs: Option<Vec<PathBuf>>,
+    /// Keeps the executable snapshot from being pruned while any clone of
+    /// this output is alive. Hold it until the executable has been spawned.
+    pub final_root_lease: Option<Arc<FinalSnapshotLease>>,
 }
 
 /// Read Cargo's `<artifact>.d` beside a final executable: one
@@ -198,6 +203,9 @@ pub struct OptimisticLinkedCargoOutput {
     pub final_root_artifact: CargoCompilerArtifact,
     /// Absolute local inputs Cargo recorded for the final root executable.
     pub final_root_inputs: Option<Vec<PathBuf>>,
+    /// Keeps the executable snapshot from being pruned; see
+    /// [`LinkedCargoOutput::final_root_lease`].
+    pub final_root_lease: Option<Arc<FinalSnapshotLease>>,
 }
 
 /// Result of attempting a single-pass optimistic empty-plan dev build.
@@ -266,94 +274,65 @@ pub fn try_run_optimistic_empty_linked_cargo(
         }
         OptimisticFinalCargoOutcome::Succeeded(run) => run,
     };
-
-    let final_root_artifact = attest_optimistic_final_root(
-        final_cargo_run.output(),
-        final_cargo_run.cargo_artifacts(),
-        &request.root,
-    )?;
-    let final_root_inputs = final_root_artifact
-        .executable
-        .as_deref()
-        .filter(|_| final_cargo_run.local_scripts_declare_inputs)
-        .and_then(cargo_dep_info_inputs);
-    let final_root_artifact = snapshot_final_artifact(
-        &request.descriptor.source_exclusion_directory,
-        &request
-            .final_target_root
-            .join("rsjs-final-artifact-snapshots"),
-        &final_cargo_run.output().target_directory,
-        &final_root_artifact,
-    )
-    .map_err(LinkedCargoError::FinalCargo)?;
-    let final_cargo = final_cargo_run.into_output();
-    execute_requested_final_root(request, &final_root_artifact)?;
+    let published = publish_final_root(request, final_cargo_run, None)?;
 
     Ok(OptimisticLinkedCargoOutcome::Succeeded(
         OptimisticLinkedCargoOutput {
             semantic,
             semantic_plan_path,
-            final_cargo,
-            final_root_artifact,
-            final_root_inputs,
+            final_cargo: published.final_cargo,
+            final_root_artifact: published.final_root_artifact,
+            final_root_inputs: published.final_root_inputs,
+            final_root_lease: published.final_root_lease,
         },
     ))
 }
 
-fn attest_optimistic_final_root(
-    output: &FinalCargoOutput,
-    cargo_artifacts: &[CargoCompilerArtifact],
-    selector: &DescriptorRootSelector,
-) -> Result<CargoCompilerArtifact, LinkedCargoError> {
-    let mut matches = cargo_artifacts
-        .iter()
-        .filter(|artifact| root_artifact_matches(artifact, selector))
-        .collect::<Vec<_>>();
-    matches.sort_by(|left, right| {
-        left.manifest_path
-            .cmp(&right.manifest_path)
-            .then_with(|| left.target.src_path.cmp(&right.target.src_path))
-    });
-    let final_root = match matches.as_slice() {
-        [] => {
-            return Err(LinkedCargoError::MissingFinalRoot {
-                package_id: selector.package_id.clone(),
-                target_name: selector.target_name.clone(),
-            });
-        }
-        [artifact] => *artifact,
-        artifacts => {
-            return Err(LinkedCargoError::AmbiguousFinalRoot {
-                package_id: selector.package_id.clone(),
-                target_name: selector.target_name.clone(),
-                matches: artifacts.len(),
-            });
-        }
-    };
+struct PublishedFinalRoot {
+    final_cargo: FinalCargoOutput,
+    final_root_artifact: CargoCompilerArtifact,
+    final_root_inputs: Option<Vec<PathBuf>>,
+    final_root_lease: Option<Arc<FinalSnapshotLease>>,
+}
 
-    let materialized = match final_root.executable.as_ref() {
-        Some(executable) => executable,
-        None => final_root
-            .filenames
-            .iter()
-            .next()
-            .ok_or(LinkedCargoError::FinalRootHasNoArtifact)?,
-    };
-    ensure_plain_managed_file(&output.target_directory, materialized)
-        .map_err(LinkedCargoError::ManagedPath)?;
-    let metadata = fs::symlink_metadata(materialized).map_err(|source| {
-        LinkedCargoError::InspectFinalRootArtifact {
-            path: materialized.clone(),
-            source,
-        }
-    })?;
-    if !metadata.file_type().is_file() {
-        return Err(LinkedCargoError::FinalRootArtifactNotFile(
-            materialized.clone(),
-        ));
-    }
-
-    Ok(final_root.clone())
+/// Attest the selected root in a finished final Cargo run, publish it into
+/// immutable snapshot storage, and run it when the request asks for that.
+fn publish_final_root(
+    request: &LinkedCargoRequest,
+    final_cargo_run: FinalCargoRun,
+    descriptor_root: Option<&CargoCompilerArtifact>,
+) -> Result<PublishedFinalRoot, LinkedCargoError> {
+    let final_root_artifact = attest_final_root(
+        final_cargo_run.output(),
+        final_cargo_run.cargo_artifacts(),
+        &request.root,
+        descriptor_root,
+    )?;
+    // Cargo writes dep-info beside the artifact in the reusable target, not
+    // beside the snapshot. Read it while the target lease is still held.
+    let final_root_inputs = final_root_artifact
+        .executable
+        .as_deref()
+        .filter(|_| final_cargo_run.local_scripts_declare_inputs)
+        .and_then(cargo_dep_info_inputs);
+    let (final_root_artifact, final_root_lease) = snapshot_final_artifact(
+        &request.descriptor.source_exclusion_directory,
+        &request.final_target_root.join(FINAL_SNAPSHOT_ROOT_NAME),
+        &final_cargo_run.output().target_directory,
+        &final_root_artifact,
+    )
+    .map_err(LinkedCargoError::FinalCargo)?;
+    let final_cargo = final_cargo_run.into_output();
+    // The selected root now points only at immutable content-addressed files,
+    // so long-running programs never retain the reusable target lease and a
+    // later build cannot replace the artifact between attestation and spawn.
+    execute_requested_final_root(request, &final_root_artifact)?;
+    Ok(PublishedFinalRoot {
+        final_cargo,
+        final_root_artifact,
+        final_root_inputs,
+        final_root_lease: final_root_lease.map(Arc::new),
+    })
 }
 
 pub enum LinkedCargoStage {
@@ -544,33 +523,7 @@ fn finish_prepared_linked_cargo(
     };
     let final_cargo_run =
         run_final_cargo_leased(&final_request, &semantic).map_err(LinkedCargoError::FinalCargo)?;
-    let final_root_artifact = attest_final_root(
-        final_cargo_run.output(),
-        final_cargo_run.cargo_artifacts(),
-        &request.root,
-        &selected.cargo_artifact,
-    )?;
-    // Cargo writes dep-info beside the artifact in the reusable target, not
-    // beside the snapshot. Read it while the target lease is still held.
-    let final_root_inputs = final_root_artifact
-        .executable
-        .as_deref()
-        .filter(|_| final_cargo_run.local_scripts_declare_inputs)
-        .and_then(cargo_dep_info_inputs);
-    let final_root_artifact = snapshot_final_artifact(
-        &request.descriptor.source_exclusion_directory,
-        &request
-            .final_target_root
-            .join("rsjs-final-artifact-snapshots"),
-        &final_cargo_run.output().target_directory,
-        &final_root_artifact,
-    )
-    .map_err(LinkedCargoError::FinalCargo)?;
-    let final_cargo = final_cargo_run.into_output();
-    // The selected root now points only at immutable content-addressed files,
-    // so long-running programs never retain the reusable target lease and a
-    // later build cannot replace the artifact between attestation and spawn.
-    execute_requested_final_root(request, &final_root_artifact)?;
+    let published = publish_final_root(request, final_cargo_run, Some(&selected.cargo_artifact))?;
 
     Ok(LinkedCargoOutput {
         descriptor,
@@ -579,9 +532,10 @@ fn finish_prepared_linked_cargo(
         adapted,
         semantic,
         semantic_plan_path,
-        final_cargo,
-        final_root_artifact,
-        final_root_inputs,
+        final_cargo: published.final_cargo,
+        final_root_artifact: published.final_root_artifact,
+        final_root_inputs: published.final_root_inputs,
+        final_root_lease: published.final_root_lease,
     })
 }
 
@@ -680,11 +634,16 @@ fn select_root_path(
     }
 }
 
+/// Select the requested root among final Cargo artifacts.
+///
+/// With a descriptor root (the two-pass pipeline), the final root must keep
+/// the descriptor root's exact Cargo coordinate. The optimistic single pass
+/// has no descriptor root to compare against.
 fn attest_final_root(
     output: &FinalCargoOutput,
     cargo_artifacts: &[CargoCompilerArtifact],
     selector: &DescriptorRootSelector,
-    descriptor_root: &CargoCompilerArtifact,
+    descriptor_root: Option<&CargoCompilerArtifact>,
 ) -> Result<CargoCompilerArtifact, LinkedCargoError> {
     let mut matches = cargo_artifacts
         .iter()
@@ -712,29 +671,31 @@ fn attest_final_root(
         }
     };
 
-    if final_root.manifest_path != descriptor_root.manifest_path
-        || final_root.target != descriptor_root.target
-        || final_root.profile != descriptor_root.profile
-        || final_root.features != descriptor_root.features
-    {
-        return Err(LinkedCargoError::FinalRootCoordinateMismatch {
-            package_id: selector.package_id.clone(),
-            target_name: selector.target_name.clone(),
-        });
+    if let Some(descriptor_root) = descriptor_root {
+        if final_root.manifest_path != descriptor_root.manifest_path
+            || final_root.target != descriptor_root.target
+            || final_root.profile != descriptor_root.profile
+            || final_root.features != descriptor_root.features
+        {
+            return Err(LinkedCargoError::FinalRootCoordinateMismatch {
+                package_id: selector.package_id.clone(),
+                target_name: selector.target_name.clone(),
+            });
+        }
     }
 
-    let materialized = match (
-        descriptor_root.executable.as_ref(),
-        final_root.executable.as_ref(),
-    ) {
-        (Some(_), Some(executable)) => executable,
-        (Some(_), None) => {
+    let expects_executable = descriptor_root.map_or(final_root.executable.is_some(), |root| {
+        root.executable.is_some()
+    });
+    let materialized = match (expects_executable, final_root.executable.as_ref()) {
+        (true, Some(executable)) => executable,
+        (true, None) => {
             return Err(LinkedCargoError::MissingFinalRootExecutable {
                 package_id: selector.package_id.clone(),
                 target_name: selector.target_name.clone(),
             });
         }
-        (None, _) => final_root
+        (false, _) => final_root
             .filenames
             .iter()
             .next()

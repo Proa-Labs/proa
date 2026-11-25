@@ -336,7 +336,7 @@ fn final_root_attestation_requires_the_descriptor_coordinate_and_real_file() {
             &output,
             std::slice::from_ref(&final_root),
             &selector,
-            &descriptor_root,
+            Some(&descriptor_root),
         )
         .unwrap(),
         final_root
@@ -351,7 +351,7 @@ fn final_root_attestation_requires_the_descriptor_coordinate_and_real_file() {
             &output,
             std::slice::from_ref(&mismatched_root),
             &selector,
-            &descriptor_root,
+            Some(&descriptor_root),
         ),
         Err(LinkedCargoError::FinalRootCoordinateMismatch { .. })
     ));
@@ -396,7 +396,7 @@ fn a_mismatched_final_root_is_rejected_before_its_executable_can_run() {
             &output,
             std::slice::from_ref(&final_root),
             &selector,
-            &descriptor_root,
+            Some(&descriptor_root),
         ),
         Err(LinkedCargoError::FinalRootCoordinateMismatch { .. })
     ));
@@ -443,7 +443,7 @@ fn attested_execution_forwards_runtime_arguments_environment_and_nonzero_status(
         &output,
         std::slice::from_ref(&final_root),
         &selector,
-        &descriptor_root,
+        Some(&descriptor_root),
     )
     .unwrap();
     execute_requested_final_root(&request, &attested).unwrap();

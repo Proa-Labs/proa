@@ -2319,28 +2319,6 @@ mod dev_preparation_tests {
     }
 
     #[test]
-    fn prune_superseded_dev_snapshot_only_removes_direct_snapshot_directories() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-
-        let snapshot_dir = root.join("rsjs-final-artifact-snapshots/abc123-mode-100755");
-        fs::create_dir_all(&snapshot_dir).unwrap();
-        let snapshot_bin = snapshot_dir.join("app");
-        fs::write(&snapshot_bin, b"old-binary").unwrap();
-
-        let unrelated_dir = root.join("other-dir/abc123");
-        fs::create_dir_all(&unrelated_dir).unwrap();
-        let unrelated_bin = unrelated_dir.join("app");
-        fs::write(&unrelated_bin, b"keep-me").unwrap();
-
-        prune_superseded_dev_snapshot(&snapshot_bin);
-        prune_superseded_dev_snapshot(&unrelated_bin);
-
-        assert!(!snapshot_dir.exists());
-        assert!(unrelated_bin.is_file());
-    }
-
-    #[test]
     fn can_defer_assets_only_when_non_asset_changed_and_outputs_not_compiled() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
