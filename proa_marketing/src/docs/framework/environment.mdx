@@ -150,7 +150,7 @@ Keep these separate:
 | Variable | Phase | Notes |
 |----------|-------|-------|
 | `PROA_VERSION` | Build | Pins the CLI installed by the Dockerfile or CI installer. Public Proa dependencies require no GitHub credential or registry token. |
-| `STATIC_DIR` | Runtime | Points the running server at public assets. |
+| `PROA_PUBLIC_ASSETS` | Runtime | Set only for a catalog stored away from the binary. |
 | `DATABASE_URL` | Runtime | App startup or handlers read it. |
 | `PUBLIC_BASE_URL` | Runtime | Safe to expose only if you explicitly render it. |
 | `RUST_LOG` | Runtime | Controls logs without rebuilding. |
@@ -221,7 +221,6 @@ docker run --rm \
   -p 3000:3000 \
   -e HOST=0.0.0.0 \
   -e PORT=3000 \
-  -e STATIC_DIR=/app/public \
   -e RUST_LOG=info \
   -e PUBLIC_BASE_URL=https://example.com \
   hello-proa
@@ -235,11 +234,12 @@ A systemd unit carries the same contract:
 [Service]
 Environment=HOST=127.0.0.1
 Environment=PORT=3000
-Environment=STATIC_DIR=/opt/hello-proa/public
 Environment=RUST_LOG=info
 Environment=PUBLIC_BASE_URL=https://example.com
 ExecStart=/opt/hello-proa/bin/hello-proa
 ```
+
+The server loads `/opt/hello-proa/bin/hello-proa.assets/`, the bundle `proa build` wrote beside the binary, so the unit needs no asset path.
 
 Use `EnvironmentFile=/etc/hello-proa/env` if you manage variables outside the unit file.
 
@@ -250,6 +250,6 @@ Use `EnvironmentFile=/etc/hello-proa/env` if you manage variables outside the un
 - [Configuration](/docs/framework/configuration)
   - Configure FrameworkBuilder, security defaults, static mounts, and response behavior.
 - [Static assets](/docs/framework/static-assets)
-  - Serve the directory `STATIC_DIR` points at, with cache headers and path boundaries.
+  - Publish `public/` into the asset bundle, with cache headers and path boundaries.
 - [Security](/docs/guides/security)
   - What Proa hardens by default, and what stays your job.
