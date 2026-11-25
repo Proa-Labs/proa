@@ -554,6 +554,52 @@ fn managed_module_block_preserves_user_content() {
 }
 
 #[test]
+fn managed_module_block_migrates_legacy_unattributed_block() {
+    let legacy = concat!(
+        "pub mod local;\n\n",
+        "// proa-ui:modules:start\n",
+        "pub mod button;\n",
+        "pub use button::*;\n",
+        "// proa-ui:modules:end\n",
+    );
+    let current = BTreeSet::from(["button".to_string()]);
+    let next = BTreeSet::from(["button".to_string(), "spinner".to_string()]);
+
+    let migrated = update_managed_rust_modules(
+        Some(legacy.as_bytes()),
+        &current,
+        &next,
+        Path::new("mod.rs"),
+    )
+    .unwrap();
+    let rendered = String::from_utf8(migrated).unwrap();
+    assert!(rendered.starts_with("pub mod local;\n\n"));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod button;\n#[allow(unused_imports)]\npub use button::*;"
+    ));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod spinner;\n#[allow(unused_imports)]\npub use spinner::*;"
+    ));
+
+    let edited = concat!(
+        "// proa-ui:modules:start\n",
+        "pub mod button;\n",
+        "// user edit\n",
+        "pub use button::*;\n",
+        "// proa-ui:modules:end\n",
+    );
+    let error = update_managed_rust_modules(
+        Some(edited.as_bytes()),
+        &current,
+        &next,
+        Path::new("mod.rs"),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("edited locally"), "{error}");
+}
+
+#[test]
 fn plain_slug_falls_back_to_pro_registry_only_after_public_not_found() {
     let temp = tempfile::tempdir().unwrap();
     let public = temp.path().join("public");

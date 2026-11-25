@@ -10,23 +10,44 @@ proa test                     # linked app & RSJS integration tests
 cargo test --lib              # pure unit tests (no RSJS link pass)
 ```
 
-```rust filename="tests/routes.rs"
+```rust filename="tests/representations.rs"
+use std::sync::Arc;
 use axum::{body::Body, http::{Request, StatusCode}};
 use tower::ServiceExt;
 
-#[tokio::test]
+#[path = "../src/app.rs"] mod app;
+#[path = "../src/components/mod.rs"] mod components;
+#[path = "../src/db.rs"] mod db;
+#[path = "../src/endpoints/mod.rs"] mod endpoints;
+#[path = "../src/error.rs"] mod error;
+#[path = "../src/layouts/mod.rs"] mod layouts;
+#[path = "../src/loader.rs"] mod loader;
+#[path = "../src/pages/mod.rs"] mod pages;
+#[path = "../src/routes.rs"] mod routes;
+#[path = "../src/static_assets.rs"] mod static_assets;
+
+#[tokio::test(flavor = "multi_thread")]
 async fn home_serves_html_and_markdown() {
-    let app = my_app::routes::router().unwrap();
+    let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
+    let pool = db::connect(&database_url).await.unwrap();
+    let loader = Arc::new(loader::AppLoader::new(pool.clone()));
+    let app = routes::router(
+        app::AppState { db: pool.clone(), loader },
+        proa::BasePath::new("").unwrap(),
+    )
+    .unwrap();
 
     let html = app.clone()
-        .oneshot(Request::get("/").body(Body::empty()).unwrap())
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
         .await.unwrap();
     assert_eq!(html.status(), StatusCode::OK);
 
     let md = app
-        .oneshot(Request::get("/index.md").body(Body::empty()).unwrap())
+        .oneshot(Request::builder().uri("/index.md").body(Body::empty()).unwrap())
         .await.unwrap();
     assert_eq!(md.status(), StatusCode::OK);
+
+    pool.close().await;
 }
 ```
 

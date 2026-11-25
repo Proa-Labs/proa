@@ -2100,15 +2100,17 @@ fn update_managed_rust_modules(
             }
             let outside = format!("{}{}", &existing[..start], &existing[end..]);
             let expected_block = managed_module_block_for(&outside, expected_current);
+            let legacy_expected_block = legacy_managed_module_block_for(&outside, expected_current);
             let next_block = managed_module_block_for(&outside, next);
-            if existing[start..end] != expected_block {
+            let current_block = &existing[start..end];
+            if current_block != expected_block && current_block != legacy_expected_block {
                 bail!(
                     "managed Rust module block in `{}` was edited locally; refusing to overwrite it",
                     target.display()
                 );
             }
             let mut output =
-                String::with_capacity(existing.len() - expected_block.len() + next_block.len());
+                String::with_capacity(existing.len() - current_block.len() + next_block.len());
             output.push_str(&existing[..start]);
             output.push_str(&next_block);
             output.push_str(&existing[end..]);
@@ -2122,17 +2124,35 @@ fn update_managed_rust_modules(
 }
 
 fn managed_module_block_for(outside: &str, modules: &BTreeSet<String>) -> String {
+    managed_module_block_with_allows(outside, modules, true)
+}
+
+fn legacy_managed_module_block_for(outside: &str, modules: &BTreeSet<String>) -> String {
+    managed_module_block_with_allows(outside, modules, false)
+}
+
+fn managed_module_block_with_allows(
+    outside: &str,
+    modules: &BTreeSet<String>,
+    include_allows: bool,
+) -> String {
     let (existing_mods, existing_glob_uses) = top_level_rust_module_decls(outside);
     let mut block = String::from(MODULES_START);
     block.push('\n');
     for module in modules {
         if !existing_mods.contains(module) {
-            block.push_str("#[allow(dead_code)]\npub mod ");
+            if include_allows {
+                block.push_str("#[allow(dead_code)]\n");
+            }
+            block.push_str("pub mod ");
             block.push_str(module);
             block.push_str(";\n");
         }
         if !existing_glob_uses.contains(module) {
-            block.push_str("#[allow(unused_imports)]\npub use ");
+            if include_allows {
+                block.push_str("#[allow(unused_imports)]\n");
+            }
+            block.push_str("pub use ");
             block.push_str(module);
             block.push_str("::*;\n");
         }
