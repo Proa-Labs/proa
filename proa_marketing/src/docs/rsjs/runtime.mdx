@@ -3,7 +3,25 @@ title: Runtime wiring
 description: Plan, emit, and activate the exact RSJS assets a response rendered.
 ---
 
-Proa ships RSJS runtime code only for the owners a response actually rendered. This page covers the [shared runtime layers](#loading-the-runtime-layers), [asset serving](#serving-linked-assets-with-axum), [automatic finalization](#finalizing-a-normal-response), the [response-local plan](#planning-one-response), [hydration semantics](#hydrating-and-disposing-owners), and [custom adapters](#writing-a-custom-adapter).
+Proa ships RSJS runtime code only for the interactive owners a response actually rendered. `FrameworkBuilder` serves the hashed modules automatically under `/_proa/immutable/rsjs/`:
+
+```rust filename="src/app.rs"
+use proa::axum::FrameworkBuilder;
+
+let app = FrameworkBuilder::new()
+    .with_dynamic_routes_and_metadata(routes, metadata)
+    .try_build()?;
+```
+
+A response that renders a `Counter` island emits only its hashed runtime and module tags (zero JS on static pages):
+
+```html filename="counter-response.html"
+<script type="module" src="/_proa/immutable/rsjs/runtime.9a8b7c6d5e4f3a2b.js" integrity="sha384-..."></script>
+<link rel="modulepreload" href="/_proa/immutable/rsjs/island/counter_....4e5f6a7b8c9d0e1f.js" integrity="sha384-...">
+<script type="module" src="/_proa/immutable/rsjs/island/counter_....4e5f6a7b8c9d0e1f.js" integrity="sha384-..."></script>
+```
+
+This page covers the [shared runtime layers](#loading-the-runtime-layers), [asset serving](#serving-linked-assets-with-axum), [automatic finalization](#finalizing-a-normal-response), the [response-local plan](#planning-one-response), [hydration semantics](#hydrating-and-disposing-owners), and [custom adapters](#writing-a-custom-adapter).
 
 ## Loading the runtime layers
 
@@ -42,7 +60,7 @@ use proa::axum::FrameworkBuilder;
 
 let app = FrameworkBuilder::new()
     .with_dynamic_routes_and_metadata(routes, metadata)
-    .build();
+    .try_build()?;
 ```
 
 The finalizer emits tags; `FrameworkBuilder` serves the linked JavaScript those

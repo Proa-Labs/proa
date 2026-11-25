@@ -2127,12 +2127,12 @@ fn managed_module_block_for(outside: &str, modules: &BTreeSet<String>) -> String
     block.push('\n');
     for module in modules {
         if !existing_mods.contains(module) {
-            block.push_str("pub mod ");
+            block.push_str("#[allow(dead_code)]\npub mod ");
             block.push_str(module);
             block.push_str(";\n");
         }
         if !existing_glob_uses.contains(module) {
-            block.push_str("pub use ");
+            block.push_str("#[allow(unused_imports)]\npub use ");
             block.push_str(module);
             block.push_str("::*;\n");
         }

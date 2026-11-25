@@ -3,9 +3,32 @@ title: Testing
 description: Test application behavior and framework regressions without pinning page markup.
 ---
 
-Write a test when it protects a behavior that can break independently of an
-intentional design or copy change. A component does not need a test merely
-because it renders HTML or Markdown.
+Test behavior that can break independently of a copy or styling change (loaders, content negotiation, auth, error paths), and run linked app tests through `proa test`:
+
+```bash filename="Terminal"
+proa test                     # linked app & RSJS integration tests
+cargo test --lib              # pure unit tests (no RSJS link pass)
+```
+
+```rust filename="tests/routes.rs"
+use axum::{body::Body, http::{Request, StatusCode}};
+use tower::ServiceExt;
+
+#[tokio::test]
+async fn home_serves_html_and_markdown() {
+    let app = my_app::routes::router().unwrap();
+
+    let html = app.clone()
+        .oneshot(Request::get("/").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(html.status(), StatusCode::OK);
+
+    let md = app
+        .oneshot(Request::get("/index.md").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(md.status(), StatusCode::OK);
+}
+```
 
 ## Writing unit tests
 
@@ -69,7 +92,7 @@ hardware. Keep inputs and workload sizes comparable across runs. A successful
 benchmark compilation does not establish that performance stayed the same.
 
 ```bash filename="Terminal"
-cargo bench -p proa_bench
+cargo bench
 ```
 
 ## Organizing tests and CI

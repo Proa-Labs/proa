@@ -146,14 +146,18 @@ Get-BinaryVersionForDistribution $Distribution
 
 
 class ReleaseAssetVerificationTests(unittest.TestCase):
-    def test_expected_contract_has_one_ubuntu_archive_and_one_checksum(self) -> None:
+    def test_expected_contract_has_linux_and_macos_arm64_archives_and_checksum(self) -> None:
         archives = expected_archives(VERSION)
-        self.assertEqual(len(archives), 1)
-        self.assertEqual(TARGETS, ("x86_64-unknown-linux-gnu",))
+        self.assertEqual(len(archives), 2)
+        self.assertEqual(
+            TARGETS,
+            ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu"),
+        )
         self.assertEqual(
             expected_published_assets(VERSION),
             (
                 "proa-cli-9.8.7-SHA256SUMS",
+                "proa-cli-9.8.7-aarch64-apple-darwin.tar.gz",
                 "proa-cli-9.8.7-x86_64-unknown-linux-gnu.tar.gz",
             ),
         )
@@ -277,6 +281,39 @@ chmod +x "$CARGO_HOME/bin/proa" "$CARGO_HOME/bin/cargo-proa"
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((root / "cargo-home/bin/proa").is_file())
+
+    def test_unix_source_install_honors_cargo_install_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binaries = root / "bin"
+            binaries.mkdir()
+            install_root = root / "custom-cargo-root"
+            cargo = binaries / "cargo"
+            cargo.write_text("""#!/bin/sh
+if [ "$1" = --version ]; then echo 'cargo 1.98.0'; exit 0; fi
+mkdir -p "$CARGO_INSTALL_ROOT/bin"
+printf '#!/bin/sh\\necho proa 0.2.0\\n' > "$CARGO_INSTALL_ROOT/bin/proa"
+cp "$CARGO_INSTALL_ROOT/bin/proa" "$CARGO_INSTALL_ROOT/bin/cargo-proa"
+chmod +x "$CARGO_INSTALL_ROOT/bin/proa" "$CARGO_INSTALL_ROOT/bin/cargo-proa"
+""")
+            cargo.chmod(0o755)
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith(("CARGO_", "PROA_"))}
+            environment.update(
+                CARGO_HOME=str(root / "cargo-home"),
+                CARGO_INSTALL_ROOT=str(install_root),
+                PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                PROA_HOME=str(root / "proa-home"),
+                PROA_LOG="off",
+                NO_COLOR="1",
+            )
+            result = subprocess.run(
+                ["sh", str(ROOT / "scripts/install.sh"), "--build-from-source",
+                 "--no-modify-path", "--no-tailwind", "--yes"],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((install_root / "bin/proa").is_file())
 
     def run_unix_fallback(self, arguments: list[str], *, latest: str = "",
                           cargo_status: int = 0, architecture: str = "x86_64") -> tuple[subprocess.CompletedProcess[str], list[str]]:

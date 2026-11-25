@@ -324,9 +324,78 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build_macos_arm64:
+    name: Build macOS arm64 archive
+    needs: setup
+    runs-on: macos-14
+    permissions:
+      contents: read
+    timeout-minutes: 90
+    env:
+      TARGET: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show
+          rustup target add "$TARGET"
+          rustc --version
+          cargo --version
+
+      - name: Build
+        run: cargo build --release --locked -p proa-cli --target "$TARGET"
+
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          stage="proa-cli-${VERSION}-${TARGET}"
+          stage_dir="dist/${stage}"
+          rm -rf dist
+          mkdir -p "$stage_dir"
+
+          for binary in proa cargo-proa; do
+            cp "target/${TARGET}/release/${binary}" "${stage_dir}/${binary}"
+            if command -v strip > /dev/null 2>&1; then
+              strip -x "${stage_dir}/${binary}" || echo "::warning title=strip failed::${stage_dir}/${binary} is shipping unstripped"
+            fi
+            chmod 755 "${stage_dir}/${binary}"
+          done
+
+          cp README.md LICENSE "${stage_dir}/"
+
+          archive="proa-cli-${VERSION}-${TARGET}.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "dist/${archive}" -C dist "$stage"
+          rm -rf "$stage_dir"
+
+          (
+            cd dist
+            shasum -a 256 "$archive" > "${archive}.sha256"
+            cat "${archive}.sha256"
+          )
+
+      - name: Upload the macOS arm64 archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proa-cli-aarch64-apple-darwin
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Checksums and GitHub Release
-    needs: [setup, build]
+    needs: [setup, build, build_macos_arm64]
     runs-on: gcp-pr-ci
     timeout-minutes: 15
     outputs:

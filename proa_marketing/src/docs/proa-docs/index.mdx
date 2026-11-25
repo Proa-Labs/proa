@@ -3,9 +3,23 @@ title: Proa Docs
 description: A docs framework for Proa sites, compiled at build time.
 ---
 
-Proa Docs is a docs framework for Proa sites, largely inspired by [fumadocs](https://www.fumadocs.dev/) and [nextra](https://nextra.site/) from JavaScript-land.
+Proa Docs compiles Markdown and MDX into a static Rust registry during `build.rs` (syntax highlighting, MathML, sidebar, and search index) and mounts it on one Axum route:
 
-Write Markdown, get a documentation site: file-routed pages, a generated sidebar, syntax highlighting, search, a table of contents, and thirteen authoring components.
+```rust filename="build.rs"
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    proa_docs_build::DocsBuilder::new("src/docs")
+        .base_path("/docs")
+        .generate()?;
+    Ok(())
+}
+```
+
+```rust filename="src/routes.rs"
+// Mount the compiled docs registry on your Axum router:
+let docs = proa_docs::adapter::axum::router(&DOCS);
+```
+
+Inspired by [fumadocs](https://www.fumadocs.dev/) and [nextra](https://nextra.site/), without shipping a client parser, highlighter, or router to the browser.
 
 <Cards>
   <Card title="Quickstart" description="Two crates, a build script, one route." href="/docs/proa-docs/quickstart" />

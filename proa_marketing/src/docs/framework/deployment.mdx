@@ -3,7 +3,15 @@ title: Deploy
 description: Pick a deployment target, then follow the guide for it.
 ---
 
-Proa builds one release binary plus a `public/` directory. Every target below runs that same artifact, usually as a Docker image. The choice is not about Proa. It is about how much of the platform you want to operate yourself.
+Proa builds one release binary with its read-only asset bundle beside it (`app` + `app.assets/`). Copy both into your runtime image and run the binary with no asset env var:
+
+```dockerfile filename="Dockerfile"
+RUN proa build --locked --artifact-out /out/app
+COPY --from=build /out/ /app/
+CMD ["/app/app"]
+```
+
+Every target below runs that same artifact. The choice is only how much infrastructure you want to operate yourself.
 
 ## Pick a target
 
@@ -134,7 +142,7 @@ let app = FrameworkBuilder::new()
     .with_base_path(base_path) // <-- new: set the public URL prefix
     .with_static_service(static_router)
     .with_dynamic_routes(router)
-    .build();
+    .try_build()?;
 ```
 
 Set `PROA_BASE_PATH=/apps/demo` when starting the binary. This value is read by
@@ -169,7 +177,7 @@ Application-authored links, forms, images, and redirects opt into URL compositio
 
 ```rust filename="src/components/nav.rs"
 let start = cx.url("/docs/start");
-let logo = cx.url("/static/logo.svg");
+let logo = cx.url("public/logo.svg");
 html_sync! {
     <nav>
         <a href={start}>"Start"</a>

@@ -535,7 +535,9 @@ fn managed_module_block_preserves_user_content() {
     .unwrap();
     let rendered = String::from_utf8(first.clone()).unwrap();
     assert!(rendered.starts_with("pub mod local;\n"));
-    assert!(rendered.contains("pub mod button;\npub use button::*;"));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod button;\n#[allow(unused_imports)]\npub use button::*;"
+    ));
 
     let updated = update_managed_rust_modules(
         Some(&first),
@@ -546,7 +548,9 @@ fn managed_module_block_preserves_user_content() {
     .unwrap();
     let rendered = String::from_utf8(updated).unwrap();
     assert!(rendered.contains("pub mod local;"));
-    assert!(rendered.contains("pub mod spinner;\npub use spinner::*;"));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod spinner;\n#[allow(unused_imports)]\npub use spinner::*;"
+    ));
 }
 
 #[test]

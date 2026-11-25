@@ -2650,6 +2650,9 @@ install_from_source() {
     esac
 
     local cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+    if [ -n "${CARGO_INSTALL_ROOT:-}" ]; then
+        cargo_bin="${CARGO_INSTALL_ROOT%/}/bin"
+    fi
     local standalone="${PROA_STANDALONE_SOURCE:-}"
 
     if ! check_cmd cargo; then
@@ -2743,7 +2746,7 @@ install_prebuilt() {
     # on screen for something the reader had not been told about yet. The size is
     # not known until the bytes land, so it rides on the checksum row instead.
     step_run "downloading" "$archive"
-    if ! download_to "$base/$archive" "$archive_path" "" progress; then
+    if ! download_to "$base/$archive" "$archive_path" quiet progress; then
         step_fail "download" "no archive at $base/$archive"
         if [ -n "$PREBUILT_ONLY" ]; then
             log_write ERROR "decision: no prebuilt archive for $TARGET and source fallback is disabled"
