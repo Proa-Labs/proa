@@ -369,6 +369,10 @@ jobs:
               strip -x "${stage_dir}/${binary}" || echo "::warning title=strip failed::${stage_dir}/${binary} is shipping unstripped"
             fi
             chmod 755 "${stage_dir}/${binary}"
+            # Apple silicon kills a binary whose ad-hoc signature is invalid,
+            # and no later job runs this archive before it is published.
+            codesign --verify --strict "${stage_dir}/${binary}"
+            "${stage_dir}/${binary}" --version
           done
 
           cp README.md LICENSE "${stage_dir}/"

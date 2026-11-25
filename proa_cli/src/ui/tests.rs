@@ -600,6 +600,27 @@ fn managed_module_block_migrates_legacy_unattributed_block() {
 }
 
 #[test]
+fn origin_scaffold_managed_block_accepts_ui_add() {
+    let mod_rs = include_str!("../site_scaffold/templates/origin/src/components/mod.rs");
+    let lock: ComponentLockFile = serde_json::from_str(include_str!(
+        "../site_scaffold/templates/origin/proa.lock.json"
+    ))
+    .unwrap();
+    let target = Path::new("src/components/mod.rs");
+    let current = collect_locked_modules(&lock)
+        .unwrap()
+        .remove(target)
+        .unwrap();
+    let mut next = current.clone();
+    next.insert("alert".to_string());
+
+    let updated = update_managed_rust_modules(Some(mod_rs.as_bytes()), &current, &next, target)
+        .expect("a freshly generated ORIGIN site must accept `proa ui add`");
+    let rendered = String::from_utf8(updated).unwrap();
+    assert!(rendered.contains("#[allow(dead_code)]\npub mod alert;"));
+}
+
+#[test]
 fn plain_slug_falls_back_to_pro_registry_only_after_public_not_found() {
     let temp = tempfile::tempdir().unwrap();
     let public = temp.path().join("public");

@@ -6,8 +6,7 @@ description: Test application behavior and framework regressions without pinning
 Test behavior that can break independently of a copy or styling change (loaders, content negotiation, auth, error paths), and run linked app tests through `proa test`:
 
 ```bash filename="Terminal"
-proa test                     # linked app & RSJS integration tests
-cargo test --lib              # pure unit tests (no RSJS link pass)
+proa test
 ```
 
 ```rust filename="tests/representations.rs"
