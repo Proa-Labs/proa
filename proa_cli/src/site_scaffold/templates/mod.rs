@@ -224,6 +224,9 @@ tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 http-body-util = "0.1"
 tower = {{ version = "0.5", features = ["util"] }}
 
+[profile.dev.package."*"]
+debug = 0
+
 [profile.release]
 lto = "thin"
 codegen-units = 16

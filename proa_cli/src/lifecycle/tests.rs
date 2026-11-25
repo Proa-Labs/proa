@@ -864,7 +864,7 @@ fn the_debounce_window_is_tunable_but_cannot_undercut_the_poll_interval() {
         Duration::from_millis(1500)
     );
     assert_eq!(
-        dev_watch_debounce(&dev_options(Some(100))).unwrap(),
+        dev_watch_debounce(&dev_options(Some(50))).unwrap(),
         DEV_WATCH_POLL
     );
 
@@ -874,7 +874,7 @@ fn the_debounce_window_is_tunable_but_cannot_undercut_the_poll_interval() {
         .unwrap_err()
         .to_string();
     assert!(
-        error.contains("below the 100ms file-watch poll interval"),
+        error.contains("below the 50ms file-watch poll interval"),
         "{error}"
     );
     assert!(dev_watch_debounce(&dev_options(Some(0))).is_err());
@@ -2296,5 +2296,101 @@ mod dev_preparation_tests {
         drop(following);
         assert!(!public_assets::has_live_reader(&output));
         drop(fixed);
+    }
+
+    #[test]
+    fn project_mentions_rsjs_macros_distinguishes_plain_ssr_from_islands() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("src/pages")).unwrap();
+        fs::write(
+            root.join("src/pages/home.rs"),
+            "pub fn render() -> &'static str { \"hello\" }\n",
+        )
+        .unwrap();
+        assert!(!project_mentions_rsjs_macros(root));
+
+        fs::write(
+            root.join("src/pages/island.rs"),
+            "#[rsjs(component, client)]\npub struct Counter;\n",
+        )
+        .unwrap();
+        assert!(project_mentions_rsjs_macros(root));
+    }
+
+    #[test]
+    fn prune_superseded_dev_snapshot_only_removes_direct_snapshot_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        let snapshot_dir = root.join("rsjs-final-artifact-snapshots/abc123-mode-100755");
+        fs::create_dir_all(&snapshot_dir).unwrap();
+        let snapshot_bin = snapshot_dir.join("app");
+        fs::write(&snapshot_bin, b"old-binary").unwrap();
+
+        let unrelated_dir = root.join("other-dir/abc123");
+        fs::create_dir_all(&unrelated_dir).unwrap();
+        let unrelated_bin = unrelated_dir.join("app");
+        fs::write(&unrelated_bin, b"keep-me").unwrap();
+
+        prune_superseded_dev_snapshot(&snapshot_bin);
+        prune_superseded_dev_snapshot(&unrelated_bin);
+
+        assert!(!snapshot_dir.exists());
+        assert!(unrelated_bin.is_file());
+    }
+
+    #[test]
+    fn can_defer_assets_only_when_non_asset_changed_and_outputs_not_compiled() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        fs::create_dir_all(root.join("public")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("public/styles.css"), "body{}").unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+
+        let mut config = ProjectConfig::default();
+        config.build.assets = Some(vec![AssetConfig {
+            kind: "tailwind".to_string(),
+            command: Vec::new(),
+            input: PathBuf::from("styles/input.css"),
+            output: PathBuf::from("public/styles.css"),
+            config: None,
+        }]);
+        let compiled_without_css =
+            BTreeSet::from([root.join("src/main.rs").canonicalize().unwrap()]);
+        let compiled_with_css = BTreeSet::from([
+            root.join("src/main.rs").canonicalize().unwrap(),
+            root.join("public/styles.css").canonicalize().unwrap(),
+        ]);
+
+        assert!(can_defer_assets_for_parallel_cargo(
+            root,
+            &config,
+            Some(Path::new("public")),
+            &[PathBuf::from("src/main.rs")],
+            Some(&compiled_without_css),
+        ));
+        assert!(!can_defer_assets_for_parallel_cargo(
+            root,
+            &config,
+            Some(Path::new("public")),
+            &[PathBuf::from("styles/input.css")],
+            Some(&compiled_without_css),
+        ));
+        assert!(!can_defer_assets_for_parallel_cargo(
+            root,
+            &config,
+            Some(Path::new("public")),
+            &[PathBuf::from("src/main.rs")],
+            Some(&compiled_with_css),
+        ));
+        assert!(!can_defer_assets_for_parallel_cargo(
+            root,
+            &config,
+            Some(Path::new("public")),
+            &[PathBuf::from("src/main.rs")],
+            None,
+        ));
     }
 }

@@ -47,8 +47,9 @@ use crate::{
     },
     rsjs::cache::DESCRIPTOR_CACHE_SCHEMA_VERSION,
     rsjs::pipeline::{
-        run_linked_cargo_cached, run_linked_cargo_cached_with_progress, DescriptorRootSelector,
-        LinkedCargoOutput, LinkedCargoRequest, LinkedCargoStage,
+        run_linked_cargo_cached, run_linked_cargo_cached_with_progress,
+        try_run_optimistic_empty_linked_cargo, DescriptorRootSelector, LinkedCargoOutput,
+        LinkedCargoRequest, LinkedCargoStage, OptimisticLinkedCargoOutcome,
     },
     scaffold,
 };
@@ -60,11 +61,11 @@ const RSJS_RUNTIME_PROTOCOL: AbiVersion = AbiVersion::new(1, 0);
 const RSJS_COMPILER_PRODUCER: ProducerVersion = ProducerVersion::new(0, 2, 0);
 const RSJS_WRAPPER_EXECUTABLE_FINGERPRINT_DOMAIN: &[u8] = b"proa.rsjs.wrapper-executable.v1\0";
 const PERSISTENT_DESCRIPTOR_TARGET_LAYOUT_VERSION: u16 = 1;
-const DEV_WATCH_POLL: Duration = Duration::from_millis(100);
+const DEV_WATCH_POLL: Duration = Duration::from_millis(50);
 /// Editors write in bursts (temp file, rename, mtime touch) and formatters
 /// rewrite whole trees, so the loop waits for one quiet window before paying
-/// for a Cargo cycle. Vite and webpack sit in the same 100-300ms range.
-pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(200);
+/// for a Cargo cycle.
+pub const DEV_WATCH_DEBOUNCE: Duration = Duration::from_millis(100);
 /// Refuse debounce windows shorter than one poll interval: they would claim a
 /// precision the poller cannot deliver.
 const DEV_WATCH_MIN_DEBOUNCE: Duration = DEV_WATCH_POLL;
@@ -159,11 +160,40 @@ struct LinkedDevLaunch {
     executable: PathBuf,
     arguments: Vec<OsString>,
     plan_id: String,
+    single_pass: bool,
     descriptor_artifacts: usize,
     reused_descriptor_artifacts: usize,
     reused_final_artifacts: usize,
     public_assets: Option<PathBuf>,
     compiled_inputs: Option<BTreeSet<PathBuf>>,
+}
+
+#[derive(Debug, Default)]
+struct DevSessionCache {
+    allow_optimistic_empty: bool,
+    cargo_versions: BTreeMap<OsString, String>,
+    rustc_version: Option<String>,
+    #[cfg(not(windows))]
+    wrapper_snapshot: Option<CachedWrapperSnapshot>,
+}
+
+#[cfg(not(windows))]
+#[derive(Debug, Clone)]
+struct CachedWrapperSnapshot {
+    source_path: PathBuf,
+    source_stamp: FileStamp,
+    snapshot_root: PathBuf,
+    snapshot_path: PathBuf,
+    fingerprint: String,
+}
+
+impl DevSessionCache {
+    fn for_dev_watch(root: &Path) -> Self {
+        Self {
+            allow_optimistic_empty: !project_mentions_rsjs_macros(root),
+            ..Self::default()
+        }
+    }
 }
 
 struct LinkedDevRebuild {
@@ -216,13 +246,15 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 .transpose(),
         )?;
         let source = public_assets::configured_path(&config, !options.no_assets)?;
-        let launch = run_linked_dev_cycle(&root, &config, &command, hot_state.as_ref(), source)?;
+        let launch =
+            run_linked_dev_cycle(&root, &config, &command, hot_state.as_ref(), source, None)?;
         return run_linked_dev_foreground(&root, &launch, address.0, address.1, options.open);
     }
 
     // Live reload is a watch-mode feature. Without restarts there is nothing
     // to announce, so a one-shot run never pays for the event server.
     let reload = start_reload_server(address, &options);
+    let mut session = DevSessionCache::for_dev_watch(&root);
 
     if !options.no_assets {
         build_assets(&root, &config)?;
@@ -240,7 +272,14 @@ pub fn dev(options: DevOptions) -> Result<()> {
             .transpose(),
     )?;
     let source = public_assets::configured_path(&config, !options.no_assets)?;
-    let mut launch = run_linked_dev_cycle(&root, &config, &command, hot_state.as_ref(), source)?;
+    let mut launch = run_linked_dev_cycle(
+        &root,
+        &config,
+        &command,
+        hot_state.as_ref(),
+        source,
+        Some(&mut session),
+    )?;
     let mut child = spawn_linked_dev(&root, &launch, address.0, address.1, reload.as_ref())?;
     announce_dev_start(options.open, address.0, address.1, &mut child);
 
@@ -308,12 +347,13 @@ pub fn dev(options: DevOptions) -> Result<()> {
         // itself, so any edit that leaves them untouched skips the runner build.
         let evaluated = crate::config::load_project_config_with_runner(&root, Some(&mut runner));
         let inputs = evaluated.and_then(|next| {
-            prepare_dev_inputs(
+            prepare_dev_inputs_with_compiled_inputs(
                 &root,
                 next,
                 &options,
                 &debouncer.committed,
                 hot_state.as_ref(),
+                launch.compiled_inputs.as_ref(),
                 &mut failure_snapshot,
                 &mut watch_paths,
                 if last_build_failed {
@@ -346,6 +386,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
             public_assets_only,
             changed_asset_paths,
             hot_update,
+            deferred_assets,
         } = inputs;
         if css_only && !missing_catalog {
             dev_ui::detail!("stylesheet change stabilized; rebuilt assets without restarting");
@@ -450,7 +491,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
             // Capture the exact source/config state handed to this cycle after
             // asset generation. A change during Cargo will differ on the next
             // poll and schedule another cycle rather than being swallowed.
-            let cycle_snapshot = watch_snapshot(&root, &watch_paths)?;
+            let mut cycle_snapshot = watch_snapshot(&root, &watch_paths)?;
             failure_snapshot = cycle_snapshot.clone();
             // Stage after tasks/assets may have generated Rust sources,
             // and after the committed snapshot. An edit during staging or
@@ -466,13 +507,30 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     .transpose(),
             )?;
             let source = public_assets::configured_path(&next_config, !options.no_assets)?;
-            let launch = run_linked_dev_cycle(
+            let launch = run_linked_dev_cycle_with_assets(
                 &root,
                 &next_config,
                 &command,
                 next_hot_state.as_ref(),
                 source,
+                Some(&mut session),
+                deferred_assets.as_deref(),
             )?;
+            if deferred_assets.is_some() {
+                if let Some(public) = source {
+                    // Advance generated public outputs (e.g. Tailwind's CSS)
+                    // produced while Cargo ran so the next poll does not
+                    // immediately schedule a redundant asset-only cycle.
+                    let post_assets = watch_snapshot(&root, &watch_paths)?;
+                    for output in declared_asset_outputs(&next_config) {
+                        if output.starts_with(public) {
+                            if let Some(stamp) = post_assets.get(&output) {
+                                cycle_snapshot.insert(output, *stamp);
+                            }
+                        }
+                    }
+                }
+            }
             Ok(LinkedDevRebuild {
                 config: next_config,
                 snapshot: cycle_snapshot,
@@ -492,6 +550,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     "linked dev rebuild succeeded; gracefully stopping the previous server before activating plan {}",
                     next_launch.plan_id
                 );
+                let previous_executable = launch.executable.clone();
                 child.restart(
                     &root,
                     &next_launch,
@@ -499,6 +558,9 @@ pub fn dev(options: DevOptions) -> Result<()> {
                     next_hot_state.as_mut(),
                     reload.as_ref(),
                 )?;
+                if previous_executable != next_launch.executable {
+                    prune_superseded_dev_snapshot(&previous_executable);
+                }
                 config = next_config;
                 launch = next_launch;
                 retry_catalog_at = Instant::now();
@@ -535,6 +597,7 @@ struct PreparedDevInputs {
     public_assets_only: bool,
     changed_asset_paths: Vec<PathBuf>,
     hot_update: Option<crate::hot_static::HotState>,
+    deferred_assets: Option<Vec<PathBuf>>,
 }
 
 /// What is known about generated assets when a change cycle starts.
@@ -547,12 +610,39 @@ enum AssetState {
     Unknown,
 }
 
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 fn prepare_dev_inputs(
     root: &Path,
     config: ProjectConfig,
     options: &DevOptions,
     committed: &WatchSnapshot,
     hot_state: Option<&crate::hot_static::HotState>,
+    failure_snapshot: &mut WatchSnapshot,
+    watch_paths: &mut Vec<PathBuf>,
+    assets: AssetState,
+) -> Result<PreparedDevInputs> {
+    prepare_dev_inputs_with_compiled_inputs(
+        root,
+        config,
+        options,
+        committed,
+        hot_state,
+        None,
+        failure_snapshot,
+        watch_paths,
+        assets,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_dev_inputs_with_compiled_inputs(
+    root: &Path,
+    config: ProjectConfig,
+    options: &DevOptions,
+    committed: &WatchSnapshot,
+    hot_state: Option<&crate::hot_static::HotState>,
+    compiled_inputs: Option<&BTreeSet<PathBuf>>,
     failure_snapshot: &mut WatchSnapshot,
     watch_paths: &mut Vec<PathBuf>,
     assets: AssetState,
@@ -598,79 +688,88 @@ fn prepare_dev_inputs(
     } else {
         None
     };
-    if !options.no_assets {
+    let defer_assets = !options.no_assets
+        && !css_only
+        && hot_update.is_none()
+        && assets == AssetState::Current
+        && can_defer_assets_for_parallel_cargo(root, &config, public, &changed, compiled_inputs);
+    if !options.no_assets && !defer_assets {
         let skippable = public.filter(|_| assets == AssetState::Current);
         build_assets_for_change(root, &config, skippable, &changed)?;
     }
     let mut public_assets_only = false;
     let mut changed_asset_paths = Vec::new();
     if let Some(public) = public {
-        let post_assets = if managed_public || root.join(public).exists() {
-            Some(watch_snapshot(root, watch_paths)?)
-        } else {
-            None
-        };
-        let post_changed = post_assets
-            .as_ref()
-            .map(|post_assets| changed_paths(committed, post_assets));
-        let changed_public: Vec<&PathBuf> = post_changed
-            .as_deref()
-            .unwrap_or(&changed)
-            .iter()
-            .filter(|path| path.starts_with(public))
-            .collect();
-        let public_changed = if changed_public.is_empty() {
-            false
-        } else if let (Some(before), Some(post_assets)) = (&generated_public_before, &post_assets) {
-            if all_unchanged_generated_outputs(root, &changed_public, before, post_assets)? {
-                // Declared asset outputs (such as Tailwind's stylesheet) may be
-                // rewritten with identical bytes and a newer mtime. Advance only
-                // those verified stamps so authored saves are never swallowed.
-                for path in &changed_public {
-                    if let Some(stamp) = post_assets.get(*path) {
-                        snapshot.insert((*path).clone(), *stamp);
-                    }
-                }
-                false
+        if !defer_assets {
+            let post_assets = if managed_public || root.join(public).exists() {
+                Some(watch_snapshot(root, watch_paths)?)
             } else {
-                true
-            }
-        } else {
-            true
-        };
-        if public_changed {
-            // The running server holds a fixed public catalog. Restart it when
-            // inputs (including generated files) change. Keep the pre-command
-            // snapshot for authored files outside `public/` so concurrent edits
-            // still schedule another cycle.
-            hot_update = None;
-            css_only = false;
-            if managed_public
-                && !changed.is_empty()
-                && changed
-                    .iter()
-                    .all(|path| is_css_or_public_or_asset_input(path, public, &config))
-                && post_changed
-                    .as_deref()
-                    .unwrap_or(&changed)
-                    .iter()
-                    .all(|path| is_css_or_public_or_asset_input(path, public, &config))
+                None
+            };
+            let post_changed = post_assets
+                .as_ref()
+                .map(|post_assets| changed_paths(committed, post_assets));
+            let changed_public: Vec<&PathBuf> = post_changed
+                .as_deref()
+                .unwrap_or(&changed)
+                .iter()
+                .filter(|path| path.starts_with(public))
+                .collect();
+            let public_changed = if changed_public.is_empty() {
+                false
+            } else if let (Some(before), Some(post_assets)) =
+                (&generated_public_before, &post_assets)
             {
-                public_assets_only = true;
-                changed_asset_paths = changed.clone();
-                if let Some(post_changed) = &post_changed {
-                    for path in post_changed {
-                        if !changed_asset_paths.contains(path) {
-                            changed_asset_paths.push(path.clone());
-                        }
-                    }
-                }
-                if let Some(post_assets) = &post_assets {
+                if all_unchanged_generated_outputs(root, &changed_public, before, post_assets)? {
+                    // Declared asset outputs (such as Tailwind's stylesheet) may be
+                    // rewritten with identical bytes and a newer mtime. Advance only
+                    // those verified stamps so authored saves are never swallowed.
                     for path in &changed_public {
                         if let Some(stamp) = post_assets.get(*path) {
                             snapshot.insert((*path).clone(), *stamp);
-                        } else {
-                            snapshot.remove(*path);
+                        }
+                    }
+                    false
+                } else {
+                    true
+                }
+            } else {
+                true
+            };
+            if public_changed {
+                // The running server holds a fixed public catalog. Restart it when
+                // inputs (including generated files) change. Keep the pre-command
+                // snapshot for authored files outside `public/` so concurrent edits
+                // still schedule another cycle.
+                hot_update = None;
+                css_only = false;
+                if managed_public
+                    && !changed.is_empty()
+                    && changed
+                        .iter()
+                        .all(|path| is_css_or_public_or_asset_input(path, public, &config))
+                    && post_changed
+                        .as_deref()
+                        .unwrap_or(&changed)
+                        .iter()
+                        .all(|path| is_css_or_public_or_asset_input(path, public, &config))
+                {
+                    public_assets_only = true;
+                    changed_asset_paths = changed.clone();
+                    if let Some(post_changed) = &post_changed {
+                        for path in post_changed {
+                            if !changed_asset_paths.contains(path) {
+                                changed_asset_paths.push(path.clone());
+                            }
+                        }
+                    }
+                    if let Some(post_assets) = &post_assets {
+                        for path in &changed_public {
+                            if let Some(stamp) = post_assets.get(*path) {
+                                snapshot.insert((*path).clone(), *stamp);
+                            } else {
+                                snapshot.remove(*path);
+                            }
                         }
                     }
                 }
@@ -684,7 +783,102 @@ fn prepare_dev_inputs(
         public_assets_only,
         changed_asset_paths,
         hot_update,
+        deferred_assets: defer_assets.then_some(changed),
     })
+}
+
+fn declared_asset_outputs(config: &ProjectConfig) -> Vec<PathBuf> {
+    let mut outputs = Vec::new();
+    if let Some(output) = crate::config::css_script_output(config) {
+        outputs.push(output);
+    }
+    for asset in config.build.assets() {
+        if !outputs.contains(&asset.output) {
+            outputs.push(asset.output.clone());
+        }
+    }
+    outputs
+}
+
+/// Asset commands (like Tailwind CSS) can run concurrently with Cargo on Rust
+/// edits when the previous build's dep-info proved none of the declared asset
+/// outputs are compiled into the binary (e.g. via `include_str!`).
+fn can_defer_assets_for_parallel_cargo(
+    root: &Path,
+    config: &ProjectConfig,
+    public: Option<&Path>,
+    changed: &[PathBuf],
+    compiled_inputs: Option<&BTreeSet<PathBuf>>,
+) -> bool {
+    let Some(inputs) = compiled_inputs else {
+        return false;
+    };
+    let outputs = declared_asset_outputs(config);
+    if outputs.is_empty() || changed.is_empty() {
+        return false;
+    }
+    let has_non_asset_change = changed.iter().any(|path| {
+        public.map_or_else(
+            || {
+                !path
+                    .extension()
+                    .and_then(OsStr::to_str)
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("css"))
+            },
+            |public| !is_css_or_public_or_asset_input(path, public, config),
+        )
+    });
+    if !has_non_asset_change {
+        return false;
+    }
+    outputs
+        .iter()
+        .all(|output| !is_compiled_input(root, inputs, output))
+}
+
+/// Fast scheduling hint for `proa dev` watch mode: returns true if any `.rs`
+/// file under `src/` mentions RSJS macro/attribute tokens. Soundness never
+/// depends on this scan because `rsjs_macros` fails closed on unmapped units.
+fn project_mentions_rsjs_macros(root: &Path) -> bool {
+    let src = root.join("src");
+    if !src.is_dir() {
+        return true;
+    }
+    for entry in walkdir::WalkDir::new(src).follow_links(false) {
+        let Ok(entry) = entry else {
+            return true;
+        };
+        if !entry.file_type().is_file() || entry.path().extension() != Some(OsStr::new("rs")) {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(entry.path()) else {
+            return true;
+        };
+        if content.contains("#[rsjs")
+            || content.contains("rsjs::")
+            || content.contains("SharedState")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Remove a superseded dev executable's snapshot directory once the previous
+/// server has exited so iterative saves do not accumulate multi-megabyte binaries.
+fn prune_superseded_dev_snapshot(executable: &Path) {
+    let Some(snapshot_dir) = executable.parent() else {
+        return;
+    };
+    let Some(snapshot_root) = snapshot_dir.parent() else {
+        return;
+    };
+    if snapshot_root.file_name() != Some(OsStr::new("rsjs-final-artifact-snapshots")) {
+        return;
+    }
+    if fs::symlink_metadata(snapshot_dir).is_ok_and(|meta| meta.file_type().is_dir()) {
+        let _ = fs::remove_dir_all(snapshot_dir);
+    }
 }
 
 fn start_reload_server(address: (&str, u16), options: &DevOptions) -> Option<ReloadServer> {
@@ -969,10 +1163,14 @@ fn is_css_or_public_or_asset_input(path: &Path, public: &Path, config: &ProjectC
 /// Returns `None` when Cargo's dep-info is unavailable or a local build script
 /// declares no inputs, so asset-only edits fall back to a full linked rebuild.
 fn collect_compiled_source_inputs(output: &LinkedCargoOutput) -> Option<BTreeSet<PathBuf>> {
+    collect_compiled_source_inputs_from_paths(output.final_root_inputs.as_deref())
+}
+
+fn collect_compiled_source_inputs_from_paths(
+    inputs: Option<&[PathBuf]>,
+) -> Option<BTreeSet<PathBuf>> {
     Some(
-        output
-            .final_root_inputs
-            .as_ref()?
+        inputs?
             .iter()
             .map(|input| input.canonicalize().unwrap_or_else(|_| input.clone()))
             .collect(),
@@ -1784,7 +1982,7 @@ fn hot_scan_or_rustc_diagnostics<T>(
     scan: Result<T>,
 ) -> Result<T> {
     scan.or_else(|scan_error| {
-        run_linked_dev_cycle(root, config, command, active, None)?;
+        run_linked_dev_cycle(root, config, command, active, None, None)?;
         Err(scan_error)
     })
 }
@@ -1795,67 +1993,186 @@ fn run_linked_dev_cycle(
     command: &[String],
     hot: Option<&crate::hot_static::HotState>,
     public_source: Option<&Path>,
+    session: Option<&mut DevSessionCache>,
+) -> Result<LinkedDevLaunch> {
+    run_linked_dev_cycle_with_assets(root, config, command, hot, public_source, session, None)
+}
+
+fn run_linked_dev_cycle_with_assets(
+    root: &Path,
+    config: &ProjectConfig,
+    command: &[String],
+    hot: Option<&crate::hot_static::HotState>,
+    public_source: Option<&Path>,
+    mut session: Option<&mut DevSessionCache>,
+    deferred_asset_changes: Option<&[PathBuf]>,
 ) -> Result<LinkedDevLaunch> {
     let _progress = DevBuildProgress::start();
     dev_ui::detail!("running linked RSJS Cargo dev build: {}", shellish(command));
     dev_ui::detail!("Preparing the Cargo project and build cache...");
     let mut environment = hot.map(|state| state.environment()).unwrap_or_default();
     environment.extend(rsjs_minify_environment(config.build.minify_rsjs));
-    let prepared =
-        prepare_linked_cargo_with_environment(root, command, LinkedCargoAction::Dev, &environment)?;
-    let output = run_linked_cargo_cached_with_progress(
-        &prepared.request,
-        &prepared.descriptor_cache_directory,
-        |stage| match stage {
-            LinkedCargoStage::Descriptor => {
-                dev_ui::stage("Compiling");
-                dev_ui::detail!("Building site (1/2): resolving dependencies and compiling Rust...")
-            }
-            LinkedCargoStage::Link => {
-                dev_ui::stage("Linking");
-                dev_ui::detail!("Linking browser components...")
-            }
-            LinkedCargoStage::Final => {
-                dev_ui::stage("Finishing");
-                dev_ui::detail!("Building site (2/2): compiling the final server...")
-            }
-        },
-    )
-    .context("linked RSJS dev build failed")?;
-    let executable =
-        select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Dev)?;
-    let public_assets =
-        public_assets::publish(root, public_source, &prepared.public_output_directory)?;
-    let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
-    let reused_descriptor_artifacts = output
-        .descriptor
-        .cargo_artifacts
-        .iter()
-        .filter(|artifact| artifact.fresh)
-        .count();
-    let reused_final_artifacts = output
-        .final_cargo
-        .cargo_artifacts
-        .iter()
-        .filter(|artifact| artifact.fresh)
-        .count();
-    dev_ui::detail!(
-        "linked RSJS dev plan {} (descriptor cache: {reused_descriptor_artifacts}/{descriptor_artifacts} Cargo artifacts reused; final cache: {reused_final_artifacts}/{} reused)",
-        output.semantic.plan_id,
-        output.final_cargo.cargo_artifacts.len(),
-    );
 
-    let compiled_inputs = collect_compiled_source_inputs(&output);
-    Ok(LinkedDevLaunch {
-        executable,
-        arguments: prepared.runtime_args,
-        plan_id: output.semantic.plan_id.to_string(),
-        descriptor_artifacts,
-        reused_descriptor_artifacts,
-        reused_final_artifacts,
-        public_assets,
-        compiled_inputs,
-    })
+    enum DevCargoBuild {
+        SinglePass(crate::rsjs::pipeline::OptimisticLinkedCargoOutput),
+        Full(LinkedCargoOutput),
+    }
+
+    let (prepared, build_result, asset_result) = thread::scope(|scope| {
+        let asset_handle = deferred_asset_changes.map(|changed| {
+            scope.spawn(move || build_assets_for_change(root, config, public_source, changed))
+        });
+
+        let prepared = prepare_linked_cargo_with_environment_and_session(
+            root,
+            command,
+            LinkedCargoAction::Dev,
+            &environment,
+            session.as_deref_mut(),
+        );
+        let build_result: Option<Result<DevCargoBuild>> = match prepared.as_ref() {
+            Ok(prepared) => Some((|| -> Result<DevCargoBuild> {
+                let try_optimistic = session
+                    .as_deref()
+                    .is_some_and(|cache| cache.allow_optimistic_empty);
+                if try_optimistic {
+                    dev_ui::stage("Compiling");
+                    dev_ui::detail!("Building site: compiling Rust...");
+                    match try_run_optimistic_empty_linked_cargo(&prepared.request)
+                        .context("linked RSJS dev build failed")?
+                    {
+                        OptimisticLinkedCargoOutcome::Succeeded(output) => {
+                            return Ok(DevCargoBuild::SinglePass(output));
+                        }
+                        OptimisticLinkedCargoOutcome::NeedsFullLinkedPass => {
+                            if let Some(cache) = session.as_deref_mut() {
+                                cache.allow_optimistic_empty = false;
+                            }
+                            dev_ui::detail!(
+                                "Browser island detected; running full two-pass linked build..."
+                            );
+                        }
+                    }
+                }
+                let output = run_linked_cargo_cached_with_progress(
+                    &prepared.request,
+                    &prepared.descriptor_cache_directory,
+                    |stage| match stage {
+                        LinkedCargoStage::Descriptor => {
+                            dev_ui::stage("Compiling");
+                            dev_ui::detail!(
+                                "Building site (1/2): resolving dependencies and compiling Rust..."
+                            )
+                        }
+                        LinkedCargoStage::Link => {
+                            dev_ui::stage("Linking");
+                            dev_ui::detail!("Linking browser components...")
+                        }
+                        LinkedCargoStage::Final => {
+                            dev_ui::stage("Finishing");
+                            dev_ui::detail!("Building site (2/2): compiling the final server...")
+                        }
+                    },
+                )
+                .context("linked RSJS dev build failed")?;
+                if let Some(cache) = session.as_deref_mut() {
+                    cache.allow_optimistic_empty = output.semantic.is_empty();
+                }
+                Ok(DevCargoBuild::Full(output))
+            })()),
+            Err(_) => None,
+        };
+
+        let asset_result = asset_handle.map(|handle| {
+            handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("background asset build thread panicked"))
+                .and_then(|res| res)
+        });
+        (prepared, build_result, asset_result)
+    });
+
+    let prepared = prepared?;
+    let build = build_result.expect("prepared succeeded before build ran")?;
+    if let Some(asset_result) = asset_result {
+        asset_result?;
+    }
+
+    match build {
+        DevCargoBuild::SinglePass(output) => {
+            let executable = select_attested_root_executable(
+                &prepared.request,
+                output.final_cargo.plan_id,
+                output.semantic.plan_id,
+                &output.semantic_plan_path,
+                &output.final_root_artifact,
+                LinkedCargoAction::Dev,
+            )?;
+            let public_assets =
+                public_assets::publish(root, public_source, &prepared.public_output_directory)?;
+            let reused_final_artifacts = output
+                .final_cargo
+                .cargo_artifacts
+                .iter()
+                .filter(|artifact| artifact.fresh)
+                .count();
+            dev_ui::detail!(
+                "linked RSJS dev plan {} (single-pass; final cache: {reused_final_artifacts}/{} reused)",
+                output.semantic.plan_id,
+                output.final_cargo.cargo_artifacts.len(),
+            );
+            let compiled_inputs =
+                collect_compiled_source_inputs_from_paths(output.final_root_inputs.as_deref());
+            Ok(LinkedDevLaunch {
+                executable,
+                arguments: prepared.runtime_args,
+                plan_id: output.semantic.plan_id.to_string(),
+                single_pass: true,
+                descriptor_artifacts: 0,
+                reused_descriptor_artifacts: 0,
+                reused_final_artifacts,
+                public_assets,
+                compiled_inputs,
+            })
+        }
+        DevCargoBuild::Full(output) => {
+            let executable =
+                select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Dev)?;
+            let public_assets =
+                public_assets::publish(root, public_source, &prepared.public_output_directory)?;
+            let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
+            let reused_descriptor_artifacts = output
+                .descriptor
+                .cargo_artifacts
+                .iter()
+                .filter(|artifact| artifact.fresh)
+                .count();
+            let reused_final_artifacts = output
+                .final_cargo
+                .cargo_artifacts
+                .iter()
+                .filter(|artifact| artifact.fresh)
+                .count();
+            dev_ui::detail!(
+                "linked RSJS dev plan {} (descriptor cache: {reused_descriptor_artifacts}/{descriptor_artifacts} Cargo artifacts reused; final cache: {reused_final_artifacts}/{} reused)",
+                output.semantic.plan_id,
+                output.final_cargo.cargo_artifacts.len(),
+            );
+
+            let compiled_inputs = collect_compiled_source_inputs(&output);
+            Ok(LinkedDevLaunch {
+                executable,
+                arguments: prepared.runtime_args,
+                plan_id: output.semantic.plan_id.to_string(),
+                single_pass: false,
+                descriptor_artifacts,
+                reused_descriptor_artifacts,
+                reused_final_artifacts,
+                public_assets,
+                compiled_inputs,
+            })
+        }
+    }
 }
 
 // Cargo can be quiet while downloading, linking, or validating cached build
@@ -1916,23 +2233,40 @@ fn select_final_root_executable(
     output: &LinkedCargoOutput,
     action: LinkedCargoAction,
 ) -> Result<PathBuf> {
-    if output.final_cargo.plan_id != output.semantic.plan_id {
+    select_attested_root_executable(
+        request,
+        output.final_cargo.plan_id,
+        output.semantic.plan_id,
+        &output.semantic_plan_path,
+        &output.final_root_artifact,
+        action,
+    )
+}
+
+fn select_attested_root_executable(
+    request: &LinkedCargoRequest,
+    final_plan_id: rsjs_ir::abi::PlanId,
+    semantic_plan_id: rsjs_ir::abi::PlanId,
+    semantic_plan_path: &Path,
+    artifact: &crate::rsjs::build::CargoCompilerArtifact,
+    action: LinkedCargoAction,
+) -> Result<PathBuf> {
+    if final_plan_id != semantic_plan_id {
         bail!(
             "linked {} final Cargo consumed plan {}, but the semantic linker produced {}",
             action.command_name(),
-            output.final_cargo.plan_id,
-            output.semantic.plan_id
+            final_plan_id,
+            semantic_plan_id
         );
     }
-    if !output.semantic_plan_path.is_file() {
+    if !semantic_plan_path.is_file() {
         bail!(
             "linked {} semantic plan disappeared before executable selection: `{}`",
             action.command_name(),
-            output.semantic_plan_path.display()
+            semantic_plan_path.display()
         );
     }
 
-    let artifact = &output.final_root_artifact;
     if artifact.package_id != request.root.package_id
         || artifact.target.name != request.root.target_name
         || artifact.target.kind != request.root.target_kinds
@@ -2567,9 +2901,26 @@ fn prepare_linked_cargo_with_environment(
     action: LinkedCargoAction,
     environment: &BTreeMap<OsString, OsString>,
 ) -> Result<PreparedLinkedCargo> {
+    prepare_linked_cargo_with_environment_and_session(root, command, action, environment, None)
+}
+
+fn prepare_linked_cargo_with_environment_and_session(
+    root: &Path,
+    command: &[String],
+    action: LinkedCargoAction,
+    environment: &BTreeMap<OsString, OsString>,
+    session: Option<&mut DevSessionCache>,
+) -> Result<PreparedLinkedCargo> {
     let wrapper =
         crate::util::current_executable().context("resolve the cargo-proa wrapper executable")?;
-    prepare_linked_cargo_with_wrapper_and_environment(root, command, action, wrapper, environment)
+    prepare_linked_cargo_with_wrapper_and_environment_and_session(
+        root,
+        command,
+        action,
+        wrapper,
+        environment,
+        session,
+    )
 }
 
 #[cfg(test)]
@@ -2579,21 +2930,23 @@ fn prepare_linked_cargo_with_wrapper(
     action: LinkedCargoAction,
     wrapper: PathBuf,
 ) -> Result<PreparedLinkedCargo> {
-    prepare_linked_cargo_with_wrapper_and_environment(
+    prepare_linked_cargo_with_wrapper_and_environment_and_session(
         root,
         command,
         action,
         wrapper,
         &BTreeMap::new(),
+        None,
     )
 }
 
-fn prepare_linked_cargo_with_wrapper_and_environment(
+fn prepare_linked_cargo_with_wrapper_and_environment_and_session(
     root: &Path,
     command: &[String],
     action: LinkedCargoAction,
     wrapper: PathBuf,
     environment: &BTreeMap<OsString, OsString>,
+    mut session: Option<&mut DevSessionCache>,
 ) -> Result<PreparedLinkedCargo> {
     if !wrapper.is_absolute() {
         bail!(
@@ -2603,24 +2956,52 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     }
     let parsed = parse_cargo_command(command, action)?;
     let mut timer = crate::rsjs::timing::StageTimer::new();
-    // Query every current tool and Cargo's authoritative metadata on each
-    // cycle. They are independent subprocesses; overlapping them avoids
-    // adding their startup costs together without caching mutable tool state.
+    let cached_cargo_version = session
+        .as_deref()
+        .and_then(|cache| cache.cargo_versions.get(&parsed.cargo).cloned());
+    let cached_rustc_version = session
+        .as_deref()
+        .and_then(|cache| cache.rustc_version.clone());
+    // Query Cargo's authoritative metadata on every cycle; reuse immutable
+    // session tool versions when running inside a single `proa dev` watch loop.
     let (metadata, cargo_version, rustc_version) = thread::scope(|scope| {
-        let cargo = scope.spawn(|| tool_version(&parsed.cargo, &["-Vv"], "Cargo", root));
-        let rustc = scope.spawn(|| selected_rustc_version(root));
+        let cargo = match &cached_cargo_version {
+            Some(_) => None,
+            None => Some(scope.spawn(|| tool_version(&parsed.cargo, &["-Vv"], "Cargo", root))),
+        };
+        let rustc = match &cached_rustc_version {
+            Some(_) => None,
+            None => Some(scope.spawn(|| selected_rustc_version(root))),
+        };
         let metadata = load_cargo_metadata(root, &parsed);
-        let cargo = cargo
-            .join()
-            .map_err(|_| anyhow::anyhow!("Cargo version query thread panicked"))
-            .and_then(|result| result);
-        let rustc = rustc
-            .join()
-            .map_err(|_| anyhow::anyhow!("rustc version query thread panicked"))
-            .and_then(|result| result);
+        let cargo = match cargo {
+            Some(handle) => handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("Cargo version query thread panicked"))
+                .and_then(|result| result),
+            None => Ok(cached_cargo_version.expect("cached cargo version")),
+        };
+        let rustc = match rustc {
+            Some(handle) => handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("rustc version query thread panicked"))
+                .and_then(|result| result),
+            None => Ok(cached_rustc_version.expect("cached rustc version")),
+        };
         (metadata, cargo, rustc)
     });
     let metadata = metadata?;
+    let cargo_version = cargo_version?;
+    let rustc_version = rustc_version?;
+    if let Some(cache) = session.as_deref_mut() {
+        cache
+            .cargo_versions
+            .entry(parsed.cargo.clone())
+            .or_insert_with(|| cargo_version.clone());
+        if cache.rustc_version.is_none() {
+            cache.rustc_version = Some(rustc_version.clone());
+        }
+    }
     timer.mark("prepare Cargo metadata and tool versions");
     let selected_root = select_exact_cargo_root(&metadata, &parsed, action)?;
     let public_output_directory =
@@ -2635,9 +3016,12 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
         .target_directory
         .join("proa-rsjs")
         .join("wrapper-snapshots-v1");
-    let (wrapper, wrapper_lock) =
-        prepare_wrapper_executable(&metadata.target_directory, &wrapper_snapshot_root, &wrapper)?;
-    let wrapper_fingerprint = wrapper_executable_fingerprint(&wrapper)?;
+    let (wrapper, wrapper_lock, wrapper_fingerprint) = prepare_wrapper_with_session(
+        &metadata.target_directory,
+        &wrapper_snapshot_root,
+        &wrapper,
+        session.as_deref_mut(),
+    )?;
     timer.mark("prepare wrapper snapshot and fingerprint");
     let package_source_root = selected_root.package_source_root.clone();
     let cli_producer = cli_tool_producer_version()?;
@@ -2653,8 +3037,6 @@ fn prepare_linked_cargo_with_wrapper_and_environment(
     selection_args.push(format!(
         "proa:wrapper-executable-fingerprint={wrapper_fingerprint}"
     ));
-    let cargo_version = cargo_version?;
-    let rustc_version = rustc_version?;
     let shared_target_scope = shared_cargo_target_scope(
         &wrapper_fingerprint,
         &cargo_version,
@@ -2810,6 +3192,57 @@ fn shared_cargo_target_scope(
     }
     let digest = hash.finalize();
     format!("{:x}", base16ct::HexDisplay(&digest[..8]))
+}
+
+#[cfg(not(windows))]
+fn prepare_wrapper_with_session(
+    source_exclusion: &Path,
+    snapshot_root: &Path,
+    wrapper: &Path,
+    session: Option<&mut DevSessionCache>,
+) -> Result<(PathBuf, Option<fs::File>, String)> {
+    let source_stamp = fs::metadata(wrapper)
+        .ok()
+        .map(|m| FileStamp::from_metadata(&m));
+    if let (Some(cache), Some(stamp)) = (session.as_deref(), source_stamp) {
+        if let Some(cached) = &cache.wrapper_snapshot {
+            if cached.source_path == wrapper
+                && cached.source_stamp == stamp
+                && cached.snapshot_root == snapshot_root
+                && cached.snapshot_path.is_file()
+            {
+                return Ok((
+                    cached.snapshot_path.clone(),
+                    None,
+                    cached.fingerprint.clone(),
+                ));
+            }
+        }
+    }
+    let (snapshot, lock) = prepare_wrapper_executable(source_exclusion, snapshot_root, wrapper)?;
+    let fingerprint = wrapper_executable_fingerprint(&snapshot)?;
+    if let (Some(cache), Some(stamp)) = (session, source_stamp) {
+        cache.wrapper_snapshot = Some(CachedWrapperSnapshot {
+            source_path: wrapper.to_path_buf(),
+            source_stamp: stamp,
+            snapshot_root: snapshot_root.to_path_buf(),
+            snapshot_path: snapshot.clone(),
+            fingerprint: fingerprint.clone(),
+        });
+    }
+    Ok((snapshot, lock, fingerprint))
+}
+
+#[cfg(windows)]
+fn prepare_wrapper_with_session(
+    source_exclusion: &Path,
+    snapshot_root: &Path,
+    wrapper: &Path,
+    _session: Option<&mut DevSessionCache>,
+) -> Result<(PathBuf, Option<fs::File>, String)> {
+    let (resolved, lock) = prepare_wrapper_executable(source_exclusion, snapshot_root, wrapper)?;
+    let fingerprint = wrapper_executable_fingerprint(&resolved)?;
+    Ok((resolved, lock, fingerprint))
 }
 
 #[cfg(not(windows))]
@@ -3905,14 +4338,23 @@ fn linked_dev_command(
 }
 
 fn print_linked_dev_launch(launch: &LinkedDevLaunch) {
-    dev_ui::detail!(
-        "starting final linked server `{}` with plan {} (descriptor cache {}/{}, final cache {} reused)",
-        launch.executable.display(),
-        launch.plan_id,
-        launch.reused_descriptor_artifacts,
-        launch.descriptor_artifacts,
-        launch.reused_final_artifacts,
-    );
+    if launch.single_pass {
+        dev_ui::detail!(
+            "starting final linked server `{}` with plan {} (single-pass, final cache {} reused)",
+            launch.executable.display(),
+            launch.plan_id,
+            launch.reused_final_artifacts,
+        );
+    } else {
+        dev_ui::detail!(
+            "starting final linked server `{}` with plan {} (descriptor cache {}/{}, final cache {} reused)",
+            launch.executable.display(),
+            launch.plan_id,
+            launch.reused_descriptor_artifacts,
+            launch.descriptor_artifacts,
+            launch.reused_final_artifacts,
+        );
+    }
 }
 
 fn run_command_status(root: &Path, command: &[String], label: &str) -> Result<()> {

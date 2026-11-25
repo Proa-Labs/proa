@@ -16,7 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
-use rsjs_ir::abi::{AbiVersion, InvocationId, ProducerVersion, SemanticHash};
+use rsjs_ir::abi::{AbiVersion, InvocationId, LinkUnitId, ProducerVersion, SemanticHash};
 use rsjs_ir::build::ArtifactRole;
 use thiserror::Error;
 
@@ -36,8 +36,8 @@ use crate::cache::{run_descriptor_cargo_cached, DescriptorCacheError};
 use crate::final_compile::FinalCargoArtifactReport;
 use crate::final_compile::{
     ensure_plain_managed_directory, ensure_plain_managed_file, run_final_cargo_leased,
-    snapshot_final_artifact, FinalCargoError, FinalCargoOutput, FinalCargoRequest,
-    ManagedPathError,
+    run_final_cargo_leased_optimistic, snapshot_final_artifact, FinalCargoError, FinalCargoOutput,
+    FinalCargoRequest, ManagedPathError, OptimisticFinalCargoOutcome,
 };
 use crate::link::{link_transport_manifest, TransportLinkError, TransportLinkPlan};
 use crate::semantic_link::{
@@ -182,6 +182,178 @@ pub fn run_linked_cargo_cached(
     cache_directory: &std::path::Path,
 ) -> Result<LinkedCargoOutput, LinkedCargoError> {
     run_linked_cargo_cached_with_progress(request, cache_directory, |_| {})
+}
+
+/// Successful output of an optimistic single-pass final build against an empty
+/// RSJS semantic plan.
+#[derive(Clone, Debug)]
+pub struct OptimisticLinkedCargoOutput {
+    /// Empty canonical semantic plan consumed by final Cargo.
+    pub semantic: SemanticLinkPlan,
+    /// Exact content-addressed semantic-plan path.
+    pub semantic_plan_path: PathBuf,
+    /// Plan-sensitive final Cargo output.
+    pub final_cargo: FinalCargoOutput,
+    /// Exact final-phase Cargo artifact attesting the selected root.
+    pub final_root_artifact: CargoCompilerArtifact,
+    /// Absolute local inputs Cargo recorded for the final root executable.
+    pub final_root_inputs: Option<Vec<PathBuf>>,
+}
+
+/// Result of attempting a single-pass optimistic empty-plan dev build.
+#[derive(Clone, Debug)]
+pub enum OptimisticLinkedCargoOutcome {
+    /// Single-pass final Cargo succeeded with zero unmapped RSJS macros.
+    Succeeded(OptimisticLinkedCargoOutput),
+    /// At least one compiled unit expanded an RSJS macro that requires the full
+    /// descriptor + link + final two-pass pipeline.
+    NeedsFullLinkedPass,
+}
+
+/// Attempt a single-pass final Cargo build against an empty RSJS semantic plan,
+/// skipping descriptor compilation, descriptor cache validation, and transport
+/// linking when no compiled unit expands an RSJS macro.
+///
+/// Soundness is enforced fail-closed by `rsjs_macros`: because the empty unit
+/// map marks every compiled unit `RSJS_FINAL_CARGO_UNIT_STATUS=unmapped-v1`,
+/// any unit that invokes `#[rsjs(...)]`, `#[client]`, or `#[derive(SharedState)]`
+/// fails compilation immediately and returns `NeedsFullLinkedPass`.
+pub fn try_run_optimistic_empty_linked_cargo(
+    request: &LinkedCargoRequest,
+) -> Result<OptimisticLinkedCargoOutcome, LinkedCargoError> {
+    validate_request(request)?;
+    validate_selector(&request.root)?;
+    prepare_linked_managed_directories(request)?;
+
+    let mut link_unit_seed = format!(
+        "proa.rsjs.optimistic-empty-link-unit.v1\0{}\0{}\0{}",
+        request.invocation, request.root.package_id, request.root.target_name,
+    );
+    for kind in &request.root.target_kinds {
+        link_unit_seed.push('\0');
+        link_unit_seed.push_str(kind);
+    }
+    let link_unit = LinkUnitId::derive(&link_unit_seed);
+    let empty_adapted = AdaptedTransportAbi {
+        components: Vec::new(),
+        helpers: Vec::new(),
+    };
+    let semantic =
+        link_semantic_plan(link_unit, &empty_adapted).map_err(LinkedCargoError::SemanticLink)?;
+    let semantic_plan_path =
+        write_content_addressed_semantic_plan(&request.plan_directory, &semantic)
+            .map_err(LinkedCargoError::WriteSemanticPlan)?;
+
+    let final_request = FinalCargoRequest {
+        invocation: request.invocation,
+        cargo: request.descriptor.cargo.clone(),
+        wrapper: request.descriptor.wrapper.clone(),
+        working_directory: request.descriptor.working_directory.clone(),
+        source_exclusion_directory: request.descriptor.source_exclusion_directory.clone(),
+        target_root: request.final_target_root.clone(),
+        plan_path: semantic_plan_path.clone(),
+        cargo_args: request.final_cargo_args.clone(),
+        environment: request.descriptor.environment.clone(),
+        root_unit_fingerprint: SemanticHash::derive(&link_unit_seed),
+        descriptor_units: Vec::new(),
+    };
+
+    let final_cargo_run = match run_final_cargo_leased_optimistic(&final_request, &semantic)
+        .map_err(LinkedCargoError::FinalCargo)?
+    {
+        OptimisticFinalCargoOutcome::NeedsFullLinkedPass => {
+            return Ok(OptimisticLinkedCargoOutcome::NeedsFullLinkedPass);
+        }
+        OptimisticFinalCargoOutcome::Succeeded(run) => run,
+    };
+
+    let final_root_artifact = attest_optimistic_final_root(
+        final_cargo_run.output(),
+        final_cargo_run.cargo_artifacts(),
+        &request.root,
+    )?;
+    let final_root_inputs = final_root_artifact
+        .executable
+        .as_deref()
+        .filter(|_| final_cargo_run.local_scripts_declare_inputs)
+        .and_then(cargo_dep_info_inputs);
+    let final_root_artifact = snapshot_final_artifact(
+        &request.descriptor.source_exclusion_directory,
+        &request
+            .final_target_root
+            .join("rsjs-final-artifact-snapshots"),
+        &final_cargo_run.output().target_directory,
+        &final_root_artifact,
+    )
+    .map_err(LinkedCargoError::FinalCargo)?;
+    let final_cargo = final_cargo_run.into_output();
+    execute_requested_final_root(request, &final_root_artifact)?;
+
+    Ok(OptimisticLinkedCargoOutcome::Succeeded(
+        OptimisticLinkedCargoOutput {
+            semantic,
+            semantic_plan_path,
+            final_cargo,
+            final_root_artifact,
+            final_root_inputs,
+        },
+    ))
+}
+
+fn attest_optimistic_final_root(
+    output: &FinalCargoOutput,
+    cargo_artifacts: &[CargoCompilerArtifact],
+    selector: &DescriptorRootSelector,
+) -> Result<CargoCompilerArtifact, LinkedCargoError> {
+    let mut matches = cargo_artifacts
+        .iter()
+        .filter(|artifact| root_artifact_matches(artifact, selector))
+        .collect::<Vec<_>>();
+    matches.sort_by(|left, right| {
+        left.manifest_path
+            .cmp(&right.manifest_path)
+            .then_with(|| left.target.src_path.cmp(&right.target.src_path))
+    });
+    let final_root = match matches.as_slice() {
+        [] => {
+            return Err(LinkedCargoError::MissingFinalRoot {
+                package_id: selector.package_id.clone(),
+                target_name: selector.target_name.clone(),
+            });
+        }
+        [artifact] => *artifact,
+        artifacts => {
+            return Err(LinkedCargoError::AmbiguousFinalRoot {
+                package_id: selector.package_id.clone(),
+                target_name: selector.target_name.clone(),
+                matches: artifacts.len(),
+            });
+        }
+    };
+
+    let materialized = match final_root.executable.as_ref() {
+        Some(executable) => executable,
+        None => final_root
+            .filenames
+            .iter()
+            .next()
+            .ok_or(LinkedCargoError::FinalRootHasNoArtifact)?,
+    };
+    ensure_plain_managed_file(&output.target_directory, materialized)
+        .map_err(LinkedCargoError::ManagedPath)?;
+    let metadata = fs::symlink_metadata(materialized).map_err(|source| {
+        LinkedCargoError::InspectFinalRootArtifact {
+            path: materialized.clone(),
+            source,
+        }
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(LinkedCargoError::FinalRootArtifactNotFile(
+            materialized.clone(),
+        ));
+    }
+
+    Ok(final_root.clone())
 }
 
 pub enum LinkedCargoStage {

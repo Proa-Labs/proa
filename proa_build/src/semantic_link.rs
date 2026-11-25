@@ -358,6 +358,14 @@ pub struct SemanticLinkPlan {
     pub shared_state: Vec<LinkedSharedStateSchema>,
 }
 
+impl SemanticLinkPlan {
+    /// Whether this plan contains no RSJS components, helpers, or SharedState
+    /// schemas.
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty() && self.helpers.is_empty() && self.shared_state.is_empty()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SemanticComponentEdgeMaterial {
     edge: ComponentEdgeId,

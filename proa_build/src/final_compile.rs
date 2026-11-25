@@ -31,10 +31,10 @@ use crate::build::{
     write_content_addressed_final_unit_map, CargoArtifactCollector, CargoArtifactTarget,
     CargoCompilerArtifact, CargoMessageError, DescriptorCargoRunError, DescriptorTargetLease,
     FinalUnitMapError, ValidatedDescriptorUnit, COMPONENT_DESCRIPTOR_DIRS_ENV,
-    FINAL_CARGO_UNIT_STATUS_ENV, FINAL_TARGET_DIR_ENV, FINAL_UNIT_MAP_HASH_ENV,
-    FINAL_UNIT_MAP_PATH_ENV, FINAL_UNIT_PLAN_DIRECTORY_ENV, FINAL_UNIT_PLAN_ENV_PREFIX,
-    FINAL_WRAPPER_POLICY_VERSION, SOURCE_EXCLUSION_DIR_ENV, WRAPPER_MODE_ENV,
-    WRAPPER_MODE_FINAL_V2,
+    FINAL_CARGO_UNIT_STATUS_ENV, FINAL_CARGO_UNIT_STATUS_UNMAPPED, FINAL_TARGET_DIR_ENV,
+    FINAL_UNIT_MAP_HASH_ENV, FINAL_UNIT_MAP_PATH_ENV, FINAL_UNIT_PLAN_DIRECTORY_ENV,
+    FINAL_UNIT_PLAN_ENV_PREFIX, FINAL_WRAPPER_POLICY_VERSION, SOURCE_EXCLUSION_DIR_ENV,
+    WRAPPER_MODE_ENV, WRAPPER_MODE_FINAL_V2,
 };
 pub use crate::build::{
     FINAL_PHASE_ENV, FINAL_PLAN_FILE_HASH_ENV, FINAL_PLAN_ID_ENV, FINAL_PLAN_PATH_ENV,
@@ -232,6 +232,21 @@ pub fn run_final_cargo<P: FinalCargoPlan>(
     run_final_cargo_leased(request, plan).map(FinalCargoRun::into_output)
 }
 
+/// Result of an optimistic final Cargo pass against an empty unit map.
+pub(crate) enum OptimisticFinalCargoOutcome {
+    /// Final Cargo succeeded with zero unmapped RSJS macro expansions.
+    Succeeded(FinalCargoRun),
+    /// At least one compiled unit expanded an RSJS macro that requires the full
+    /// descriptor + link + final pipeline.
+    NeedsFullLinkedPass,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FinalDiagnosticMode {
+    Forward,
+    BufferAndDetectUnmapped,
+}
+
 /// Run final Cargo while retaining exclusive authority over its stable target.
 ///
 /// Callers that inspect materialized target paths must keep the returned lease
@@ -243,6 +258,32 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     request: &FinalCargoRequest,
     plan: &P,
 ) -> Result<FinalCargoRun, FinalCargoError> {
+    match run_final_cargo_leased_with_mode(request, plan, FinalDiagnosticMode::Forward)? {
+        OptimisticFinalCargoOutcome::Succeeded(run) => Ok(run),
+        OptimisticFinalCargoOutcome::NeedsFullLinkedPass => {
+            unreachable!("forward diagnostic mode never returns NeedsFullLinkedPass")
+        }
+    }
+}
+
+/// Attempt one final Cargo compilation without a preceding descriptor pass.
+///
+/// Soundness is enforced fail-closed by `rsjs_macros`: because an empty unit
+/// map leaves every compiled unit `RSJS_FINAL_CARGO_UNIT_STATUS=unmapped-v1`,
+/// any unit that invokes `#[rsjs(...)]`, `#[client]`, or `#[derive(SharedState)]`
+/// fails compilation with that marker and returns `NeedsFullLinkedPass`.
+pub(crate) fn run_final_cargo_leased_optimistic<P: FinalCargoPlan>(
+    request: &FinalCargoRequest,
+    plan: &P,
+) -> Result<OptimisticFinalCargoOutcome, FinalCargoError> {
+    run_final_cargo_leased_with_mode(request, plan, FinalDiagnosticMode::BufferAndDetectUnmapped)
+}
+
+fn run_final_cargo_leased_with_mode<P: FinalCargoPlan>(
+    request: &FinalCargoRequest,
+    plan: &P,
+    diagnostic_mode: FinalDiagnosticMode,
+) -> Result<OptimisticFinalCargoOutcome, FinalCargoError> {
     let mut timing = super::timing::StageTimer::new();
     validate_request(request)?;
     let (plan_file_hash, plan_bytes) = validate_plan_file(&request.plan_path, plan)?;
@@ -280,13 +321,17 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
         &unit_map.content_hash,
     )?;
     let cargo_args = compile_only_cargo_arguments(&request.cargo_args)?;
+    let message_format = match diagnostic_mode {
+        FinalDiagnosticMode::Forward => "--message-format=json-render-diagnostics",
+        FinalDiagnosticMode::BufferAndDetectUnmapped => "--message-format=json",
+    };
     let mut command = Command::new(&request.cargo);
     command
         .current_dir(&request.working_directory)
         .args(&cargo_args)
         .arg("--target-dir")
         .arg(&target_directory)
-        .arg("--message-format=json-render-diagnostics");
+        .arg(message_format);
     scrub_wrapper_control_environment(&mut command);
     command
         .envs(&environment)
@@ -318,6 +363,8 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     let mut collector = CargoArtifactCollector::default();
     let mut stdout = BufReader::new(stdout);
     let mut cargo_line_number = 0_usize;
+    let mut buffered_diagnostics = Vec::new();
+    let mut saw_unmapped_rsjs_unit = false;
     loop {
         let mut bytes = Vec::new();
         let read = match stdout.read_until(b'\n', &mut bytes) {
@@ -349,7 +396,17 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
                 });
             }
         };
-        forward_rendered_cargo_diagnostic(line);
+        if let Some(rendered) = extract_rendered_cargo_diagnostic(line) {
+            match diagnostic_mode {
+                FinalDiagnosticMode::Forward => eprint!("{rendered}"),
+                FinalDiagnosticMode::BufferAndDetectUnmapped => {
+                    if is_unmapped_rsjs_unit_diagnostic(&rendered) {
+                        saw_unmapped_rsjs_unit = true;
+                    }
+                    buffered_diagnostics.push(rendered);
+                }
+            }
+        }
         if let Err(source) = collector.ingest_line(line) {
             let _ = child.kill();
             let _ = child.wait();
@@ -358,7 +415,17 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
     }
     let status = child.wait().map_err(FinalCargoError::WaitForCargo)?;
     if !status.success() {
+        if diagnostic_mode == FinalDiagnosticMode::BufferAndDetectUnmapped && saw_unmapped_rsjs_unit
+        {
+            return Ok(OptimisticFinalCargoOutcome::NeedsFullLinkedPass);
+        }
+        for rendered in buffered_diagnostics {
+            eprint!("{rendered}");
+        }
         return Err(FinalCargoError::CargoFailed(status));
+    }
+    for rendered in buffered_diagnostics {
+        eprint!("{rendered}");
     }
     let local_scripts_declare_inputs = collector.local_build_scripts_declare_inputs();
     let cargo_artifacts = collector.finish().map_err(FinalCargoError::CargoProtocol)?;
@@ -371,7 +438,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
         .collect();
 
     timing.mark("final Cargo execution");
-    Ok(FinalCargoRun {
+    Ok(OptimisticFinalCargoOutcome::Succeeded(FinalCargoRun {
         local_scripts_declare_inputs,
         output: FinalCargoOutput {
             plan_id,
@@ -384,7 +451,7 @@ pub(crate) fn run_final_cargo_leased<P: FinalCargoPlan>(
         },
         cargo_artifacts,
         _target_lease: target_lease,
-    })
+    }))
 }
 
 fn validate_request(request: &FinalCargoRequest) -> Result<(), FinalCargoError> {
@@ -1631,20 +1698,22 @@ fn snapshot_permission_identity(permissions: &fs::Permissions) -> String {
     format!("readonly-{}", u8::from(permissions.readonly()))
 }
 
-fn forward_rendered_cargo_diagnostic(line: &str) {
-    let Ok(value) = serde_json::from_str::<Value>(line) else {
-        return;
-    };
+fn extract_rendered_cargo_diagnostic(line: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(line).ok()?;
     if value.get("reason").and_then(Value::as_str) != Some("compiler-message") {
-        return;
+        return None;
     }
-    if let Some(rendered) = value
+    value
         .get("message")
         .and_then(|message| message.get("rendered"))
         .and_then(Value::as_str)
-    {
-        eprint!("{rendered}");
-    }
+        .map(ToOwned::to_owned)
+}
+
+fn is_unmapped_rsjs_unit_diagnostic(rendered: &str) -> bool {
+    rendered.contains(&format!(
+        "{FINAL_CARGO_UNIT_STATUS_ENV}={FINAL_CARGO_UNIT_STATUS_UNMAPPED}"
+    )) || rendered.contains("could not map this Cargo unit to its descriptor pass")
 }
 
 /// Final-compilation validation or Cargo failure.
@@ -2506,6 +2575,16 @@ mod tests {
         assert!(matches!(
             validate_plan_file(&path, &plan),
             Err(FinalCargoError::PlanContentMismatch)
+        ));
+    }
+
+    #[test]
+    fn is_unmapped_rsjs_unit_diagnostic_matches_only_unmapped_marker() {
+        assert!(is_unmapped_rsjs_unit_diagnostic(
+            "error: final RSJS compilation could not map this Cargo unit to its descriptor pass (`RSJS_FINAL_CARGO_UNIT_STATUS=unmapped-v1`)"
+        ));
+        assert!(!is_unmapped_rsjs_unit_diagnostic(
+            "error[E0425]: cannot find value `missing` in this scope"
         ));
     }
 }

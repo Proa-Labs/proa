@@ -7,7 +7,8 @@ use std::process::Command;
 
 use proa_cli::rsjs::build::{DescriptorCargoRequest, FINAL_CARGO_UNIT_STATUS_MAPPED};
 use proa_cli::rsjs::pipeline::{
-    run_linked_cargo, run_linked_cargo_cached, DescriptorRootSelector, LinkedCargoRequest,
+    run_linked_cargo, run_linked_cargo_cached, try_run_optimistic_empty_linked_cargo,
+    DescriptorRootSelector, LinkedCargoRequest, OptimisticLinkedCargoOutcome,
 };
 use rsjs_ir::abi::{
     AbiVersion, ComponentBindingSource, ComponentEdgeId, ComponentFieldId, ComponentFieldRole,
@@ -260,7 +261,7 @@ fn main() {
     );
     let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout).unwrap();
     let package_id = metadata["packages"][0]["id"].as_str().unwrap().to_string();
-    let output = run_linked_cargo(&LinkedCargoRequest {
+    let request = LinkedCargoRequest {
         descriptor: DescriptorCargoRequest {
             cargo,
             wrapper: std::path::PathBuf::from(env!("CARGO_BIN_EXE_cargo-proa")),
@@ -285,8 +286,14 @@ fn main() {
         final_target_root: temp.path().join("proa-generated/final-target"),
         final_cargo_args: vec!["build".into(), "--offline".into()],
         final_environment: environment,
-    })
-    .unwrap();
+    };
+    // Fail-closed check: a crate containing real #[rsjs] components must reject
+    // the optimistic empty-plan single-pass and request the full two-pass build.
+    assert!(matches!(
+        try_run_optimistic_empty_linked_cargo(&request).unwrap(),
+        OptimisticLinkedCargoOutcome::NeedsFullLinkedPass
+    ));
+    let output = run_linked_cargo(&request).unwrap();
 
     assert_eq!(output.transport.components.len(), 2);
     assert_eq!(output.semantic.components.len(), 2);
