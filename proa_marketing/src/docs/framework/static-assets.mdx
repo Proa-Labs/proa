@@ -92,7 +92,7 @@ let static_router = Router::new().nest_service(
 
 let app = FrameworkBuilder::new()
     .with_static_service(static_router)
-    .build();
+    .try_build()?;
 ```
 
 The final URL for the nested example is `/static/assets/...`. When deployed
@@ -151,7 +151,7 @@ use proa::axum::FrameworkBuilder;
 
 let app = FrameworkBuilder::new()
     .with_dynamic_routes_and_metadata(routes, metadata)
-    .build();
+    .try_build()?;
 ```
 
 | URL | Serves |
@@ -207,10 +207,10 @@ and hydration.
 
 ## Linking the application stylesheet
 
-Write the link in the document layout. `cx.url` applies the configured base path:
+Write the link in the document layout. `cx.url("public/...")` resolves the hashed stylesheet and applies the configured base path or `PROA_ASSET_PREFIX`:
 
 ```rust filename="src/layouts/root.rs"
-let stylesheet = cx.url("/static/assets/app.css");
+let stylesheet = cx.url("public/styles.css");
 html_sync! {
     <link rel="stylesheet" href={stylesheet} />
 }

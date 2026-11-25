@@ -7,16 +7,23 @@
 
 pub mod agent_surface;
 mod atlas_page;
+pub mod dialog;
 pub mod dossier;
 pub mod flood_lab;
 pub mod hero;
 pub mod live_wire;
 pub mod receipt;
 pub mod site_header;
+pub mod theme_toggle;
 
 pub use atlas_page::{markdown_string, markdown_string_with_base_path, AtlasMd, AtlasPage};
+pub use dialog::*;
 pub use flood_lab::LabRows;
+pub use theme_toggle::*;
 
+// The block below must list exactly the modules `proa.lock.json` records, or
+// `proa ui add` refuses to rewrite it. `dialog` and `theme_toggle` are not
+// lock-managed, so they live above.
 // proa-ui:modules:start
 pub mod _proa;
 pub use _proa::*;
@@ -26,16 +33,12 @@ pub mod button;
 pub use button::*;
 pub mod card;
 pub use card::*;
-pub mod dialog;
-pub use dialog::*;
 pub mod input;
 pub use input::*;
 pub mod separator;
 pub use separator::*;
 pub mod spinner;
 pub use spinner::*;
-pub mod theme_toggle;
-pub use theme_toggle::*;
 pub mod tooltip;
 pub use tooltip::*;
 // proa-ui:modules:end

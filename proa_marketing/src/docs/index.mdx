@@ -12,18 +12,19 @@ Building with an AI agent? The complete documentation is served at [/llms-full.t
 
 ## 1. Install Proa
 
-Install the latest stable CLI from crates.io using a current Rust toolchain:
+Requires Rust `1.98` or newer. Install the CLI and standalone Tailwind CSS binary:
+
+```bash
+curl -fsSL https://proa.so/install.sh | sh -s -- --with-tailwind
+```
+
+Or install the CLI directly from crates.io:
 
 ```bash
 cargo install proa-cli --locked
 ```
 
-Run the same command to update an existing Cargo installation.
-Proa is public; no GitHub credential or Cargo publishing token is needed.
-[Troubleshooting](/docs/guides/troubleshooting) covers dependency resolution
-failures. The Basic app also requires the Tailwind CSS CLI on your `PATH`;
-see [Tailwind prerequisite](/docs/cli/new-site#tailwind-prerequisite) before
-continuing.
+Proa is public; no GitHub credential or Cargo token is needed. On Windows or if you installed via Cargo, see [Tailwind prerequisite](/docs/cli/new-site#tailwind-prerequisite) and [Troubleshooting](/docs/guides/troubleshooting).
 
 ## 2. Create A Site
 
@@ -95,42 +96,15 @@ under `proa::stream`. To add Proa 0.4 to an existing Axum application, use the f
 
 ```toml
 [dependencies]
-proa = { version = "0.4", features = ["axum"] }
+proa = { version = "0.4", features = ["axum", "rt-tokio"] }
 ```
 
-You do not have to build the common UI yourself: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of ready-made Proa components, and `proa ui add button` vendors the source into `src/components/` where you own and edit it like any other file. Worth knowing before you write your first card, dialog, or form by hand.
+You do not have to build common UI from scratch: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of Proa components (`badge`, `button`, and `card` are already vendored in the starter). Run `proa ui add alert` to vendor another component into `src/components/` where you own and edit the source directly.
 
-The Basic app starter writes its document title directly in `RootDocument` and uses manual head rendering. Its pages keep the default component role. To adopt managed metadata, follow [Layouts and Pages](/docs/framework/layouts-and-pages) and add an explicit Page boundary and head outlet together. ORIGIN already uses that managed document pattern.
+The Basic app starter writes its document title directly in `RootDocument` and uses manual head rendering. To adopt managed metadata, follow [Layouts and Pages](/docs/framework/layouts-and-pages) (ORIGIN already uses it).
 
 The remaining steps use the **Basic app** named `hello-proa`. If you chose
 ORIGIN, follow its generated `README.md` and run commands inside `origin-atlas`.
-
-If `styles/starter.css` already exists and `styles/input.css` imports it,
-continue to the next step.
-
-<Accordions>
-
-<Accordion title="My starter has no styles/starter.css yet">
-
-Inside `hello-proa`, preserve the starter design before Tailwind rebuilds
-`public/styles.css`:
-
-1. Move `public/styles.css` to `styles/starter.css`. If `styles/starter.css`
-   already exists, keep that file.
-2. Replace the contents of `styles/input.css` with:
-
-```css
-@layer theme, base, proa-compat, components, utilities;
-@import "tailwindcss";
-@import "./starter.css" layer(components);
-@source "../src/**/*.rs";
-```
-
-Tailwind will regenerate `public/styles.css` with the starter design included.
-
-</Accordion>
-
-</Accordions>
 
 ## 3. Run The Server
 
@@ -178,8 +152,7 @@ Proa's content-coverage lint compares rendered content across the two
 implementations: remove `{HEADLINE}` from only one template and `proa lint`
 reports `render/content-coverage`.
 
-Refresh the browser and open [/index.md](http://localhost:3000/index.md) to see
-both representations. Edit `styles/starter.css` to change the starter's design;
+Your open tab reloads automatically once the rebuild finishes; open [/index.md](http://localhost:3000/index.md) to see the Markdown representation too. Edit `styles/starter.css` to change the starter's design;
 `public/styles.css` is the generated output and is rebuilt by Tailwind.
 
 ## 5. Add A Route

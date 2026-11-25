@@ -226,7 +226,7 @@ tower = {{ version = "0.5", features = ["util"] }}
 
 [profile.release]
 lto = "thin"
-codegen-units = 1
+codegen-units = 16
 "#
     )
 }

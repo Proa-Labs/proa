@@ -3,9 +3,44 @@ title: Proa Docs
 description: A docs framework for Proa sites, compiled at build time.
 ---
 
-Proa Docs is a docs framework for Proa sites, largely inspired by [fumadocs](https://www.fumadocs.dev/) and [nextra](https://nextra.site/) from JavaScript-land.
+Proa Docs compiles Markdown and MDX into a static Rust registry during `build.rs` (syntax highlighting, MathML, sidebar, and search index) and mounts it on one Axum route:
 
-Write Markdown, get a documentation site: file-routed pages, a generated sidebar, syntax highlighting, search, a table of contents, and thirteen authoring components.
+```rust filename="build.rs"
+use proa_docs_build::{CodeHighlight, Config, DocsSource, MarkdownPipeline, MdxConfig};
+
+fn main() {
+    let docs = DocsSource::new("src/docs")
+        .out_dir_name("docs")
+        .base_path("/docs")
+        .site_name("My Docs")
+        .markdown(
+            MarkdownPipeline::default()
+                .code_highlighting(CodeHighlight::new())
+                .mdx(MdxConfig::proa()),
+        );
+
+    proa_docs_build::compile(Config::new().source(docs));
+}
+```
+
+```rust filename="src/pages/docs.rs"
+use axum::{extract::Path, response::IntoResponse, routing::get, Router};
+use proa_docs::{include_docs, Docs};
+
+static DOCS: Docs = include_docs!("docs");
+
+async fn docs_page(Path(path): Path<String>) -> impl IntoResponse {
+    proa_docs::adapter::axum::response(&DOCS, &format!("/docs/{path}"))
+}
+
+pub fn router() -> Router {
+    Router::new()
+        .route("/docs", get(|| async { docs_page(Path(String::new())).await }))
+        .route("/docs/{*path}", get(docs_page))
+}
+```
+
+Inspired by [fumadocs](https://www.fumadocs.dev/) and [nextra](https://nextra.site/), without shipping a client parser, highlighter, or router to the browser.
 
 <Cards>
   <Card title="Quickstart" description="Two crates, a build script, one route." href="/docs/proa-docs/quickstart" />

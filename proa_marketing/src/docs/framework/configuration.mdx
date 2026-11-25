@@ -26,7 +26,7 @@ let head = HeadConfig::default()
 let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 `RootDocument` is the `LAYOUT` component containing the document markup and head outlet; `HomePage` declares `ROLE = PAGE`. See [Layouts and Pages](/docs/framework/layouts-and-pages) for complete implementations. Replace the public origin with trusted application configuration.
@@ -84,7 +84,7 @@ use proa::axum::{BasePath, FrameworkBuilder};
 let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new("/apps/demo")?)
     .with_dynamic_routes_and_metadata(routes, metadata)
-    .build();
+    .try_build()?;
 ```
 
 Keep routes such as `/docs/start` and `/static/...` unprefixed. Compose
@@ -134,7 +134,7 @@ let static_router = axum::Router::new().fallback_service(ServeDir::new("public")
 
 let app = FrameworkBuilder::new()
     .with_static_service(static_router)
-    .build();
+    .try_build()?;
 ```
 
 For public directories, keep untrusted writers out of the served tree. `ServeDir` rejects `..` traversal, but deployments should still treat symlinks and generated files deliberately.

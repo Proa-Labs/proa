@@ -3,13 +3,7 @@ title: Docker
 description: Run the Proa image yourself, and own everything a platform would have done.
 ---
 
-Proa produces one release binary with its public asset catalog beside it. This page packages that output into an image and runs it on hardware you control.
-
-Read [what self-managed Docker costs you](/docs/framework/deployment) first. Take this path when you are running Proa beside an existing app, deploying into Kubernetes, Nomad, or ECS, or working somewhere a managed platform is not an option. For a plain public site, [Railway](/docs/framework/railway) or [Coolify](/docs/framework/coolify) does all of this for you.
-
-## Build the image
-
-Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. That Dockerfile downloads the prebuilt CLI on x86-64 and compiles the same published version from crates.io on ARM64, so it builds natively on either. Vendored `proa_fonts` files need no extra copy: they are published into the asset bundle with the rest of `public/`. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
+Proa produces one release binary with its public asset bundle beside it (`app` + `app.assets/`). Run `proa new site --deploy docker` to generate a multi-stage Dockerfile, or use this Cargo-based fallback that pins the CLI version from `proa.lock.json`:
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
@@ -186,7 +180,8 @@ For more than one host, this is the point where Kubernetes, Nomad, or ECS stops 
 docker build -t my-site:test .
 docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site:test
 curl -fsS http://127.0.0.1:3000/healthz
-curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
+curl -fsS http://127.0.0.1:3000/readyz
+curl -fsS http://127.0.0.1:3000/ -o /dev/null
 docker image inspect my-site:test --format '{{.Size}}'                  # inspect the final image size
 ```
 

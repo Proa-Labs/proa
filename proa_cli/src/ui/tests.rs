@@ -535,7 +535,9 @@ fn managed_module_block_preserves_user_content() {
     .unwrap();
     let rendered = String::from_utf8(first.clone()).unwrap();
     assert!(rendered.starts_with("pub mod local;\n"));
-    assert!(rendered.contains("pub mod button;\npub use button::*;"));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod button;\n#[allow(unused_imports)]\npub use button::*;"
+    ));
 
     let updated = update_managed_rust_modules(
         Some(&first),
@@ -546,7 +548,76 @@ fn managed_module_block_preserves_user_content() {
     .unwrap();
     let rendered = String::from_utf8(updated).unwrap();
     assert!(rendered.contains("pub mod local;"));
-    assert!(rendered.contains("pub mod spinner;\npub use spinner::*;"));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod spinner;\n#[allow(unused_imports)]\npub use spinner::*;"
+    ));
+}
+
+#[test]
+fn managed_module_block_migrates_legacy_unattributed_block() {
+    let legacy = concat!(
+        "pub mod local;\n\n",
+        "// proa-ui:modules:start\n",
+        "pub mod button;\n",
+        "pub use button::*;\n",
+        "// proa-ui:modules:end\n",
+    );
+    let current = BTreeSet::from(["button".to_string()]);
+    let next = BTreeSet::from(["button".to_string(), "spinner".to_string()]);
+
+    let migrated = update_managed_rust_modules(
+        Some(legacy.as_bytes()),
+        &current,
+        &next,
+        Path::new("mod.rs"),
+    )
+    .unwrap();
+    let rendered = String::from_utf8(migrated).unwrap();
+    assert!(rendered.starts_with("pub mod local;\n\n"));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod button;\n#[allow(unused_imports)]\npub use button::*;"
+    ));
+    assert!(rendered.contains(
+        "#[allow(dead_code)]\npub mod spinner;\n#[allow(unused_imports)]\npub use spinner::*;"
+    ));
+
+    let edited = concat!(
+        "// proa-ui:modules:start\n",
+        "pub mod button;\n",
+        "// user edit\n",
+        "pub use button::*;\n",
+        "// proa-ui:modules:end\n",
+    );
+    let error = update_managed_rust_modules(
+        Some(edited.as_bytes()),
+        &current,
+        &next,
+        Path::new("mod.rs"),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("edited locally"), "{error}");
+}
+
+#[test]
+fn origin_scaffold_managed_block_accepts_ui_add() {
+    let mod_rs = include_str!("../site_scaffold/templates/origin/src/components/mod.rs");
+    let lock: ComponentLockFile = serde_json::from_str(include_str!(
+        "../site_scaffold/templates/origin/proa.lock.json"
+    ))
+    .unwrap();
+    let target = Path::new("src/components/mod.rs");
+    let current = collect_locked_modules(&lock)
+        .unwrap()
+        .remove(target)
+        .unwrap();
+    let mut next = current.clone();
+    next.insert("alert".to_string());
+
+    let updated = update_managed_rust_modules(Some(mod_rs.as_bytes()), &current, &next, target)
+        .expect("a freshly generated ORIGIN site must accept `proa ui add`");
+    let rendered = String::from_utf8(updated).unwrap();
+    assert!(rendered.contains("#[allow(dead_code)]\npub mod alert;"));
 }
 
 #[test]

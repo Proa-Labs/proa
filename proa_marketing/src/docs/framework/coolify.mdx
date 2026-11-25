@@ -133,7 +133,8 @@ Before you deploy:
 - `docker build -t my-site .`
 - `docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site`
 - `curl -fsS http://127.0.0.1:3000/healthz`
-- Verify `/static/styles.css` loads.
+- `curl -fsS http://127.0.0.1:3000/readyz`
+- Verify `/` renders with styles loaded.
 
 ## Next steps
 

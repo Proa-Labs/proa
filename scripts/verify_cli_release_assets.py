@@ -15,6 +15,7 @@ from pathlib import Path, PurePosixPath
 
 
 TARGETS = (
+    "aarch64-apple-darwin",
     "x86_64-unknown-linux-gnu",
 )
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$")

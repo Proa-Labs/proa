@@ -3,9 +3,52 @@ title: Testing
 description: Test application behavior and framework regressions without pinning page markup.
 ---
 
-Write a test when it protects a behavior that can break independently of an
-intentional design or copy change. A component does not need a test merely
-because it renders HTML or Markdown.
+Test behavior that can break independently of a copy or styling change (loaders, content negotiation, auth, error paths), and run linked app tests through `proa test`:
+
+```bash filename="Terminal"
+proa test
+```
+
+```rust filename="tests/representations.rs"
+use std::sync::Arc;
+use axum::{body::Body, http::{Request, StatusCode}};
+use tower::ServiceExt;
+
+#[path = "../src/app.rs"] mod app;
+#[path = "../src/components/mod.rs"] mod components;
+#[path = "../src/db.rs"] mod db;
+#[path = "../src/endpoints/mod.rs"] mod endpoints;
+#[path = "../src/error.rs"] mod error;
+#[path = "../src/layouts/mod.rs"] mod layouts;
+#[path = "../src/loader.rs"] mod loader;
+#[path = "../src/pages/mod.rs"] mod pages;
+#[path = "../src/routes.rs"] mod routes;
+#[path = "../src/static_assets.rs"] mod static_assets;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn home_serves_html_and_markdown() {
+    let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
+    let pool = db::connect(&database_url).await.unwrap();
+    let loader = Arc::new(loader::AppLoader::new(pool.clone()));
+    let app = routes::router(
+        app::AppState { db: pool.clone(), loader },
+        proa::BasePath::new("").unwrap(),
+    )
+    .unwrap();
+
+    let html = app.clone()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(html.status(), StatusCode::OK);
+
+    let md = app
+        .oneshot(Request::builder().uri("/index.md").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(md.status(), StatusCode::OK);
+
+    pool.close().await;
+}
+```
 
 ## Writing unit tests
 
@@ -69,7 +112,7 @@ hardware. Keep inputs and workload sizes comparable across runs. A successful
 benchmark compilation does not establish that performance stayed the same.
 
 ```bash filename="Terminal"
-cargo bench -p proa_bench
+cargo bench
 ```
 
 ## Organizing tests and CI
