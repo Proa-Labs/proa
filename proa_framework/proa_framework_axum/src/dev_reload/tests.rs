@@ -561,3 +561,103 @@ async fn mounted_reload_escapes_the_inline_script_and_keeps_connections_on_self(
     assert!(output.contains("/apps/\\\"demo/__proa/dev-events"));
     assert!(output.contains("<script nonce=\"YWJj\">"));
 }
+
+#[test]
+fn relay_authority_normalizes_ipv4_ipv6_and_invalid_hosts() {
+    assert_eq!(relay_authority("0.0.0.0", 3001), "127.0.0.1:3001");
+    assert_eq!(relay_authority("127.0.0.1", 3001), "127.0.0.1:3001");
+    assert_eq!(relay_authority("::", 3001), "[::1]:3001");
+    assert_eq!(relay_authority("::1", 3001), "[::1]:3001");
+    assert_eq!(relay_authority("dev.local", 3001), "dev.local:3001");
+    assert_eq!(relay_authority("bad host/path", 3001), "localhost:3001");
+    assert_eq!(relay_authority("", 3001), "localhost:3001");
+}
+
+#[tokio::test]
+async fn mounted_relay_returns_bad_gateway_when_upstream_is_unreachable() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let unused_port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let router = DevReloadLayer::new(unused_port, TOKEN)
+        .with_base_path(&proa_core::BasePath::new("/apps/demo").unwrap())
+        .wrap(axum::Router::new());
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/apps/demo/__proa/dev-events?token=0123456789abcdef0123456789abcdef")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+}
+
+/// `proa dev` answers with a hand-written HTTP/1.1 head and a body that ends
+/// only when the socket closes, and it rejects a request without `Host`.
+#[tokio::test]
+async fn mounted_relay_streams_a_close_delimited_cli_response() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (release_event, event_released) = tokio::sync::oneshot::channel::<()>();
+    let upstream = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            let mut byte = [0; 1];
+            socket.read_exact(&mut byte).await.unwrap();
+            head.push(byte[0]);
+        }
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                  Connection: keep-alive\r\n\r\nretry: 1000\n\n",
+            )
+            .await
+            .unwrap();
+        event_released.await.unwrap();
+        socket
+            .write_all(b"event: reload\ndata: 1\n\n")
+            .await
+            .unwrap();
+        String::from_utf8(head).unwrap()
+    });
+
+    // Keep the router alive: dropping the layer's stop sender ends the relay.
+    let router = DevReloadLayer::new(port, TOKEN)
+        .with_base_path(&proa_core::BasePath::new("/apps/demo").unwrap())
+        .wrap(axum::Router::new());
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/apps/demo/__proa/dev-events?token={TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+
+    let mut body = response.into_body().into_data_stream();
+    assert_eq!(body.next().await.unwrap().unwrap(), "retry: 1000\n\n");
+    release_event.send(()).unwrap();
+    assert_eq!(
+        body.next().await.unwrap().unwrap(),
+        "event: reload\ndata: 1\n\n"
+    );
+    assert!(body.next().await.is_none());
+
+    let head = upstream.await.unwrap();
+    assert!(head.starts_with(&format!(
+        "GET /__proa/dev-events?token={TOKEN} HTTP/1.1\r\n"
+    )));
+    assert!(head
+        .to_ascii_lowercase()
+        .contains(&format!("\r\nhost: 127.0.0.1:{port}\r\n")));
+}

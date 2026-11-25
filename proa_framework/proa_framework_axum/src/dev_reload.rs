@@ -38,6 +38,8 @@ use axum::{
     },
 };
 use bytes::{BufMut, Bytes, BytesMut};
+use futures::StreamExt;
+use http_body_util::BodyExt;
 use hyper::body::{Body as HttpBody, Frame, SizeHint};
 use tower::{Layer, Service, ServiceExt};
 
@@ -213,61 +215,42 @@ impl DevReloadLayer {
     pub fn wrap(self, app: axum::Router) -> axum::Router {
         let app = if self.relay {
             let host = env::var("PROA_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-            let host = match host.parse::<std::net::IpAddr>() {
-                Ok(std::net::IpAddr::V6(ip)) if ip.is_unspecified() => "[::1]".to_string(),
-                Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
-                Ok(std::net::IpAddr::V4(ip)) if ip.is_unspecified() => "127.0.0.1".to_string(),
-                Ok(ip) => ip.to_string(),
-                Err(_)
-                    if !host.is_empty()
-                        && host
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-')) =>
-                {
-                    host
-                }
-                Err(_) => "localhost".to_string(),
-            };
-            let target = format!("http://{host}:{}{}", self.port, DEV_EVENTS_PATH);
-            let client = reqwest::Client::builder()
-                .no_proxy()
-                .redirect(reqwest::redirect::Policy::none())
-                .connect_timeout(std::time::Duration::from_secs(2))
-                .build()
-                .expect("build local dev event client");
+            let authority: Arc<str> = Arc::from(relay_authority(&host, self.port));
             let relay_stop = self.relay_stop.clone();
             let relay = axum::routing::get(
                 move |axum::extract::OriginalUri(uri): axum::extract::OriginalUri| {
-                    let client = client.clone();
-                    let target = target.clone();
+                    let authority = Arc::clone(&authority);
                     let mut stopped = relay_stop.subscribe();
                     async move {
                         if *stopped.borrow() {
                             return Response::new(Body::empty());
                         }
-                        let target = match uri.query() {
-                            Some(query) => format!("{target}?{query}"),
-                            None => target,
+                        let path_and_query = match uri.query() {
+                            Some(query) => format!("{DEV_EVENTS_PATH}?{query}"),
+                            None => DEV_EVENTS_PATH.to_string(),
                         };
                         let upstream = tokio::select! {
                             biased;
                             _ = stopped.changed() => return Response::new(Body::empty()),
-                            upstream = client.get(target).send() => upstream,
+                            upstream = open_dev_event_stream(&authority, &path_and_query) => upstream,
                         };
                         match upstream {
-                            Ok(response) => {
-                                let status = response.status();
-                                let content_type = response.headers().get(CONTENT_TYPE).cloned();
+                            Some((response, conn_guard)) => {
+                                let (parts, body) = response.into_parts();
+                                let status = parts.status;
+                                let content_type = parts.headers.get(CONTENT_TYPE).cloned();
                                 let stream = futures::stream::try_unfold(
-                                    (response, stopped),
-                                    |(mut response, mut stopped)| async move {
+                                    (body.into_data_stream(), stopped, conn_guard),
+                                    |(mut body, mut stopped, conn_guard)| async move {
                                         if *stopped.borrow() {
-                                            return Ok::<_, reqwest::Error>(None);
+                                            return Ok::<_, hyper::Error>(None);
                                         }
                                         tokio::select! {
                                             biased;
                                             _ = stopped.changed() => Ok(None),
-                                            chunk = response.chunk() => Ok(chunk?.map(|bytes| (bytes, (response, stopped)))),
+                                            chunk = body.next() => Ok(chunk
+                                                .transpose()?
+                                                .map(|bytes| (bytes, (body, stopped, conn_guard)))),
                                         }
                                     },
                                 );
@@ -286,7 +269,7 @@ impl DevReloadLayer {
                                 );
                                 response
                             }
-                            Err(_) => Response::builder()
+                            None => Response::builder()
                                 .status(axum::http::StatusCode::BAD_GATEWAY)
                                 .body(Body::empty())
                                 .expect("valid dev relay response"),
@@ -753,6 +736,65 @@ fn find_ignore_ascii_case(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// Abort a spawned local HTTP/1.1 connection driver as soon as the relayed
+/// stream ends or the request is cancelled.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+fn relay_authority(host: &str, port: u16) -> String {
+    let host = match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V6(ip)) if ip.is_unspecified() => "[::1]".to_string(),
+        Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
+        Ok(std::net::IpAddr::V4(ip)) if ip.is_unspecified() => "127.0.0.1".to_string(),
+        Ok(ip) => ip.to_string(),
+        Err(_)
+            if !host.is_empty()
+                && host
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-')) =>
+        {
+            host.to_string()
+        }
+        Err(_) => "localhost".to_string(),
+    };
+    format!("{host}:{port}")
+}
+
+/// Open a direct local HTTP/1.1 stream to the CLI's dev-events server without
+/// consulting proxy settings, following redirects, or pulling in a TLS stack.
+async fn open_dev_event_stream(
+    authority: &str,
+    path_and_query: &str,
+) -> Option<(hyper::Response<hyper::body::Incoming>, AbortOnDrop)> {
+    let stream = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        tokio::net::TcpStream::connect(authority),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let io = hyper_util::rt::TokioIo::new(stream);
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.ok()?;
+    let conn_guard = AbortOnDrop(tokio::spawn(async move {
+        let _ = conn.await;
+    }));
+    // The low-level connection sends no `Host` of its own, and `proa dev`
+    // rejects a request without one.
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(path_and_query)
+        .header(axum::http::header::HOST, authority)
+        .body(Body::empty())
+        .ok()?;
+    let response = sender.send_request(request).await.ok()?;
+    Some((response, conn_guard))
 }
 
 #[cfg(test)]
