@@ -16,23 +16,33 @@ use crate::metadata::{resolve_metadata_stack, ComputedRouteMeta, MetadataRef, Re
 /// storing it in task-local state, request extensions, or whatever mechanism
 /// their server stack uses.
 #[derive(Clone)]
-pub struct FrameworkRouteSnapshot {
-    metadata: Arc<[MetadataRef]>,
+pub struct FrameworkRouteSnapshot<P = RouteParams> {
+    metadata: Option<Arc<[MetadataRef]>>,
     resolved_metadata: Option<ResolvedMetadata>,
     computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
     current_uri: Option<Uri>,
-    current_route_params: RouteParams,
+    current_route_params: P,
     is_client_request: bool,
 }
 
 impl FrameworkRouteSnapshot {
     pub fn new(computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>) -> Self {
+        Self::with_route_params(computed_metadata, RouteParams::default())
+    }
+}
+
+impl<P> FrameworkRouteSnapshot<P> {
+    /// Use the adapter's capture storage as the snapshot's sole source of route parameters.
+    pub fn with_route_params(
+        computed_metadata: Arc<HashMap<String, ComputedRouteMeta>>,
+        current_route_params: P,
+    ) -> Self {
         Self {
-            metadata: Arc::from([]),
+            metadata: None,
             resolved_metadata: None,
             computed_metadata,
             current_uri: None,
-            current_route_params: RouteParams::default(),
+            current_route_params,
             is_client_request: false,
         }
     }
@@ -61,23 +71,35 @@ impl FrameworkRouteSnapshot {
         self.computed_metadata.get(path).cloned()
     }
 
-    pub fn current_route_params(&self) -> &RouteParams {
+    pub fn current_route_params(&self) -> &P {
         &self.current_route_params
     }
 
-    pub fn swap_route_params(&mut self, route_params: RouteParams) -> RouteParams {
+    /// Access capture storage for adapters that materialize parameters on first read.
+    pub fn current_route_params_mut(&mut self) -> &mut P {
+        &mut self.current_route_params
+    }
+
+    pub fn swap_route_params(&mut self, route_params: P) -> P {
         mem::replace(&mut self.current_route_params, route_params)
     }
 
-    pub fn restore_route_params(&mut self, route_params: RouteParams) {
+    pub fn restore_route_params(&mut self, route_params: P) {
         self.current_route_params = route_params;
+    }
+
+    /// Whether there are endpoint metadata providers in the current scope.
+    pub fn has_metadata(&self) -> bool {
+        self.metadata
+            .as_ref()
+            .is_some_and(|metadata| !metadata.is_empty())
     }
 
     pub fn swap_metadata(
         &mut self,
         metadata: Arc<[MetadataRef]>,
     ) -> (Arc<[MetadataRef]>, Option<ResolvedMetadata>) {
-        let previous_metadata = mem::replace(&mut self.metadata, metadata);
+        let previous_metadata = self.metadata.replace(metadata).unwrap_or_default();
         let previous_resolved = self.resolved_metadata.take();
         (previous_metadata, previous_resolved)
     }
@@ -87,20 +109,18 @@ impl FrameworkRouteSnapshot {
         metadata: Arc<[MetadataRef]>,
         resolved: Option<ResolvedMetadata>,
     ) {
-        self.metadata = metadata;
+        self.metadata = Some(metadata);
         self.resolved_metadata = resolved;
     }
 
     pub fn resolve_metadata(&mut self) -> Option<ResolvedMetadata> {
-        if self.metadata.is_empty() {
+        let providers = self.metadata.as_deref()?;
+        if providers.is_empty() {
             return None;
         }
-
-        if let Some(meta) = &self.resolved_metadata {
-            return Some(meta.clone());
+        if self.resolved_metadata.is_none() {
+            self.resolved_metadata = resolve_metadata_stack(providers);
         }
-
-        self.resolved_metadata = resolve_metadata_stack(self.metadata.as_ref());
         self.resolved_metadata.clone()
     }
 }
@@ -109,6 +129,22 @@ impl FrameworkRouteSnapshot {
 /// against a concrete request path.
 pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RouteParams {
     let mut params = Vec::new();
+    if visit_route_params(route_pattern, request_path, |name, value| {
+        params.push(RouteParam::new(name, value));
+    }) {
+        RouteParams::from_vec(params)
+    } else {
+        RouteParams::default()
+    }
+}
+
+/// Visit whole-segment captures without allocating. Returns false if the entire path
+/// does not match; in that case callers must discard any captures already visited.
+pub fn visit_route_params(
+    route_pattern: &str,
+    request_path: &str,
+    mut visit: impl FnMut(&str, &str),
+) -> bool {
     let mut pattern_segments = route_pattern
         .split('/')
         .filter(|segment| !segment.is_empty());
@@ -118,7 +154,7 @@ pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RoutePar
 
     loop {
         match (pattern_segments.next(), request_segments.next()) {
-            (None, None) => break,
+            (None, None) => return true,
             (Some(pattern_segment), Some(request_segment)) => {
                 let name = pattern_segment
                     .strip_prefix('{')
@@ -126,20 +162,15 @@ pub fn extract_route_params(route_pattern: &str, request_path: &str) -> RoutePar
                     .filter(|s| !s.is_empty() && !s.contains(['{', '}', '*']))
                     .or_else(|| pattern_segment.strip_prefix(':'));
                 if let Some(name) = name {
-                    params.push(RouteParam::new(
-                        name.to_owned().into_boxed_str(),
-                        request_segment.to_owned().into_boxed_str(),
-                    ));
+                    visit(name, request_segment);
                 } else if pattern_segment != request_segment || pattern_segment.contains(['{', '}'])
                 {
-                    return RouteParams::default();
+                    return false;
                 }
             }
-            _ => return RouteParams::default(),
+            _ => return false,
         }
     }
-
-    RouteParams::from_vec(params)
 }
 
 #[cfg(test)]
@@ -158,5 +189,26 @@ mod tests {
     fn extract_route_params_returns_empty_for_non_match() {
         let params = extract_route_params("/products/{id}", "/categories/42");
         assert!(params.is_empty());
+    }
+
+    #[test]
+    fn adapter_fallback_only_captures_complete_named_segments() {
+        for (pattern, path) in [
+            ("/static", "/static"),
+            ("/docs/{slug}.md", "/docs/guide.md"),
+            ("/albums/{id}/edit", "/albums/7/view"),
+            ("/albums/{id}", "/albums/"),
+        ] {
+            assert!(
+                extract_route_params(pattern, path).is_empty(),
+                "{pattern} {path}"
+            );
+        }
+        for (pattern, path) in [
+            ("/albums/{id}", "/albums/7/"),
+            ("/albums/{id}/", "/albums/7"),
+        ] {
+            assert_eq!(extract_route_params(pattern, path).get("id"), Some("7"));
+        }
     }
 }

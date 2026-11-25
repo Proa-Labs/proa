@@ -554,7 +554,7 @@ async fn prepare_stream(
     }
 }
 
-fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
+fn framework_request_context(ctx: &mut RouteContext) -> FrameworkRequestContext {
     let request_location = ctx.current_uri().cloned().map(RequestLocation::from);
     let route_params = Some(ctx.current_route_params().clone());
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
@@ -584,7 +584,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
 
 pub(super) fn current_framework_request_context() -> FrameworkRequestContext {
     ROUTE_CONTEXT
-        .try_with(|ctx| framework_request_context(&ctx.borrow()))
+        .try_with(|ctx| framework_request_context(&mut ctx.borrow_mut()))
         .unwrap_or_default()
 }
 
@@ -595,7 +595,7 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
                 let (is_client_request, page_title, request) = {
                     let mut ctx_ref = ctx.borrow_mut();
                     let is_client = ctx_ref.is_client_request();
-                    let request = framework_request_context(&ctx_ref);
+                    let request = framework_request_context(&mut ctx_ref);
                     let page_title = if is_client {
                         ctx_ref.resolve_metadata().and_then(|meta| meta.title)
                     } else {

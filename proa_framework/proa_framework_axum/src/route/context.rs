@@ -16,7 +16,8 @@ use axum::response::{IntoResponse, Response};
 use pin_project::{pin_project, pinned_drop};
 use proa_core::{CspNonce, PublicAssetUrls, RouteParam, RouteParams};
 use proa_framework_core::{
-    extract_route_params, ComputedRouteMeta, FrameworkRouteSnapshot, MetadataRef, ResolvedMetadata,
+    extract_route_params, visit_route_params, ComputedRouteMeta, FrameworkRouteSnapshot,
+    MetadataRef, ResolvedMetadata,
 };
 use tower::layer::Layer;
 use tower::Service;
@@ -32,7 +33,7 @@ tokio::task_local! {
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct RouteContext {
-    snapshot: FrameworkRouteSnapshot,
+    snapshot: FrameworkRouteSnapshot<AxumRouteParams>,
     request_method: Option<http::Method>,
     request_headers: http::HeaderMap,
     csp_nonce: Option<CspNonce>,
@@ -43,12 +44,132 @@ pub struct RouteContext {
     head: Option<proa_core::HeadConfig>,
 }
 
+#[derive(Clone)]
+enum AxumRouteParams {
+    Ready(RouteParams),
+    Matched(MatchedParams),
+}
+
+#[derive(Clone)]
+struct MatchedParams {
+    pattern: MatchedPath,
+    path: http::uri::PathAndQuery,
+    ranges: CaptureRanges,
+}
+
+impl MatchedParams {
+    fn collect(&self) -> RouteParams {
+        self.ranges
+            .as_slice()
+            .iter()
+            .map(|capture| {
+                RouteParam::new(
+                    capture.name.slice(self.pattern.as_str()),
+                    capture.value.slice(self.path.path()),
+                )
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CaptureRange {
+    name: CaptureSpan,
+    value: CaptureSpan,
+}
+
+#[derive(Clone, Copy)]
+struct CaptureSpan {
+    start: u32,
+    end: u32,
+}
+
+impl CaptureSpan {
+    fn from_substr(source: &str, capture: &str) -> Self {
+        let range = source
+            .substr_range(capture)
+            .expect("capture is part of its source");
+        Self {
+            start: range.start as u32,
+            end: range.end as u32,
+        }
+    }
+
+    fn slice(self, source: &str) -> &str {
+        &source[self.start as usize..self.end as usize]
+    }
+}
+
+// A single named segment needs no heap storage until a renderer reads it.
+#[derive(Clone)]
+enum CaptureRanges {
+    One(CaptureRange),
+    Many(Vec<CaptureRange>),
+}
+
+impl CaptureRanges {
+    fn as_slice(&self) -> &[CaptureRange] {
+        match self {
+            Self::One(capture) => std::slice::from_ref(capture),
+            Self::Many(captures) => captures,
+        }
+    }
+
+    fn for_path(pattern: &str, path: &str) -> Option<Self> {
+        // Keep a single capture inline in the space already required for a Vec.
+        // Defer to Axum if either source cannot be indexed with 32-bit offsets.
+        if u32::try_from(pattern.len()).is_err()
+            || u32::try_from(path.len()).is_err()
+            || path.contains('%')
+            || pattern.contains(':')
+        {
+            return None;
+        }
+        let mut captures = None;
+        let matched = visit_route_params(pattern, path, |name, value| {
+            let capture = CaptureRange {
+                name: CaptureSpan::from_substr(pattern, name),
+                value: CaptureSpan::from_substr(path, value),
+            };
+            match &mut captures {
+                None => captures = Some(Self::One(capture)),
+                Some(Self::One(first)) => captures = Some(Self::Many(vec![*first, capture])),
+                Some(Self::Many(captures)) => captures.push(capture),
+            }
+        });
+        if matched {
+            captures
+        } else {
+            None
+        }
+    }
+}
+
+impl AxumRouteParams {
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Ready(params) if params.is_empty())
+    }
+
+    fn get(&mut self) -> &RouteParams {
+        match self {
+            Self::Ready(params) => params,
+            Self::Matched(matched) => {
+                *self = Self::Ready(matched.collect());
+                self.get()
+            }
+        }
+    }
+}
+
 impl RouteContext {
     pub(super) fn new(
         computed_metadata: Arc<std::collections::HashMap<String, ComputedRouteMeta>>,
     ) -> Self {
         Self {
-            snapshot: FrameworkRouteSnapshot::new(computed_metadata),
+            snapshot: FrameworkRouteSnapshot::with_route_params(
+                computed_metadata,
+                AxumRouteParams::Ready(RouteParams::default()),
+            ),
             request_method: None,
             request_headers: http::HeaderMap::new(),
             csp_nonce: None,
@@ -104,7 +225,7 @@ impl RouteContext {
         self.snapshot.current_uri()
     }
 
-    pub(super) fn set_current_request_parts(
+    fn set_current_request_parts(
         &mut self,
         method: http::Method,
         headers: http::HeaderMap,
@@ -131,16 +252,27 @@ impl RouteContext {
         self.csp_nonce.as_ref()
     }
 
-    pub(super) fn current_route_params(&self) -> &RouteParams {
-        self.snapshot.current_route_params()
+    pub(super) fn current_route_params(&mut self) -> &RouteParams {
+        self.snapshot.current_route_params_mut().get()
     }
 
-    pub(super) fn swap_route_params(&mut self, route_params: RouteParams) -> RouteParams {
-        self.snapshot.swap_route_params(route_params)
+    pub(super) fn set_route_params(&mut self, route_params: RouteParams) {
+        self.snapshot
+            .restore_route_params(AxumRouteParams::Ready(route_params));
     }
 
-    pub(super) fn restore_route_params(&mut self, route_params: RouteParams) {
-        self.snapshot.restore_route_params(route_params);
+    // An outer router may install this layer before it matches the endpoint.
+    // Only an initially empty parameter collection may be filled here.
+    fn fill_missing_route_params(&mut self, pattern: &str, path: &str) -> bool {
+        if !self.snapshot.current_route_params().is_empty() || !pattern.contains(['{', ':']) {
+            return false;
+        }
+        let params = extract_route_params(pattern, path);
+        if params.is_empty() {
+            return false;
+        }
+        self.set_route_params(params);
+        true
     }
 
     pub(super) fn swap_metadata(
@@ -163,34 +295,15 @@ impl RouteContext {
     }
 }
 
-/// Helper type for managing metadata stacks.
-#[derive(Clone)]
-pub(super) struct Stack<T>(Arc<[T]>);
-
-impl<T: Copy> Stack<T> {
-    pub(super) fn from_slice(items: &[T]) -> Self {
-        if items.is_empty() {
-            Self(Arc::from([]))
-        } else {
-            let owned: Vec<T> = items.to_vec();
-            Self(Arc::from(owned.into_boxed_slice()))
-        }
-    }
-
-    pub(super) fn arc(&self) -> Arc<[T]> {
-        self.0.clone()
-    }
-}
-
 /// Tower layer for managing endpoint-specific metadata and route params.
 #[derive(Clone)]
 pub(super) struct EndpointContextLayer {
-    metadata: Stack<MetadataRef>,
+    metadata: Arc<[MetadataRef]>,
     route_pattern: Arc<str>,
 }
 
 impl EndpointContextLayer {
-    pub(super) fn new(metadata: Stack<MetadataRef>, route_pattern: Arc<str>) -> Self {
+    pub(super) fn new(metadata: Arc<[MetadataRef]>, route_pattern: Arc<str>) -> Self {
         Self {
             metadata,
             route_pattern,
@@ -213,7 +326,7 @@ impl<S> Layer<S> for EndpointContextLayer {
 #[derive(Clone)]
 pub(super) struct EndpointContextService<S> {
     inner: S,
-    metadata: Stack<MetadataRef>,
+    metadata: Arc<[MetadataRef]>,
     route_pattern: Arc<str>,
 }
 
@@ -232,29 +345,28 @@ where
     }
 
     fn call(&mut self, req: axum::http::Request<Body>) -> Self::Future {
-        let uri = req.uri().clone();
-        let (previous_metadata, previous_resolved, previous_route_params) =
-            ROUTE_CONTEXT.with(|ctx| {
-                let mut ctx = ctx.borrow_mut();
-                // Prefer Axum's decoded captures, including nested and wildcard
-                // parameters. Keep pattern extraction for non-router adapters.
-                let route_params = if ctx.current_route_params().is_empty() {
-                    extract_route_params(self.route_pattern.as_ref(), uri.path())
-                } else {
-                    ctx.current_route_params().clone()
-                };
-                ctx.set_current_uri(uri);
-                let (previous_metadata, previous_resolved) = ctx.swap_metadata(self.metadata.arc());
-                let previous_route_params = ctx.swap_route_params(route_params);
-                (previous_metadata, previous_resolved, previous_route_params)
-            });
-
+        let previous = ROUTE_CONTEXT.with(|ctx| {
+            let mut ctx = ctx.borrow_mut();
+            let uri = req.uri();
+            let clear_params = ctx.fill_missing_route_params(&self.route_pattern, uri.path());
+            ctx.set_current_uri(uri.clone());
+            let metadata = if self.metadata.is_empty() && !ctx.snapshot.has_metadata() {
+                None
+            } else {
+                let (providers, resolved) = ctx.swap_metadata(self.metadata.clone());
+                Some(PreviousMetadata {
+                    providers,
+                    resolved,
+                })
+            };
+            (clear_params || metadata.is_some()).then_some(PreviousContext {
+                metadata,
+                clear_params,
+            })
+        });
         EndpointContextFuture {
             future: self.inner.call(req),
-            previous_metadata,
-            previous_resolved,
-            previous_route_params,
-            restored: false,
+            previous,
             _marker: PhantomData,
         }
     }
@@ -267,10 +379,7 @@ where
 {
     #[pin]
     future: F,
-    previous_metadata: Arc<[MetadataRef]>,
-    previous_resolved: Option<ResolvedMetadata>,
-    previous_route_params: RouteParams,
-    restored: bool,
+    previous: Option<PreviousContext>,
     _marker: PhantomData<E>,
 }
 
@@ -284,13 +393,8 @@ where
         let this = self.project();
         match this.future.poll(cx) {
             Poll::Ready(result) => {
-                if !*this.restored {
-                    restore_context(
-                        this.previous_metadata.clone(),
-                        this.previous_resolved.clone(),
-                        this.previous_route_params.clone(),
-                    );
-                    *this.restored = true;
+                if let Some(previous) = this.previous.take() {
+                    previous.restore();
                 }
                 Poll::Ready(result)
             }
@@ -306,26 +410,34 @@ where
 {
     fn drop(self: Pin<&mut Self>) {
         let this = self.project();
-        if !*this.restored {
-            restore_context(
-                this.previous_metadata.clone(),
-                this.previous_resolved.clone(),
-                this.previous_route_params.clone(),
-            );
+        if let Some(previous) = this.previous.take() {
+            previous.restore();
         }
     }
 }
 
-fn restore_context(
-    previous_metadata: Arc<[MetadataRef]>,
-    previous_resolved: Option<ResolvedMetadata>,
-    previous_route_params: RouteParams,
-) {
-    ROUTE_CONTEXT.with(|ctx| {
-        let mut ctx = ctx.borrow_mut();
-        ctx.restore_metadata(previous_metadata, previous_resolved);
-        ctx.restore_route_params(previous_route_params);
-    });
+struct PreviousMetadata {
+    providers: Arc<[MetadataRef]>,
+    resolved: Option<ResolvedMetadata>,
+}
+
+struct PreviousContext {
+    metadata: Option<PreviousMetadata>,
+    clear_params: bool,
+}
+
+impl PreviousContext {
+    fn restore(self) {
+        ROUTE_CONTEXT.with(|ctx| {
+            let mut ctx = ctx.borrow_mut();
+            if let Some(metadata) = self.metadata {
+                ctx.restore_metadata(metadata.providers, metadata.resolved);
+            }
+            if self.clear_params {
+                ctx.set_route_params(RouteParams::default());
+            }
+        });
+    }
 }
 
 /// Tower layer for establishing the route context for each request
@@ -461,8 +573,6 @@ where
         }
 
         if prepare_ascii_params(&req, &mut context) {
-            // Static and ordinary named paths keep the original ready-service
-            // path: no extractor future, service clone, or replacement params.
             let future = self.inner.call(req);
             let scoped = ROUTE_CONTEXT.scope(RefCell::new(context), future);
             let local_stream_executor = self.local_stream_executor.clone();
@@ -480,21 +590,14 @@ where
         Box::pin(async move {
             let (mut parts, body) = req.into_parts();
             let params = match RawPathParams::from_request_parts(&mut parts, &()).await {
-                Ok(params) => RouteParams::from_vec(
-                    params
-                        .iter()
-                        .map(|(name, value)| {
-                            RouteParam::new(
-                                name.to_owned().into_boxed_str(),
-                                value.to_owned().into_boxed_str(),
-                            )
-                        })
-                        .collect(),
-                ),
+                Ok(params) => params
+                    .iter()
+                    .map(|(name, value)| RouteParam::new(name, value))
+                    .collect(),
                 Err(RawPathParamsRejection::MissingPathParams(_)) => RouteParams::default(),
                 Err(rejection) => return Ok(rejection.into_response()),
             };
-            context.swap_route_params(params);
+            context.set_route_params(params);
             let request = axum::http::Request::from_parts(parts, body);
             let response = ROUTE_CONTEXT
                 .scope(
@@ -507,43 +610,36 @@ where
     }
 }
 
-/// Match unescaped named segments synchronously. Axum still owns decoding and
-/// wildcard semantics on the cold path below. A nested router strips its prefix
-/// from the current URI while `MatchedPath` keeps the full pattern, so the full
-/// path is read from `OriginalUri` when the current path is its tail. Any other
-/// divergence between the two means a rewrite happened between them; only
-/// Axum's own captures are authoritative then, so that request also takes the
-/// cold path.
-fn prepare_ascii_params(req: &axum::http::Request<Body>, context: &mut RouteContext) -> bool {
+/// Keep the ready service for plain segments. Axum handles decoding, wildcards,
+/// and URI rewrites. Store byte ranges from the match so a renderer can copy
+/// just the captures without walking the pattern a second time.
+fn prepare_ascii_params(req: &http::Request<Body>, context: &mut RouteContext) -> bool {
     let Some(pattern) = req.extensions().get::<MatchedPath>() else {
         return true;
     };
-    let pattern = pattern.as_str();
-    if !pattern.contains('{') {
+    if !pattern.as_str().contains('{') {
         return true;
     }
-    if pattern.contains("{*") || pattern.contains("{{") || pattern.contains("}}") {
-        return false;
-    }
-    let current = req.uri().path();
-    let path = match req
-        .extensions()
-        .get::<OriginalUri>()
-        .map(|uri| uri.0.path())
-    {
+    let current = req.uri();
+    let uri = match req.extensions().get::<OriginalUri>() {
         None => current,
-        Some(original) if original == current => current,
-        Some(original) if original.ends_with(current) => original,
+        Some(original) if original.0.path() == current.path() => current,
+        Some(original) if original.0.path().ends_with(current.path()) => &original.0,
         Some(_) => return false,
     };
-    if path.contains('%') {
+    let Some(path) = uri.path_and_query() else {
         return false;
-    }
-    let params = extract_route_params(pattern, path);
-    if params.is_empty() {
+    };
+    let Some(ranges) = CaptureRanges::for_path(pattern.as_str(), path.path()) else {
         return false;
-    }
-    context.swap_route_params(params);
+    };
+    context
+        .snapshot
+        .restore_route_params(AxumRouteParams::Matched(MatchedParams {
+            pattern: pattern.clone(),
+            path: path.clone(),
+            ranges,
+        }));
     true
 }
 
@@ -558,48 +654,4 @@ pub fn app_url(path: &str) -> proa_core::AppUrl<'_> {
 }
 
 #[cfg(test)]
-mod perf_tests {
-    use super::*;
-    use std::{
-        convert::Infallible,
-        future::{ready, Ready},
-        sync::atomic::{AtomicUsize, Ordering},
-    };
-    use tower::ServiceExt;
-
-    struct ReadyService(Arc<AtomicUsize>);
-    impl Clone for ReadyService {
-        fn clone(&self) -> Self {
-            self.0.fetch_add(1, Ordering::Relaxed);
-            Self(self.0.clone())
-        }
-    }
-    impl Service<axum::http::Request<Body>> for ReadyService {
-        type Response = Response;
-        type Error = Infallible;
-        type Future = Ready<Result<Response, Infallible>>;
-        fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Infallible>> {
-            Poll::Ready(Ok(()))
-        }
-        fn call(&mut self, _: axum::http::Request<Body>) -> Self::Future {
-            ready(Ok(Response::new(Body::from("ok"))))
-        }
-    }
-
-    #[tokio::test]
-    async fn static_context_calls_the_ready_service_without_cloning_it() {
-        let clones = Arc::new(AtomicUsize::new(0));
-        let layer = RouteContextLayer::new(Arc::new(Default::default()));
-        let mut service = layer.layer(ReadyService(clones.clone()));
-        for _ in 0..3 {
-            service
-                .ready()
-                .await
-                .unwrap()
-                .call(axum::http::Request::new(Body::empty()))
-                .await
-                .unwrap();
-        }
-        assert_eq!(clones.load(Ordering::Relaxed), 0);
-    }
-}
+mod tests;
