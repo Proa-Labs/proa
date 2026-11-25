@@ -29,7 +29,7 @@ oxc_semantic = "0.160.0"
 oxc_span = "0.160.0"
 futures = { workspace = true }
 http = { workspace = true }
-hyper = { workspace = true }
+hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = [
     "http1",
     "http2",
@@ -51,7 +51,6 @@ rsjs = { workspace = true }
 proa_stream = { workspace = true, features = ["rt-tokio"] }
 # CSP nonce generation: OS-seeded CSPRNG plus base64 encoding.
 rand = { workspace = true }
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -68,6 +67,7 @@ url = { workspace = true }
 
 [dev-dependencies]
 proa_assets = { workspace = true, features = ["build"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 tempfile = { workspace = true }
 async-stream = "0.3"
 http-body-util = { workspace = true }

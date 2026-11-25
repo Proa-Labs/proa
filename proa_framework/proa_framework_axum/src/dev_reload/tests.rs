@@ -561,3 +561,36 @@ async fn mounted_reload_escapes_the_inline_script_and_keeps_connections_on_self(
     assert!(output.contains("/apps/\\\"demo/__proa/dev-events"));
     assert!(output.contains("<script nonce=\"YWJj\">"));
 }
+
+#[test]
+fn relay_authority_normalizes_ipv4_ipv6_and_invalid_hosts() {
+    assert_eq!(relay_authority("0.0.0.0", 3001), "127.0.0.1:3001");
+    assert_eq!(relay_authority("127.0.0.1", 3001), "127.0.0.1:3001");
+    assert_eq!(relay_authority("::", 3001), "[::1]:3001");
+    assert_eq!(relay_authority("::1", 3001), "[::1]:3001");
+    assert_eq!(relay_authority("dev.local", 3001), "dev.local:3001");
+    assert_eq!(relay_authority("bad host/path", 3001), "localhost:3001");
+    assert_eq!(relay_authority("", 3001), "localhost:3001");
+}
+
+#[tokio::test]
+async fn mounted_relay_returns_bad_gateway_when_upstream_is_unreachable() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let unused_port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    let router = DevReloadLayer::new(unused_port, TOKEN)
+        .with_base_path(&proa_core::BasePath::new("/apps/demo").unwrap())
+        .wrap(axum::Router::new());
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .uri("/apps/demo/__proa/dev-events?token=0123456789abcdef0123456789abcdef")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+}
