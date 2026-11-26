@@ -82,10 +82,27 @@ pub(crate) fn scaffold_version(package: &str) -> String {
         concat!(env!("OUT_DIR"), "/scaffold-versions.toml")
     ))
     .expect("bundled scaffold versions are valid TOML");
-    versions
+    let version = versions
         .get(package)
-        .expect("scaffold dependency is listed")
-        .clone()
+        .expect("scaffold dependency is listed");
+    if package == "proa" {
+        return proa_scaffold_requirement(version);
+    }
+    version.clone()
+}
+
+fn proa_scaffold_requirement(requirement: &str) -> String {
+    // Cargo treats `0.4` and `0.4.0` alike, but `0.0` admits more than `0.0.0`.
+    if let Ok(version) = semver::Version::parse(requirement) {
+        if version.patch == 0
+            && version.pre.is_empty()
+            && version.build.is_empty()
+            && (version.major != 0 || version.minor != 0)
+        {
+            return format!("{}.{}", version.major, version.minor);
+        }
+    }
+    requirement.to_owned()
 }
 
 pub fn new_site(options: NewSiteOptions) -> Result<()> {
@@ -338,6 +355,21 @@ fn run_child(root: &Path, args: &[&str]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::capabilities::{DatabaseChoice, StylingChoice, UiChoice};
+
+    #[test]
+    fn proa_requirement_shortens_only_equivalent_versions() {
+        for (declared, expected) in [
+            ("0.4.0", "0.4"),
+            ("0.5.0", "0.5"),
+            ("1.0.0", "1.0"),
+            ("0.4.1", "0.4.1"),
+            ("0.0.0", "0.0.0"),
+            ("0.5.0-rc.1", "0.5.0-rc.1"),
+            ("=0.4.0", "=0.4.0"),
+        ] {
+            assert_eq!(proa_scaffold_requirement(declared), expected);
+        }
+    }
 
     fn options(path: PathBuf) -> NewSiteOptions {
         NewSiteOptions {
