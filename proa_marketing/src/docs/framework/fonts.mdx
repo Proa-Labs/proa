@@ -25,7 +25,7 @@ The macro performs no I/O; it expands to a reference to a `FONT_<id>` const that
 
 ## Wire the build
 
-Two pieces of boilerplate. The `origin` site template (`cargo proa new site --template origin`) ships both; the other templates need them added by hand. A `build.rs` that runs the collector:
+Two pieces of boilerplate. The `origin` site template (`proa new site my-site --template origin`) ships both; the other templates need them added by hand. A `build.rs` that runs the collector:
 
 ```rust
 // build.rs

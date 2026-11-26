@@ -3,9 +3,51 @@ title: Databases
 description: Connect SQLx, Diesel, or Toasty to a Proa DataLoader and render typed rows as components.
 ---
 
-Proa is database and ORM agnostic. The framework crates ship no driver, no query builder, and no opinion about your data layer. The CLI offers a starting point you can keep or replace: `proa add database` wires SQLite through SQLx and `proa db` runs migrations.
+Proa is database and ORM agnostic: the framework crates ship no driver and no query builder. The shortest path queries in the handler and renders the row as a component:
 
-`DataLoader` is the seam. It is a trait you implement, not a driver Proa ships, and its one required method returns a future, so anything you can await composes behind one key: a pool checkout, an ORM query, an HTTP call, a cache read, or all four.
+```rust filename="src/pages/product.rs"
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use proa::axum::RouteResponse;
+use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};
+use sqlx::SqlitePool;
+
+#[derive(sqlx::FromRow)]
+pub struct Product {
+    pub name: String,
+}
+
+impl<L: DataLoader> WebRenderSync<L> for Product {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! { <h1>{self.name.as_str()}</h1> }.render(cx)
+    }
+}
+
+pub async fn product(
+    State(db): State<SqlitePool>,
+    Path(id): Path<i64>,
+) -> Result<RouteResponse, StatusCode> {
+    let product = sqlx::query_as::<_, Product>("SELECT name FROM products WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(RouteResponse::ssr(product))
+}
+```
+
+Register it with `.route("/products/{id}", get(product)).with_state(pool)`, where `pool` is your `SqlitePool`.
+
+The CLI offers a starting point you can keep or replace. `proa add database sqlite` adds SQLx, `src/db.rs`, and a `migrations/` directory; `proa db` runs the migrations:
+
+```bash
+proa add database sqlite
+proa generate migration create_products
+proa db migrate
+```
+
+`DataLoader` is the seam when components load their own data. It is a trait you implement, not a driver Proa ships, and its one required method returns a future, so anything you can await composes behind one key: a pool checkout, an ORM query, an HTTP call, a cache read, or all four.
 
 This page connects [SQLx](https://github.com/launchbadge/sqlx), [Diesel](https://diesel.rs), and [Toasty](https://github.com/tokio-rs/toasty) to that trait. Everything above the loader is the same in all three, which is the point; each loader exports the same `Product` and `product_key` interface while its model and connection setup vary. Installing and configuring each library is its own documentation; this page starts once you have a pool.
 

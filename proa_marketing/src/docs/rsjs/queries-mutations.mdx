@@ -7,8 +7,8 @@ keywords: [query, mutation, fetch]
 ## Seeding a query from server data
 
 Pass a serializable server value to `query_with_initial(...)`. This synchronous
-island shows that value on first render and fetches a fresh one when you click
-**Refresh**.
+island shows that value on first render, polls for a fresh one every 10 seconds,
+and refetches immediately when you click **Refresh**.
 
 ```rust filename="src/components/stock_tile.rs"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
@@ -40,6 +40,7 @@ impl<L: DataLoader> WebRenderSync<L> for StockTile {
                 ..Default::default()
             },
             rsjs::QueryOptions {
+                interval_ms: Some(10_000),
                 refetch_on_focus: true,
                 stale_time_ms: 2_000,
                 ..Default::default()
@@ -193,8 +194,18 @@ Custom runtime handlers configure the source with
 See [runtime wiring](/docs/rsjs/runtime#serving-linked-assets-with-axum).
 
 Available response decoders are `Json`, `Text`, `Bytes`, and `Empty`.
-`QueryOptions` also supports retry, polling, staleness, focus refetching,
-download progress, and streaming text for text responses.
+
+`QueryOptions` sets the refetch policy. RSJS reads it at compile time, so each
+value must be a literal:
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `interval_ms: Option<u32>` | `None` | Poll: refetch in the background every N milliseconds while the query has an active observer. A tick is skipped while a request is in flight. |
+| `stale_time_ms: u32` | `0` | How long fetched data counts as fresh. `0` makes it stale immediately. |
+| `refetch_on_focus: bool` | `false` | Refetch when the window regains focus and the data is stale. |
+| `retry_count: u32` | `0` | Extra attempts after a failed fetch, with increasing delay. |
+| `download_progress: bool` | `false` | Track `download_loaded()`, `download_total()`, and `download_percent()`. |
+| `stream_text: bool` | `false` | Update `data()` with the text received so far. Requires `ResponseKind::Text`. |
 
 Once a query exists, components read it reactively, which the next section shows.
 
