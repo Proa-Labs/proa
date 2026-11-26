@@ -4595,6 +4595,11 @@ fn lint_attr_perf(
             if is_perf_suppressed(value) {
                 return;
             }
+            // RSJS removes event attributes from server output; an inline
+            // handler body is browser code.
+            if rsjs_event_attr_name(name.as_markup_str()) && matches!(value, Expr::Closure(_)) {
+                return;
+            }
 
             if let Some(bool_value) = expr_bool_literal(value) {
                 let (code, message, help) = if bool_value {
@@ -5348,6 +5353,21 @@ struct PerfVisitor<'a> {
 }
 
 impl<'ast> Visit<'ast> for PerfVisitor<'_> {
+    fn visit_expr_struct(&mut self, node: &'ast syn::ExprStruct) {
+        // `#[derive(rsjs::SharedState)]` rejects borrowed fields, so the
+        // provider seed must be built from owned values.
+        if path_ends(&node.path, &["SharedStateProvider"]) && path_is_rsjs_dialect_call(&node.path)
+        {
+            for field in &node.fields {
+                if !matches!(&field.member, syn::Member::Named(name) if name == "state") {
+                    self.visit_field_value(field);
+                }
+            }
+            return;
+        }
+        visit::visit_expr_struct(self, node);
+    }
+
     fn visit_expr_return(&mut self, node: &'ast syn::ExprReturn) {
         // `return String::new()` / `return Vec::new()` sentinels are usually
         // deliberate empty-result fast paths, not per-render allocation
@@ -5397,6 +5417,15 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
 
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
         if is_perf_suppressed_call(node) {
+            return;
+        }
+
+        if call_path_is_rsjs_dialect(node, RSJS_BROWSER_CLOSURE_PRIMITIVES) {
+            for arg in &node.args {
+                if !matches!(arg, Expr::Closure(_)) {
+                    self.visit_expr(arg);
+                }
+            }
             return;
         }
 

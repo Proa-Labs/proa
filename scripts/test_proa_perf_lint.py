@@ -165,6 +165,46 @@ class ScanFixtureTest(unittest.TestCase):
         self.assertEqual(codes.count("string-new"), 2)
         self.assertEqual(codes.count("vec-new"), 1)
 
+    def test_browser_only_rsjs_closures_are_suppressed(self):
+        findings = self.scan(
+            [
+                "let choose = rsjs::event_handler(",
+                "    |_: rsjs::MouseEvent<rsjs::elem::Button>| {",
+                '        rsjs::batch(|| mode.set("edit".to_string()));',
+                "    },",
+                ");",
+                "let pick = handler(|value: u32| mode.set(value.to_string()));",
+                'rsjs::interval(1_000, || mode.set(format!("{}", 1)));',
+                "<input on_input={rsjs::debounce(|e| q.set(e.value().to_string()), 300)} />",
+            ]
+        )
+        self.assertEqual(findings, [])
+
+    def test_server_code_around_browser_closures_is_flagged(self):
+        codes = self.codes(
+            [
+                'let pick = rsjs::handler(|v: u32| m.set(v.to_string())); let s = "a".to_string();',
+                "let label = rsjs::memo(|| mode.get().to_string());",
+                "let other = my_handler(|| x.to_string());",
+                "let other = pricing::handler(|| x.to_string());",
+            ]
+        )
+        self.assertEqual(codes.count("to-string"), 4)
+
+    def test_shared_state_provider_seed_is_suppressed(self):
+        codes = self.codes(
+            [
+                "{rsjs::SharedStateProvider {",
+                "    state: WorkbenchState {",
+                '        mode: "select".to_string(),',
+                '        tags: vec!["a".to_string()],',
+                "    },",
+                '    children: Panel { title: "Tools".to_string() },',
+                "}}",
+            ]
+        )
+        self.assertEqual(codes, ["to-string"])
+
     def test_comment_brace_does_not_keep_closed_handler_open(self):
         codes = self.codes(
             [

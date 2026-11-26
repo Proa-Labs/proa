@@ -92,7 +92,7 @@ use crate::ui::StatusBadge as Badge;
 html_sync! {
     <div>
         {Badge {
-            label: status.get(),
+            value: status.get(),
         }}
     </div>
 }
@@ -108,21 +108,21 @@ A direct inbound read participates in the parent graph without originating brows
 
 ```rust filename="src/components/status_badge.rs"
 pub struct StatusBadge {
-    pub label: String,
+    pub value: String,
 }
 
 #[rsjs(component)]
 impl<L: DataLoader> WebRenderSync<L> for StatusBadge {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         html_sync! {
-            <span>{self.label}</span>
+            <span>{self.value}</span>
         }
         .render(cx)
     }
 }
 ```
 
-When a parent passes `label: status.get()`, the direct `self.label` read observes the current parent value. When you render the component without a live producer, the same template stays ordinary SSR. RSJS does not emit JavaScript for a field that could participate but has no live producer.
+When a parent passes `value: status.get()`, the direct `self.value` read observes the current parent value. When you render the component without a live producer, the same template stays ordinary SSR. RSJS does not emit JavaScript for a field that could participate but has no live producer.
 
 Local state has different time semantics. If a child declares `let current = signal(self.value)`, it samples the incoming value once when that child occurrence initializes. Later parent updates do not reset the child-owned signal. A fresh child occurrence samples a fresh seed. Callback props similarly resolve the currently connected parent callback when the browser event fires.
 
@@ -291,7 +291,7 @@ The table below maps each prop kind to the pattern that carries it.
 |-----------|---------|
 | Parent-owned callback | `pub on_change: rsjs::Handler<T>` plus `self.on_change.call(value)`. |
 | Optional callback | `Option<rsjs::Handler<T>>` plus `call_if_some(value)`. |
-| Live inbound label or id | Render `self.label` directly; a linked live parent value stays current. |
+| Live inbound value or id | Render `self.value` directly; a linked live parent value stays current. |
 | Intentional server-only attribute | `href={rsjs::server_attr(self.href)}` takes a per-render snapshot. |
 | Child-local reactive value | `let current = signal(self.value)` samples the incoming value once. |
 | Required static DOM handle | `pub input_ref: NodeRef<HtmlInputElement>` plus a direct `{FocusInput { input_ref }}` edge aliases the parent's exact ref object. |

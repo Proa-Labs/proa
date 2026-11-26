@@ -378,6 +378,70 @@ def is_empty_signal_seed(line: str, match: re.Match[str]) -> bool:
     )
 
 
+CLIENT_CLOSURE_CALL_OPEN = re.compile(
+    r"(?<![\w:])(?:(?:::)?rsjs::)?(?:event_handler|handler|interval|debounce)\s*\("
+)
+
+
+def client_closure_call_spans(code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of the arguments of browser-only RSJS primitive calls.
+
+    RSJS removes `event_handler`/`handler` declarations and `interval` timers
+    from the server program, and `debounce` only appears in event attributes,
+    so closures passed to them never run during SSR. Offsets index the masked
+    lines joined with newlines; a call left open runs to the end of the file.
+    """
+    text = "\n".join(code_lines)
+    spans: list[tuple[int, int]] = []
+    for call in CLIENT_CLOSURE_CALL_OPEN.finditer(text):
+        depth = 0
+        end = len(text)
+        for index in range(call.end() - 1, len(text)):
+            if text[index] == "(":
+                depth += 1
+            elif text[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    end = index
+                    break
+        spans.append((call.end(), end))
+    return spans
+
+
+SHARED_STATE_PROVIDER_OPEN = re.compile(r"(?<![\w:])(?:(?:::)?rsjs::)?SharedStateProvider\s*\{")
+STATE_FIELD = re.compile(r"(?<!\w)state\s*:(?!:)")
+
+
+def shared_state_seed_spans(code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of each `SharedStateProvider { state: ... }` value.
+
+    `#[derive(rsjs::SharedState)]` rejects borrowed fields, so the provider
+    seed must be built from owned values. Offsets match
+    `client_closure_call_spans`.
+    """
+    text = "\n".join(code_lines)
+    spans: list[tuple[int, int]] = []
+    for provider in SHARED_STATE_PROVIDER_OPEN.finditer(text):
+        depth = 0
+        start = None
+        for index in range(provider.end() - 1, len(text)):
+            char = text[index]
+            if depth == 1 and start is None:
+                field = STATE_FIELD.match(text, index)
+                if field is not None:
+                    start = field.end()
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            if start is not None and (depth == 0 or (depth == 1 and char == ",")):
+                spans.append((start, index))
+                break
+            if depth == 0:
+                break
+    return spans
+
+
 EVENT_HANDLER_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{")
 EVENT_HANDLER_CLOSURE_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{\s*\|")
 
@@ -480,6 +544,10 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
         lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
 
     code_lines = mask_rust_non_code(lines)
+    exempt_spans = client_closure_call_spans(code_lines) + shared_state_seed_spans(code_lines)
+    line_starts = [0]
+    for code_line in code_lines:
+        line_starts.append(line_starts[-1] + len(code_line) + 1)
     findings: list[Finding] = []
     previous_line = ""
     cfg_test_pending = False
@@ -552,6 +620,9 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
                     if match.start() < handler_close_index:
                         continue
                     if is_client_event_handler_expression(code_line, match.start()):
+                        continue
+                    offset = line_starts[index - 1] + match.start()
+                    if any(start <= offset < end for start, end in exempt_spans):
                         continue
                     if rule.code in {"string-new", "vec-new"} and is_empty_signal_seed(
                         code_line, match

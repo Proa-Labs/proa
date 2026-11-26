@@ -2201,6 +2201,79 @@ impl<L: DataLoader> WebRender<L> for Toggle {
 }
 
 #[test]
+fn rsjs_browser_closure_bodies_are_not_render_allocations() {
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Panel {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let mode = rsjs::signal(String::new());
+        let choose = rsjs::event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+            rsjs::batch(|| mode.set("edit".to_string()));
+        });
+        let pick = rsjs::handler(|value: u32| mode.set(value.to_string()));
+        rsjs::interval(1_000, || mode.set(format!("{}", 1)));
+        let label = rsjs::memo(|| mode.get().to_string());
+        let server = "server".to_string();
+        html_sync! {
+            <div>
+                <button on_click={choose()}>"Edit"</button>
+                <button on_click={|_| mode.set("inline".to_string())}>"Inline"</button>
+                <input on_input={rsjs::debounce(|event| mode.set(event.value().to_string()), 300)} />
+            </div>
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("panel.rs"), source);
+    let mut lines: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.severity.rank() >= Severity::Warning.rank())
+        .map(|diag| (diag.line, diag.code))
+        .collect();
+    lines.sort();
+    // `memo` runs its closure during SSR, so only it and the prelude local
+    // remain render-path allocations.
+    assert_eq!(
+        lines,
+        [
+            (11, "perf/to-string"),
+            (12, "render/static-string-to-string"),
+        ],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn shared_state_provider_seeds_may_own_their_strings() {
+    let source = r##"
+#[rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for WorkbenchPage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            {rsjs::SharedStateProvider {
+                state: WorkbenchState {
+                    mode: "select".to_string(),
+                    button_bg: "#3366cc".to_string(),
+                },
+                children: Panel { title: "Tools".to_string() },
+            }}
+        }
+        .render(cx)
+    }
+}
+"##;
+    let diagnostics = lint_file(Path::new("workbench.rs"), source);
+    let lines: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.code == "render/static-string-to-string")
+        .map(|diag| diag.line)
+        .collect();
+    // The derive requires owned fields; the children literal is still checked.
+    assert_eq!(lines, [11], "{diagnostics:#?}");
+}
+
+#[test]
 fn empty_owned_signal_seeds_are_not_render_allocations() {
     let source = r#"
 impl<L: DataLoader> WebRenderSync<L> for Form {

@@ -1237,6 +1237,15 @@ pub(crate) fn call_path_is_rsjs_dialect(call: &ExprCall, names: &[&str]) -> bool
         && path_is_rsjs_dialect_call(&path.path)
 }
 
+/// RSJS primitives whose closure arguments compile to browser code only.
+///
+/// RSJS removes `event_handler`/`handler` declarations and `interval` timers
+/// from the server program, and removes event attributes (where `debounce`
+/// lives) from server output, so these closure bodies never run during SSR.
+/// `memo` and `batch` are absent: both run their closure on the server.
+pub(crate) const RSJS_BROWSER_CLOSURE_PRIMITIVES: &[&str] =
+    &["event_handler", "handler", "interval", "debounce"];
+
 /// `signal(String::new())` or `signal::<Vec<T>>(Vec::new())`: an empty owned
 /// seed for client state.
 ///
