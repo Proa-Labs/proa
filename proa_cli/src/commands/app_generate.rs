@@ -146,7 +146,10 @@ pub fn page(
     let files = vec![
         (
             PathBuf::from(format!("src/pages/{}.rs", route.module)),
-            crate::scaffold::format_generated_rust(&module_path, &page_source(&route, markdown))?,
+            crate::scaffold::format_generated_rust(
+                &module_path,
+                &page_source(&route, markdown, router_manages_head(&routes)),
+            )?,
         ),
         (PathBuf::from("src/pages/mod.rs"), modules),
         (PathBuf::from("src/routes.rs"), routes),
@@ -345,12 +348,38 @@ fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result
     Ok(())
 }
 
+/// Whether the site's router enables the managed head. Sites generated before
+/// it pass the page title to `RootDocument`, which renders `<title>` itself.
+fn router_manages_head(routes: &str) -> bool {
+    routes.contains(".with_head(")
+}
+
 // proa-perf-ok(scope): CLI generator assembles trusted Rust source, not response HTML
-fn page_source(route: &RouteName, markdown: bool) -> String {
-    let imports = if markdown {
-        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa::{ComponentRole, DataLoader, MdRenderSync, SyncHeadOperation, WebContext, WebRenderSync, WriteBuf, WriteError};\nuse proa::axum::{negotiate, MarkdownAlternate, RouteResponse};\nuse proa::{html_sync, md_sync};"
+fn page_source(route: &RouteName, markdown: bool, managed_head: bool) -> String {
+    let (head_imports, title_field, page_head) = if managed_head {
+        (
+            "ComponentRole, SyncHeadOperation, ",
+            String::new(),
+            format!(
+                "    const ROLE: ComponentRole = ComponentRole::PAGE;\n\n    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {{\n        cx.head_mut().title(\"{}\")\n    }}\n\n",
+                route.title
+            ),
+        )
     } else {
-        "use axum::response::IntoResponse;\nuse proa::{ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync, WriteError};\nuse proa::axum::RouteResponse;\nuse proa::html_sync;"
+        (
+            "",
+            format!("\n        title: \"{}\",", route.title),
+            String::new(),
+        )
+    };
+    let document = format!(
+        "RootDocument {{{title_field}\n        content: proa::to_async({}),\n    }}",
+        route.rust_type
+    );
+    let imports = if markdown {
+        format!("use axum::{{http::HeaderMap, response::IntoResponse}};\nuse proa::{{{head_imports}DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError}};\nuse proa::axum::{{negotiate, MarkdownAlternate, RouteResponse}};\nuse proa::{{html_sync, md_sync}};")
+    } else {
+        format!("use axum::response::IntoResponse;\nuse proa::{{{head_imports}DataLoader, WebContext, WebRenderSync, WriteError}};\nuse proa::axum::RouteResponse;\nuse proa::html_sync;")
     };
     let markdown_impl = if markdown {
         // Axum matches an entire captured segment. A single route must serve
@@ -384,7 +413,7 @@ impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
 const MARKDOWN_ALTERNATE: MarkdownAlternate = MarkdownAlternate::new("{alias}");
 
 pub async fn handler(headers: HeaderMap) -> Result<impl IntoResponse, AppError> {{
-    let html = RouteResponse::ssr_async(RootDocument {{ content: proa::to_async({ty}) }});
+    let html = RouteResponse::ssr_async({document});
     Ok(negotiate(&headers, html, {ty}, MARKDOWN_ALTERNATE)?)
 }}
 
@@ -399,8 +428,7 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {{
         )
     } else {
         format!(
-            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{\n        content: proa::to_async({ty}),\n    }}))\n}}\n",
-            ty = route.rust_type
+            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async({document}))\n}}\n"
         )
     };
     let slug = route.module.replace('_', "-");
@@ -413,13 +441,7 @@ use crate::{{error::AppError, layouts::RootDocument}};
 pub struct {ty};
 
 impl<L: DataLoader> WebRenderSync<L> for {ty} {{
-    const ROLE: ComponentRole = ComponentRole::PAGE;
-
-    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {{
-        cx.head_mut().title("{title}")
-    }}
-
-    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {{
+{page_head}    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {{
         html_sync! {{
             <main data-page-{slug}>
                 <h1>"{title}"</h1>
@@ -758,7 +780,7 @@ mod tests {
             assert_eq!(route.canonical, "/blog/{slug}");
             assert_eq!(route.markdown_alias, "/blog/{slug}.md");
             assert_eq!(route.module, "blog_slug");
-            let source = page_source(&route, true);
+            let source = page_source(&route, true, true);
             syn::parse_file(&source).unwrap();
             assert!(source.contains("fn handler_with_markdown_alias("));
         }
@@ -774,14 +796,27 @@ mod tests {
         let route = route_name("user-settings").unwrap();
         assert_eq!(route.rust_type, "UserSettingsPage");
         assert_eq!(route.title, "User Settings");
-        for markdown in [false, true] {
-            let source = page_source(&route, markdown);
+        for (markdown, managed_head) in [(false, true), (true, true), (false, false), (true, false)]
+        {
+            let source = page_source(&route, markdown, managed_head);
+            syn::parse_file(&source).unwrap();
             assert!(source.contains("<h1>\"User Settings\"</h1>"), "{source}");
-            assert!(
+            // A managed page sets its own title; an older site's layout takes it.
+            assert_eq!(
                 source.contains("cx.head_mut().title(\"User Settings\")"),
+                managed_head,
                 "{source}"
             );
-            assert!(source.contains("ComponentRole::PAGE"), "{source}");
+            assert_eq!(
+                source.contains("ComponentRole::PAGE"),
+                managed_head,
+                "{source}"
+            );
+            assert_eq!(
+                source.contains("title: \"User Settings\","),
+                !managed_head,
+                "{source}"
+            );
             assert!(!source.contains("with_head"), "{source}");
             let formatted = proa_source_tools::fmt::format_file(
                 Path::new("src/pages/user_settings.rs"),

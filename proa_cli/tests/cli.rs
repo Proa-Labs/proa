@@ -123,6 +123,35 @@ fn adding_markdown_changes_page_scaffolding_without_rewriting_config() {
 }
 
 #[test]
+fn generated_pages_match_the_site_head_mode() {
+    let temp = tempfile::tempdir().unwrap();
+    let new = proa(
+        &["new", "site", "demo", "--template", "minimal", "--no-git"],
+        temp.path(),
+    );
+    assert!(new.status.success(), "{}", stderr(&new));
+    let root = temp.path().join("demo");
+    let page = proa(&["generate", "page", "about"], &root);
+    assert!(page.status.success(), "{}", stderr(&page));
+    let managed = fs::read_to_string(root.join("src/pages/about.rs")).unwrap();
+    assert!(managed.contains("ComponentRole::PAGE"), "{managed}");
+    assert!(!managed.contains("title: \"About\""), "{managed}");
+
+    // A site from an earlier CLI has no managed head on its router, and its
+    // RootDocument still takes the page title.
+    let routes = root.join("src/routes.rs");
+    let source = fs::read_to_string(&routes).unwrap();
+    let manual = source.replace("        .with_head(proa::HeadConfig::default())\n", "");
+    assert_ne!(manual, source);
+    fs::write(&routes, manual).unwrap();
+    let page = proa(&["generate", "page", "contact"], &root);
+    assert!(page.status.success(), "{}", stderr(&page));
+    let legacy = fs::read_to_string(root.join("src/pages/contact.rs")).unwrap();
+    assert!(legacy.contains("title: \"Contact\","), "{legacy}");
+    assert!(!legacy.contains("ComponentRole"), "{legacy}");
+}
+
+#[test]
 fn route_generators_reject_collisions_before_writing_files() {
     let temp = tempfile::tempdir().unwrap();
     let new = proa(

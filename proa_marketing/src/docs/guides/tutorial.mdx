@@ -131,9 +131,10 @@ mod data;
 
 ## Product Card
 
-The generated starter uses a manual document head. This tutorial keeps that
-mode; to adopt managed metadata, migrate the document outlet and page/layout
-roles together as shown in [Layouts and Pages](/docs/framework/layouts-and-pages).
+The generated starter manages the document head: its router enables the managed
+head once, `RootDocument` places the `{cx.head()}` outlet, and each page declares
+`ROLE = PAGE` (see [Layouts and Pages](/docs/framework/layouts-and-pages)). A
+component such as this card keeps the default role and renders only its body.
 
 The whole card is the link, and the image slot is a placeholder box until you
 have real photography.

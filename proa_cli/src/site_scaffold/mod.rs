@@ -409,13 +409,11 @@ mod tests {
             "migrations/.gitkeep",
             "data/.gitkeep",
             "tests/dataloader.rs",
+            "tests/database.rs",
             "tests/representations.rs",
         ] {
             assert!(root.join(path).exists(), "missing {path}");
         }
-        // A relocated binary starts in a directory without `data/`.
-        let db = std::fs::read_to_string(root.join("src/db.rs")).unwrap();
-        assert!(db.contains("std::fs::create_dir_all(directory)"));
         // Tailwind owns the generated public output; its input must include
         // the starter design so the first asset build retains that design.
         let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();

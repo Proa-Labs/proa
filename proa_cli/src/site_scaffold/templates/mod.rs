@@ -144,6 +144,7 @@ pub fn populate(
 
     if has_database {
         plan.write("tests/dataloader.rs", dataloader_test())?;
+        plan.write("tests/database.rs", database_test())?;
     }
     if selection.markdown {
         plan.write(
@@ -561,6 +562,28 @@ async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children(
     assert!(markdown.contains(r"9\.9\-test"), "{markdown}");
     assert!(!markdown.contains("<html"));
     assert_eq!(origin_loads.load(Ordering::SeqCst), 1);
+}
+"#
+}
+
+/// Startup must open the configured database from any working directory, so
+/// connect against a directory that does not exist yet, and an in-memory URL.
+fn database_test() -> &'static str {
+    r#"#[path = "../src/db.rs"] mod db;
+
+#[tokio::test]
+async fn connect_creates_a_missing_database_directory() {
+    let root = std::env::temp_dir().join(format!("proa-database-test-{}", std::process::id()));
+    let file = root.join("nested/data/app.db");
+    let pool = db::connect(&format!("sqlite://{}", file.display())).await.unwrap();
+    pool.close().await;
+    assert!(file.is_file());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn connect_opens_an_in_memory_database() {
+    db::connect("sqlite::memory:").await.unwrap().close().await;
 }
 "#
 }
