@@ -363,13 +363,19 @@ impl Drop for PoolState {
         for worker in &self.workers {
             let _ = worker.wake.try_send(());
         }
+        // A job on a worker may hold the last handle, so the pool can drop on
+        // that worker. A thread cannot join itself; it exits once the job
+        // that dropped the pool returns.
+        let current = std::thread::current().id();
         for join in self
             .joins
             .get_mut()
             .expect("local stream join mutex poisoned")
             .drain(..)
         {
-            let _ = join.join();
+            if join.thread().id() != current {
+                let _ = join.join();
+            }
         }
     }
 }
@@ -684,6 +690,72 @@ mod tests {
         assert!(executor.started());
         let first = Arc::as_ptr(executor.pool().unwrap());
         assert_eq!(Arc::as_ptr(clone.pool().unwrap()), first);
+    }
+
+    /// Waits for `release`, drops the executor handle it holds, then reports
+    /// the thread it dropped on. A panic in the drop skips the report.
+    struct HoldsHandle {
+        executor: Option<LocalStreamExecutor>,
+        release: std::sync::mpsc::Receiver<()>,
+        dropped: std::sync::mpsc::Sender<Option<String>>,
+    }
+
+    impl Drop for HoldsHandle {
+        fn drop(&mut self) {
+            let _ = self.release.recv_timeout(Duration::from_secs(5));
+            drop(self.executor.take());
+            let _ = self
+                .dropped
+                .send(std::thread::current().name().map(str::to_owned));
+        }
+    }
+
+    #[tokio::test]
+    async fn the_last_handle_can_drop_on_a_worker() {
+        use futures::FutureExt as _;
+
+        let executor = LocalStreamExecutor::new(LocalStreamExecutorConfig {
+            worker_threads: 2,
+            ..test_config()
+        });
+        let (release, released) = std::sync::mpsc::channel();
+        let (dropped, drop_returned) = std::sync::mpsc::channel();
+        let (started, job_started) = oneshot::channel();
+        let holder = HoldsHandle {
+            executor: Some(executor.clone()),
+            release: released,
+            dropped,
+        };
+        {
+            let run = executor.run(Box::new(move || {
+                async move {
+                    let _holder = holder;
+                    let _ = started.send(());
+                    std::future::pending::<()>().await;
+                }
+                .boxed_local()
+            }));
+            tokio::pin!(run);
+            tokio::select! {
+                _ = &mut run => panic!("pending job unexpectedly finished"),
+                started = job_started => started.unwrap(),
+            }
+        }
+        // Cancelling the run makes its worker drop the job, which holds the
+        // only handle left once this one is gone.
+        drop(executor);
+        release.send(()).unwrap();
+        let thread =
+            tokio::task::spawn_blocking(move || drop_returned.recv_timeout(Duration::from_secs(5)))
+                .await
+                .unwrap()
+                .expect("dropping the pool on its own worker must not panic");
+        assert!(
+            thread
+                .as_deref()
+                .is_some_and(|name| name.starts_with("proa-stream-")),
+            "{thread:?}"
+        );
     }
 
     #[tokio::test]
