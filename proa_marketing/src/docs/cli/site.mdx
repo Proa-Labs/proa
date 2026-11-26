@@ -1,6 +1,6 @@
 ---
 title: proa site
-description: Validate site structure and print discovered routes.
+description: Validate site structure, print routes, and inspect one route.
 ---
 
 `proa site` commands inspect projects that follow the generated site conventions. Use them after scaffolding, after moving route files, and in CI before deployment.
@@ -10,6 +10,8 @@ They work from the nearest parent directory that contains both `Cargo.toml` and 
 ```bash
 proa site check
 proa site routes
+proa site status
+proa site inspect /
 ```
 
 ## Command Summary
@@ -19,6 +21,8 @@ proa site routes
 | `proa site check` | You want structural diagnostics for the generated site layout. | Exits non-zero when errors are present. |
 | `proa site doctor` | You want the same diagnostics using the diagnostic command name. | Same implementation and exit behavior as `site check`. |
 | `proa site routes` | You want the routes the generated site registers, without running it. | Exits zero when route discovery succeeds, even when no routes are found. |
+| `proa site status` | You want a one-screen summary of the site's capabilities. | Exits non-zero when `proa.config.rs` or `proa.lock.json` fails to evaluate or parse. |
+| `proa site inspect <path>` | You want one route from `site routes` explained. | Exits non-zero when the path is not in the route report. |
 
 ## Check
 
@@ -118,6 +122,24 @@ JSON output returns one object per route with the same fields:
   }
 ]
 ```
+
+## Status
+
+```bash
+proa site status
+proa site status --json
+```
+
+`site status` reads `proa.config.rs` and `proa.lock.json` and prints the package name, starter, page scaffolding (HTML, or HTML + Markdown), database driver, data wiring, the number of vendored UI components, and the styling mode (`tailwind` or `css`). The JSON form has the keys `package`, `starter`, `database`, `databaseIntegration`, `markdown`, `components`, and `styling`.
+
+## Inspect
+
+```bash
+proa site inspect /
+proa site inspect /contact --json
+```
+
+`site inspect` takes a path exactly as `site routes` prints it and reports its method, source file, kind, and representations. For a generated home page it also names the Markdown representation and the database loader key when they are present.
 
 ## Route Mapping Rules
 
