@@ -2299,6 +2299,36 @@ impl<L: DataLoader> WebRenderSync<L> for Form {
 }
 
 #[test]
+fn browser_closure_exemption_keeps_server_arguments_and_methods() {
+    let source = r#"
+impl<L: DataLoader> WebRenderSync<L> for Probe {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let row = self.handler(format!("row {}", id));
+        rsjs::interval(period(format!("{}", ms)), || tick.set(format!("{}", 1)));
+        let draft = rsjs::signal(
+            String::new(),
+        );
+        html_sync! { <p>{row}</p> }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("probe.rs"), source);
+    let mut found: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.severity.rank() >= Severity::Warning.rank())
+        .map(|diag| (diag.line, diag.column, diag.code))
+        .collect();
+    found.sort();
+    // A method named `handler` and an `interval` period run on the server;
+    // only the timer closure is browser code.
+    assert_eq!(
+        found,
+        [(4, 32, "perf/format"), (5, 31, "perf/format")],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn lint_allows_async_html_with_an_unwrapped_component_child() {
     // An un-wrapped component child is presumed async; `render/sync-child-in-async`
     // owns the case where it is not.

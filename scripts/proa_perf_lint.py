@@ -361,50 +361,74 @@ def is_suppressed(line: str, previous_line: str) -> bool:
     )
 
 
-SIGNAL_SEED_PREFIX = re.compile(r"\bsignal\s*(?:::\s*<.*>\s*)?\(\s*$")
-SIGNAL_SEED_SUFFIX = re.compile(r"\s*\)\s*\)")
+# A bare or `rsjs::`-rooted call, never a method call or another crate's path,
+# matching the RSJS dialect and `cargo proa lint`.
+RSJS_CALL_PREFIX = r"(?<![\w:.])(?:(?:::)?rsjs::)?"
 
-
-def is_empty_signal_seed(line: str, match: re.Match[str]) -> bool:
-    """Return true for `signal(String::new())` or `signal::<Vec<T>>(Vec::new())`.
-
-    Neither constructor allocates, and RSJS needs the owned type so handlers
-    can write runtime values into the signal. Mirrors the `cargo proa lint`
-    exemption.
-    """
-    return (
-        SIGNAL_SEED_PREFIX.search(line, 0, match.start()) is not None
-        and SIGNAL_SEED_SUFFIX.match(line, match.end()) is not None
-    )
-
-
-CLIENT_CLOSURE_CALL_OPEN = re.compile(
-    r"(?<![\w:])(?:(?:::)?rsjs::)?(?:event_handler|handler|interval|debounce)\s*\("
+EMPTY_SIGNAL_SEED = re.compile(
+    RSJS_CALL_PREFIX
+    + r"signal\s*(?:::\s*<[^()]*?>\s*)?\(\s*((?:String|Vec)::new\s*\(\s*\))\s*,?\s*\)"
 )
 
 
+def empty_signal_seed_spans(code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of `signal(String::new())` / `signal::<Vec<T>>(Vec::new())` seeds.
+
+    Neither constructor allocates, and RSJS needs the owned type so handlers
+    can write runtime values into the signal. Formatting and a trailing comma
+    do not matter. Offsets index the masked lines joined with newlines.
+    """
+    text = "\n".join(code_lines)
+    return [seed.span(1) for seed in EMPTY_SIGNAL_SEED.finditer(text)]
+
+
+CLIENT_CLOSURE_CALL_OPEN = re.compile(
+    RSJS_CALL_PREFIX + r"(?:event_handler|handler|interval|debounce)\s*\("
+)
+CLOSURE_HEAD = re.compile(r"\s*(?:move\s+)?\|[^|]*\|")
+
+
 def client_closure_call_spans(code_lines: list[str]) -> list[tuple[int, int]]:
-    """Return offsets of the arguments of browser-only RSJS primitive calls.
+    """Return offsets of closure arguments to browser-only RSJS primitive calls.
 
     RSJS removes `event_handler`/`handler` declarations and `interval` timers
     from the server program, and `debounce` only appears in event attributes,
-    so closures passed to them never run during SSR. Offsets index the masked
-    lines joined with newlines; a call left open runs to the end of the file.
+    so closures passed to them never run during SSR. Other arguments, such as
+    an `interval` period, still run on the server and stay linted. Offsets
+    match `empty_signal_seed_spans`.
     """
     text = "\n".join(code_lines)
     spans: list[tuple[int, int]] = []
     for call in CLIENT_CLOSURE_CALL_OPEN.finditer(text):
-        depth = 0
-        end = len(text)
-        for index in range(call.end() - 1, len(text)):
-            if text[index] == "(":
+        index = call.end()
+        depth = 1
+        closure_start = None
+        at_argument_start = True
+        while index < len(text):
+            if at_argument_start:
+                at_argument_start = False
+                head = CLOSURE_HEAD.match(text, index)
+                if head is not None:
+                    # Skip the parameter list so commas between typed
+                    # parameters do not end the argument.
+                    closure_start = index
+                    index = head.end()
+                    continue
+            char = text[index]
+            if char in "([{":
                 depth += 1
-            elif text[index] == ")":
+            elif char in ")]}":
                 depth -= 1
+            if depth == 0 or (depth == 1 and char == ","):
+                if closure_start is not None:
+                    spans.append((closure_start, index))
+                    closure_start = None
                 if depth == 0:
-                    end = index
                     break
-        spans.append((call.end(), end))
+                at_argument_start = True
+            index += 1
+        if closure_start is not None:
+            spans.append((closure_start, len(text)))
     return spans
 
 
@@ -544,7 +568,11 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
         lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
 
     code_lines = mask_rust_non_code(lines)
-    exempt_spans = client_closure_call_spans(code_lines) + shared_state_seed_spans(code_lines)
+    exempt_spans = (
+        client_closure_call_spans(code_lines)
+        + shared_state_seed_spans(code_lines)
+        + empty_signal_seed_spans(code_lines)
+    )
     line_starts = [0]
     for code_line in code_lines:
         line_starts.append(line_starts[-1] + len(code_line) + 1)
@@ -623,10 +651,6 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
                         continue
                     offset = line_starts[index - 1] + match.start()
                     if any(start <= offset < end for start, end in exempt_spans):
-                        continue
-                    if rule.code in {"string-new", "vec-new"} and is_empty_signal_seed(
-                        code_line, match
-                    ):
                         continue
                     findings.append(
                         Finding(

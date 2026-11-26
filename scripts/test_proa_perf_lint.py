@@ -191,6 +191,45 @@ class ScanFixtureTest(unittest.TestCase):
         )
         self.assertEqual(codes.count("to-string"), 4)
 
+    def test_server_arguments_and_methods_near_browser_closures_are_flagged(self):
+        codes = self.codes(
+            [
+                'let row = self.handler(format!("row {}", id));',
+                "rsjs::interval(",
+                '    period(format!("{}", ms)),',
+                '    || tick.set(format!("{}", 1)),',
+                ");",
+                "let pick = rsjs::event_handler(",
+                "    |event: rsjs::MouseEvent<elem::Button>, value: &'static str| {",
+                '        selected.set(format!("{}", value));',
+                "    },",
+                ");",
+            ]
+        )
+        self.assertEqual(codes.count("format"), 2)
+
+    def test_formatted_empty_signal_seeds_are_not_flagged(self):
+        findings = self.scan(
+            [
+                "let draft = rsjs::signal(",
+                "    String::new(),",
+                ");",
+                "let rows = signal::<Vec<Row>>(",
+                "    Vec::new()",
+                ");",
+            ]
+        )
+        self.assertEqual(findings, [])
+
+    def test_method_and_foreign_signal_seeds_are_flagged(self):
+        codes = self.codes(
+            [
+                "let draft = self.signal(String::new());",
+                "let draft = state::signal(String::new());",
+            ]
+        )
+        self.assertEqual(codes.count("string-new"), 2)
+
     def test_shared_state_provider_seed_is_suppressed(self):
         codes = self.codes(
             [
