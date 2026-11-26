@@ -8,9 +8,13 @@ name: Release CLI
 # and every already-published installer stops finding assets.
 #
 #   tag       proa-cli-v<version>
-#   archive   proa-cli-<version>-x86_64-unknown-linux-gnu.tar.gz
+#   archives  proa-cli-<version>-x86_64-unknown-linux-gnu.tar.gz
+#             proa-cli-<version>-aarch64-unknown-linux-gnu.tar.gz
+#             proa-cli-<version>-aarch64-apple-darwin.tar.gz
+#             proa-cli-<version>-x86_64-pc-windows-msvc.zip
+#             proa-cli-<version>-aarch64-pc-windows-msvc.zip
 #   checksums proa-cli-<version>-SHA256SUMS        (sha256sum --check format)
-#   layout    proa-cli-<version>-<target>/{proa,cargo-proa,README.md,LICENSE}
+#   layout    proa-cli-<version>-<target>/{proa[.exe],cargo-proa[.exe],README.md,LICENSE}
 #
 # Stable releases are tag-driven. In addition, every successful push to main
 # publishes a prerelease snapshot whose version is
@@ -18,10 +22,10 @@ name: Release CLI
 # channel is movable, but every archive it points at remains immutable and
 # reproducible.
 #
-# Every job runs on the unprivileged, ephemeral GCP Linux/amd64 pool. The
-# runner image is Ubuntu 24.04, so the native glibc-linked archive supports
-# x86_64 Ubuntu 24.04+ for now. Other platforms use the installers' existing
-# source-build fallback. Tag pushes, workflow_dispatch, and successful
+# Ubuntu x86_64 runs on the unprivileged, ephemeral GCP Linux/amd64 pool
+# (Ubuntu 24.04). Linux arm64, macOS arm64, Windows x86_64, and Windows arm64
+# build natively on GitHub-hosted runners. Other platforms use the installers'
+# existing source-build fallback. Tag pushes, workflow_dispatch, and successful
 # push-to-main workflow runs are trusted events, so pull-request code never
 # executes in this workflow.
 
@@ -324,10 +328,85 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build_linux_arm64:
+    name: Build Ubuntu arm64 archive
+    needs: setup
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    timeout-minutes: 90
+    env:
+      TARGET: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show
+          rustup target add "$TARGET"
+          rustc --version
+          cargo --version
+
+      - name: Build
+        run: cargo build --release --locked -p proa-cli --target "$TARGET"
+
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          stage="proa-cli-${VERSION}-${TARGET}"
+          stage_dir="dist/${stage}"
+          rm -rf dist
+          mkdir -p "$stage_dir"
+
+          for binary in proa cargo-proa; do
+            source_path="target/${TARGET}/release/${binary}"
+            if [ ! -x "$source_path" ]; then
+              echo "::error title=Missing build output::${source_path} was not produced"
+              exit 1
+            fi
+            cp "$source_path" "${stage_dir}/${binary}"
+            if command -v strip > /dev/null 2>&1; then
+              strip "${stage_dir}/${binary}" || echo "::warning title=strip failed::${stage_dir}/${binary} is shipping unstripped"
+            fi
+            chmod 755 "${stage_dir}/${binary}"
+            "${stage_dir}/${binary}" --version
+          done
+
+          cp README.md LICENSE "${stage_dir}/"
+
+          archive="proa-cli-${VERSION}-${TARGET}.tar.gz"
+          tar -czf "dist/${archive}" -C dist "$stage"
+          rm -rf "$stage_dir"
+
+          (
+            cd dist
+            sha256sum "$archive" > "${archive}.sha256"
+            cat "${archive}.sha256"
+          )
+
+      - name: Upload the Ubuntu arm64 archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proa-cli-aarch64-unknown-linux-gnu
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   build_macos_arm64:
     name: Build macOS arm64 archive
     needs: setup
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: read
     timeout-minutes: 90
@@ -397,9 +476,119 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build_windows:
+    name: Build Windows ${{ matrix.label }} archive
+    needs: setup
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x86_64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+          - label: arm64
+            target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      TARGET: ${{ matrix.target }}
+      CARGO_TARGET_DIR: 'C:\pt'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Create short build and temporary directories
+        run: |
+          New-Item -ItemType Directory -Force C:\pt, C:\p-temp | Out-Null
+          'TEMP=C:\p-temp' >> $env:GITHUB_ENV
+          'TMP=C:\p-temp' >> $env:GITHUB_ENV
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup show
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup target add $env:TARGET
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --version
+          cargo --version
+
+      - name: Build
+        run: |
+          cargo build --release --locked -p proa-cli --target $env:TARGET
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = "proa-cli-$($env:VERSION)-$($env:TARGET)"
+          $stageDir = Join-Path 'dist' $stage
+          if (Test-Path 'dist') { Remove-Item -Recurse -Force 'dist' }
+          New-Item -ItemType Directory -Force $stageDir | Out-Null
+
+          foreach ($binary in @('proa.exe', 'cargo-proa.exe')) {
+            $sourcePath = Join-Path $env:CARGO_TARGET_DIR "$($env:TARGET)\release\$binary"
+            if (-not (Test-Path -LiteralPath $sourcePath)) {
+              Write-Host "::error title=Missing build output::$sourcePath was not produced"
+              exit 1
+            }
+            $destPath = Join-Path $stageDir $binary
+            Copy-Item -LiteralPath $sourcePath -Destination $destPath
+            & $destPath --version
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          Copy-Item -LiteralPath 'README.md' -Destination (Join-Path $stageDir 'README.md')
+          Copy-Item -LiteralPath 'LICENSE' -Destination (Join-Path $stageDir 'LICENSE')
+
+          $archive = "proa-cli-$($env:VERSION)-$($env:TARGET).zip"
+          $zipPath = Join-Path (Resolve-Path 'dist') $archive
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            foreach ($name in @('LICENSE', 'README.md', 'cargo-proa.exe', 'proa.exe')) {
+              $source = Join-Path $stageDir $name
+              $entryName = "$stage/$name"
+              [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $zip,
+                $source,
+                $entryName,
+                [System.IO.Compression.CompressionLevel]::Optimal
+              ) | Out-Null
+            }
+          } finally {
+            $zip.Dispose()
+          }
+          Remove-Item -Recurse -Force $stageDir
+
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+          $line = "$hash  $archive`n"
+          [System.IO.File]::WriteAllText("$zipPath.sha256", $line, [System.Text.UTF8Encoding]::new($false))
+          Write-Host $line.TrimEnd()
+
+      - name: Upload the Windows archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proa-cli-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Checksums and GitHub Release
-    needs: [setup, build, build_macos_arm64]
+    needs: [setup, build, build_linux_arm64, build_macos_arm64, build_windows]
     runs-on: gcp-pr-ci
     timeout-minutes: 15
     outputs:
@@ -422,7 +611,7 @@ jobs:
           ref: ${{ needs.setup.outputs.source_sha }}
           persist-credentials: false
 
-      - name: Download the Ubuntu archive
+      - name: Download built archives
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
@@ -622,6 +811,7 @@ jobs:
         with:
           subject-path: |
             dist/proa-cli-*.tar.gz
+            dist/proa-cli-*.zip
             dist/proa-cli-*-SHA256SUMS
 
       - name: Report deferred private-repository attestations
@@ -647,6 +837,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             dist/proa-cli-*.tar.gz
+            dist/proa-cli-*.zip
             dist/proa-cli-*-SHA256SUMS
 
       - name: Verify the staged asset set
