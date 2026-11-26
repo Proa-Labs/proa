@@ -36,3 +36,6 @@ harness = false
 [[test]]
 name = "bench_latency"
 harness = false
+
+[lints]
+workspace = true

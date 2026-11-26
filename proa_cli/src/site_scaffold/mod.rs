@@ -468,7 +468,8 @@ mod tests {
             let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
             assert!(!config.contains("template:"), "{template}");
             let formatting =
-                crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
+                crate::fmt::format_paths_with_options(std::slice::from_ref(&root), true, true)
+                    .unwrap();
             assert!(
                 formatting.changed.is_empty() && formatting.diagnostics.is_empty(),
                 "{template}: {:?}",

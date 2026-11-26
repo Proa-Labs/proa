@@ -282,14 +282,10 @@ impl CachedRunner {
                 return false;
             }
         }
-        // A build setting that appeared since the stamps were taken.
-        if !build_environment
+        // A new build setting invalidates the recorded stamps.
+        build_environment
             .keys()
             .all(|name| self.env_deps.contains_key(name))
-        {
-            return false;
-        }
-        true
     }
 
     fn evaluate_if_fresh(&self, root: &Path, path: &Path) -> Option<Result<ProjectConfig>> {

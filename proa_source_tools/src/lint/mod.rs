@@ -817,19 +817,17 @@ fn check_async_md_static_body(
 
     impl<'ast> Visit<'ast> for Visitor<'_> {
         fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
-            if macro_path_ends(node, "md") {
-                if !md_tokens_have_async_work(&node.mac.tokens) {
-                    push_expr_diag(
-                        self.path,
-                        SpanOrigin::File,
-                        self.diagnostics,
-                        self.suppressions,
-                        node.mac.path.span(),
-                        "perf/async-md-static-subtree",
-                        "async md! template has no async interpolation",
-                        "use md_sync! here; wrap the result with proa_core::to_md_async(...) if it is composed into an async tree",
-                    );
-                }
+            if macro_path_ends(node, "md") && !md_tokens_have_async_work(&node.mac.tokens) {
+                push_expr_diag(
+                    self.path,
+                    SpanOrigin::File,
+                    self.diagnostics,
+                    self.suppressions,
+                    node.mac.path.span(),
+                    "perf/async-md-static-subtree",
+                    "async md! template has no async interpolation",
+                    "use md_sync! here; wrap the result with proa_core::to_md_async(...) if it is composed into an async tree",
+                );
             }
             visit::visit_expr_macro(self, node);
         }

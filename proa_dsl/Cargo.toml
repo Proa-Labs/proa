@@ -40,3 +40,6 @@ required-features = ["markdown"]
 [[test]]
 name = "markdown_escaping"
 required-features = ["markdown"]
+
+[lints]
+workspace = true

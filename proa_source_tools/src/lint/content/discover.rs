@@ -739,7 +739,7 @@ pub(super) fn lint_parsed(
         for item in &context.items {
             if let Item::Impl(item) = item {
                 let Some((trait_path, _)) = &item.trait_ else {
-                    let (_, range) = policy(&item.attrs, &resolver, &context, &mut diagnostics);
+                    let (_, range) = policy(&item.attrs, &resolver, context, &mut diagnostics);
                     if let Some(range) = range {
                         diagnostics.push(Diagnostic::new(
                             &range.path,

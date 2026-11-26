@@ -106,7 +106,6 @@ object = { version = "0.41.0", default-features = false, features = ["read", "st
 pretty_assertions = { version = "1.4.1" }
 proa = { path = "proa", version = "0.4.1" }
 proa_actions = { path = "proa_actions", version = "0.4.1" }
-proa_bench = { path = "proa_bench", version = "0.1.0" }
 proa_build = { path = "proa_build", version = "0.2.0" }
 proa_assets = { path = "proa_assets", version = "0.1.0" }
 proa_source_tools = { path = "proa_source_tools", version = "0.1.0" }

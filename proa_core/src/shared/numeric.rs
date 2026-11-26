@@ -698,7 +698,7 @@ impl<T: fmt::Display, const PRECISION: usize> __ProaFixedFormatValue<PRECISION>
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
         crate::shared::attr_value::__proa_render_fmt_attr(
-            format_args!("{:.*}", PRECISION, &self.0),
+            format_args!("{:.*}", PRECISION, self.0),
             cx,
         )
     }

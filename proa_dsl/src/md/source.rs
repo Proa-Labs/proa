@@ -6,7 +6,7 @@
 use super::{ExprLocation, TplNode};
 use proc_macro2::Span;
 use std::ops::Range;
-use std::sync::Arc;
+use std::rc::Rc;
 use syn::LitStr;
 
 /// Decoded-byte to authored-token mapping for one template literal.
@@ -123,7 +123,7 @@ impl MappedLiteral {
     }
 
     pub fn map_nodes(&self, nodes: &mut [TplNode], span: Span) {
-        let literal = Arc::new(self.literal_map(span));
+        let literal = Rc::new(self.literal_map(span));
         for node in nodes {
             if let TplNode::Expr(expr) = node {
                 if let ExprLocation::Decoded(range) = &expr.location {

@@ -20,3 +20,6 @@ itoap = { version = "1" }
 [[bench]]
 name = "itoa_bench"
 harness = false
+
+[lints]
+workspace = true

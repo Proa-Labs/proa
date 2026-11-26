@@ -76,3 +76,6 @@ proa_ir = { workspace = true }
 proa_macros = { workspace = true }
 proa_stream = { workspace = true }
 rsjs = { workspace = true }
+
+[lints]
+workspace = true

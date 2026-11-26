@@ -2896,9 +2896,7 @@ impl<'a> BodyLowerer<'a> {
             }
             BodyNodeKind::Unary { expr, .. }
             | BodyNodeKind::Conditional {
-                then_expr: expr,
-                else_expr: _,
-                ..
+                then_expr: expr, ..
             } => {
                 let first = self.node_has_integer_anchor(expr);
                 if let BodyNodeKind::Conditional { else_expr, .. } = &node.kind {
@@ -5036,10 +5034,8 @@ fn parse_checked_helper_binary_op(op: &str) -> Option<(CheckedIntegerOp, Integer
         (IntegerDomain::U32, suffix)
     } else if let Some(suffix) = op.strip_prefix("CheckedI64") {
         (IntegerDomain::I64, suffix)
-    } else if let Some(suffix) = op.strip_prefix("CheckedU64") {
-        (IntegerDomain::U64, suffix)
     } else {
-        return None;
+        (IntegerDomain::U64, op.strip_prefix("CheckedU64")?)
     };
     let operation = match suffix {
         "Add" => CheckedIntegerOp::Add,

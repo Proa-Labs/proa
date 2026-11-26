@@ -451,13 +451,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BuildScriptPage {{
     }}
 }}
 
-#[cfg(not(rsjs_final))]
-fn main() {{}}
-
-#[cfg(rsjs_final)]
 fn main() {{
     let _component = BuildScriptPage;
-    print!("{{}}|{{}}|{{}}", SOURCE_REVISION, GENERATED_LABEL, BUILD_MODE);
+    if cfg!(rsjs_final) {{
+        print!("{{}}|{{}}|{{}}", SOURCE_REVISION, GENERATED_LABEL, BUILD_MODE);
+    }}
 }}
 "#
         )

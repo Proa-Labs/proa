@@ -72,10 +72,10 @@ impl AssetPrefix {
         {
             return Err(invalid());
         }
-        if trimmed.starts_with('/') {
+        if let Some(path) = trimmed.strip_prefix('/') {
             // The managed head applies the same rule to this path. A prefix
             // it would refuse must not get as far as building a router.
-            if trimmed[1..]
+            if path
                 .split('/')
                 .any(|segment| matches!(segment, "" | "." | ".."))
             {
@@ -517,7 +517,7 @@ impl PreparedCatalog {
             let file = PreparedFile {
                 // The file on disk is the response, whatever the base path:
                 // one build output serves every environment and any host.
-                service: ServeFile::new_with_mime(path, &mime),
+                service: ServeFile::new_with_mime(path, &mime), // proa-perf-ok: serves a file listed in the published asset catalog
                 etag: format!("\"{}\"", entry.sha256)
                     .parse()
                     .expect("SHA-256 header"),
