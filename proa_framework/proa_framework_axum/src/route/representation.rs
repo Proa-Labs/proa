@@ -3,7 +3,10 @@
 
 //! Shared HTML/Markdown representation negotiation for typed pages.
 
-use super::response::{current_framework_request_context, defer, framework_response_to_axum};
+use super::response::{
+    current_framework_request_context, defer, finalized_to_axum, framework_response_to_axum,
+    multi_thread_runtime, RouteResponseFuture,
+};
 use axum::http::{
     header::{ACCEPT, LINK, VARY},
     HeaderMap, HeaderValue,
@@ -12,9 +15,10 @@ use axum::response::IntoResponse;
 use futures::FutureExt as _;
 use proa_core::{DataLoader, MdRenderSync, WriteError};
 use proa_framework_core::{
-    render_sync_markdown_response, FrameworkError, FrameworkResponse, MarkdownResponse,
-    RouteFinalization,
+    render_sync_markdown_response, FrameworkError, FrameworkRequestContext, FrameworkResponse,
+    MarkdownResponse, RouteFinalization,
 };
+use std::future::IntoFuture;
 use std::sync::Arc;
 
 use super::RouteResponse;
@@ -108,15 +112,16 @@ impl<L: DataLoader + 'static> IntoResponse for RepresentationResponse<L> {
                 canonical,
             } => {
                 let request = current_framework_request_context();
-                let mut response = defer(RouteFinalization::Local(Box::new(move || {
-                    async move {
-                        response
-                            .finalize(&request)
-                            .await
+                // As for `RouteResponse`: block a multi-thread worker, or
+                // defer on a current-thread runtime.
+                let mut response = match multi_thread_runtime() {
+                    Some(runtime) => finalized_to_axum(tokio::task::block_in_place(|| {
+                        runtime
+                            .block_on(response.finalize(&request))
                             .map_err(FrameworkError::from)
-                    }
-                    .boxed_local()
-                })));
+                    })),
+                    None => defer(finalize_markdown(response, request)),
+                };
                 if canonical {
                     merge_accept_vary(response.headers_mut());
                 }
@@ -124,6 +129,60 @@ impl<L: DataLoader + 'static> IntoResponse for RepresentationResponse<L> {
             }
         }
     }
+}
+
+/// Finish the render inside the handler, as for
+/// [`RouteResponse`](RouteResponse#awaiting-buffered-renders):
+/// `negotiate_async_with_loader(..).await`.
+impl<L: DataLoader + 'static> IntoFuture for RepresentationResponse<L> {
+    type Output = axum::response::Response;
+    type IntoFuture = RouteResponseFuture;
+
+    fn into_future(self) -> RouteResponseFuture {
+        match self {
+            Self::Html {
+                response,
+                alternate,
+            } => {
+                let link = alternate_link(alternate);
+                response.into_future().map(move |response| {
+                    merge_accept_vary(response.headers_mut());
+                    response.headers_mut().append(LINK, link);
+                })
+            }
+            Self::Markdown {
+                response,
+                canonical,
+            } => RouteResponseFuture::ready(markdown_into_response(response, canonical)),
+            Self::MarkdownAsync {
+                response,
+                canonical,
+            } => {
+                let request = current_framework_request_context();
+                let rendering = RouteResponseFuture::render(finalize_markdown(response, request));
+                if canonical {
+                    rendering.map(|response| merge_accept_vary(response.headers_mut()))
+                } else {
+                    rendering
+                }
+            }
+        }
+    }
+}
+
+fn finalize_markdown<L: DataLoader + 'static>(
+    response: MarkdownResponse<L>,
+    request: FrameworkRequestContext,
+) -> RouteFinalization {
+    RouteFinalization::Local(Box::new(move || {
+        async move {
+            response
+                .finalize(&request)
+                .await
+                .map_err(FrameworkError::from)
+        }
+        .boxed_local()
+    }))
 }
 
 fn markdown_into_response(
@@ -192,8 +251,10 @@ fn render_explicit_markdown<M: MdRenderSync>(
 /// Negotiate before rendering, preserving the supplied request-scoped loader.
 ///
 /// This constructs an unopened plan. The handler remains `Send` even when the
-/// renderer creates local state across `.await`. The selected render runs at
-/// response finalization; failures become the standard HTTP render error.
+/// renderer creates local state across `.await`. Await the plan in the
+/// handler to run the selected render there, as with
+/// [`RouteResponse`](RouteResponse#awaiting-buffered-renders); failures become
+/// the standard HTTP render error.
 pub fn negotiate_async_with_loader<L, M>(
     headers: &HeaderMap,
     html: RouteResponse<L>,
@@ -655,6 +716,21 @@ mod shared_context_tests {
 
     #[tokio::test]
     async fn negotiated_handler_defers_local_markdown_and_preserves_request_and_response() {
+        negotiated_markdown_preserves_request_and_response(false).await;
+    }
+
+    #[tokio::test]
+    async fn awaited_negotiated_markdown_preserves_request_and_response() {
+        negotiated_markdown_preserves_request_and_response(true).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn negotiated_markdown_preserves_request_and_response_on_a_multi_thread_runtime() {
+        negotiated_markdown_preserves_request_and_response(false).await;
+        negotiated_markdown_preserves_request_and_response(true).await;
+    }
+
+    async fn negotiated_markdown_preserves_request_and_response(awaited: bool) {
         let loader = Arc::new(Loader {
             loads: AtomicUsize::new(0),
         });
@@ -676,7 +752,7 @@ mod shared_context_tests {
                                     "slug", "article",
                                 )]));
                         });
-                        negotiate_async_with_loader(
+                        let plan = negotiate_async_with_loader(
                             &headers,
                             RouteResponse::ssr_async_with_loader(
                                 HtmlCount(calls),
@@ -687,7 +763,12 @@ mod shared_context_tests {
                             },
                             loader,
                             MarkdownAlternate::new("/article.md"),
-                        )
+                        );
+                        if awaited {
+                            plan.await
+                        } else {
+                            plan.into_response()
+                        }
                     }
                 }),
             )
@@ -731,6 +812,14 @@ mod shared_context_tests {
         assert_eq!(html_calls.load(Ordering::Relaxed), 0);
         let html = app.oneshot(request("text/html")).await.unwrap();
         assert_eq!(html.status(), StatusCode::OK);
+        assert_eq!(
+            html.headers().get_all(VARY).iter().collect::<Vec<_>>(),
+            ["Accept"]
+        );
+        assert!(html.headers()[LINK]
+            .to_str()
+            .unwrap()
+            .starts_with("</article.md>"));
         assert_eq!(html_calls.load(Ordering::Relaxed), 1);
         assert_eq!(loader.loads.load(Ordering::Relaxed), 1);
     }
@@ -748,31 +837,51 @@ mod shared_context_tests {
         }
     }
 
-    #[tokio::test]
-    async fn explicit_async_errors_use_http_render_error_mapping() {
-        let app = Router::new()
+    async fn assert_render_error(app: Router, uri: &str) {
+        let response = app
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{uri}"
+        );
+        assert!(!response.headers().contains_key(VARY), "{uri}");
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            "render error",
+            "{uri}"
+        );
+    }
+
+    fn failing_markdown() -> Router {
+        Router::new()
             .route(
                 "/failed.md",
                 get(|| async {
                     explicit_markdown_async_with_loader(Fails, Arc::new(proa_core::NoLoader))
                 }),
             )
-            .layer(RouteContextLayer::new(Arc::new(HashMap::new())));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/failed.md")
-                    .body(Body::empty())
-                    .unwrap(),
+            .route(
+                "/awaited.md",
+                get(|| async {
+                    explicit_markdown_async_with_loader(Fails, Arc::new(proa_core::NoLoader)).await
+                }),
             )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(!response.headers().contains_key(VARY));
-        assert_eq!(
-            response.into_body().collect().await.unwrap().to_bytes(),
-            "render error"
-        );
+    }
+
+    #[tokio::test]
+    async fn explicit_async_errors_use_http_render_error_mapping() {
+        let app = failing_markdown().layer(RouteContextLayer::new(Arc::new(HashMap::new())));
+        assert_render_error(app.clone(), "/failed.md").await;
+        assert_render_error(app, "/awaited.md").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unawaited_markdown_renders_in_place_on_a_multi_thread_runtime() {
+        // As before awaiting existed, no route context is needed here.
+        assert_render_error(failing_markdown(), "/failed.md").await;
     }
 
     struct Pages {

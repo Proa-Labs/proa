@@ -3,15 +3,16 @@
 
 //! Integration tests for buffered async `RouteResponse` rendering.
 //!
-//! Drives async `WebRender` and `WebRenderSend` components through the
-//! framework's `IntoResponse` impl end-to-end: build an axum router, install
-//! `RouteContextLayer`, fire a `oneshot` request, and assert the rendered body
-//! contains the bytes the component produced (including content written
-//! *after* a real `.await`).
+//! Drives async `WebRender` and `WebRenderSend` components end-to-end: build
+//! an axum router, install `RouteContextLayer`, fire a `oneshot` request, and
+//! assert the rendered body contains the bytes the component produced
+//! (including content written *after* a real `.await`).
 //!
-//! Most tests use the default `#[tokio::test]` current-thread runtime, which
-//! is what application tests reach for first: buffered finalization must
-//! never block inside the handler's `into_response`.
+//! Handlers either await the response (`RouteResponse::ssr_async(page).await`)
+//! or return it for `IntoResponse`. Most tests use the default
+//! `#[tokio::test]` current-thread runtime, which is what application tests
+//! reach for first: there an un-awaited buffered render must never block
+//! inside the handler's `into_response`.
 
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -882,7 +883,7 @@ async fn buffered_async_bursts_queue_instead_of_failing() {
     // More concurrent pages than the default stream admission limit.
     let app = app(vec![Route::endpoint(
         "/held",
-        get(|| async { RouteResponse::ssr_async(Held) }),
+        get(|| async { RouteResponse::ssr_async(Held).await }),
     )]);
     let responses = futures::future::join_all((0..1_500).map(|_| fetch(&app, "/held"))).await;
     for response in responses {
@@ -943,4 +944,211 @@ async fn middleware_outside_route_context_sees_only_final_statuses() {
         *seen.lock().unwrap(),
         [StatusCode::CREATED, StatusCode::CREATED, StatusCode::OK]
     );
+}
+
+/// Both buffered constructors, awaited in their handlers.
+fn awaited_local_and_send<P>(page: fn() -> P) -> Vec<Route<()>>
+where
+    P: WebRender + WebRenderSend + Send + 'static,
+{
+    vec![
+        Route::endpoint(
+            "/local",
+            get(move || async move { RouteResponse::ssr_async(page()).await }),
+        ),
+        Route::endpoint(
+            "/send",
+            get(move || async move { RouteResponse::ssr_async_send(page()).await }),
+        ),
+    ]
+}
+
+async fn awaited_renders_finish_in_the_handler() {
+    let app = app(awaited_local_and_send(|| Staged));
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(response.status(), StatusCode::CREATED, "{uri}");
+        assert_eq!(response.headers()["x-render"], "async", "{uri}");
+        assert_eq!(response.headers()[header::VARY], "Origin", "{uri}");
+        assert_eq!(text(response).await, "<p>staged</p>", "{uri}");
+    }
+    let app = self::app(awaited_local_and_send(|| Fails));
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        let status = response.status();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{uri}");
+        assert_eq!(text(response).await, "render error", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn awaited_renders_finish_in_the_handler_on_a_current_thread_runtime() {
+    awaited_renders_finish_in_the_handler().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn awaited_renders_finish_in_the_handler_on_a_multi_thread_runtime() {
+    awaited_renders_finish_in_the_handler().await;
+}
+
+#[tokio::test]
+async fn awaited_sync_plans_streams_and_client_payloads_resolve() {
+    let app = app(vec![
+        Route::endpoint(
+            "/sync",
+            get(|| async { RouteResponse::ssr(SyncGreeting { name: "now" }).await }),
+        ),
+        Route::endpoint(
+            "/stream",
+            get(|| async { RouteResponse::ssr_stream(Yielding("streamed")).await }),
+        ),
+        Route::endpoint(
+            "/local",
+            get(|| async { RouteResponse::ssr_async(Staged).await }),
+        ),
+    ]);
+    assert_eq!(text(fetch(&app, "/sync").await).await, "<p>sync now</p>");
+    assert_eq!(text(fetch(&app, "/stream").await).await, "<p>streamed</p>");
+    let request = Request::builder()
+        .uri("/local")
+        .header("X-Proa-Client", "1")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let payload: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+    assert_eq!(payload["html"], "<p>staged</p>");
+}
+
+#[tokio::test]
+async fn awaited_render_wrappers_apply_over_the_rendered_page() {
+    let app = app(vec![
+        Route::endpoint(
+            "/missing",
+            get(|| async {
+                (
+                    StatusCode::NOT_FOUND,
+                    [(header::CACHE_CONTROL, "no-store")],
+                    RouteResponse::ssr_async(Staged).await,
+                )
+            }),
+        ),
+        Route::endpoint(
+            "/ok",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async_send(Staged).await) }),
+        ),
+    ]);
+    let response = fetch(&app, "/missing").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(response.headers()["x-render"], "async");
+    assert_eq!(text(response).await, "<p>staged</p>");
+    let response = fetch(&app, "/ok").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-render"], "async");
+}
+
+#[tokio::test]
+async fn awaited_render_reads_its_route_context() {
+    let app = app(vec![Route::page(
+        "/about",
+        "About us",
+        get(|| async { RouteResponse::ssr_async(MetadataTitle).await }),
+    )]);
+    assert_eq!(text(fetch(&app, "/about").await).await, "About us");
+}
+
+#[tokio::test]
+async fn awaited_render_outside_route_context_is_a_clear_error() {
+    let router = Router::new()
+        .route(
+            "/local",
+            get(|| async { RouteResponse::ssr_async(Yielding("unreachable")).await }),
+        )
+        .route(
+            "/send",
+            get(|| async { RouteResponse::ssr_async_send(Yielding("unreachable")).await }),
+        );
+    for uri in ["/local", "/send"] {
+        let response = fetch(&router, uri).await;
+        let status = response.status();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{uri}");
+        assert_eq!(text(response).await, "invalid route context", "{uri}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn awaited_local_renders_run_on_the_pool_and_send_renders_on_the_handler() {
+    let app = app(awaited_local_and_send(|| ThreadName));
+    let local = text(fetch(&app, "/local").await).await;
+    assert!(local.starts_with("proa-stream-"), "{local}");
+    let send = text(fetch(&app, "/send").await).await;
+    assert_eq!(send, thread_name());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unawaited_renders_block_a_multi_thread_worker_as_before() {
+    // Without `.await`, `into_response` renders in place with
+    // `block_in_place`, on the handler's worker, local renders included.
+    let app = app(local_and_send(|| ThreadName));
+    for uri in ["/local", "/send"] {
+        assert_eq!(text(fetch(&app, uri).await).await, thread_name(), "{uri}");
+    }
+}
+
+/// Waits on a timer the runtime must keep driving.
+struct Sleeps;
+
+impl WebRender for Sleeps {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            WriteBuf::extend_str(&mut cx.out, "<p>slept</p>")
+        })
+    }
+}
+
+impl WebRenderSend for Sleeps {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cx.output_mut().extend_str("<p>slept</p>")
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_thousand_concurrent_awaited_renders_that_sleep_do_not_deadlock() {
+    // Blocking each handler's worker in place, as un-awaited responses do
+    // here, takes one blocking-pool thread per render; at this concurrency
+    // the pool runs out and nothing drives the timer. Awaited renders hold
+    // no thread while they wait.
+    let app = app(awaited_local_and_send(|| Sleeps));
+    for uri in ["/local", "/send"] {
+        let requests: Vec<_> = (0..2_000)
+            .map(|_| {
+                let app = app.clone();
+                tokio::spawn(async move {
+                    let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
+                    let response = app.oneshot(request).await.unwrap();
+                    (response.status(), text(response).await)
+                })
+            })
+            .collect();
+        let finished =
+            tokio::time::timeout(Duration::from_secs(30), futures::future::join_all(requests))
+                .await
+                .expect("2,000 awaited renders must finish");
+        for result in finished {
+            let (status, body) = result.unwrap();
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(body, "<p>slept</p>", "{uri}");
+        }
+    }
 }

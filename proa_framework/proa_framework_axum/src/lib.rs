@@ -46,8 +46,8 @@ pub use route::{
     Layout, LayoutRef, LocalStreamExecutorConfig, ManagedPreparationTimeout, MarkdownAlternate,
     Metadata, MetadataRef, OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer,
     PageCacheService, RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage,
-    ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
-    StaticPathsFn,
+    ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse,
+    RouteResponseFuture, RouteSpec, StaticPathsFn,
 };
 pub use rsjs_assets::{RsjsAssets, RsjsAssetsError, RsjsFile};
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};

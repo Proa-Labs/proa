@@ -42,7 +42,7 @@ pub struct RouteContext {
     framework_assets: Option<proa_core::FrameworkAssets>,
     asset_prefix: Option<Arc<str>>,
     head: Option<proa_core::HeadConfig>,
-    /// Finishes local buffered renders after the handler returns.
+    /// Runs local buffered renders. See [`RouteContext::detach`].
     local_stream_executor: Option<LocalStreamExecutor>,
 }
 
@@ -188,8 +188,15 @@ impl RouteContext {
         self.head.as_ref()
     }
 
-    pub(super) fn local_stream_executor(&self) -> Option<&LocalStreamExecutor> {
-        self.local_stream_executor.as_ref()
+    /// A copy for a render that runs outside the handler, and the executor
+    /// that runs it.
+    ///
+    /// The copy holds no executor handle. A copy moved onto a pool worker
+    /// could otherwise drop the pool's last handle there.
+    pub(super) fn detach(&self) -> (Self, Option<LocalStreamExecutor>) {
+        let mut route = self.clone();
+        let executor = route.local_stream_executor.take();
+        (route, executor)
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {

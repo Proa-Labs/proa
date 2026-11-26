@@ -294,7 +294,7 @@ where
         let inner = self.inner.clone();
         Box::pin(async move {
             if bypass_request(&request) {
-                return inner.oneshot(request).await.map(bypass);
+                return pass(inner, request).await;
             }
             let key = layer.key(&request);
             let headers = request.headers().clone();
@@ -342,7 +342,7 @@ where
             }
             // Never seed a GET entry from a HEAD response with an empty body.
             if head {
-                return inner.oneshot(request).await.map(bypass);
+                return pass(inner, request).await;
             }
             // Fixed lock stripes bound coordination memory as well as stored
             // pages. Cancellation/panics release the guard automatically.
@@ -474,6 +474,19 @@ where
             ))
         }
     }
+}
+
+/// Serve a request the cache must not store. The render finishes first, so
+/// the bypass policy edits the page, not a deferred placeholder.
+async fn pass<S>(inner: S, request: Request<Body>) -> Result<Response, S::Error>
+where
+    S: Service<Request<Body>, Response = Response> + Send,
+    S::Future: Send,
+{
+    let response = inner.oneshot(request).await?;
+    Ok(bypass(
+        super::response::finish_deferred_render(response).await,
+    ))
 }
 
 pub(super) fn bypass_request(request: &Request<Body>) -> bool {
