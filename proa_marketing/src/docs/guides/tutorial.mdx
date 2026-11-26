@@ -203,12 +203,13 @@ Two pages: a listing that maps over `PRODUCTS`, and a detail page whose
 add-to-cart control is a native form posting `sku` and `qty`. There is no
 JavaScript in either one.
 
-Each handler wraps its page in the generated `RootDocument` layout and hands it
-to `RouteResponse::ssr_async`, the same shape as the generated `src/pages/home.rs`.
-The generated router enables the managed head once, so each page only declares
-`ROLE = PAGE` and sets its title in `render_head`. `RootDocument` is
-async-capable, so a synchronous page goes in through `proa::to_async`. A loop
-body is its own template, so it needs its own
+Each handler wraps its page in the generated `RootDocument`, passes it to
+`RouteResponse::ssr_async`, and awaits the render so middleware sees the
+finished page. The generated router enables the managed head once. Each
+page declares `ROLE = PAGE` and sets its title in `render_head`.
+
+`RootDocument` is async-capable, so a synchronous page goes in through
+`proa::to_async`. A loop body is its own template, so it needs its own
 `html_sync!` block.
 
 <CodeExplorer>
@@ -232,6 +233,7 @@ pub async fn handler() -> impl IntoResponse {
     RouteResponse::ssr_async(RootDocument {
         content: to_async(ProductsPage),
     })
+    .await
 }
 
 struct ProductsPage;
@@ -279,7 +281,8 @@ pub async fn handler(Path(slug): Path<String>) -> Result<impl IntoResponse, Stat
     let product = find_product(&slug).ok_or(StatusCode::NOT_FOUND)?;
     Ok(RouteResponse::ssr_async(RootDocument {
         content: to_async(ProductPage { product }),
-    }))
+    })
+    .await)
 }
 
 struct ProductPage {

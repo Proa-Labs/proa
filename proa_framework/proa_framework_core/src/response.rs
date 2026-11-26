@@ -864,6 +864,99 @@ pub fn finalize_route_response_stream<L: DataLoader + 'static>(
     response.into_stream_framework_response(request)
 }
 
+/// An unpolled route finalization for an adapter's async boundary.
+///
+/// Like [`FrameworkStreamFactory`], the variant carries the render graph's
+/// capability. Await `Send` directly. Open `Local` on an executor that keeps
+/// the returned future on one thread.
+pub enum RouteFinalization {
+    Send(BoxFuture<'static, Result<FrameworkResponse, FrameworkError>>),
+    Local(
+        Box<
+            dyn FnOnce() -> LocalBoxFuture<'static, Result<FrameworkResponse, FrameworkError>>
+                + Send,
+        >,
+    ),
+}
+
+/// Finalize a route without polling its render in the caller.
+///
+/// An adapter whose response conversion is synchronous uses this to avoid
+/// blocking. It awaits the result before committing response headers, so a
+/// buffered render error still becomes an HTTP 500. `ssr_async_send` plans,
+/// sync plans, and streamed documents are `Send`; other async plans are `Local`.
+pub fn finalize_route_response_deferred<L: DataLoader + 'static>(
+    response: RouteResponse<L>,
+    mut request: FrameworkRequestContext,
+    mode: RouteFinalizeMode,
+) -> RouteFinalization {
+    let RouteResponse { plan, head } = response;
+    if let Some(head) = head {
+        request.head = head.map(Into::into);
+    }
+    match plan {
+        RoutePlan::SendAsync {
+            component,
+            loader,
+            delivery,
+            preload_keys,
+        } => RouteFinalization::Send(Box::pin(async move {
+            match mode {
+                RouteFinalizeMode::Document => {
+                    request.render_mode = delivery.render_mode();
+                    if delivery.is_streamed() {
+                        Ok(render_send_stream_html_response(
+                            component,
+                            &request,
+                            loader,
+                            preload_keys,
+                        ))
+                    } else {
+                        render_send_html_response(component, &request, loader).await
+                    }
+                }
+                RouteFinalizeMode::ClientPayload { page_title } => {
+                    request.render_mode = RenderMode::Static;
+                    Ok(
+                        match render_send_component_to_html(
+                            component,
+                            &request,
+                            loader,
+                            RenderMode::Static,
+                        )
+                        .await
+                        {
+                            Ok((html, title, decisions)) => {
+                                encode_client_payload(html, title.unwrap_or(page_title), decisions)
+                            }
+                            Err(err) => framework_error_response(err),
+                        },
+                    )
+                }
+            }
+        })),
+        plan @ RoutePlan::Async { delivery, .. }
+            if !(delivery.is_streamed() && matches!(mode, RouteFinalizeMode::Document)) =>
+        {
+            let response = RouteResponse { plan, head: None };
+            RouteFinalization::Local(Box::new(move || {
+                Box::pin(async move { finalize_route_response(response, &request, mode).await })
+            }))
+        }
+        // A sync render or an unopened stream factory polls no render future.
+        plan => {
+            let response = RouteResponse { plan, head: None };
+            RouteFinalization::Send(Box::pin(async move {
+                if response.is_synchronous() {
+                    finalize_route_response_sync(response, &request, mode)
+                } else {
+                    response.into_stream_framework_response(&request)
+                }
+            }))
+        }
+    }
+}
+
 /// Per-request metadata (location, route params, render mode).
 ///
 /// The loader is *not* stored here: it's a property of the
@@ -2603,6 +2696,46 @@ mod tests {
         assert!(std::str::from_utf8(&tail)
             .unwrap()
             .contains("L3RocmVhZC1taWdyYXRl"));
+    }
+
+    #[test]
+    fn deferred_finalization_keeps_each_plans_capability() {
+        let render = |response: RouteResponse| -> (bool, Bytes) {
+            let finalization = finalize_route_response_deferred(
+                response,
+                FrameworkRequestContext::default(),
+                RouteFinalizeMode::Document,
+            );
+            let (send, response) = match finalization {
+                // A `Send` future may finish on another thread.
+                RouteFinalization::Send(render) => (
+                    true,
+                    std::thread::spawn(move || futures::executor::block_on(render))
+                        .join()
+                        .unwrap(),
+                ),
+                RouteFinalization::Local(make) => (false, futures::executor::block_on(make())),
+            };
+            let FrameworkBody::Full(bytes) = response.unwrap().body else {
+                panic!("expected a buffered body");
+            };
+            (send, bytes)
+        };
+        assert_eq!(render(RouteResponse::ssr("sync")), (true, "sync".into()));
+        assert_eq!(
+            render(RouteResponse::ssr_async(proa_core::to_async("local"))),
+            (false, "local".into())
+        );
+        assert_eq!(
+            render(RouteResponse::ssr_async_send(proa_core::to_send("send"))),
+            (true, "send".into())
+        );
+        let streamed = finalize_route_response_deferred(
+            RouteResponse::ssr_stream(proa_core::to_async("streamed")),
+            FrameworkRequestContext::default(),
+            RouteFinalizeMode::Document,
+        );
+        assert!(matches!(streamed, RouteFinalization::Send(_)));
     }
 
     #[test]
