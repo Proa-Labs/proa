@@ -24,10 +24,11 @@ use axum::{
     Router,
 };
 use proa_core::render::RenderOutcome;
-use proa_core::{SendWebContext, WebContext, WebRender, WebRenderSend, WriteBuf, WriteError};
+use proa_core::{SendWebContext, WebContext, WebRender, WebRenderSend, WriteError};
 use proa_framework_axum::{
     router_from_spec, PageCache, PageCacheLayer, Route, RouteContextLayer, RouteResponse,
 };
+use proa_macros::{html, html_send};
 use tower::{Layer as _, ServiceBuilder, ServiceExt};
 use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -62,7 +63,10 @@ impl WebRender for PolicyPage {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
             stage_policy(cx.response_mut());
-            WriteBuf::extend_str(&mut cx.out, &format!("<p>tag={}</p>", request_tag()))
+            html! { <p>"tag="{request_tag()}</p> }
+                .render(cx)
+                .resolve()
+                .await
         })
     }
 }
@@ -75,8 +79,10 @@ impl WebRenderSend for PolicyPage {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
             stage_policy(cx.response_mut());
-            cx.output_mut()
-                .extend_str(&format!("<p>tag={}</p>", request_tag()))
+            html_send! { <p>"tag="{request_tag()}</p> }
+                .render_send(cx)
+                .resolve()
+                .await
         })
     }
 }
@@ -118,7 +124,7 @@ impl WebRender for Slow {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             tokio::time::sleep(Duration::from_millis(300)).await;
-            WriteBuf::extend_str(&mut cx.out, "<p>slow</p>")
+            html! { <p>"slow"</p> }.render(cx).resolve().await
         })
     }
 }
@@ -130,7 +136,7 @@ impl WebRenderSend for Slow {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
             tokio::time::sleep(Duration::from_millis(300)).await;
-            cx.output_mut().extend_str("<p>slow</p>")
+            html_send! { <p>"slow"</p> }.render_send(cx).resolve().await
         })
     }
 }
@@ -467,6 +473,37 @@ async fn inner_middleware_wraps_the_awaited_render_on_a_current_thread_runtime()
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inner_middleware_wraps_the_awaited_render_on_a_multi_thread_runtime() {
     inner_middleware_wraps_the_awaited_render().await;
+}
+
+async fn inner_middleware_can_rewrite_the_awaited_body() {
+    let app = pages(|| PolicyPage)
+        .layer(axum::middleware::from_fn(
+            |request: Request<Body>, next: axum::middleware::Next| async move {
+                let (mut parts, body) = next.run(request).await.into_parts();
+                let bytes = to_bytes(body, 1024).await.unwrap();
+                let html = std::str::from_utf8(&bytes).unwrap();
+                assert_eq!(html, "<p>tag=0</p>");
+                parts.headers.remove(header::CONTENT_LENGTH);
+                Response::from_parts(parts, Body::from(html.replace("tag", "label")))
+            },
+        ))
+        .layer(context());
+
+    for uri in AWAITED {
+        let response = fetch(app.clone(), uri).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(framed_body(response).await, "<p>label=0</p>");
+    }
+}
+
+#[tokio::test]
+async fn inner_middleware_rewrites_awaited_bodies_on_current_thread() {
+    inner_middleware_can_rewrite_the_awaited_body().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inner_middleware_rewrites_awaited_bodies_on_multi_thread() {
+    inner_middleware_can_rewrite_the_awaited_body().await;
 }
 
 // 5. Dropping the app while a local render is in flight releases the pool
