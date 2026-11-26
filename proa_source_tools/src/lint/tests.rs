@@ -2120,6 +2120,13 @@ fn docs_mutation_island_passes_the_build_check() {
     let blocking = blocking_diagnostics(DOCS_CART_EDITOR);
     assert!(blocking.is_empty(), "{blocking:#?}");
 
+    let explicit_return = DOCS_CART_EDITOR
+        .replacen("            html! {", "            return html! {", 1)
+        .replace("            .await\n", "            .await;\n");
+    assert_ne!(explicit_return, DOCS_CART_EDITOR);
+    let blocking = blocking_diagnostics(&explicit_return);
+    assert!(blocking.is_empty(), "{blocking:#?}");
+
     let with_options = DOCS_CART_EDITOR
         .replace("rsjs::mutation::<", "rsjs::mutation_with_options::<")
         .replace(

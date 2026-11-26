@@ -1292,7 +1292,7 @@ pub(crate) fn rsjs_pending_tail_template(block: &Block) -> Option<(&[syn::Stmt],
     let Some(Expr::Async(pending)) = call.args.first() else {
         return None;
     };
-    let Some((syn::Stmt::Expr(tail, None), prelude)) = pending.block.stmts.split_last() else {
+    let Some((syn::Stmt::Expr(tail, _), prelude)) = pending.block.stmts.split_last() else {
         return None;
     };
     Some((prelude, template(tail)?))
