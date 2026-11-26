@@ -4,7 +4,7 @@
 use std::fmt::Write;
 use std::path::Path;
 
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use crate::{
     config::MarkdownPipeline, highlight_cache::HighlightCache, typescript::TypeTableRequest,
@@ -76,8 +76,30 @@ pub(crate) fn render_markdown_with_cache(
     let mut code_lang = String::new();
     let mut code_buf = String::new();
     let mut in_table_head = false;
+    let mut image: Option<PendingImage<'_>> = None;
 
     for event in parser {
+        // An image's bracket text is its description: collect it as plain
+        // text for `alt` instead of rendering it after the `<img>`.
+        if let Some(pending) = image.as_mut() {
+            match event {
+                Event::Text(text)
+                | Event::Code(text)
+                | Event::InlineMath(text)
+                | Event::DisplayMath(text) => pending.alt.push_str(&text),
+                Event::SoftBreak | Event::HardBreak => pending.alt.push(' '),
+                Event::Start(Tag::Image { .. }) => pending.nested += 1,
+                Event::End(TagEnd::Image) if pending.nested > 0 => pending.nested -= 1,
+                Event::End(TagEnd::Image) => {
+                    pending.emit_html(&mut html);
+                    append_search_text(&mut search_text, &pending.alt);
+                    image = None;
+                }
+                _ => {}
+            }
+            continue;
+        }
+
         if in_code_block {
             match event {
                 Event::Text(text) => code_buf.push_str(&text),
@@ -226,13 +248,13 @@ pub(crate) fn render_markdown_with_cache(
                 links.push(LinkReference {
                     href: dest_url.to_string(),
                 });
-                html.push_str("<img src=\"");
-                escape_attr(safe_url(&dest_url), &mut html);
-                html.push_str("\" alt=\"");
-                escape_attr(&title, &mut html);
-                html.push_str("\" />");
+                image = Some(PendingImage {
+                    src: dest_url,
+                    title,
+                    alt: String::new(),
+                    nested: 0,
+                });
             }
-            Event::End(TagEnd::Image) => {}
             Event::Text(text) => {
                 append_search_text(&mut search_text, &text);
                 escape_text(&text, &mut html);
@@ -322,6 +344,32 @@ pub(crate) fn render_markdown_with_cache(
         search_text: search_text.trim().to_string(),
         links,
         type_table_requests,
+    }
+}
+
+/// An image whose bracket text is still being read into its `alt`.
+struct PendingImage<'a> {
+    src: CowStr<'a>,
+    title: CowStr<'a>,
+    alt: String,
+    /// Images nested in the bracket text contribute only their own text.
+    nested: usize,
+}
+
+impl PendingImage<'_> {
+    // proa-perf-ok(scope): docs markdown is compiled into trusted static HTML at build time; every attribute value is escaped before insertion
+    fn emit_html(&self, html: &mut String) {
+        html.push_str("<img src=\"");
+        escape_attr(safe_url(&self.src), html);
+        html.push_str("\" alt=\"");
+        escape_attr(&self.alt, html);
+        html.push('"');
+        if !self.title.is_empty() {
+            html.push_str(" title=\"");
+            escape_attr(&self.title, html);
+            html.push('"');
+        }
+        html.push_str(" />");
     }
 }
 
@@ -545,6 +593,84 @@ mod tests {
         assert_eq!(
             rendered.hashes,
             vec!["intro".to_string(), "install".to_string()]
+        );
+    }
+
+    #[test]
+    fn image_bracket_text_becomes_alt_instead_of_body_text() {
+        let rendered = render_markdown(
+            "![A *nested* layout with `RootDocument`\naround a Page.](/static/images/docs/layout.svg)",
+            Path::new("docs/index.md"),
+            &MarkdownPipeline::default(),
+        );
+        assert_eq!(
+            rendered.html,
+            "<p><img src=\"/static/images/docs/layout.svg\" alt=\"A nested layout with RootDocument around a Page.\" /></p>"
+        );
+        assert_eq!(
+            rendered.search_text,
+            "A nested layout with RootDocument around a Page."
+        );
+        assert_eq!(rendered.links[0].href, "/static/images/docs/layout.svg");
+    }
+
+    #[test]
+    fn image_alt_and_title_are_escaped_attributes() {
+        let rendered = render_markdown(
+            "![Fish & \"chips\"](/a.svg \"Served <hot> & fresh\")",
+            Path::new("docs/index.md"),
+            &MarkdownPipeline::default(),
+        );
+        assert_eq!(
+            rendered.html,
+            "<p><img src=\"/a.svg\" alt=\"Fish &amp; &quot;chips&quot;\" title=\"Served &lt;hot&gt; &amp; fresh\" /></p>"
+        );
+    }
+
+    #[test]
+    fn image_without_bracket_text_keeps_an_empty_alt() {
+        let rendered = render_markdown(
+            "![](/a.svg \"Decorative\")",
+            Path::new("docs/index.md"),
+            &MarkdownPipeline::default(),
+        );
+        assert_eq!(
+            rendered.html,
+            "<p><img src=\"/a.svg\" alt=\"\" title=\"Decorative\" /></p>"
+        );
+        assert_eq!(rendered.search_text, "");
+    }
+
+    #[test]
+    fn image_alt_flattens_nested_images_and_links_and_text_resumes_after_it() {
+        let rendered = render_markdown(
+            "![Build ![status](/s.svg) [badge](/b)](/badge.svg) Then text.",
+            Path::new("docs/index.md"),
+            &MarkdownPipeline::default(),
+        );
+        assert_eq!(
+            rendered.html,
+            "<p><img src=\"/badge.svg\" alt=\"Build status badge\" /> Then text.</p>"
+        );
+        let hrefs: Vec<_> = rendered
+            .links
+            .iter()
+            .map(|link| link.href.as_str())
+            .collect();
+        assert_eq!(hrefs, ["/badge.svg"]);
+        assert_eq!(rendered.search_text, "Build status badge Then text.");
+    }
+
+    #[test]
+    fn image_inside_a_link_keeps_the_link() {
+        let rendered = render_markdown(
+            "[![CI status](/badge.svg)](https://ci.example)",
+            Path::new("docs/index.md"),
+            &MarkdownPipeline::default(),
+        );
+        assert_eq!(
+            rendered.html,
+            "<p><a href=\"https://ci.example\"><img src=\"/badge.svg\" alt=\"CI status\" /></a></p>"
         );
     }
 

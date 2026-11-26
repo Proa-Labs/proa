@@ -1,9 +1,91 @@
 ---
 title: proa generate
-description: Generate components, layouts, and data modules.
+description: Generate pages, endpoints, models, migrations, components, layouts, and data modules.
 ---
 
-The generator commands write files into an existing Proa project. By default, they locate the nearest parent directory that contains both `Cargo.toml` and `src/`. Pass `--root` when running from outside the project tree.
+The generator commands write files into an existing Proa project. By default, they use the nearest parent project directory. Pass `--root` when running from outside the project tree.
+
+## Pages
+
+```bash
+proa generate page about
+proa generate page blog/{slug}
+```
+
+This writes `src/pages/<module>.rs` with a page component and its `handler`, adds the module to `src/pages/mod.rs`, and registers the route in `src/routes.rs`. Nested segments join into one module name: `blog/{slug}` becomes `src/pages/blog_slug.rs`. `:slug` and `*rest` segments are accepted and registered as `{slug}` and `{*rest}`.
+
+When the project has Markdown representations (`proa add representation markdown`), the page also serves Markdown at `<path>.md` and through [content negotiation](/docs/framework/content-negotiation).
+
+| Flag | Behavior |
+|------|----------|
+| `--markdown` | Require the Markdown representation; fails if the project does not have it. |
+| `--no-markdown` | Generate an HTML-only page in a Markdown-enabled project. |
+| `--root <DIR>` | Use an explicit project root. |
+| `--dry-run` | Print the plan without writing. |
+| `--json` | Print the plan or result as JSON. |
+
+The command fails if the page file already exists or the route is already registered.
+
+## Endpoints
+
+```bash
+proa generate endpoint api/contact --method post --response json
+```
+
+This writes `src/endpoints/api_contact.rs` with a `handler`, adds the module to `src/endpoints/mod.rs`, and registers `POST /api/contact` in `src/routes.rs`.
+
+| Flag | Behavior |
+|------|----------|
+| `--method <METHOD>` | Required. `get`, `post`, `put`, `patch`, or `delete`. |
+| `--response <KIND>` | Required. `json`, `redirect`, `empty` (204 No Content), or `html`. |
+| `--root <DIR>` | Use an explicit project root. |
+| `--dry-run` | Print the plan without writing. |
+| `--json` | Print the plan or result as JSON. |
+
+## Models
+
+```bash
+proa generate model product name:text price_cents:integer sku:text:unique
+```
+
+This writes `src/models/product.rs` with a `sqlx::FromRow` struct (`id`, your fields, `created_at`, and `updated_at`), adds it to `src/models/mod.rs`, and writes a `create_products` up/down migration pair. Models and migrations require the SQLite capability from `proa add database sqlite`.
+
+Each field is `name:type[:modifier...]`:
+
+| Type | Rust type | SQLite column |
+|------|-----------|---------------|
+| `text`, `string` | `String` | `TEXT` |
+| `integer`, `bigint` | `i64` | `INTEGER` |
+| `real` | `f64` | `REAL` |
+| `boolean` | `bool` | `INTEGER` |
+| `blob` | `Vec<u8>` | `BLOB` |
+| `datetime`, `uuid` | `String` | `TEXT` |
+
+| Modifier | Effect |
+|----------|--------|
+| `optional` | `Option<T>` field and a nullable column. |
+| `unique` | `UNIQUE` column. |
+| `default=<SQL>` | `DEFAULT <SQL>` column. |
+| `references=<model>` | Foreign key to `<model>s(id)`. |
+
+`--root`, `--dry-run`, and `--json` work as they do for pages.
+
+## Migrations
+
+```bash
+proa generate migration add_sku_to_products
+proa db migrate
+```
+
+This writes an up/down pair numbered one past the highest existing migration, such as `migrations/0002_add_sku_to_products.up.sql` and `migrations/0002_add_sku_to_products.down.sql`. Fill in both files; Proa does not guess the inverse SQL.
+
+| Flag | Behavior |
+|------|----------|
+| `--simple` | Write one irreversible `.sql` file instead of an up/down pair. |
+| `--open` | Open the new files with `$VISUAL` or `$EDITOR`. |
+| `--root <DIR>` | Use an explicit project root. |
+| `--dry-run` | Print the plan without writing. |
+| `--json` | Print the plan or result as JSON. |
 
 ## Components
 
@@ -18,6 +100,8 @@ This creates module entries under `src/components` and writes either a single co
 | `--folder` | Use `components/<name>/mod.rs` plus a sibling implementation file. |
 | `--recipe` | Generate `recipe.rs` and a folder layout. |
 | `--children` | Add generic `children` support. |
+| `--async` | Implement `WebRender` instead of `WebRenderSync`. |
+| `--markdown` | Add an `MdRenderSync` implementation. |
 | `--root <DIR>` | Use an explicit project root. |
 | `--dry-run [text\|json]` | Print the plan without writing. |
 | `--force` | Overwrite generated files. |
@@ -35,7 +119,7 @@ proa generate layout root-document --document
 |------|----------|
 | `--section` | Generate a section-level wrapper. |
 | `--document` | Generate a full document shell. |
-| `--replace-root` | Move the `// proa:document-root` marker from the current document layout to the new one. |
+| `--replace-root` | With `--document`, move the `// proa:document-root` marker to the new layout. |
 | `--root <DIR>` | Use an explicit project root. |
 | `--dry-run [text\|json]` | Print the plan without writing. |
 | `--force` | Overwrite generated files. |
