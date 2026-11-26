@@ -140,6 +140,247 @@ fn head_role_help_names_the_public_facade() {
     assert!(!help.contains("proa_core"), "{help}");
 }
 
+fn codes_at(diagnostics: &[Diagnostic], code: &str) -> Vec<usize> {
+    let mut lines: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == code)
+        .map(|d| d.line)
+        .collect();
+    lines.sort_unstable();
+    lines
+}
+
+#[test]
+fn head_mutation_in_body_flags_checked_setters_in_every_render_body() {
+    let source = r#"
+impl WebRender for Product {
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Allowed in the hook")
+    }
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            cx.head_mut().title("Too late")?;
+            Ok(())
+        })
+    }
+}
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        head.description("Too late")?;
+        cx.head_mut().set_title("legacy manual setter");
+        cx.head_mut().push_meta("robots", "noindex");
+        Ok(())
+    }
+}
+impl WebRenderSend for SendCard {
+    fn render_send(self, cx: &mut SendWebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move { (cx.head_mut()).metadata(HeadMetadata::default()) })
+    }
+}
+impl WebRenderSendSync for SyncSendCard {
+    fn render_send_sync(self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+        let title = cx.head_state().title();
+        cx.head_mut().canonical("/x")
+    }
+}
+impl OtherTrait for NotRender {
+    fn render(self, cx: &mut WebContext) { cx.head_mut().title("other trait"); }
+}
+"#;
+    let diagnostics = lint_file(Path::new("product.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        [8, 16, 24, 30],
+        "{diagnostics:#?}"
+    );
+    let first = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-mutation-in-body")
+        .unwrap();
+    assert_eq!(first.severity, Severity::Error);
+    assert!(first.message.contains("`head_mut().title(..)` in `render`"));
+    assert!(first.help.as_deref().unwrap().contains("render_head"));
+    assert!(first
+        .help
+        .as_deref()
+        .unwrap()
+        .contains("proa::ComponentRole::PAGE"));
+}
+
+#[test]
+fn head_roles_in_suspense_and_inside_a_page_are_errors() {
+    let source = r#"
+use crate::components::Card;
+use proa::stream::Suspense;
+struct Shell<C> { page: C }
+struct ProductPage;
+struct ReviewsPage;
+struct Fallback;
+impl<C: WebRender> WebRender for Shell<C> {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>{ProductPage}</main> }.render(cx)
+    }
+}
+impl WebRender for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            <section>
+                {Card { title: "ok" }}
+                {Suspense::new(Card { title: "slow" }, Fallback)}
+                {to_async(ReviewsPage)}
+                {Shell { page: () }}
+            </section>
+        }
+        .render(cx)
+    }
+}
+impl WebRender for ReviewsPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move { render_child(cx, Fallback).await })
+    }
+}
+impl WebRenderSync for Fallback {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) }
+}
+async fn route(cx: &mut WebContext) -> Result<(), WriteError> {
+    render_child(cx, Suspense::new(ProductPage, Fallback)).await?;
+    render_child(cx, Shell { page: ProductPage }).await
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [21, 22],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-suspense"),
+        [38],
+        "{diagnostics:#?}"
+    );
+    let nested = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-in-page" && d.line == 22)
+        .unwrap();
+    assert_eq!(nested.severity, Severity::Error);
+    assert!(nested.message.contains(
+        "`Shell` declares `ComponentRole::LAYOUT` but is rendered inside the Page `ProductPage`"
+    ));
+    assert!(nested
+        .help
+        .as_deref()
+        .unwrap()
+        .contains("render `ProductPage` inside `Shell`"));
+    assert_eq!(nested.labels.len(), 2);
+    assert_eq!(nested.labels[1].range.line, 9);
+    let suspense = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-in-suspense")
+        .unwrap();
+    assert!(suspense
+        .notes
+        .iter()
+        .any(|note| note.contains("HeadError::Excluded")));
+}
+
+#[test]
+fn head_role_placement_lints_skip_names_they_cannot_resolve() {
+    let source = r#"
+use ui::Header;
+use crate::layouts::*;
+struct ProductPage;
+struct Header;
+mod a { pub struct Banner; }
+mod b { pub struct Banner; }
+impl WebRender for Header {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for a::Banner {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl<T: WebRender> WebRender for Wrapper<T> {
+    const ROLE: ComponentRole = T::ROLE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        let link = ProductPage::new().href();
+        html! {
+            {Header}
+            {a::Banner}
+            {Wrapper(Inner)}
+            {RootLayout { page: () }}
+            {self.layout}
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code.starts_with("render/head-role-in")),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_resolve_package_local_imports_across_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.0.0\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/layouts.rs"),
+        r#"
+pub struct Root<C> { pub page: C }
+impl<C: WebRender> WebRender for Root<C> {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <body>{self.page}</body> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    let pages = root.join("src/pages.rs");
+    std::fs::write(
+        &pages,
+        r#"
+use crate::layouts::Root as AppRoot;
+pub struct Product;
+impl WebRender for Product {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>{AppRoot { page: () }}</main> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    let diagnostics = lint_paths(&[pages.clone()], LintOptions::default()).unwrap();
+    let found: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == "render/head-role-in-page")
+        .collect();
+    assert_eq!(found.len(), 1, "{diagnostics:#?}");
+    assert_eq!(found[0].line, 7);
+    assert!(found[0].labels[1].range.path.ends_with("src/layouts.rs"));
+    assert_eq!(found[0].labels[1].range.line, 4);
+}
+
 fn write_strategy_sidecar_with_fingerprint(
     root: &Path,
     analysis_id: &str,

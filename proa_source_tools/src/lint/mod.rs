@@ -28,6 +28,7 @@ use crate::source::{
 
 mod asset_urls;
 pub mod content;
+mod head_lifecycle;
 pub mod live;
 mod predicates;
 mod rsjs_strategy;
@@ -76,6 +77,12 @@ pub fn lint_file_with_options(path: &Path, source: &str, options: LintOptions) -
         &options.content,
     ));
     diagnostics.extend(asset_urls::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    diagnostics.extend(head_lifecycle::lint_parsed(
         &sources,
         &parsed,
         &reporting,
@@ -289,6 +296,12 @@ pub fn lint_paths(paths: &[std::path::PathBuf], options: LintOptions) -> Result<
         &options.content,
     ));
     diagnostics.extend(asset_urls::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    diagnostics.extend(head_lifecycle::lint_parsed(
         &sources,
         &parsed,
         &reporting,
@@ -574,6 +587,12 @@ fn lint_render_impl_items(
         match item {
             Item::Impl(item_impl) => {
                 lint_head_role(path, item_impl, ignored_ranges, diagnostics);
+                head_lifecycle::lint_head_mutation_in_body(
+                    path,
+                    item_impl,
+                    ignored_ranges,
+                    diagnostics,
+                );
                 lint_render_impl(
                     path,
                     item_impl,
@@ -602,9 +621,9 @@ fn lint_render_impl_items(
     }
 }
 
-/// Native async hooks have the same Future contract as the default, so Rust
-/// cannot infer whether a hook was overridden. Reject forgotten roles in
-/// authored source before role-directed dispatch would skip the hook.
+/// Reject forgotten roles in authored source. Code generation also rejects
+/// them, but only for components that a built render path dispatches; this
+/// source check needs no build and covers impls nothing renders yet.
 fn lint_head_role(
     path: &Path,
     item_impl: &ItemImpl,

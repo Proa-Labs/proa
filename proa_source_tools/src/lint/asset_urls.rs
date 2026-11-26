@@ -255,7 +255,7 @@ impl UrlSchema {
 }
 
 /// The nearest ancestor of `dir` with a `Cargo.toml` or `proa.config.rs`.
-fn package_scope(dir: &Path) -> Option<PathBuf> {
+pub(super) fn package_scope(dir: &Path) -> Option<PathBuf> {
     dir.ancestors()
         .find(|dir| dir.join("Cargo.toml").is_file() || dir.join("proa.config.rs").is_file())
         .map(Path::to_path_buf)
