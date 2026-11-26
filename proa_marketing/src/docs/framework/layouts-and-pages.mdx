@@ -267,7 +267,7 @@ Declaring `PAGE` or `LAYOUT` controls metadata lifecycle; it does not register a
 
 These rules apply equally to sync, async, Send, `to_async`, and `to_send` rendering. A `LAYOUT` must be above the selected Page; it is rejected after metadata seals or inside Suspense, captures, and fallbacks, even when its hook is the default no-op. A visual wrapper used inside a Page or in a manual document keeps the default `COMPONENT` role.
 
-Run `cargo proa lint <changed-paths> --deny warnings` to catch head overrides with missing roles or an explicit `COMPONENT` role. Native async hooks rely on this source check; synchronous hooks also retain a code-generation role assertion, so build those implementations too.
+A head override with a missing role or an explicit `COMPONENT` role fails `cargo build` with `render_head requires an explicit role`, for sync and async hooks alike (`cargo check` does not instantiate the assertion). Run `cargo proa lint <changed-paths> --deny warnings` too: it reports the same mistake without a build, and also flags `cx.head_mut()` setters inside `render`, and layouts or Pages rendered inside `Suspense` or inside another Page.
 
 Proa also has a route-metadata `Layout` trait and `Route::layout` constructor. They describe metadata in a route specification; they do not compose the rendered HTML or replace these component roles. [Route specifications](/docs/framework/routing#route-specifications) explains when to use them.
 
