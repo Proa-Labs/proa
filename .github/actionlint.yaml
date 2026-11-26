@@ -4,6 +4,9 @@
 self-hosted-runner:
   labels:
     - gcp-pr-ci
+    # GitHub-hosted ARM64 labels added after actionlint 1.7.7.
+    - ubuntu-24.04-arm
+    - windows-11-arm
 
 # Repository variables are validated at runtime by the workflows that consume
 # them; keep actionlint focused on syntax and known runner labels.

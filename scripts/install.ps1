@@ -2378,6 +2378,25 @@ function Get-SourceInstallArguments {
     return $arguments
 }
 
+# install-self publishes a Windows bin directory as its own junction, so it
+# refuses a directory that holds other files. Mirror that rule before a source
+# build, which would otherwise compile for minutes and then stop.
+function Assert-DedicatedInstallDirectory {
+    param([string]$BinDir)
+    $item = Get-Item -LiteralPath $BinDir -Force -ErrorAction SilentlyContinue
+    if ($null -eq $item -or -not $item.PSIsContainer) { return }
+    # install-self checks that an existing junction is its own.
+    if ($item.LinkType -eq 'Junction') { return }
+    $owned = @('proa.exe', 'cargo-proa.exe', 'tailwindcss.exe')
+    foreach ($entry in @(Get-ChildItem -LiteralPath $BinDir -Force)) {
+        if ($owned -cnotcontains $entry.Name) {
+            Stop-Install ('use a dedicated Proa install directory; ' + $BinDir + ' contains other files') @(
+                '',
+                'Pass -To with an empty or new directory, or omit -To to use the default.')
+        }
+    }
+}
+
 function Install-FromSource {
     param([string]$BinDir, [bool]$DirWasExplicit, [string]$VersionText)
 
@@ -2385,6 +2404,8 @@ function Install-FromSource {
 
     $cargoBin = Get-CargoBinDir
     $standalone = Test-EnvFlag 'PROA_STANDALONE_SOURCE'
+    $stagedInstall = $false
+    $explicitCargoRoot = ''
     $cargoRoot = ''
 
     if (-not (Test-CommandExists 'cargo')) {
@@ -2394,22 +2415,38 @@ function Install-FromSource {
             ('  ' + (Get-RustupCommand)))
     }
 
-    # cargo install always writes to cargo's own bin directory, so a requested
-    # directory cannot be honoured on this path.
-    $sameDir = [string]::Equals($cargoBin.TrimEnd('\', '/'), $BinDir.TrimEnd('\', '/'), [System.StringComparison]::OrdinalIgnoreCase)
-    if (-not $standalone -and $DirWasExplicit -and -not $sameDir) {
-        Write-Warn ('cargo installs into ' + $cargoBin + ', so the requested directory ' + $BinDir + ' was not used')
+    $trimmedBinDir = $BinDir.TrimEnd('\', '/')
+    $sameDir = [string]::Equals($cargoBin.TrimEnd('\', '/'), $trimmedBinDir, [System.StringComparison]::OrdinalIgnoreCase)
+    if ($standalone) {
+        $stagedInstall = $true
+    } elseif ($DirWasExplicit -and -not $sameDir) {
+        $leafName = Split-Path -Leaf $trimmedBinDir
+        $parentDir = Split-Path -Parent $trimmedBinDir
+        if ([string]::Equals($leafName, 'bin', [System.StringComparison]::OrdinalIgnoreCase) -and
+            -not [string]::IsNullOrEmpty($parentDir) -and
+            (Test-Path -LiteralPath (Join-Path $parentDir '.crates.toml'))) {
+            $explicitCargoRoot = $parentDir
+            $cargoBin = $trimmedBinDir
+        } else {
+            Assert-DedicatedInstallDirectory $trimmedBinDir
+            $stagedInstall = $true
+        }
+        Set-PreviousVersion $trimmedBinDir
+    } else {
+        # Any existing install that matters here is cargo's, so re-read the
+        # previous version from there before the build overwrites it.
+        Set-PreviousVersion $cargoBin
     }
-    # Any existing install that matters here is cargo's, so re-read the previous
-    # version from there before the build overwrites it.
-    if (-not $standalone) { Set-PreviousVersion $cargoBin }
 
     Write-LogSection 'install'
     Write-StepStart 'building' 'proa-cli from source, this takes several minutes'
     Write-Blank
 
     try {
-        if ($standalone) {
+        if ($explicitCargoRoot) {
+            $arguments += @('--root', $explicitCargoRoot)
+        }
+        if ($stagedInstall) {
             $cargoRoot = Join-Path ([IO.Path]::GetTempPath()) ('proa-source-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $cargoRoot -Force | Out-Null
             $arguments += @('--root', $cargoRoot, '--force')
@@ -2417,15 +2454,26 @@ function Install-FromSource {
         Write-KeyValue 'source' 'crates.io/proa-cli (built on this machine)'
         Write-LogLine 'INFO' ('running: cargo ' + ($arguments -join ' '))
         $code = Invoke-NativeCommand 'cargo' $arguments
-        if ($standalone -and $code -eq 0) {
-            if (-not (Publish-ProaBundle (Join-Path $cargoRoot 'bin') $BinDir $VersionText)) {
-                Stop-Install 'the standalone helper is unavailable'
+        if ($stagedInstall -and $code -eq 0) {
+            $stagedBin = Join-Path $cargoRoot 'bin'
+            if ($standalone) {
+                if (-not (Publish-ProaBundle $stagedBin $BinDir $VersionText)) {
+                    Stop-Install 'the standalone helper is unavailable'
+                }
+            } else {
+                New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+                if (-not (Publish-ProaBundle $stagedBin $BinDir $VersionText)) {
+                    Copy-Binary (Join-Path $stagedBin 'proa.exe') (Join-Path $BinDir 'proa.exe')
+                    Copy-Binary (Join-Path $stagedBin 'cargo-proa.exe') (Join-Path $BinDir 'cargo-proa.exe')
+                }
             }
             $script:FilesWritten = $true
+            Write-Blank
+            Write-StepOk 'installed' ('proa, cargo-proa into ' + (Get-DisplayPath $BinDir))
             return (Join-Path $BinDir 'proa.exe')
         }
     } finally {
-        if ($standalone -and $cargoRoot) { Remove-TempDirectory $cargoRoot }
+        if ($stagedInstall -and $cargoRoot) { Remove-TempDirectory $cargoRoot }
     }
     if ($code -ne 0) {
         Stop-Install 'cargo install failed' @(

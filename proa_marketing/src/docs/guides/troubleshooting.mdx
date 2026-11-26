@@ -240,13 +240,16 @@ curl -fsSL https://proa.so/install.sh | PROA_BUILD_FROM_SOURCE=1 sh
 
 ## No Prebuilt Binary For This Platform
 
-For now, Proa publishes one native release binary:
-`x86_64-unknown-linux-gnu`, built on Ubuntu 24.04. It supports 64-bit Ubuntu
-24.04+ and other glibc 2.39+ Linux systems. On anything else, including older
-Ubuntu releases, ARM Linux, Alpine and other musl distributions, macOS,
-Windows, FreeBSD, and 32-bit hosts, the installer reports that it found no
-matching asset and compiles the CLI with Cargo instead. For an official released
-version, this fallback builds from crates.io without GitHub credentials:
+Proa publishes prebuilt release binaries for Linux x86_64 and arm64
+(`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`, built on Ubuntu
+24.04 for glibc 2.39+ systems), Apple Silicon macOS (`aarch64-apple-darwin`),
+and Windows x86_64 and arm64 (`x86_64-pc-windows-msvc` and
+`aarch64-pc-windows-msvc`). On Alpine and other musl distributions, Intel
+macOS, FreeBSD, and 32-bit hosts, the installer reports that it found no
+matching asset and compiles the CLI with Cargo instead. On Linux with a glibc
+older than 2.39, the downloaded binary cannot start, so the installer stops
+without changing anything; rerun it with `--build-from-source`. For an official
+released version, the source build uses crates.io without GitHub credentials:
 
 ```bash
 cargo install proa-cli --locked

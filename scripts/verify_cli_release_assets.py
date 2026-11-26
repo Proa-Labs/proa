@@ -9,13 +9,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import re
+import stat
 import sys
 import tarfile
+import zipfile
 from pathlib import Path, PurePosixPath
 
 
 TARGETS = (
     "aarch64-apple-darwin",
+    "aarch64-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 )
 VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?$")
@@ -26,6 +31,14 @@ class VerificationError(RuntimeError):
     """A release directory does not satisfy the installer contract."""
 
 
+def is_windows_target(target: str) -> bool:
+    return "-windows-" in target
+
+
+def archive_extension(target: str) -> str:
+    return ".zip" if is_windows_target(target) else ".tar.gz"
+
+
 def validate_version(version: str) -> None:
     if not VERSION_PATTERN.fullmatch(version):
         raise VerificationError(f"invalid proa-cli release version: {version!r}")
@@ -33,7 +46,9 @@ def validate_version(version: str) -> None:
 
 def expected_archives(version: str) -> tuple[str, ...]:
     validate_version(version)
-    return tuple(sorted(f"proa-cli-{version}-{target}.tar.gz" for target in TARGETS))
+    return tuple(
+        sorted(f"proa-cli-{version}-{target}{archive_extension(target)}" for target in TARGETS)
+    )
 
 
 def checksum_name(version: str) -> str:
@@ -55,7 +70,7 @@ def sha256_file(path: Path) -> str:
 
 def expected_archive_files(version: str, target: str) -> set[str]:
     root = f"proa-cli-{version}-{target}"
-    binaries = {"proa", "cargo-proa"}
+    binaries = {"proa.exe", "cargo-proa.exe"} if is_windows_target(target) else {"proa", "cargo-proa"}
     return {f"{root}/{name}" for name in (*sorted(binaries), "README.md", "LICENSE")}
 
 
@@ -93,12 +108,45 @@ def verify_tar_archive(path: Path, version: str, target: str) -> None:
         )
 
 
+def verify_zip_archive(path: Path, version: str, target: str) -> None:
+    files: set[str] = set()
+    with zipfile.ZipFile(path, "r") as archive:
+        for info in archive.infolist():
+            name = validate_member_name(info.filename, path)
+            if info.is_dir():
+                continue
+            unix_mode = info.external_attr >> 16
+            if stat.S_ISLNK(unix_mode):
+                raise VerificationError(
+                    f"unsupported non-file member {info.filename!r} in {path.name}"
+                )
+            if name in files:
+                raise VerificationError(f"duplicate member {name!r} in {path.name}")
+            if info.file_size <= 0:
+                raise VerificationError(f"empty release file {name!r} in {path.name}")
+            files.add(name)
+
+    expected = expected_archive_files(version, target)
+    if files != expected:
+        raise VerificationError(
+            f"{path.name} members differ: expected {sorted(expected)}, found {sorted(files)}"
+        )
+
+
 def target_from_archive(name: str, version: str) -> str:
     prefix = f"proa-cli-{version}-"
     if not name.startswith(prefix):
         raise VerificationError(f"unexpected release archive name: {name}")
     if name.endswith(".tar.gz"):
-        return name[len(prefix) : -len(".tar.gz")]
+        target = name[len(prefix) : -len(".tar.gz")]
+        if is_windows_target(target):
+            raise VerificationError(f"unexpected release archive extension: {name}")
+        return target
+    if name.endswith(".zip"):
+        target = name[len(prefix) : -len(".zip")]
+        if not is_windows_target(target):
+            raise VerificationError(f"unexpected release archive extension: {name}")
+        return target
     raise VerificationError(f"unexpected release archive extension: {name}")
 
 
@@ -137,7 +185,10 @@ def verify_distribution(directory: Path, version: str) -> Path:
         target = target_from_archive(archive_name, version)
         if target not in TARGETS:
             raise VerificationError(f"unexpected target in {archive_name}")
-        verify_tar_archive(archive, version, target)
+        if archive_name.endswith(".zip"):
+            verify_zip_archive(archive, version, target)
+        else:
+            verify_tar_archive(archive, version, target)
 
         sidecar = directory / f"{archive_name}.sha256"
         if not sidecar.is_file():
@@ -189,7 +240,7 @@ def main() -> int:
         destination = verify_distribution(args.directory, args.version)
         print(f"verified the proa-cli archive and wrote {destination}")
         return 0
-    except (OSError, tarfile.TarError, VerificationError) as error:
+    except (OSError, tarfile.TarError, zipfile.BadZipFile, VerificationError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 
