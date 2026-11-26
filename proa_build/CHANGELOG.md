@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa_build-v0.1.0...proa_build-v0.2.0) - 2026-11-26
+
+### Other
+
+- Speed up proa dev HMR (3.5s -> 1.7s) and cut proa-rsjs disk usage by 69% ([#114](https://github.com/Proa-Labs/proa/pull/114))
+
 ## [0.1.0](https://github.com/Proa-Labs/proa/releases/tag/proa_build-v0.1.0) - 2026-11-24
 
 ### Fixed
