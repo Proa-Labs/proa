@@ -1025,7 +1025,7 @@ fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
         assert!(help.contains(flag), "`proa dev --help` is missing {flag}");
     }
 
-    // The watcher polls every 100ms, so a shorter window promises a precision
+    // The watcher polls every 50ms, so a shorter window promises a precision
     // it cannot deliver. Rejecting it must cost nothing: no build, no bound
     // port, no spawned server.
     let rejected = proa(
@@ -1041,7 +1041,7 @@ fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
     );
     assert!(!rejected.status.success());
     assert!(
-        stderr(&rejected).contains("below the 100ms file-watch poll interval"),
+        stderr(&rejected).contains("below the 50ms file-watch poll interval"),
         "{}",
         stderr(&rejected)
     );
