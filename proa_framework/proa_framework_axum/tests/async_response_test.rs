@@ -3,34 +3,38 @@
 
 //! Integration tests for buffered async `RouteResponse` rendering.
 //!
-//! Drives an async `WebRender` component through the framework's `IntoResponse`
-//! impl end-to-end: build an axum router, install `RouteContextLayer`, fire a
-//! `oneshot` request, and assert the rendered body contains the bytes the
-//! async component produced (including content written *after* a real
-//! `.await`). This proves the `block_in_place` + `Handle::block_on` bridge
-//! inside `into_http_response` drives the future to completion before returning
-//! the HTTP response.
+//! Drives async `WebRender` and `WebRenderSend` components end-to-end: build
+//! an axum router, install `RouteContextLayer`, fire a `oneshot` request, and
+//! assert the rendered body contains the bytes the component produced
+//! (including content written *after* a real `.await`).
 //!
-//! We explicitly use `#[tokio::test(flavor = "multi_thread")]` so that
-//! `tokio::task::block_in_place` is actually available (it panics on the
-//! current-thread runtime). Axum's default runtime is multi-threaded, so this
-//! matches real-world usage.
+//! Handlers either await the response (`RouteResponse::ssr_async(page).await`)
+//! or return it for `IntoResponse`. Most tests use the default
+//! `#[tokio::test]` current-thread runtime, which is what application tests
+//! reach for first: there an un-awaited buffered render must never block
+//! inside the handler's `into_response`.
 
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{header, HeaderName, HeaderValue, Request, StatusCode},
+    response::Response,
     routing::get,
+    Router,
 };
 use proa_core::render::RenderOutcome;
 use proa_core::{
     await_component, render_to_string_async, to_async, DataLoader, LoadError, LoadKey, LoadRequest,
-    LoadValue, RenderBuffer, WebContext, WebRender, WriteBuf, WriteError,
+    LoadValue, RenderBuffer, SendWebContext, WebContext, WebRender, WebRenderSend, WriteBuf,
+    WriteError,
 };
-use proa_framework_axum::{router_from_spec, Route, RouteContextLayer, RouteResponse};
+use proa_framework_axum::{
+    router_from_spec, PageCache, PageCacheLayer, Route, RouteContextLayer, RouteResponse,
+};
 use proa_macros::{html, html_sync};
 use tower::ServiceExt;
 
@@ -205,7 +209,7 @@ impl<L: ::proa_core::DataLoader> WebRender<L, RenderBuffer> for LoadedHtmlLeaf {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn ssr_async_renders_async_component() {
     let routes = vec![Route::endpoint(
         "/hello",
@@ -232,7 +236,7 @@ async fn ssr_async_renders_async_component() {
     assert_eq!(body.as_ref(), b"<p>hello world</p>");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn ssr_async_sets_default_security_headers() {
     let routes = vec![Route::endpoint(
         "/hello",
@@ -263,7 +267,7 @@ async fn ssr_async_sets_default_security_headers() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn route_render_installs_request_location_on_context() {
     let routes = vec![Route::endpoint(
         "/dashboard",
@@ -291,7 +295,7 @@ async fn route_render_installs_request_location_on_context() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn route_render_installs_route_params_on_context() {
     let routes = vec![Route::endpoint(
         "/products/{id}",
@@ -319,7 +323,7 @@ async fn route_render_installs_route_params_on_context() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn route_render_installs_request_headers_on_context() {
     let routes = vec![Route::endpoint(
         "/request",
@@ -349,7 +353,7 @@ async fn route_render_installs_request_headers_on_context() {
     );
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn route_render_applies_staged_response_context() {
     let routes = vec![Route::endpoint(
         "/response",
@@ -381,7 +385,7 @@ async fn route_render_applies_staged_response_context() {
     assert_eq!(String::from_utf8(body.to_vec()).unwrap(), "<p>response</p>");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn html_macro_supports_async_children_and_borrowed_locals() {
     let suffix = String::from("tail");
     let page = html! {
@@ -417,7 +421,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn ssr_async_accepts_sync_component_via_adapter() {
     let routes = vec![Route::endpoint(
         "/sync",
@@ -437,7 +441,7 @@ async fn ssr_async_accepts_sync_component_via_adapter() {
     assert_eq!(body.as_ref(), b"<p>sync adapter</p>");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn ssr_async_dedupes_duplicate_loader_keys_within_request() {
     let loader = Arc::new(CountingLoader::default());
     let routes = vec![Route::endpoint(
@@ -494,4 +498,657 @@ async fn ssr_async_dedupes_duplicate_loader_keys_within_request() {
         b"<main><span class=\"leaf\">first</span><span class=\"leaf\">second</span></main>"
     );
     assert_eq!(loader.calls.load(Ordering::SeqCst), 1);
+}
+
+/// Writes around a real yield in both the local and the `Send` render graph.
+struct Yielding(&'static str);
+
+impl WebRender for Yielding {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            WriteBuf::extend_str(&mut cx.out, "<p>")?;
+            tokio::task::yield_now().await;
+            WriteBuf::extend_str(&mut cx.out, self.0)?;
+            WriteBuf::extend_str(&mut cx.out, "</p>")
+        })
+    }
+}
+
+impl WebRenderSend for Yielding {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            cx.output_mut().extend_str("<p>")?;
+            tokio::task::yield_now().await;
+            cx.output_mut().extend_str(self.0)?;
+            cx.output_mut().extend_str("</p>")
+        })
+    }
+}
+
+/// Stages status and headers only after an await.
+struct Staged;
+
+impl Staged {
+    fn stage(response: &mut proa_core::ResponseContext) {
+        response.set_status(StatusCode::CREATED);
+        response.insert_header(
+            HeaderName::from_static("x-render"),
+            HeaderValue::from_static("async"),
+        );
+        response.append_header(header::VARY, HeaderValue::from_static("Origin"));
+    }
+}
+
+impl WebRender for Staged {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::task::yield_now().await;
+            Self::stage(cx.response_mut());
+            WriteBuf::extend_str(&mut cx.out, "<p>staged</p>")
+        })
+    }
+}
+
+impl WebRenderSend for Staged {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            tokio::task::yield_now().await;
+            Self::stage(cx.response_mut());
+            cx.output_mut().extend_str("<p>staged</p>")
+        })
+    }
+}
+
+/// Fails after an await, once response finalization has started.
+struct Fails;
+
+impl WebRender for Fails {
+    fn render(
+        self,
+        _: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async {
+            tokio::task::yield_now().await;
+            Err(WriteError::render("private diagnostic"))
+        })
+    }
+}
+
+impl WebRenderSend for Fails {
+    fn render_send(
+        self,
+        _: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async {
+            tokio::task::yield_now().await;
+            Err(WriteError::render("private diagnostic"))
+        })
+    }
+}
+
+/// Reads the route's metadata after an await, as `render_metadata_head` does.
+struct MetadataTitle;
+
+impl WebRender for MetadataTitle {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::task::yield_now().await;
+            let title = proa_framework_axum::resolved_metadata()
+                .and_then(|metadata| metadata.title)
+                .unwrap_or_default();
+            WriteBuf::extend_str(&mut cx.out, &title)
+        })
+    }
+}
+
+fn app(routes: Vec<Route<()>>) -> Router {
+    let (router, computed_metadata) = router_from_spec(routes);
+    router.layer(RouteContextLayer::new(computed_metadata))
+}
+
+async fn fetch(app: &Router, uri: &str) -> Response {
+    let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), app.clone().oneshot(request))
+        .await
+        .expect("buffered async finalization must not hang")
+        .unwrap()
+}
+
+async fn text(response: Response) -> String {
+    String::from_utf8(
+        to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap()
+}
+
+/// Both buffered constructors, with and without a `Send` render graph.
+fn local_and_send<P>(page: fn() -> P) -> Vec<Route<()>>
+where
+    P: WebRender + WebRenderSend + Send + 'static,
+{
+    vec![
+        Route::endpoint(
+            "/local",
+            get(move || async move { RouteResponse::ssr_async(page()) }),
+        ),
+        Route::endpoint(
+            "/send",
+            get(move || async move { RouteResponse::ssr_async_send(page()) }),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn buffered_async_preserves_page_status_and_headers() {
+    let app = app(local_and_send(|| Staged));
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(response.status(), StatusCode::CREATED, "{uri}");
+        assert_eq!(response.headers()["x-render"], "async", "{uri}");
+        assert_eq!(response.headers()[header::VARY], "Origin", "{uri}");
+        assert_eq!(
+            response.headers()["x-content-type-options"],
+            "nosniff",
+            "{uri}"
+        );
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "{uri}"
+        );
+        assert_eq!(text(response).await, "<p>staged</p>", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn buffered_async_render_errors_become_http_500() {
+    let app = app(local_and_send(|| Fails));
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{uri}"
+        );
+        assert_eq!(text(response).await, "render error", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn buffered_async_client_payload_is_json() {
+    let app = app(local_and_send(|| Staged));
+    for uri in ["/local", "/send"] {
+        let request = Request::builder()
+            .uri(uri)
+            .header("X-Proa-Client", "1")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED, "{uri}");
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/json; charset=utf-8",
+            "{uri}"
+        );
+        let payload: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+        assert_eq!(payload["html"], "<p>staged</p>", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn handler_wrappers_apply_over_the_rendered_page() {
+    let app = app(vec![Route::endpoint(
+        "/missing",
+        get(|| async {
+            (
+                StatusCode::NOT_FOUND,
+                [(header::CACHE_CONTROL, "no-store")],
+                RouteResponse::ssr_async(Staged),
+            )
+        }),
+    )]);
+    let response = fetch(&app, "/missing").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(response.headers()["x-render"], "async");
+    assert_eq!(text(response).await, "<p>staged</p>");
+}
+
+#[tokio::test]
+async fn buffered_async_render_reads_its_route_context() {
+    let app = app(vec![Route::page(
+        "/about",
+        "About us",
+        get(|| async { RouteResponse::ssr_async(MetadataTitle) }),
+    )]);
+    let response = fetch(&app, "/about").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(text(response).await, "About us");
+}
+
+#[tokio::test]
+async fn origin_page_cache_stores_buffered_async_pages() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let route = |path: &'static str, send: bool| {
+        let calls = Arc::clone(&calls);
+        Route::endpoint(
+            path,
+            get(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    if send {
+                        RouteResponse::ssr_async_send(Yielding("cached"))
+                    } else {
+                        RouteResponse::ssr_async(Yielding("cached"))
+                    }
+                }
+            }),
+        )
+        .with_page_cache(PageCacheLayer::new("build"))
+    };
+    let app = app(vec![route("/local", false), route("/send", true)]);
+    for uri in ["/local", "/send"] {
+        for expected in ["MISS", "HIT"] {
+            let response = fetch(&app, uri).await;
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            assert_eq!(response.headers()["x-proa-page-cache"], expected, "{uri}");
+            assert_eq!(text(response).await, "<p>cached</p>", "{uri}");
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn cdn_page_cache_sees_the_rendered_html() {
+    let app = app(local_and_send(|| Yielding("edge"))
+        .into_iter()
+        .map(|route| route.with_page_cache(PageCache::new()))
+        .collect());
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        let policy = response.headers()[header::CACHE_CONTROL].to_str().unwrap();
+        assert!(policy.contains("public"), "{uri}: {policy}");
+        assert_eq!(text(response).await, "<p>edge</p>", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn buffered_async_outside_route_context_is_a_clear_error() {
+    let router = Router::new()
+        .route(
+            "/local",
+            get(|| async { RouteResponse::ssr_async(Yielding("unreachable")) }),
+        )
+        .route(
+            "/send",
+            get(|| async { RouteResponse::ssr_async_send(Yielding("unreachable")) }),
+        );
+    for uri in ["/local", "/send"] {
+        let response = fetch(&router, uri).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{uri}"
+        );
+        assert_eq!(text(response).await, "invalid route context", "{uri}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn buffered_async_renders_on_a_multi_thread_runtime() {
+    let app = app(local_and_send(|| Yielding("threads")));
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(text(response).await, "<p>threads</p>", "{uri}");
+    }
+}
+
+/// Writes the name of the thread that polls the render.
+struct ThreadName;
+
+fn thread_name() -> String {
+    std::thread::current().name().unwrap_or("").to_owned()
+}
+
+impl WebRender for ThreadName {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::task::yield_now().await;
+            WriteBuf::extend_str(&mut cx.out, &thread_name())
+        })
+    }
+}
+
+impl WebRenderSend for ThreadName {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            tokio::task::yield_now().await;
+            cx.output_mut().extend_str(&thread_name())
+        })
+    }
+}
+
+#[tokio::test]
+async fn send_renders_are_polled_directly_and_local_renders_stay_pinned() {
+    let app = app(local_and_send(|| ThreadName));
+    let local = text(fetch(&app, "/local").await).await;
+    assert!(local.starts_with("proa-stream-"), "{local}");
+    let send = text(fetch(&app, "/send").await).await;
+    assert_eq!(send, thread_name());
+}
+
+/// Holds the render open so a burst is in flight at once.
+struct Held;
+
+impl WebRender for Held {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            WriteBuf::extend_str(&mut cx.out, "<p>held</p>")
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn buffered_async_bursts_queue_instead_of_failing() {
+    // More concurrent pages than the default stream admission limit.
+    let app = app(vec![Route::endpoint(
+        "/held",
+        get(|| async { RouteResponse::ssr_async(Held).await }),
+    )]);
+    let responses = futures::future::join_all((0..1_500).map(|_| fetch(&app, "/held"))).await;
+    for response in responses {
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+}
+
+#[tokio::test]
+async fn an_explicit_200_wrapper_wins_like_any_other_status() {
+    let app = app(vec![
+        Route::endpoint(
+            "/local",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async(Staged)) }),
+        ),
+        Route::endpoint(
+            "/send",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async_send(Staged)) }),
+        ),
+        Route::endpoint(
+            "/failed",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async(Fails)) }),
+        ),
+    ]);
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(response.headers()["x-render"], "async", "{uri}");
+        assert_eq!(text(response).await, "<p>staged</p>", "{uri}");
+    }
+    // As when the render ran inside `into_response`, the wrapper's status
+    // also replaces the render error's 500.
+    let response = fetch(&app, "/failed").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(text(response).await, "render error");
+}
+
+#[tokio::test]
+async fn middleware_outside_route_context_sees_only_final_statuses() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = Arc::clone(&seen);
+    let mut routes = local_and_send(|| Staged);
+    routes.push(Route::endpoint(
+        "/plain",
+        get(|| async { RouteResponse::ssr_async(Yielding("plain")) }),
+    ));
+    let app = app(routes).layer(tower::util::MapResponseLayer::new(
+        move |response: Response| {
+            record.lock().unwrap().push(response.status());
+            response
+        },
+    ));
+    for uri in ["/local", "/send", "/plain"] {
+        let response = fetch(&app, uri).await;
+        assert_ne!(response.status().as_u16(), 299, "{uri}");
+        assert!(!text(response).await.is_empty(), "{uri}");
+    }
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [StatusCode::CREATED, StatusCode::CREATED, StatusCode::OK]
+    );
+}
+
+/// Both buffered constructors, awaited in their handlers.
+fn awaited_local_and_send<P>(page: fn() -> P) -> Vec<Route<()>>
+where
+    P: WebRender + WebRenderSend + Send + 'static,
+{
+    vec![
+        Route::endpoint(
+            "/local",
+            get(move || async move { RouteResponse::ssr_async(page()).await }),
+        ),
+        Route::endpoint(
+            "/send",
+            get(move || async move { RouteResponse::ssr_async_send(page()).await }),
+        ),
+    ]
+}
+
+async fn awaited_renders_finish_in_the_handler() {
+    let app = app(awaited_local_and_send(|| Staged));
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(response.status(), StatusCode::CREATED, "{uri}");
+        assert_eq!(response.headers()["x-render"], "async", "{uri}");
+        assert_eq!(response.headers()[header::VARY], "Origin", "{uri}");
+        assert_eq!(text(response).await, "<p>staged</p>", "{uri}");
+    }
+    let app = self::app(awaited_local_and_send(|| Fails));
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        let status = response.status();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{uri}");
+        assert_eq!(text(response).await, "render error", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn awaited_renders_finish_in_the_handler_on_a_current_thread_runtime() {
+    awaited_renders_finish_in_the_handler().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn awaited_renders_finish_in_the_handler_on_a_multi_thread_runtime() {
+    awaited_renders_finish_in_the_handler().await;
+}
+
+#[tokio::test]
+async fn awaited_sync_plans_streams_and_client_payloads_resolve() {
+    let app = app(vec![
+        Route::endpoint(
+            "/sync",
+            get(|| async { RouteResponse::ssr(SyncGreeting { name: "now" }).await }),
+        ),
+        Route::endpoint(
+            "/stream",
+            get(|| async { RouteResponse::ssr_stream(Yielding("streamed")).await }),
+        ),
+        Route::endpoint(
+            "/local",
+            get(|| async { RouteResponse::ssr_async(Staged).await }),
+        ),
+    ]);
+    assert_eq!(text(fetch(&app, "/sync").await).await, "<p>sync now</p>");
+    assert_eq!(text(fetch(&app, "/stream").await).await, "<p>streamed</p>");
+    let request = Request::builder()
+        .uri("/local")
+        .header("X-Proa-Client", "1")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let payload: serde_json::Value = serde_json::from_str(&text(response).await).unwrap();
+    assert_eq!(payload["html"], "<p>staged</p>");
+}
+
+#[tokio::test]
+async fn awaited_render_wrappers_apply_over_the_rendered_page() {
+    let app = app(vec![
+        Route::endpoint(
+            "/missing",
+            get(|| async {
+                (
+                    StatusCode::NOT_FOUND,
+                    [(header::CACHE_CONTROL, "no-store")],
+                    RouteResponse::ssr_async(Staged).await,
+                )
+            }),
+        ),
+        Route::endpoint(
+            "/ok",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async_send(Staged).await) }),
+        ),
+    ]);
+    let response = fetch(&app, "/missing").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert_eq!(response.headers()["x-render"], "async");
+    assert_eq!(text(response).await, "<p>staged</p>");
+    let response = fetch(&app, "/ok").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-render"], "async");
+}
+
+#[tokio::test]
+async fn awaited_render_reads_its_route_context() {
+    let app = app(vec![Route::page(
+        "/about",
+        "About us",
+        get(|| async { RouteResponse::ssr_async(MetadataTitle).await }),
+    )]);
+    assert_eq!(text(fetch(&app, "/about").await).await, "About us");
+}
+
+#[tokio::test]
+async fn awaited_render_outside_route_context_is_a_clear_error() {
+    let router = Router::new()
+        .route(
+            "/local",
+            get(|| async { RouteResponse::ssr_async(Yielding("unreachable")).await }),
+        )
+        .route(
+            "/send",
+            get(|| async { RouteResponse::ssr_async_send(Yielding("unreachable")).await }),
+        );
+    for uri in ["/local", "/send"] {
+        let response = fetch(&router, uri).await;
+        let status = response.status();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{uri}");
+        assert_eq!(text(response).await, "invalid route context", "{uri}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn awaited_local_renders_run_on_the_pool_and_send_renders_on_the_handler() {
+    let app = app(awaited_local_and_send(|| ThreadName));
+    let local = text(fetch(&app, "/local").await).await;
+    assert!(local.starts_with("proa-stream-"), "{local}");
+    let send = text(fetch(&app, "/send").await).await;
+    assert_eq!(send, thread_name());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unawaited_renders_block_a_multi_thread_worker_as_before() {
+    // Without `.await`, `into_response` renders in place with
+    // `block_in_place`, on the handler's worker, local renders included.
+    let app = app(local_and_send(|| ThreadName));
+    for uri in ["/local", "/send"] {
+        assert_eq!(text(fetch(&app, uri).await).await, thread_name(), "{uri}");
+    }
+}
+
+/// Waits on a timer the runtime must keep driving.
+struct Sleeps;
+
+impl WebRender for Sleeps {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            WriteBuf::extend_str(&mut cx.out, "<p>slept</p>")
+        })
+    }
+}
+
+impl WebRenderSend for Sleeps {
+    fn render_send(
+        self,
+        cx: &mut SendWebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            cx.output_mut().extend_str("<p>slept</p>")
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_thousand_concurrent_awaited_renders_that_sleep_do_not_deadlock() {
+    // Blocking each handler's worker in place, as un-awaited responses do
+    // here, takes one blocking-pool thread per render; at this concurrency
+    // the pool runs out and nothing drives the timer. Awaited renders hold
+    // no thread while they wait.
+    let app = app(awaited_local_and_send(|| Sleeps));
+    for uri in ["/local", "/send"] {
+        let requests: Vec<_> = (0..2_000)
+            .map(|_| {
+                let app = app.clone();
+                tokio::spawn(async move {
+                    let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
+                    let response = app.oneshot(request).await.unwrap();
+                    (response.status(), text(response).await)
+                })
+            })
+            .collect();
+        let finished =
+            tokio::time::timeout(Duration::from_secs(30), futures::future::join_all(requests))
+                .await
+                .expect("2,000 awaited renders must finish");
+        for result in finished {
+            let (status, body) = result.unwrap();
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(body, "<p>slept</p>", "{uri}");
+        }
+    }
 }

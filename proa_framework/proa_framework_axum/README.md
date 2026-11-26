@@ -75,12 +75,25 @@ Return Axum's `Html`, redirects, JSON, or other ordinary responses directly
 when no Proa render is needed. Mount client-rendered SPAs through Axum router
 composition.
 
-For async pages, use `RouteResponse::ssr_async(component)`. For streamed async
+For async pages, use `RouteResponse::ssr_async(component)` and await it in the
+handler:
+
+```rust,ignore
+async fn handler() -> axum::response::Response {
+    RouteResponse::ssr_async(Page).await
+}
+```
+
+The render then finishes inside the handler, so every middleware sees the
+finished page and a render error as a 500. Returned without `.await`, a
+buffered render blocks a multi-thread worker until it finishes, or, on a
+current-thread runtime, is finished by `RouteContextLayer` behind an empty
+placeholder that inner middleware sees. For streamed async
 pages with explicit fallback boundaries, use
 `RouteResponse::ssr_stream(component)` plus `proa_stream::Suspense`. These
-compatible paths allow local futures and use the bounded pinned-worker pool for
-streaming. If the full tree implements `WebRenderSend`, pair `html_send!` with
-`ssr_async_send(...)` or `ssr_stream_send(...)`; the latter bypasses the local
+compatible paths allow local futures and use the bounded pinned-worker pool.
+If the full tree implements `WebRenderSend`, pair `html_send!` with
+`ssr_async_send(...)` or `ssr_stream_send(...)`, which bypass the local
 pool. Sync components can opt into the local async path with
 `proa_core::to_async(...)`, but `RouteResponse::ssr(...)` remains the preferred
 path for normal sync pages.
