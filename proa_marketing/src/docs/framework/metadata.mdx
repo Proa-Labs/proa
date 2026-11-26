@@ -62,7 +62,7 @@ use proa::axum::FrameworkBuilder;
 let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(router)
-    .build();
+    .try_build()?;
 ```
 
 Use `.without_head()` on a response that keeps a manual document. Components declaring `ROLE = LAYOUT` or `ROLE = PAGE` must render inside a managed document, even without a head hook. Layouts precede the selected Page and cannot render after sealing or inside Suspense/captures/fallbacks. Use the default `COMPONENT` role for body-only wrappers or manual rendering.
@@ -186,7 +186,7 @@ let head = HeadConfig::default()
 let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 Page and layout hooks can override these defaults. Call `with_urls` before `with_defaults`: default URLs are resolved when they are configured.
