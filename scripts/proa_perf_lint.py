@@ -365,9 +365,16 @@ def is_suppressed(line: str, previous_line: str) -> bool:
 # matching the RSJS dialect and `cargo proa lint`.
 RSJS_CALL_PREFIX = r"(?<![\w:.])(?:(?:::)?rsjs::)?"
 
+STRING_NEW = r"(?:(?:::)?std::string::)?String::new\s*\(\s*\)"
+VEC_NEW = r"(?:(?:::)?(?:std|alloc)::vec::)?Vec::new\s*\(\s*\)"
+
 EMPTY_SIGNAL_SEED = re.compile(
     RSJS_CALL_PREFIX
-    + r"signal\s*(?:::\s*<[^()]*?>\s*)?\(\s*((?:String|Vec)::new\s*\(\s*\))\s*,?\s*\)"
+    + r"signal\s*(?:::\s*<[^;{}]*?>\s*)?\(\s*("
+    + STRING_NEW
+    + "|"
+    + VEC_NEW
+    + r")\s*,?\s*\)"
 )
 
 
@@ -375,11 +382,61 @@ def empty_signal_seed_spans(code_lines: list[str]) -> list[tuple[int, int]]:
     """Return offsets of `signal(String::new())` / `signal::<Vec<T>>(Vec::new())` seeds.
 
     Neither constructor allocates, and RSJS needs the owned type so handlers
-    can write runtime values into the signal. Formatting and a trailing comma
-    do not matter. Offsets index the masked lines joined with newlines.
+    can write runtime values into the signal. Formatting, a trailing comma, a
+    turbofish, and a `std::` path do not matter. Offsets index the masked
+    lines joined with newlines.
     """
     text = "\n".join(code_lines)
     return [seed.span(1) for seed in EMPTY_SIGNAL_SEED.finditer(text)]
+
+
+# An attribute that makes RSJS analyze the item it is on, mirroring
+# `rsjs_line_ranges` in `proa_source_tools`.
+RSJS_ITEM_ATTRIBUTE = re.compile(
+    r"#\s*\[\s*(?:::)?(?:\w+\s*::\s*)*(?:rsjs|client|client_module)\s*[(\]]"
+)
+
+
+def rsjs_item_spans(code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of items RSJS analyzes, from the attribute to the closing `}`.
+
+    Covers `#[rsjs(...)]` impls and functions, `#[client]` functions, and
+    client modules. Offsets match `empty_signal_seed_spans`.
+    """
+    text = "\n".join(code_lines)
+    spans: list[tuple[int, int]] = []
+    for attribute in RSJS_ITEM_ATTRIBUTE.finditer(text):
+        index = text.index("[", attribute.start())
+        depth = 0
+        # Skip the rest of the attribute, then the item header up to its body.
+        # A `;` outside parentheses or brackets ends a bodiless item.
+        body_start = None
+        while index < len(text):
+            char = text[index]
+            if char in "([":
+                depth += 1
+            elif char in ")]":
+                depth -= 1
+            elif char == ";" and depth == 0:
+                break
+            elif char == "{" and depth == 0:
+                body_start = index
+                break
+            index += 1
+        if body_start is None:
+            continue
+        depth = 0
+        for index in range(body_start, len(text)):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    spans.append((attribute.start(), index + 1))
+                    break
+        else:
+            spans.append((attribute.start(), len(text)))
+    return spans
 
 
 CLIENT_CLOSURE_CALL_OPEN = re.compile(
@@ -391,15 +448,19 @@ CLOSURE_HEAD = re.compile(r"\s*(?:move\s+)?\|[^|]*\|")
 def client_closure_call_spans(code_lines: list[str]) -> list[tuple[int, int]]:
     """Return offsets of closure arguments to browser-only RSJS primitive calls.
 
-    RSJS removes `event_handler`/`handler` declarations and `interval` timers
-    from the server program, and `debounce` only appears in event attributes,
-    so closures passed to them never run during SSR. Other arguments, such as
-    an `interval` period, still run on the server and stay linted. Offsets
+    Inside an item RSJS analyzes, RSJS removes `event_handler`/`handler`
+    declarations and `interval` timers from the server program, and
+    `debounce` only appears in event attributes, so closures passed to them
+    never run during SSR. Elsewhere the same names are ordinary functions and
+    stay linted, as do other arguments such as an `interval` period. Offsets
     match `empty_signal_seed_spans`.
     """
     text = "\n".join(code_lines)
+    rsjs_items = rsjs_item_spans(code_lines)
     spans: list[tuple[int, int]] = []
     for call in CLIENT_CLOSURE_CALL_OPEN.finditer(text):
+        if not any(start <= call.start() < end for start, end in rsjs_items):
+            continue
         index = call.end()
         depth = 1
         closure_start = None
@@ -432,18 +493,48 @@ def client_closure_call_spans(code_lines: list[str]) -> list[tuple[int, int]]:
     return spans
 
 
-SHARED_STATE_PROVIDER_OPEN = re.compile(r"(?<![\w:])(?:(?:::)?rsjs::)?SharedStateProvider\s*\{")
+SHARED_STATE_PROVIDER_OPEN = re.compile(
+    r"(?<![\w:])(?:(?:::)?rsjs::)?SharedStateProvider\s*(?:::\s*<[^;{}]*>\s*)?\{"
+)
 STATE_FIELD = re.compile(r"(?<!\w)state\s*:(?!:)")
+STRING_LITERAL = r'"(?:[^"\\]|\\.)*"'
+# A struct field initialized with an owned literal or empty value, matching
+# `expr_is_shared_state_owned_seed` in `proa_source_tools`.
+OWNED_SEED_FIELD = re.compile(
+    r"[{,]\s*[A-Za-z_]\w*\s*:\s*("
+    + r"(?:(?:::)?std::string::)?String::(?:new|default)\s*\(\s*\)"
+    + "|"
+    + VEC_NEW
+    + r"|(?:(?:::)?std::string::)?String::from\s*\(\s*"
+    + STRING_LITERAL
+    + r"\s*\)|"
+    + STRING_LITERAL
+    + r"\s*\.\s*to_(?:string|owned)\s*\(\s*\)"
+    + r")\s*(?=[,}])"
+)
 
 
-def shared_state_seed_spans(code_lines: list[str]) -> list[tuple[int, int]]:
-    """Return offsets of each `SharedStateProvider { state: ... }` value.
+def shared_state_seed_spans(lines: list[str], code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of owned literal or empty fields in `SharedStateProvider` seeds.
 
-    `#[derive(rsjs::SharedState)]` rejects borrowed fields, so the provider
-    seed must be built from owned values. Offsets match
-    `client_closure_call_spans`.
+    `#[derive(rsjs::SharedState)]` rejects borrowed fields, so a field of the
+    `state: ...` seed may be `"mode".to_string()`, `"mode".to_owned()`,
+    `String::from("mode")`, `String::new()`, `String::default()`, or
+    `Vec::new()`. Any other seed expression runs on every SSR render and stays
+    linted. Offsets match `client_closure_call_spans`.
     """
     text = "\n".join(code_lines)
+    # Literal receivers are blank in the masked text, so seed fields are
+    # matched against the original source at the same offsets.
+    source = "\n".join(lines)
+    spans: list[tuple[int, int]] = []
+    for start, end in shared_state_value_spans(text):
+        spans.extend(field.span(1) for field in OWNED_SEED_FIELD.finditer(source, start, end))
+    return spans
+
+
+def shared_state_value_spans(text: str) -> list[tuple[int, int]]:
+    """Return offsets of each `SharedStateProvider { state: ... }` value in masked text."""
     spans: list[tuple[int, int]] = []
     for provider in SHARED_STATE_PROVIDER_OPEN.finditer(text):
         depth = 0
@@ -467,7 +558,7 @@ def shared_state_seed_spans(code_lines: list[str]) -> list[tuple[int, int]]:
 
 
 EVENT_HANDLER_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{")
-EVENT_HANDLER_CLOSURE_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{\s*\|")
+EVENT_HANDLER_CLOSURE_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{\s*(?:move\s+)?\|")
 
 
 def is_client_event_handler_expression(line: str, match_start: int) -> bool:
@@ -570,7 +661,7 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
     code_lines = mask_rust_non_code(lines)
     exempt_spans = (
         client_closure_call_spans(code_lines)
-        + shared_state_seed_spans(code_lines)
+        + shared_state_seed_spans(lines, code_lines)
         + empty_signal_seed_spans(code_lines)
     )
     line_starts = [0]

@@ -200,6 +200,7 @@ fn lint_file_with_cache(
             &file,
             &suppressions,
             &test_ranges,
+            &rsjs_ranges,
             &mut diagnostics,
         );
         lint_render_functions(
@@ -207,6 +208,7 @@ fn lint_file_with_cache(
             &file,
             &suppressions,
             &test_ranges,
+            &rsjs_ranges,
             &mut diagnostics,
         );
         lint_render_helper_definitions(
@@ -562,13 +564,21 @@ fn lint_render_impls(
     file: &File,
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if is_formatter_source_generation_file(path) {
         return;
     }
 
-    lint_render_impl_items(path, &file.items, suppressions, ignored_ranges, diagnostics);
+    lint_render_impl_items(
+        path,
+        &file.items,
+        suppressions,
+        ignored_ranges,
+        rsjs_ranges,
+        diagnostics,
+    );
 }
 
 fn lint_render_impl_items(
@@ -576,6 +586,7 @@ fn lint_render_impl_items(
     items: &[Item],
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let helpers = HelperIndex::new(items);
@@ -600,6 +611,7 @@ fn lint_render_impl_items(
                     &structs,
                     suppressions,
                     ignored_ranges,
+                    rsjs_ranges,
                     diagnostics,
                 );
                 lint_markdown_render_impl(
@@ -613,7 +625,14 @@ fn lint_render_impl_items(
             }
             Item::Mod(item_mod) => {
                 if let Some((_, items)) = &item_mod.content {
-                    lint_render_impl_items(path, items, suppressions, ignored_ranges, diagnostics);
+                    lint_render_impl_items(
+                        path,
+                        items,
+                        suppressions,
+                        ignored_ranges,
+                        rsjs_ranges,
+                        diagnostics,
+                    );
                 }
             }
             _ => {}
@@ -689,6 +708,7 @@ fn explicit_component_role(expr: &Expr) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lint_render_impl(
     path: &Path,
     item_impl: &ItemImpl,
@@ -696,6 +716,7 @@ fn lint_render_impl(
     structs: &StructIndex,
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match &item_impl.trait_ {
@@ -714,7 +735,15 @@ fn lint_render_impl(
         if line_in_ranges(line, ignored_ranges) {
             continue;
         }
-        check_render_block_perf(path, &method.block, suppressions, diagnostics, true);
+        let in_rsjs_item = line_in_ranges(line, rsjs_ranges);
+        check_render_block_perf(
+            path,
+            &method.block,
+            suppressions,
+            diagnostics,
+            true,
+            in_rsjs_item,
+        );
         check_render_api_perf(path, item_impl, method, suppressions, diagnostics);
         check_owned_view_model_perf(path, &method.block, structs, suppressions, diagnostics);
         check_large_render_clone_perf(path, &method.block, suppressions, diagnostics);
@@ -1461,13 +1490,21 @@ fn lint_render_functions(
     file: &File,
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if is_formatter_source_generation_file(path) {
         return;
     }
 
-    lint_render_function_items(path, &file.items, suppressions, ignored_ranges, diagnostics);
+    lint_render_function_items(
+        path,
+        &file.items,
+        suppressions,
+        ignored_ranges,
+        rsjs_ranges,
+        diagnostics,
+    );
 }
 
 fn lint_render_function_items(
@@ -1475,6 +1512,7 @@ fn lint_render_function_items(
     items: &[Item],
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let helpers = HelperIndex::new(items);
@@ -1486,7 +1524,14 @@ fn lint_render_function_items(
                     continue;
                 }
                 let html = standalone_renders_html(item_fn);
-                check_render_block_perf(path, &item_fn.block, suppressions, diagnostics, html);
+                check_render_block_perf(
+                    path,
+                    &item_fn.block,
+                    suppressions,
+                    diagnostics,
+                    html,
+                    line_in_ranges(line, rsjs_ranges),
+                );
                 check_direct_helper_perf(
                     path,
                     &item_fn.block,
@@ -1504,6 +1549,7 @@ fn lint_render_function_items(
                         items,
                         suppressions,
                         ignored_ranges,
+                        rsjs_ranges,
                         diagnostics,
                     );
                 }
@@ -3490,7 +3536,7 @@ fn check_render_api_perf(
             .flatten()
             .map(|(prelude, template)| RsjsAsyncTail {
                 template,
-                requires_async: stmts_contain_await(prelude)
+                requires_async: stmts_await_outside_nested_futures(prelude)
                     || stmts_declare_rsjs_mutation(prelude),
             });
         check_async_html_static_subtree(path, &method.block, rsjs_tail, suppressions, diagnostics);
@@ -3894,6 +3940,7 @@ fn check_render_block_perf(
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
     html: bool,
+    in_rsjs_item: bool,
 ) {
     let mut visitor = PerfVisitor {
         path,
@@ -3905,6 +3952,7 @@ fn check_render_block_perf(
         static_markup_locals: HashSet::new(),
         handled_spans: HashSet::new(),
         html,
+        in_rsjs_item,
     };
     visitor.visit_block(block);
 }
@@ -3957,7 +4005,9 @@ fn check_direct_helper_perf_inner(
             check_manual_escape_helper_perf(path, &helper_call, helper, suppressions, diagnostics);
         }
         check_string_display_helper_perf(path, &helper_call, helper, suppressions, diagnostics);
-        check_render_block_perf(path, helper.block, suppressions, diagnostics, html);
+        // RSJS analyzes only the item it is attached to, never a helper the
+        // item calls.
+        check_render_block_perf(path, helper.block, suppressions, diagnostics, html, false);
         check_direct_helper_perf_inner(
             path,
             helper.block,
@@ -4366,6 +4416,7 @@ fn lint_node_perf(
                         path,
                         SpanOrigin::Macro(inv),
                         expr,
+                        in_rsjs_item,
                         suppressions,
                         diagnostics,
                     );
@@ -4382,7 +4433,7 @@ fn lint_node_perf(
             }
 
             for attr in &el.attrs {
-                lint_attr_perf(path, inv, attr, suppressions, diagnostics);
+                lint_attr_perf(path, inv, attr, in_rsjs_item, suppressions, diagnostics);
             }
         }
         Node::Fragment(children) => {
@@ -4403,6 +4454,7 @@ fn lint_node_perf(
                 path,
                 SpanOrigin::Macro(inv),
                 expr,
+                in_rsjs_item,
                 suppressions,
                 diagnostics,
             );
@@ -4572,6 +4624,7 @@ fn lint_attr_perf(
     path: &Path,
     inv: &MacroInvocation,
     attr: &Attribute,
+    in_rsjs_item: bool,
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -4595,9 +4648,12 @@ fn lint_attr_perf(
             if is_perf_suppressed(value) {
                 return;
             }
-            // RSJS removes event attributes from server output; an inline
-            // handler body is browser code.
-            if rsjs_event_attr_name(name.as_markup_str()) && matches!(value, Expr::Closure(_)) {
+            // RSJS removes event attributes from the server output of the
+            // items it analyzes; an inline handler body there is browser code.
+            if in_rsjs_item
+                && rsjs_event_attr_name(name.as_markup_str())
+                && matches!(value, Expr::Closure(_))
+            {
                 return;
             }
 
@@ -4648,6 +4704,7 @@ fn lint_attr_perf(
                 path,
                 SpanOrigin::Macro(inv),
                 value,
+                in_rsjs_item,
                 suppressions,
                 diagnostics,
             );
@@ -4805,6 +4862,7 @@ fn check_expr_perf(
     path: &Path,
     origin: SpanOrigin<'_>,
     expr: &Expr,
+    in_rsjs_item: bool,
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -4818,6 +4876,7 @@ fn check_expr_perf(
         static_markup_locals: HashSet::new(),
         handled_spans: HashSet::new(),
         html: true,
+        in_rsjs_item,
     };
     visitor.visit_expr(expr);
 }
@@ -5350,18 +5409,24 @@ struct PerfVisitor<'a> {
     /// Call spans already reported through a more specific rule (for
     /// example `return String::new()` sentinels), keyed by (line, column).
     handled_spans: HashSet<(usize, usize)>,
+    /// The code sits inside an item RSJS analyzes, so RSJS browser-closure
+    /// primitives there compile to browser code only.
+    in_rsjs_item: bool,
 }
 
 impl<'ast> Visit<'ast> for PerfVisitor<'_> {
     fn visit_expr_struct(&mut self, node: &'ast syn::ExprStruct) {
-        // `#[derive(rsjs::SharedState)]` rejects borrowed fields, so the
-        // provider seed must be built from owned values.
         if path_ends(&node.path, &["SharedStateProvider"]) && path_is_rsjs_dialect_call(&node.path)
         {
             for field in &node.fields {
-                if !matches!(&field.member, syn::Member::Named(name) if name == "state") {
+                if matches!(&field.member, syn::Member::Named(name) if name == "state") {
+                    self.visit_shared_state_seed(&field.expr);
+                } else {
                     self.visit_field_value(field);
                 }
+            }
+            if let Some(rest) = &node.rest {
+                self.visit_expr(rest);
             }
             return;
         }
@@ -5420,7 +5485,7 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
             return;
         }
 
-        if call_path_is_rsjs_dialect(node, RSJS_BROWSER_CLOSURE_PRIMITIVES) {
+        if self.in_rsjs_item && call_path_is_rsjs_dialect(node, RSJS_BROWSER_CLOSURE_PRIMITIVES) {
             for arg in &node.args {
                 if !matches!(arg, Expr::Closure(_)) {
                     self.visit_expr(arg);
@@ -5813,6 +5878,28 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
 }
 
 impl PerfVisitor<'_> {
+    /// Visit a `SharedStateProvider { state: .. }` seed.
+    ///
+    /// `#[derive(rsjs::SharedState)]` rejects borrowed fields, so only owned
+    /// literal or empty field initializers (`"mode".to_string()`,
+    /// `String::new()`, `Vec::new()`) are skipped, in the seed struct and any
+    /// nested struct literal. Everything else in the seed runs on every SSR
+    /// render and stays linted.
+    fn visit_shared_state_seed(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Struct(seed) => {
+                for field in &seed.fields {
+                    self.visit_shared_state_seed(&field.expr);
+                }
+                if let Some(rest) = &seed.rest {
+                    self.visit_expr(rest);
+                }
+            }
+            expr if expr_is_shared_state_owned_seed(expr) => {}
+            expr => self.visit_expr(expr),
+        }
+    }
+
     fn check_template_static_markup_raw(&mut self, node: &ExprMacro) {
         if self.static_markup_locals.is_empty() || template_macro_dialect(node).is_none() {
             return;

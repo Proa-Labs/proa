@@ -163,10 +163,6 @@ pub(crate) fn tokens_contain_await_in_literal(tokens: &proc_macro2::TokenStream)
 }
 
 pub(crate) fn block_contains_await(block: &Block) -> bool {
-    stmts_contain_await(&block.stmts)
-}
-
-pub(crate) fn stmts_contain_await(stmts: &[syn::Stmt]) -> bool {
     struct Finder {
         found: bool,
     }
@@ -187,9 +183,7 @@ pub(crate) fn stmts_contain_await(stmts: &[syn::Stmt]) -> bool {
     }
 
     let mut finder = Finder { found: false };
-    for stmt in stmts {
-        finder.visit_stmt(stmt);
-    }
+    finder.visit_block(block);
     finder.found
 }
 
@@ -1242,6 +1236,9 @@ pub(crate) fn call_path_is_rsjs_dialect(call: &ExprCall, names: &[&str]) -> bool
 /// RSJS removes `event_handler`/`handler` declarations and `interval` timers
 /// from the server program, and removes event attributes (where `debounce`
 /// lives) from server output, so these closure bodies never run during SSR.
+/// That only holds inside code RSJS analyzes: elsewhere the same names are
+/// ordinary functions (`rsjs::handler` returns its closure unchanged), so
+/// callers apply this list only within an RSJS item.
 /// `memo` and `batch` are absent: both run their closure on the server.
 pub(crate) const RSJS_BROWSER_CLOSURE_PRIMITIVES: &[&str] =
     &["event_handler", "handler", "interval", "debounce"];
@@ -1322,6 +1319,66 @@ pub(crate) fn stmts_declare_rsjs_mutation(stmts: &[syn::Stmt]) -> bool {
         finder.visit_stmt(stmt);
     }
     finder.found
+}
+
+/// True when the statements await directly, using the scan RSJS applies before
+/// it accepts a `WebRenderSync` island (`block_contains_await` in
+/// `rsjs_macros/src/parse.rs`).
+///
+/// An `.await` inside a nested `async` block or closure belongs to the future
+/// or closure that expression builds, not to the island, so it does not stop
+/// the island from being synchronous. Like RSJS, the scan does not look inside
+/// macro arguments.
+pub(crate) fn stmts_await_outside_nested_futures(stmts: &[syn::Stmt]) -> bool {
+    struct Finder {
+        found: bool,
+    }
+
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_expr_await(&mut self, _node: &'ast syn::ExprAwait) {
+            self.found = true;
+        }
+
+        fn visit_expr_async(&mut self, _node: &'ast syn::ExprAsync) {}
+
+        fn visit_expr_closure(&mut self, _node: &'ast syn::ExprClosure) {}
+    }
+
+    let mut finder = Finder { found: false };
+    for stmt in stmts {
+        finder.visit_stmt(stmt);
+    }
+    finder.found
+}
+
+/// An owned literal or empty seed for a `#[derive(rsjs::SharedState)]` field:
+/// `String::new()`, `String::default()`, `String::from("lit")`,
+/// `"lit".to_string()`, `"lit".to_owned()`, or `Vec::new()`.
+///
+/// The derive rejects borrowed fields, so a literal or empty seed has to be
+/// spelled as one of these owned values. Any other expression in a provider
+/// seed is ordinary per-render server work.
+pub(crate) fn expr_is_shared_state_owned_seed(expr: &Expr) -> bool {
+    match expr {
+        Expr::Group(group) => expr_is_shared_state_owned_seed(&group.expr),
+        Expr::Paren(paren) => expr_is_shared_state_owned_seed(&paren.expr),
+        Expr::Call(call) if call.args.is_empty() => {
+            call_path_ends(call, &["String", "new"])
+                || call_path_ends(call, &["String", "default"])
+                || call_path_ends(call, &["Vec", "new"])
+        }
+        Expr::Call(call) => {
+            call.args.len() == 1
+                && call_path_ends(call, &["String", "from"])
+                && expr_string_literal(&call.args[0]).is_some()
+        }
+        Expr::MethodCall(method) => {
+            (method.method == "to_string" || method.method == "to_owned")
+                && method.args.is_empty()
+                && expr_string_literal(&method.receiver).is_some()
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn call_path_is_rsjs_browser_helper(call: &ExprCall) -> bool {
