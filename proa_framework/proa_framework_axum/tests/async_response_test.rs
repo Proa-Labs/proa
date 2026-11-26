@@ -861,3 +861,31 @@ async fn send_renders_are_polled_directly_and_local_renders_stay_pinned() {
     let send = text(fetch(&app, "/send").await).await;
     assert_eq!(send, thread_name());
 }
+
+/// Holds the render open so a burst is in flight at once.
+struct Held;
+
+impl WebRender for Held {
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            WriteBuf::extend_str(&mut cx.out, "<p>held</p>")
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn buffered_async_bursts_queue_instead_of_failing() {
+    // More concurrent pages than the default stream admission limit.
+    let app = app(vec![Route::endpoint(
+        "/held",
+        get(|| async { RouteResponse::ssr_async(Held) }),
+    )]);
+    let responses = futures::future::join_all((0..1_500).map(|_| fetch(&app, "/held"))).await;
+    for response in responses {
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+}

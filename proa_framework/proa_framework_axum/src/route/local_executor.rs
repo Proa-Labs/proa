@@ -12,11 +12,14 @@ use proa_framework_core::{FrameworkError, FrameworkLocalStreamFactory, Framework
 use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tokio_stream::wrappers::ReceiverStream;
 
-/// Resource limits for the pinned local streaming executor.
+/// Resource limits for the pinned local render executor.
 ///
-/// The pool owns exactly `worker_threads` long-lived threads. `max_in_flight`
-/// bounds queued plus active responses, while both a chunk count and byte
-/// budget bound each response's cross-thread transport. The renderer may hold
+/// The pool owns exactly `worker_threads` long-lived threads, by default one
+/// per CPU the process may use. `max_in_flight` bounds queued plus active
+/// streamed responses, while both a chunk count and byte budget bound each
+/// stream's cross-thread transport. Buffered renders hold no transport and
+/// queue like ordinary tasks; bound them with
+/// `FrameworkBuilder::with_concurrency_limit`. The renderer may hold
 /// one not-yet-published chunk while waiting for byte capacity; when that
 /// single chunk is larger than `response_buffer_bytes`, it reserves the whole
 /// budget and remains the documented one-in-hand exception to the byte bound.
@@ -32,7 +35,7 @@ pub struct LocalStreamExecutorConfig {
 impl Default for LocalStreamExecutorConfig {
     fn default() -> Self {
         Self {
-            worker_threads: 1,
+            worker_threads: std::thread::available_parallelism().map_or(1, usize::from),
             max_in_flight: 1_024,
             response_buffer_bytes: 1024 * 1024,
             response_buffer_chunks: 32,
@@ -99,11 +102,7 @@ impl LocalStreamExecutor {
         make: FrameworkLocalStreamFactory,
         head: Option<proa_framework_core::managed_response::PreparedHead>,
     ) -> Result<FrameworkSendStream, LocalStreamPrepareError> {
-        let pool = self
-            .inner
-            .as_ref()
-            .map_err(|error| LocalStreamPrepareError::Unavailable(Arc::clone(error)))?;
-        let admission = match Arc::clone(&pool.admission).try_acquire_owned() {
+        let admission = match Arc::clone(&self.pool()?.admission).try_acquire_owned() {
             Ok(permit) => permit,
             Err(TryAcquireError::NoPermits) => {
                 return Err(LocalStreamPrepareError::Overloaded);
@@ -114,7 +113,22 @@ impl LocalStreamExecutor {
                 )));
             }
         };
+        self.submit(make, head, Some(admission)).await
+    }
 
+    fn pool(&self) -> Result<&Arc<PoolState>, LocalStreamPrepareError> {
+        self.inner
+            .as_ref()
+            .map_err(|error| LocalStreamPrepareError::Unavailable(Arc::clone(error)))
+    }
+
+    async fn submit(
+        &self,
+        make: FrameworkLocalStreamFactory,
+        head: Option<proa_framework_core::managed_response::PreparedHead>,
+        admission: Option<OwnedSemaphorePermit>,
+    ) -> Result<FrameworkSendStream, LocalStreamPrepareError> {
+        let pool = self.pool()?;
         let (first_tx, first_rx) = oneshot::channel();
         let (tail_tx, tail_rx) = mpsc::channel(pool.config.response_buffer_chunks);
         let byte_budget = ByteBudget::new(pool.config.response_buffer_bytes);
@@ -152,7 +166,9 @@ impl LocalStreamExecutor {
     /// `Send` output. The future never leaves the worker.
     ///
     /// The job is an empty stream that reports its output before ending, so
-    /// it shares admission, pinning, and cancellation with streamed renders.
+    /// it shares pinning and cancellation with streamed renders. It takes no
+    /// stream admission: it holds no transport buffer, and a burst of
+    /// buffered pages must queue rather than fail.
     pub(super) async fn run<T: Send + 'static>(
         &self,
         make: Box<dyn FnOnce() -> LocalBoxFuture<'static, T> + Send>,
@@ -167,7 +183,7 @@ impl LocalStreamExecutor {
                 .filter_map(|()| std::future::ready(None)),
             )
         });
-        let _empty = self.prepare_with_head(job, None).await?;
+        let _empty = self.submit(job, None, None).await?;
         result.await.map_err(|_| {
             LocalStreamPrepareError::Unavailable(Arc::from(
                 "local render stopped before completing",
@@ -453,7 +469,7 @@ struct LocalJob {
     first: oneshot::Sender<Result<Option<Bytes>, FrameworkError>>,
     tail: mpsc::Sender<Result<BufferedChunk, FrameworkError>>,
     byte_budget: ByteBudget,
-    admission: OwnedSemaphorePermit,
+    admission: Option<OwnedSemaphorePermit>,
     assigned_worker: usize,
     cooperative_yield_interval: usize,
 }
@@ -639,6 +655,36 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, LocalStreamPrepareError::Overloaded));
+    }
+
+    #[tokio::test]
+    async fn buffered_runs_queue_without_taking_stream_admission() {
+        use futures::FutureExt as _;
+
+        let executor = LocalStreamExecutor::new(LocalStreamExecutorConfig {
+            max_in_flight: 1,
+            ..test_config()
+        });
+        let held: FrameworkLocalStreamFactory = Box::new(|| Box::pin(stream::pending()));
+        let held = executor.prepare(held);
+        tokio::pin!(held);
+        tokio::select! {
+            _ = &mut held => panic!("stalled stream unexpectedly prepared"),
+            _ = tokio::task::yield_now() => {}
+        }
+
+        let outputs = futures::future::join_all((0..4).map(|index| {
+            executor.run(Box::new(move || {
+                async move {
+                    tokio::task::yield_now().await;
+                    index
+                }
+                .boxed_local()
+            }))
+        }))
+        .await;
+        let outputs: Vec<_> = outputs.into_iter().map(Result::unwrap).collect();
+        assert_eq!(outputs, [0, 1, 2, 3]);
     }
 
     #[tokio::test]
