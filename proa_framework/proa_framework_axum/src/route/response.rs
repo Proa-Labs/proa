@@ -68,7 +68,8 @@ pub use proa_framework_core::{
 /// current-thread runtime, such as a plain `#[tokio::test]`, it cannot
 /// block, so it returns a placeholder that `RouteContextLayer` or a page
 /// cache finishes before sending headers. Middleware between the handler
-/// and those layers then sees the placeholder, not the page.
+/// and those layers sees the empty placeholder. Await the plan in the
+/// handler when middleware needs to inspect or transform the rendered body.
 pub struct RouteResponse<L: DataLoader = NoLoader>(CoreRouteResponse<L>);
 
 impl RouteResponse<NoLoader> {
