@@ -201,7 +201,8 @@ impl DevSessionCache {
     fn for_dev_watch(root: &Path) -> Self {
         Self {
             allow_optimistic_empty: !project_mentions_rsjs_macros(root),
-            ..Self::default()
+            #[cfg(not(windows))]
+            wrapper_snapshot: None,
         }
     }
 }
