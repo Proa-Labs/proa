@@ -1,8 +1,8 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Native async hook syntax is checked with warnings denied. Synchronous
-//! role assertions require code generation; async roles are checked by Proa lint.
+//! Native async hook syntax is checked with warnings denied. Role assertions
+//! for every surface require code generation, so the fixture runs `cargo build`.
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -97,7 +97,7 @@ fn source(surface: &str, role: &str, has_hook: bool) -> String {
 }
 
 #[test]
-fn native_async_hooks_compile_and_sync_hooks_require_explicit_roles() {
+fn head_hooks_require_explicit_roles_on_every_surface() {
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -135,8 +135,6 @@ fn native_async_hooks_compile_and_sync_hooks_require_explicit_roles() {
         "send_sync_adapter",
     ] {
         // Ordinary components, layouts and inherited-only Pages retain default hooks.
-        // Async missing-role errors are covered by source-lint tests, since
-        // native futures cannot expose whether the default was overridden.
         for (role, has_hook, valid) in [
             ("", false, true),
             ("PAGE", false, true),
@@ -146,9 +144,6 @@ fn native_async_hooks_compile_and_sync_hooks_require_explicit_roles() {
             ("", true, false),
             ("COMPONENT", true, false),
         ] {
-            if !valid && matches!(surface, "local" | "send") {
-                continue;
-            }
             fs::write(
                 fixture.0.join("src/main.rs"),
                 source(surface, role, has_hook),
