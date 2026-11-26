@@ -12,7 +12,7 @@ proa generate page about
 proa generate page blog/{slug}
 ```
 
-This writes `src/pages/<module>.rs` with a typed Page and its `handler`, adds the module to `src/pages/mod.rs`, and registers the route in `src/routes.rs`. Nested segments join into one module name: `blog/{slug}` becomes `src/pages/blog_slug.rs`. `:slug` and `*rest` segments are accepted and registered as `{slug}` and `{*rest}`.
+This writes `src/pages/<module>.rs` with a page component and its `handler`, adds the module to `src/pages/mod.rs`, and registers the route in `src/routes.rs`. Nested segments join into one module name: `blog/{slug}` becomes `src/pages/blog_slug.rs`. `:slug` and `*rest` segments are accepted and registered as `{slug}` and `{*rest}`.
 
 When the project has Markdown representations (`proa add representation markdown`), the page also serves Markdown at `<path>.md` and through [content negotiation](/docs/framework/content-negotiation).
 
