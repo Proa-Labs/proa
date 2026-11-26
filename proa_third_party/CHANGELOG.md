@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/Proa-Labs/proa/compare/proa_third_party-v0.2.0...proa_third_party-v0.2.1) - 2026-11-26
+
+### Other
+
+- updated the following local packages: proa_core, proa_macros
+
 ## [0.2.0](https://github.com/Proa-Labs/proa/releases/tag/proa_third_party-v0.2.0) - 2026-11-24
 
 ### Other

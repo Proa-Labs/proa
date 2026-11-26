@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/Proa-Labs/proa/compare/rsjs-v0.3.0...rsjs-v0.3.1) - 2026-11-26
+
+### Other
+
+- updated the following local packages: proa_core, proa_macros, rsjs_macros
+
 ## [0.3.0](https://github.com/Proa-Labs/proa/releases/tag/rsjs-v0.3.0) - 2026-11-24
 
 ### Added
