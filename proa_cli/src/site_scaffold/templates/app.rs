@@ -343,10 +343,10 @@ pub fn home_rs(
         imports.push("use proa::stream::DataResolver;");
     }
     imports.push(match (has_database, blank) {
-        (true, true) => "use proa::{html, ComponentRole, DataLoader, HeadConfig, RenderOutcome, WebContext, WebRender, WriteError};",
-        (true, false) => "use proa::{html, ComponentRole, DataLoader, HeadConfig, HeadMetadata, RenderOutcome, WebContext, WebRender, WriteError};",
-        (false, true) => "use proa::{html_sync, ComponentRole, DataLoader, HeadConfig, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
-        (false, false) => "use proa::{html_sync, ComponentRole, DataLoader, HeadConfig, HeadMetadata, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
+        (true, true) => "use proa::{html, ComponentRole, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
+        (true, false) => "use proa::{html, ComponentRole, DataLoader, HeadMetadata, RenderOutcome, WebContext, WebRender, WriteError};",
+        (false, true) => "use proa::{html_sync, ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
+        (false, false) => "use proa::{html_sync, ComponentRole, DataLoader, HeadMetadata, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
     });
     if markdown {
         if has_database {
@@ -557,11 +557,9 @@ pub fn home_rs(
     };
     let html_response = if has_database {
         r#"let resolver = DataResolver::request_scope(state.loader.clone());
-    let html = RouteResponse::ssr_async_with_loader(RootDocument { content: HomePage }, resolver.clone())
-        .with_head(HeadConfig::default());"#
+    let html = RouteResponse::ssr_async_with_loader(RootDocument { content: HomePage }, resolver.clone());"#
     } else {
-        r#"let html = RouteResponse::ssr_async(RootDocument { content: proa::to_async(HomePage) })
-        .with_head(HeadConfig::default());"#
+        r#"let html = RouteResponse::ssr_async(RootDocument { content: proa::to_async(HomePage) });"#
     };
     let response = if markdown {
         if has_database {
@@ -756,6 +754,7 @@ pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, Fram
     };
     let app = FrameworkBuilder::new()
         .with_base_path(base_path)
+        .with_head(proa::HeadConfig::default())
         .with_dynamic_routes_and_metadata(router, metadata)
         .try_build()?;
     Ok(app.layer(TraceLayer::new_for_http()))

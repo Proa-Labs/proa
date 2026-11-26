@@ -101,7 +101,7 @@ proa = { version = "0.4", features = ["axum", "rt-tokio"] }
 
 You do not have to build common UI from scratch: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of Proa components (`badge`, `button`, and `card` are already vendored in the starter). Run `proa ui add alert` to vendor another component into `src/components/` where you own and edit the source directly.
 
-The starter uses managed metadata: `RootDocument` declares `ROLE = LAYOUT` and places the `{cx.head()}` outlet, `HomePage` declares `ROLE = PAGE` and sets its title and description in `render_head`, and the handler enables the managed head with `.with_head(HeadConfig::default())`. See [Layouts and Pages](/docs/framework/layouts-and-pages).
+The starter uses managed metadata. `src/routes.rs` enables the managed head once for the whole router with `FrameworkBuilder::with_head`, `RootDocument` declares `ROLE = LAYOUT` and places the `{cx.head()}` outlet, and each page only declares `ROLE = PAGE` and sets its title and description in `render_head`. See [Layouts and Pages](/docs/framework/layouts-and-pages).
 
 The remaining steps use the **Basic app** named `hello-proa`. If you chose
 ORIGIN, follow its generated `README.md` and run commands inside `origin-atlas`.
@@ -162,8 +162,8 @@ Create `src/pages/about.rs`:
 ```rust
 use axum::response::IntoResponse;
 use proa::{
-    to_async, ComponentRole, DataLoader, HeadConfig, SyncHeadOperation, WebContext,
-    WebRenderSync, WriteError,
+    to_async, ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
+    WriteError,
 };
 use proa::axum::RouteResponse;
 use proa::html_sync;
@@ -177,7 +177,6 @@ pub async fn handler() -> impl IntoResponse {
             body: "This route renders from src/pages/about.rs.",
         }),
     })
-    .with_head(HeadConfig::default())
 }
 
 struct AboutPage {
@@ -225,8 +224,9 @@ let (router, metadata) = router_from_spec(vec![
 That is the whole route flow. `RouteResponse` renders the page and finalizes
 the HTTP response, `RootDocument` supplies the shared page shell (it is
 async-capable, so a synchronous page goes in through `to_async`), `AboutPage`
-declares `ROLE = PAGE` and sets the document title in `render_head`, and the
-fields passed to `AboutPage` are compile-time-checked props. Add
+declares `ROLE = PAGE` and sets the document title in `render_head` (the router
+already enables the managed head), and the fields passed to `AboutPage` are
+compile-time-checked props. Add
 [page caching](/docs/framework/page-caching) to the route spec when the
 response should carry CDN cache headers. Add Axum extractors such as `Path`,
 `Query`, or `State` to `handler` when the route needs request data.

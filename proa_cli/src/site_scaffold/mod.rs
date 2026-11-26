@@ -456,7 +456,7 @@ mod tests {
         }
         assert!(home.contains("const ROLE: ComponentRole = ComponentRole::PAGE;"));
         assert!(home.contains("async fn render_head("));
-        assert!(home.contains(".with_head(HeadConfig::default())"));
+        assert!(!home.contains("with_head"));
         let layout = std::fs::read_to_string(root.join("src/layouts/root.rs")).unwrap();
         assert!(layout.contains("const ROLE: ComponentRole = ComponentRole::LAYOUT;"));
         assert!(layout.contains("{cx.head()}"));
@@ -467,6 +467,7 @@ mod tests {
         assert!(!home.contains("multi\\-target"));
         let routes = std::fs::read_to_string(root.join("src/routes.rs")).unwrap();
         assert!(routes.contains("PublicAssets::configured()"));
+        assert!(routes.contains(".with_head(proa::HeadConfig::default())"));
     }
 
     #[test]
