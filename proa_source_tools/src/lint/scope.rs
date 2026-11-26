@@ -17,6 +17,26 @@ pub(crate) fn is_test_path(path: &Path) -> bool {
 /// Inline `#[cfg(test)] mod tests { .. }` blocks are covered by
 /// [`cfg_test_module_line_ranges`] instead.
 fn is_cfg_test_module_file(path: &Path) -> bool {
+    is_test_only_module(path, &mut Vec::new())
+}
+
+/// `visiting` holds the files on the current ownership chain. Modules that
+/// declare each other through `#[path]` never compile, so a cycle counts as
+/// a production owner and the file stays linted.
+fn is_test_only_module(path: &Path, visiting: &mut Vec<PathBuf>) -> bool {
+    if visiting.iter().any(|seen| seen == path) {
+        return false;
+    }
+    visiting.push(path.to_path_buf());
+    let test_only = owners_are_test_only(path, visiting);
+    visiting.pop();
+    test_only
+}
+
+/// Some owner exists, and every owner is `#[cfg(test)]` or test-only itself.
+/// The owners are the parent module's `mod name;` and any sibling's
+/// `#[path = "file.rs"] mod ..;`; one production owner ships the file.
+fn owners_are_test_only(path: &Path, visiting: &mut Vec<PathBuf>) -> bool {
     let (Some(stem), Some(dir)) = (path.file_stem().and_then(|s| s.to_str()), path.parent()) else {
         return false;
     };
@@ -48,27 +68,25 @@ fn is_cfg_test_module_file(path: &Path) -> bool {
         else {
             continue;
         };
-        if test_only || is_cfg_test_module_file(parent) {
+        if test_only || is_test_only_module(parent, visiting) {
             test_owner = true;
         } else {
             return false;
         }
     }
-    test_owner || is_cfg_test_path_module_file(path, dir)
+    match path_owners_are_test_only(path, dir, visiting) {
+        Some(test_only) => test_only,
+        None => test_owner,
+    }
 }
 
-/// Whether a sibling declares `path` only through `#[cfg(test)] #[path =
-/// "file.rs"] mod name;`. A top-level `#[path]` resolves against the
-/// declaring file's directory. Consulted only when no ordinary declaration
-/// owns the file.
-fn is_cfg_test_path_module_file(path: &Path, dir: &Path) -> bool {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return false;
-    };
-    let mut test_owner = false;
+/// Whether the siblings that declare `path` through a top-level `#[path =
+/// "file.rs"]` are all test-only: `None` when no sibling does. A top-level
+/// `#[path]` resolves against the declaring file's directory.
+fn path_owners_are_test_only(path: &Path, dir: &Path, visiting: &mut Vec<PathBuf>) -> Option<bool> {
+    let file_name = path.file_name().and_then(|name| name.to_str())?;
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut test_owner = None;
     for sibling in entries.flatten().map(|entry| entry.path()) {
         if sibling == path || sibling.extension().is_none_or(|ext| ext != "rs") {
             continue;
@@ -78,10 +96,10 @@ fn is_cfg_test_path_module_file(path: &Path, dir: &Path) -> bool {
         else {
             continue;
         };
-        if test_only || is_cfg_test_module_file(&sibling) {
-            test_owner = true;
+        if test_only || is_test_only_module(&sibling, visiting) {
+            test_owner = Some(true);
         } else {
-            return false;
+            return Some(false);
         }
     }
     test_owner

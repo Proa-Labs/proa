@@ -333,6 +333,44 @@ impl WebRender for ProductPage {
 }
 
 #[test]
+fn head_role_placement_lints_skip_generic_parameters_named_like_layouts() {
+    let source = r#"
+pub struct Shell;
+impl WebRender for Shell {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+pub struct Article<Shell>(Shell);
+impl<Shell: WebRender + Default> WebRender for Article<Shell> {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { {Shell::default()} }.render(cx)
+    }
+}
+pub fn deferred<Shell: WebRender + Default>() -> impl WebRender {
+    Suspense::new(Shell::default(), ())
+}
+pub struct Note;
+impl WebRender for Note {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { {Shell} }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [21],
+        "only the module's own Shell is a layout: {diagnostics:#?}"
+    );
+    assert!(
+        codes_at(&diagnostics, "render/head-role-in-suspense").is_empty(),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn head_role_placement_lints_resolve_names_per_module() {
     let source = r#"
 mod ui { pub struct Card; }
@@ -6611,6 +6649,45 @@ fn cfg_test_path_attribute_modules_are_test_paths() {
         "a production #[path] owner ships the file"
     );
     assert!(!is_test_path(&orphan));
+}
+
+#[test]
+fn production_path_owners_ship_files_that_a_test_module_also_declares() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write(
+        "lib.rs",
+        "#[cfg(test)]\nmod shared;\n#[path = \"shared.rs\"]\nmod shipped;\n#[cfg(test)]\nmod helpers;\n#[cfg(test)]\n#[path = \"helpers.rs\"]\nmod helpers_again;\n",
+    );
+    let shared = write("shared.rs", "");
+    let helpers = write("helpers.rs", "");
+    assert!(
+        !is_test_path(&shared),
+        "the #[path] declaration ships shared.rs"
+    );
+    assert!(
+        is_test_path(&helpers),
+        "every owner of helpers.rs is a test"
+    );
+}
+
+#[test]
+fn path_attribute_cycles_do_not_recurse_forever() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let a = src.join("a.rs");
+    let b = src.join("b.rs");
+    std::fs::write(&a, "#[path = \"b.rs\"]\nmod x;\n").unwrap();
+    std::fs::write(&b, "#[path = \"a.rs\"]\nmod y;\n").unwrap();
+    assert!(!is_test_path(&a));
+    assert!(!is_test_path(&b));
 }
 
 #[test]

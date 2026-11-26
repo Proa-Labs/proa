@@ -655,7 +655,8 @@ fn type_item_ident(item: &Item) -> Option<&syn::Ident> {
     }
 }
 
-/// Names a function body binds anywhere inside it. Any of them, or a glob
+/// Names a function body binds anywhere inside it, plus the generic
+/// parameters of the impl and function around it. Any of them, or a glob
 /// import, may shadow the enclosing module, so resolution gives up on them.
 #[derive(Default)]
 struct BlockShadow {
@@ -664,9 +665,23 @@ struct BlockShadow {
 }
 
 impl BlockShadow {
-    fn of(block: &Block) -> Self {
+    fn of(generics: &[&syn::Generics], block: &Block) -> Self {
         struct Collector(BlockShadow);
         impl<'ast> Visit<'ast> for Collector {
+            // Type and const parameters, on the enclosing items and on any
+            // item nested in the body.
+            fn visit_generic_param(&mut self, param: &'ast syn::GenericParam) {
+                match param {
+                    syn::GenericParam::Type(param) => {
+                        self.0.names.insert(param.ident.to_string());
+                    }
+                    syn::GenericParam::Const(param) => {
+                        self.0.names.insert(param.ident.to_string());
+                    }
+                    syn::GenericParam::Lifetime(_) => {}
+                }
+                visit::visit_generic_param(self, param);
+            }
             fn visit_item(&mut self, item: &'ast Item) {
                 let ident = match item {
                     Item::Mod(item) => Some(&item.ident),
@@ -688,6 +703,9 @@ impl BlockShadow {
             }
         }
         let mut collector = Collector(Self::default());
+        for generics in generics {
+            collector.visit_generics(generics);
+        }
         collector.visit_block(block);
         collector.0
     }
@@ -1194,11 +1212,14 @@ pub(super) fn lint_parsed(
 
 /// Visit every function body; a `PAGE` impl's body is a Page site.
 fn collect_usages(items: &[Item], module: &[String], findings: &mut Vec<Finding>) {
-    let visit = |block: &Block, page: Option<String>, findings: &mut Vec<Finding>| {
+    let visit = |generics: &[&syn::Generics],
+                 block: &Block,
+                 page: Option<String>,
+                 findings: &mut Vec<Finding>| {
         UsageVisitor {
             page,
             module,
-            shadow: Rc::new(BlockShadow::of(block)),
+            shadow: Rc::new(BlockShadow::of(generics, block)),
             suspense_depth: 0,
             findings,
         }
@@ -1221,7 +1242,12 @@ fn collect_usages(items: &[Item], module: &[String], findings: &mut Vec<Finding>
                         .as_ref()
                         .filter(|(_, body)| method.sig.ident == *body)
                         .map(|(name, _)| name.clone());
-                    visit(&method.block, site, findings);
+                    visit(
+                        &[&item_impl.generics, &method.sig.generics],
+                        &method.block,
+                        site,
+                        findings,
+                    );
                 }
             }
             Item::Mod(item_mod) => {
@@ -1231,7 +1257,7 @@ fn collect_usages(items: &[Item], module: &[String], findings: &mut Vec<Finding>
                     collect_usages(items, &child, findings);
                 }
             }
-            Item::Fn(item_fn) => visit(&item_fn.block, None, findings),
+            Item::Fn(item_fn) => visit(&[&item_fn.sig.generics], &item_fn.block, None, findings),
             _ => {}
         }
     }
