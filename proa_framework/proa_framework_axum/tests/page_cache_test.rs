@@ -659,7 +659,7 @@ fn assert_cdn_policy(response: &Response) {
     );
 }
 
-async fn page_cached_stream_is_buffered_for_the_cdn() {
+async fn page_cached_stream_renders_in_order_for_the_cdn() {
     let app = page_cached_app(Route::endpoint("/", get(|| async { streamed_page() })));
     let response = app.clone().oneshot(request("/")).await.unwrap();
     assert_cdn_policy(&response);
@@ -683,13 +683,13 @@ async fn page_cached_stream_is_buffered_for_the_cdn() {
 }
 
 #[tokio::test]
-async fn page_cached_stream_is_buffered_for_the_cdn_on_a_current_thread_runtime() {
-    page_cached_stream_is_buffered_for_the_cdn().await;
+async fn page_cached_stream_renders_in_order_for_the_cdn_on_a_current_thread_runtime() {
+    page_cached_stream_renders_in_order_for_the_cdn().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn page_cached_stream_is_buffered_for_the_cdn_on_a_multi_thread_runtime() {
-    page_cached_stream_is_buffered_for_the_cdn().await;
+async fn page_cached_stream_renders_in_order_for_the_cdn_on_a_multi_thread_runtime() {
+    page_cached_stream_renders_in_order_for_the_cdn().await;
 }
 
 #[tokio::test]
@@ -728,4 +728,285 @@ async fn origin_page_cache_stores_a_streamed_document() {
         );
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+/// Resolves after `.0` milliseconds.
+struct Sleeps(u64);
+
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Sleeps {
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(self.0)).await;
+            WriteBuf::extend_str(&mut cx.out, "<p>resolved</p>")
+        })
+    }
+}
+
+/// A shell, then a Suspense boundary that resolves after `ms`.
+fn slow_streamed_page(ms: u64) -> RouteResponse {
+    RouteResponse::ssr_stream(html! {
+        <main>
+            {Suspense::new(Sleeps(ms), html_sync! {
+                <p>"loading"</p>
+            })}
+        </main>
+    })
+}
+
+const STREAMED_PAGE: &str = "<main><p>resolved</p></main>";
+
+fn cache_status(response: &Response) -> &str {
+    response.headers()["x-proa-page-cache"].to_str().unwrap()
+}
+
+/// A route under an origin `PageCacheLayer`, counting handler calls.
+fn origin_cached(
+    layer: PageCacheLayer,
+    page: fn() -> axum::response::Response,
+) -> (Router, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let routes = Router::new()
+        .route(
+            "/",
+            get(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                async move { page() }
+            }),
+        )
+        .route_layer(layer);
+    (
+        FrameworkBuilder::new().with_dynamic_routes(routes).build(),
+        calls,
+    )
+}
+
+async fn an_outer_page_cache_stores_framework_documents() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (sync, streamed) = (calls.clone(), calls.clone());
+    let routes = Router::new()
+        .route(
+            "/",
+            get(move || {
+                sync.fetch_add(1, Ordering::SeqCst);
+                async { RouteResponse::ssr(proa_core::text::text("page")) }
+            }),
+        )
+        .route(
+            "/stream",
+            get(move || {
+                streamed.fetch_add(1, Ordering::SeqCst);
+                async { streamed_page() }
+            }),
+        );
+    let app = FrameworkBuilder::new()
+        .with_dynamic_routes(routes)
+        .build()
+        .layer(PageCacheLayer::new("build"));
+    for (uri, page) in [("/", "page"), ("/stream", STREAMED_PAGE)] {
+        for expected in ["MISS", "HIT"] {
+            let response = app.clone().oneshot(request(uri)).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            assert_eq!(cache_status(&response), expected, "{uri}");
+            assert_eq!(cache_control(&response), Some("public, no-cache"), "{uri}");
+            assert_eq!(body(response).await, page, "{uri}");
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    // A request the cache passes still gets the framework default.
+    let mut private = request("/");
+    private
+        .headers_mut()
+        .insert(header::COOKIE, HeaderValue::from_static("session=secret"));
+    let response = app.oneshot(private).await.unwrap();
+    assert_eq!(cache_status(&response), "BYPASS");
+    assert_eq!(cache_control(&response), Some("private, no-store"));
+}
+
+#[tokio::test]
+async fn an_outer_page_cache_stores_framework_documents_on_a_current_thread_runtime() {
+    an_outer_page_cache_stores_framework_documents().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_outer_page_cache_stores_framework_documents_on_a_multi_thread_runtime() {
+    an_outer_page_cache_stores_framework_documents().await;
+}
+
+async fn streams_outlast_the_page_cache_timeout() {
+    // The boundary resolves long after the cache stops waiting for it.
+    let layer = PageCacheLayer::new("build").with_timeout(Duration::from_millis(50));
+    let (app, calls) = origin_cached(layer, || slow_streamed_page(300).into_response());
+    for _ in 0..2 {
+        let started = std::time::Instant::now();
+        let response = app.clone().oneshot(request("/")).await.unwrap();
+        let head = started.elapsed();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(cache_status(&response), "BYPASS");
+        assert_eq!(cache_control(&response), Some("private, no-store"));
+        assert!(head < Duration::from_millis(250), "head after {head:?}");
+        assert_eq!(body(response).await, STREAMED_PAGE);
+    }
+    // A page that outlasts the timeout is not stored.
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn streams_outlast_the_page_cache_timeout_on_a_current_thread_runtime() {
+    streams_outlast_the_page_cache_timeout().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn streams_outlast_the_page_cache_timeout_on_a_multi_thread_runtime() {
+    streams_outlast_the_page_cache_timeout().await;
+}
+
+async fn cdn_cached_streams_outlast_the_request_timeout() {
+    let route = Route::endpoint("/", get(|| async { slow_streamed_page(300) }))
+        .with_page_cache(PageCache::new().revalidate(Duration::from_secs(60)));
+    let (routes, metadata) = router_from_spec(vec![route]);
+    let app = FrameworkBuilder::new()
+        .with_request_timeout(Duration::from_millis(100))
+        .with_dynamic_routes_and_metadata(routes, metadata)
+        .build();
+    let response = app.oneshot(request("/")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_cdn_policy(&response);
+    // The CDN stores the complete page; there is no fallback to replace.
+    assert_eq!(body(response).await, STREAMED_PAGE);
+}
+
+#[tokio::test]
+async fn cdn_cached_streams_outlast_the_request_timeout_on_a_current_thread_runtime() {
+    cdn_cached_streams_outlast_the_request_timeout().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cdn_cached_streams_outlast_the_request_timeout_on_a_multi_thread_runtime() {
+    cdn_cached_streams_outlast_the_request_timeout().await;
+}
+
+/// A managed-head page whose head hook keeps every cache out.
+struct PrivateHeadPage;
+
+impl WebRender for PrivateHeadPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        assert!(cx.response_mut().insert_header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store"),
+        ));
+        Ok(())
+    }
+
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            <html>
+                <head>{cx.head()}</head>
+                <body>{Suspense::new(Sleeps(5), html_sync! { <p>"loading"</p> })}</body>
+            </html>
+        }
+        .render(cx)
+    }
+}
+
+#[tokio::test]
+async fn cdn_policy_reads_a_streamed_head_hook_before_deciding() {
+    let route = Route::endpoint(
+        "/",
+        get(|| async { RouteResponse::ssr_stream(PrivateHeadPage) }),
+    )
+    .with_page_cache(PageCache::new());
+    let (routes, metadata) = router_from_spec(vec![route]);
+    let app = FrameworkBuilder::new()
+        .with_head(HeadConfig::default())
+        .with_dynamic_routes_and_metadata(routes, metadata)
+        .build();
+    let response = app.oneshot(request("/")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    for name in ["cache-control", "cdn-cache-control", "surrogate-control"] {
+        assert_eq!(response.headers()[name], "private, no-store", "{name}");
+    }
+    assert!(body(response).await.contains("<p>resolved</p>"));
+}
+
+async fn oversized_streams_are_delivered_and_not_stored() {
+    let layer = PageCacheLayer::new("build").with_limits(8, 16);
+    let (app, calls) = origin_cached(layer, || slow_streamed_page(5).into_response());
+    for _ in 0..2 {
+        let response = app.clone().oneshot(request("/")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(cache_status(&response), "BYPASS");
+        assert_eq!(body(response).await, STREAMED_PAGE);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    // Within the limit, the same page is stored once complete.
+    let (app, calls) = origin_cached(PageCacheLayer::new("build"), || {
+        slow_streamed_page(5).into_response()
+    });
+    for expected in ["MISS", "HIT"] {
+        let response = app.clone().oneshot(request("/")).await.unwrap();
+        assert_eq!(cache_status(&response), expected);
+        assert_eq!(body(response).await, STREAMED_PAGE);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn oversized_streams_are_delivered_and_not_stored_on_a_current_thread_runtime() {
+    oversized_streams_are_delivered_and_not_stored().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn oversized_streams_are_delivered_and_not_stored_on_a_multi_thread_runtime() {
+    oversized_streams_are_delivered_and_not_stored().await;
+}
+
+/// Five concurrent requests: the slowest response head, and the time until
+/// every body has arrived.
+async fn five_at_once(app: &Router) -> (Duration, Duration) {
+    let started = std::time::Instant::now();
+    let requests = (0..5).map(|_| {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let response = app.oneshot(request("/")).await.unwrap();
+            let head = started.elapsed();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(cache_status(&response), "BYPASS");
+            assert_eq!(body(response).await, STREAMED_PAGE);
+            head
+        })
+    });
+    let heads = futures::future::join_all(requests).await;
+    let slowest_head = heads.into_iter().map(Result::unwrap).max().unwrap();
+    (slowest_head, started.elapsed())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn uncacheable_streams_do_not_wait_for_each_other() {
+    // Serialized behind the miss lock, five 200 ms renders take 1 s.
+    let layer = PageCacheLayer::new("build").with_limits(8, 16);
+    let (app, _) = origin_cached(layer, || slow_streamed_page(200).into_response());
+    let (_, all) = five_at_once(&app).await;
+    assert!(all < Duration::from_millis(600), "oversized: {all:?}");
+
+    // A head the cache cannot store bypasses at once and streams.
+    let (app, _) = origin_cached(PageCacheLayer::new("build"), || {
+        ([(header::SET_COOKIE, "visit=1")], slow_streamed_page(200)).into_response()
+    });
+    let (head, all) = five_at_once(&app).await;
+    assert!(
+        head < Duration::from_millis(150),
+        "Set-Cookie head: {head:?}"
+    );
+    assert!(all < Duration::from_millis(600), "Set-Cookie: {all:?}");
 }

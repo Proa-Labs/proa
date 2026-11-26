@@ -23,12 +23,22 @@ use axum::{
     http::{header, HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode},
     response::{IntoResponse, Response},
 };
+use bytes::BytesMut;
+use futures::{stream, StreamExt};
+use http_body_util::BodyExt as _;
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
-use tokio::{sync::Mutex as AsyncMutex, time::Instant};
+use tokio::{
+    sync::{Mutex as AsyncMutex, OwnedMutexGuard},
+    time::Instant,
+};
 use tower::{Layer, Service, ServiceExt};
 
-use super::{context::ROUTE_CONTEXT, response::DeferredFrameworkStream};
+use super::{
+    cdn_cache::{prepare_cacheable_stream, CacheableStream},
+    context::ROUTE_CONTEXT,
+    response::DeferredFrameworkStream,
+};
 
 type Key = [u8; 32];
 const STATUS: &str = "x-proa-page-cache";
@@ -49,8 +59,12 @@ const LOCK_COUNT: usize = 64;
 /// Only opt in routes whose output is public. Authentication/authorization
 /// middleware must run outside this layer. Cookie and Authorization requests,
 /// per-request CSP nonces, errors, private/no-store responses, unknown Vary
-/// fields, and streaming bodies bypass storage. A streamed RouteResponse
-/// renders buffered on requests the cache may store.
+/// fields, and streaming bodies bypass storage. On requests the cache may
+/// store, a streamed RouteResponse streams in order, which ends in the same
+/// bytes as a buffered render, and is stored once complete. A streamed page
+/// the cache cannot store streams on: at once when its head rules storage
+/// out, or else from the point it outgrows the body limit or the timeout.
+/// Concurrent misses for a streamed page each render.
 ///
 /// Responses use `public, no-cache` downstream and a generated ETag. This
 /// allows browser revalidation without rerendering and prevents an ordinary
@@ -142,6 +156,9 @@ impl PageCacheLayer {
     }
 
     /// Bound each render/body collection, including background work (30s default).
+    ///
+    /// A buffered page that misses the deadline is a 504. A streamed page
+    /// keeps streaming past it and is not stored.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         assert!(!timeout.is_zero(), "page cache timeout must be positive");
         self.timeout = timeout;
@@ -326,7 +343,8 @@ where
                                 {
                                     return;
                                 }
-                                if fetch(&layer, key, inner, request).await.is_err() {
+                                // This task's guard coalesces refreshes until the page is stored.
+                                if fetch(&layer, key, inner, request, None).await.is_err() {
                                     tracing::warn!("page cache background regeneration failed");
                                 }
                             };
@@ -346,11 +364,14 @@ where
             }
             // Fixed lock stripes bound coordination memory as well as stored
             // pages. Cancellation/panics release the guard automatically.
-            let _guard = layer.cache.locks[key[0] as usize % LOCK_COUNT].lock().await;
+            let lock = layer.cache.locks[key[0] as usize % LOCK_COUNT]
+                .clone()
+                .lock_owned()
+                .await;
             if let Some(page) = layer.get(&key).filter(|page| layer.fresh(page)) {
                 return Ok(page.response(&headers, false, "HIT"));
             }
-            let (response, page) = fetch(&layer, key, inner, request).await?;
+            let (response, page) = fetch(&layer, key, inner, request, Some(lock)).await?;
             Ok(match page {
                 Some(page) if matches_etag(&headers, &page.etag) => {
                     page.response(&headers, false, "MISS")
@@ -393,11 +414,18 @@ impl CachedPage {
     }
 }
 
+/// Render a miss and store it when cacheable.
+///
+/// `lock` coalesces concurrent misses for the key. It is released as soon
+/// as the response turns out to be a stream: like any streamed page, its
+/// misses then render independently, so an uncacheable stream never waits
+/// behind another request's render.
 async fn fetch<S>(
     layer: &PageCacheLayer,
     key: Key,
     inner: S,
     mut request: Request<Body>,
+    lock: Option<OwnedMutexGuard<()>>,
 ) -> Result<(Response, Option<Arc<CachedPage>>), S::Error>
 where
     S: Service<Request<Body>, Response = Response> + Send,
@@ -406,75 +434,168 @@ where
     // The cache owns validators. An origin 304 cannot populate an empty entry.
     request.headers_mut().remove(header::IF_NONE_MATCH);
     request.headers_mut().remove(header::IF_MODIFIED_SINCE);
-    let future = async {
-        super::cdn_cache::buffer_documents();
-        let response = super::response::finish_deferred_render(inner.oneshot(request).await?).await;
-        if !cacheable_response(layer, &response) {
-            // Keep stale public content on transient server failures only.
-            if !response.status().is_server_error() {
-                layer.cache.pages.lock().remove(&key);
-            }
-            return Ok((bypass(response), None));
-        }
-        let (mut parts, body) = response.into_parts();
-        let bytes = match to_bytes(body, layer.max_body_bytes).await {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                tracing::warn!(%error, "page cache could not collect response body");
-                return Ok((
-                    bypass((StatusCode::BAD_GATEWAY, "page response failed").into_response()),
-                    None,
-                ));
-            }
-        };
-        let mut hash = Sha256::new();
-        hash.update(key);
-        hash.update(&bytes);
-        let etag = HeaderValue::from_str(&format!("\"{:x}\"", HexDisplay(&hash.finalize())))
-            .expect("hex digest is a valid ETag");
-        parts.headers.insert(header::ETAG, etag.clone());
-        parts
-            .headers
-            .insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
-        downstream_policy(&mut parts.headers, "public, no-cache");
-        for name in layer.vary.iter() {
-            if !parts.headers.get_all(header::VARY).iter().any(|value| {
-                value.to_str().is_ok_and(|value| {
-                    value
-                        .split(',')
-                        .any(|field| field.trim().eq_ignore_ascii_case(name.as_str()))
-                })
-            }) {
-                parts.headers.append(
-                    header::VARY,
-                    HeaderValue::from_str(name.as_str()).expect("header name is a valid value"),
-                );
-            }
-        }
-        let page = Arc::new(CachedPage {
-            headers: parts.headers.clone(),
-            body: bytes.clone(),
-            etag,
-            created: Instant::now(),
-        });
-        layer.insert(key, page.clone());
-        parts
-            .headers
-            .insert(STATUS, HeaderValue::from_static("MISS"));
-        Ok((Response::from_parts(parts, Body::from(bytes)), Some(page)))
+    super::cdn_cache::may_store(&mut request);
+    let deadline = Instant::now() + layer.timeout;
+    let render = async {
+        let response = inner.oneshot(request).await?;
+        Ok(super::response::finish_deferred_render(response).await)
     };
-    match tokio::time::timeout(layer.timeout, future).await {
-        Ok(result) => result,
-        Err(_) => {
-            tracing::warn!("page cache regeneration timed out");
+    let response = match tokio::time::timeout_at(deadline, render).await {
+        Ok(response) => response?,
+        Err(_) => return Ok((timed_out(), None)),
+    };
+    if response.extensions().get::<CacheableStream>().is_some() {
+        drop(lock);
+        let response = prepare_cacheable_stream(response).await;
+        return Ok(record_stream(layer, key, response, deadline).await);
+    }
+    if !cacheable_response(layer, &response) {
+        return Ok((uncacheable(layer, key, response), None));
+    }
+    let (parts, body) = response.into_parts();
+    match tokio::time::timeout_at(deadline, to_bytes(body, layer.max_body_bytes)).await {
+        Ok(Ok(bytes)) => Ok(store(layer, key, parts, bytes)),
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "page cache could not collect response body");
             Ok((
-                bypass(
-                    (StatusCode::GATEWAY_TIMEOUT, "page regeneration timed out").into_response(),
-                ),
+                bypass((StatusCode::BAD_GATEWAY, "page response failed").into_response()),
                 None,
             ))
         }
+        Err(_) => Ok((timed_out(), None)),
     }
+}
+
+fn timed_out() -> Response {
+    tracing::warn!("page cache regeneration timed out");
+    bypass((StatusCode::GATEWAY_TIMEOUT, "page regeneration timed out").into_response())
+}
+
+/// Pass a response the cache will not store.
+fn uncacheable(layer: &PageCacheLayer, key: Key, response: Response) -> Response {
+    // Keep stale public content on transient server failures only.
+    if !response.status().is_server_error() {
+        layer.cache.pages.lock().remove(&key);
+    }
+    bypass(response)
+}
+
+/// How recording a streamed page ended.
+enum Recorded {
+    Complete,
+    TooLarge,
+    Late,
+    Failed(axum::Error),
+}
+
+/// Store an in-order stream once it ends, or else keep streaming it.
+///
+/// The head decides first, so a page the cache cannot store streams at once.
+/// Otherwise the body is read up to the size limit until the cache deadline.
+/// A complete page is stored and sent whole. A page that outgrows the limit
+/// or the deadline is sent as it renders, starting with the bytes already
+/// read, and is not stored; the deadline never cuts a response short.
+async fn record_stream(
+    layer: &PageCacheLayer,
+    key: Key,
+    response: Response,
+    deadline: Instant,
+) -> (Response, Option<Arc<CachedPage>>) {
+    if !super::cdn_cache::prepared_cacheable_stream(&response) || !cacheable_head(layer, &response)
+    {
+        return (uncacheable(layer, key, response), None);
+    }
+    let (parts, mut body) = response.into_parts();
+    let mut chunks = Vec::new();
+    let mut len = 0;
+    let recorded = loop {
+        match tokio::time::timeout_at(deadline, body.frame()).await {
+            Err(_) => break Recorded::Late,
+            Ok(None) => break Recorded::Complete,
+            Ok(Some(Err(error))) => break Recorded::Failed(error),
+            Ok(Some(Ok(frame))) => {
+                if let Ok(data) = frame.into_data() {
+                    len += data.len();
+                    chunks.push(data);
+                    if len > layer.max_body_bytes {
+                        break Recorded::TooLarge;
+                    }
+                }
+            }
+        }
+    };
+    let rest = match recorded {
+        Recorded::Complete => return store(layer, key, parts, concat(chunks, len)),
+        Recorded::TooLarge => {
+            layer.cache.pages.lock().remove(&key);
+            StreamExt::boxed(body.into_data_stream())
+        }
+        Recorded::Late => {
+            tracing::warn!("page cache stopped recording a stream at its timeout");
+            StreamExt::boxed(body.into_data_stream())
+        }
+        Recorded::Failed(error) => StreamExt::boxed(stream::iter([Err(error)])),
+    };
+    let read = stream::iter(chunks.into_iter().map(Ok));
+    let body = Body::from_stream(read.chain(rest));
+    (bypass(Response::from_parts(parts, body)), None)
+}
+
+fn concat(chunks: Vec<Bytes>, len: usize) -> Bytes {
+    match <[Bytes; 1]>::try_from(chunks) {
+        Ok([bytes]) => bytes,
+        Err(chunks) => {
+            let mut bytes = BytesMut::with_capacity(len);
+            for chunk in chunks {
+                bytes.extend_from_slice(&chunk);
+            }
+            bytes.freeze()
+        }
+    }
+}
+
+/// Store a complete page and build its MISS response.
+fn store(
+    layer: &PageCacheLayer,
+    key: Key,
+    mut parts: axum::http::response::Parts,
+    bytes: Bytes,
+) -> (Response, Option<Arc<CachedPage>>) {
+    let mut hash = Sha256::new();
+    hash.update(key);
+    hash.update(&bytes);
+    let etag = HeaderValue::from_str(&format!("\"{:x}\"", HexDisplay(&hash.finalize())))
+        .expect("hex digest is a valid ETag");
+    parts.headers.insert(header::ETAG, etag.clone());
+    parts
+        .headers
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+    downstream_policy(&mut parts.headers, "public, no-cache");
+    for name in layer.vary.iter() {
+        if !parts.headers.get_all(header::VARY).iter().any(|value| {
+            value.to_str().is_ok_and(|value| {
+                value
+                    .split(',')
+                    .any(|field| field.trim().eq_ignore_ascii_case(name.as_str()))
+            })
+        }) {
+            parts.headers.append(
+                header::VARY,
+                HeaderValue::from_str(name.as_str()).expect("header name is a valid value"),
+            );
+        }
+    }
+    let page = Arc::new(CachedPage {
+        headers: parts.headers.clone(),
+        body: bytes.clone(),
+        etag,
+        created: Instant::now(),
+    });
+    layer.insert(key, page.clone());
+    parts
+        .headers
+        .insert(STATUS, HeaderValue::from_static("MISS"));
+    (Response::from_parts(parts, Body::from(bytes)), Some(page))
 }
 
 /// Serve a request the cache must not store. The render finishes first, so
@@ -507,17 +628,22 @@ pub(super) fn bypass_request(request: &Request<Body>) -> bool {
 }
 
 fn cacheable_response(layer: &PageCacheLayer, response: &Response) -> bool {
-    let headers = response.headers();
-    response.status() == StatusCode::OK
-        && response
-            .extensions()
-            .get::<DeferredFrameworkStream>()
-            .is_none()
+    response
+        .extensions()
+        .get::<DeferredFrameworkStream>()
+        .is_none()
         && response
             .body()
             .size_hint()
             .exact()
             .is_some_and(|len| len <= layer.max_body_bytes as u64)
+        && cacheable_head(layer, response)
+}
+
+/// Whether the status and headers allow storage, whatever the body.
+fn cacheable_head(layer: &PageCacheLayer, response: &Response) -> bool {
+    let headers = response.headers();
+    response.status() == StatusCode::OK
         && !headers.contains_key(header::SET_COOKIE)
         && !headers.contains_key(header::TRAILER)
         && !headers.contains_key(header::CONTENT_RANGE)

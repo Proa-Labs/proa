@@ -764,15 +764,24 @@ fn finalize_without_polling<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     mode: RouteFinalizeMode,
 ) -> Result<Response, (CoreRouteResponse<L>, RouteFinalizeMode)> {
-    let response = super::cdn_cache::buffer_for_page_cache(response);
-    let finalized = if response.is_synchronous() {
-        finalize_route_response_sync(response, request, mode)
-    } else if matches!(mode, RouteFinalizeMode::Document) && response.is_streaming() {
-        finalize_route_response_stream(response, request)
-    } else {
+    if response.is_synchronous() {
+        return Ok(finalized_to_axum(finalize_route_response_sync(
+            response, request, mode,
+        )));
+    }
+    if !matches!(mode, RouteFinalizeMode::Document) || !response.is_streaming() {
         return Err((response, mode));
-    };
-    Ok(finalized_to_axum(finalized))
+    }
+    let (response, cacheable) = super::cdn_cache::stream_in_order_for_page_cache(response);
+    let finalized = finalize_route_response_stream(response, request);
+    let cacheable = cacheable && finalized.is_ok();
+    let mut response = finalized_to_axum(finalized);
+    if cacheable {
+        response
+            .extensions_mut()
+            .insert(super::cdn_cache::CacheableStream);
+    }
+    Ok(response)
 }
 
 /// The current runtime, when it can block a worker in place.

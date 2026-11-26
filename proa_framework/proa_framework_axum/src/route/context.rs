@@ -22,7 +22,7 @@ use proa_framework_core::{
 use tower::layer::Layer;
 use tower::Service;
 
-use super::cdn_cache::default_document_policy;
+use super::cdn_cache::{default_document_policy, MayStore};
 use super::local_executor::{LocalStreamExecutor, LocalStreamExecutorConfig};
 use super::response::prepare_deferred_framework_stream;
 
@@ -46,7 +46,7 @@ pub struct RouteContext {
     /// Runs local buffered renders. See [`RouteContext::detach`].
     local_stream_executor: Option<LocalStreamExecutor>,
     /// A page cache may store this request's document.
-    buffer_documents: bool,
+    may_store: bool,
 }
 
 #[derive(Clone)]
@@ -184,7 +184,7 @@ impl RouteContext {
             asset_prefix: None,
             head: None,
             local_stream_executor: None,
-            buffer_documents: false,
+            may_store: false,
         }
     }
 
@@ -203,12 +203,16 @@ impl RouteContext {
         (route, executor)
     }
 
-    pub(super) fn set_buffer_documents(&mut self) {
-        self.buffer_documents = true;
+    pub(super) fn local_stream_executor(&self) -> Option<LocalStreamExecutor> {
+        self.local_stream_executor.clone()
     }
 
-    pub(super) fn buffers_documents(&self) -> bool {
-        self.buffer_documents
+    pub(super) fn set_may_store(&mut self) {
+        self.may_store = true;
+    }
+
+    pub(super) fn may_store(&self) -> bool {
+        self.may_store
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
@@ -580,8 +584,11 @@ where
         let current_headers = req.headers().clone();
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
+        // A page cache outside this layer may store the document.
+        let outer_cache = req.extensions().get::<MayStore>().is_some();
 
         let mut context = RouteContext::new(self.computed_metadata.clone());
+        context.may_store = outer_cache;
         context.head = self.head.clone();
         context.set_is_client_request(is_client_request);
         context.set_current_request_parts(current_method, current_headers, current_uri);
@@ -607,6 +614,7 @@ where
                 let response = scoped.await?;
                 Ok(default_document_policy(
                     prepare_deferred_framework_stream(response, local_stream_executor).await,
+                    outer_cache,
                 ))
             });
         }
@@ -636,6 +644,7 @@ where
                 .await?;
             Ok(default_document_policy(
                 prepare_deferred_framework_stream(response, local_stream_executor).await,
+                outer_cache,
             ))
         })
     }
