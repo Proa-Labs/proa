@@ -348,9 +348,9 @@ fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result
 // proa-perf-ok(scope): CLI generator assembles trusted Rust source, not response HTML
 fn page_source(route: &RouteName, markdown: bool) -> String {
     let imports = if markdown {
-        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa::axum::{negotiate, MarkdownAlternate, RouteResponse};\nuse proa::{html_sync, md_sync};"
+        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa::{ComponentRole, DataLoader, HeadConfig, MdRenderSync, SyncHeadOperation, WebContext, WebRenderSync, WriteBuf, WriteError};\nuse proa::axum::{negotiate, MarkdownAlternate, RouteResponse};\nuse proa::{html_sync, md_sync};"
     } else {
-        "use axum::response::IntoResponse;\nuse proa::{DataLoader, WebContext, WebRenderSync, WriteError};\nuse proa::axum::RouteResponse;\nuse proa::html_sync;"
+        "use axum::response::IntoResponse;\nuse proa::{ComponentRole, DataLoader, HeadConfig, SyncHeadOperation, WebContext, WebRenderSync, WriteError};\nuse proa::axum::RouteResponse;\nuse proa::html_sync;"
     };
     let markdown_impl = if markdown {
         // Axum matches an entire captured segment. A single route must serve
@@ -384,10 +384,8 @@ impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
 const MARKDOWN_ALTERNATE: MarkdownAlternate = MarkdownAlternate::new("{alias}");
 
 pub async fn handler(headers: HeaderMap) -> Result<impl IntoResponse, AppError> {{
-    let html = RouteResponse::ssr_async(RootDocument {{
-        title: "{title}",
-        content: proa::to_async({ty}),
-    }});
+    let html = RouteResponse::ssr_async(RootDocument {{ content: proa::to_async({ty}) }})
+        .with_head(HeadConfig::default());
     Ok(negotiate(&headers, html, {ty}, MARKDOWN_ALTERNATE)?)
 }}
 
@@ -402,9 +400,8 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {{
         )
     } else {
         format!(
-            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{\n        title: \"{title}\",\n        content: proa::to_async({ty}),\n    }}))\n}}\n",
-            ty = route.rust_type,
-            title = route.title
+            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{ content: proa::to_async({ty}) }})\n        .with_head(HeadConfig::default()))\n}}\n",
+            ty = route.rust_type
         )
     };
     let slug = route.module.replace('_', "-");
@@ -417,6 +414,12 @@ use crate::{{error::AppError, layouts::RootDocument}};
 pub struct {ty};
 
 impl<L: DataLoader> WebRenderSync<L> for {ty} {{
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {{
+        cx.head_mut().title("{title}")
+    }}
+
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {{
         html_sync! {{
             <main data-page-{slug}>
@@ -775,7 +778,15 @@ mod tests {
         for markdown in [false, true] {
             let source = page_source(&route, markdown);
             assert!(source.contains("<h1>\"User Settings\"</h1>"), "{source}");
-            assert!(source.contains("title: \"User Settings\""), "{source}");
+            assert!(
+                source.contains("cx.head_mut().title(\"User Settings\")"),
+                "{source}"
+            );
+            assert!(source.contains("ComponentRole::PAGE"), "{source}");
+            assert!(
+                source.contains(".with_head(HeadConfig::default())"),
+                "{source}"
+            );
             let formatted = proa_source_tools::fmt::format_file(
                 Path::new("src/pages/user_settings.rs"),
                 &source,

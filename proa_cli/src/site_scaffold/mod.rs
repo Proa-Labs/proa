@@ -454,6 +454,12 @@ mod tests {
                 saw_non_use_item = true;
             }
         }
+        assert!(home.contains("const ROLE: ComponentRole = ComponentRole::PAGE;"));
+        assert!(home.contains("async fn render_head("));
+        assert!(home.contains(".with_head(HeadConfig::default())"));
+        let layout = std::fs::read_to_string(root.join("src/layouts/root.rs")).unwrap();
+        assert!(layout.contains("const ROLE: ComponentRole = ComponentRole::LAYOUT;"));
+        assert!(layout.contains("{cx.head()}"));
         assert!(home.contains("DataResolver::request_scope"));
         assert!(home.contains("MdRender<L> for HomePage"));
         assert!(home.contains("# {HEADLINE}"));
