@@ -532,9 +532,11 @@ dispatch always rejects:
 | `render/head-role-in-suspense` | a `LAYOUT` or `PAGE` component passed to `Suspense::new` (child or fallback) | `HeadError::Excluded` |
 | `render/head-role-in-page` | a `LAYOUT` or `PAGE` component rendered from a `PAGE` body | `HeadError::Closed` |
 
-The placement lints match a component only when its name resolves inside the
-package (same file, or a `crate`/`self`/`super` import) to a single type whose
-render impls declare a literal `LAYOUT` or `PAGE`; anything else stays quiet.
+The placement lints follow the macro's rendered branches and loop bodies, and
+match a component only when its path resolves, in the module that writes it,
+to the module defining the package's only type of that name, whose render impls
+declare a literal `LAYOUT` or `PAGE`. Names from glob imports, re-exports,
+external crates, or function-local items stay quiet. The editor reports them too.
 Legacy setters (`set_title`, `push_meta`, ...) remain valid in manual documents.
 A Page using only inherited metadata still needs its role and a managed route test.
 A component declaring `LAYOUT` or `PAGE` renders only in a managed document,
