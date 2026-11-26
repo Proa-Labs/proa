@@ -19,6 +19,8 @@ async fn about() -> RouteResponse {
 }
 ```
 
+Pages and layouts render only inside a managed document, so mount this route through `FrameworkBuilder::with_head`, as [Connect Pages to routes](#connect-pages-to-routes) shows. Without it, the response is a 500.
+
 Both are ordinary render components; declare their intent with `const ROLE` on the render-trait implementation.
 
 | Component | Role | Metadata lifecycle |

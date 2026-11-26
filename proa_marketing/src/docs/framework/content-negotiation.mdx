@@ -58,7 +58,22 @@ pub async fn guide_markdown() -> Result<impl IntoResponse, StatusCode> {
 }
 ```
 
-Register both routes with `.route("/guide", get(guide)).route("/guide.md", get(guide_markdown))`. The HTML response advertises the Markdown URL:
+Register both routes and mount them through `FrameworkBuilder`, which installs the route context `RouteResponse` renders in. On a bare `Router`, the HTML response is a 500:
+
+```rust filename="src/routes.rs"
+use axum::{routing::get, Router};
+use proa::axum::FrameworkBuilder;
+use crate::pages::guide::{guide, guide_markdown};
+
+pub fn router() -> Result<Router, Box<dyn std::error::Error>> {
+    let routes = Router::new()
+        .route("/guide", get(guide))
+        .route("/guide.md", get(guide_markdown));
+    Ok(FrameworkBuilder::new().with_dynamic_routes(routes).try_build()?)
+}
+```
+
+The HTML response advertises the Markdown URL:
 
 ```http
 GET /guide
