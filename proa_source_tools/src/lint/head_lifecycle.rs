@@ -107,7 +107,7 @@ pub(super) fn lint_head_mutation_in_body(
             continue;
         }
         let mut visitor = HeadMutationVisitor {
-            writers: HashSet::new(),
+            scopes: vec![HashMap::new()],
             found: Vec::new(),
         };
         visitor.visit_block(&method.block);
@@ -132,38 +132,198 @@ pub(super) fn lint_head_mutation_in_body(
     }
 }
 
+/// Tracks which locals hold a `HeadWriter`, following Rust's lexical scopes.
+/// Every binding form shadows outer names: `let` (bound after its
+/// initializer), `if let` / `while let`, match arms, `for` patterns, and
+/// closure parameters. Only `let name = <cx>.head_mut()` binds a writer.
+/// Blocks, closures, arms, and template slots each close their own scope.
 struct HeadMutationVisitor {
-    /// Locals bound to `<cx>.head_mut()`.
-    writers: HashSet<String>,
+    /// Innermost scope last; each maps a bound name to whether it is a writer.
+    scopes: Vec<HashMap<String, bool>>,
     found: Vec<(Span, String)>,
 }
 
 impl HeadMutationVisitor {
+    fn scoped(&mut self, visit: impl FnOnce(&mut Self)) {
+        self.scopes.push(HashMap::new());
+        visit(self);
+        self.scopes.pop();
+    }
+
+    fn bind(&mut self, name: String, writer: bool) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, writer);
+        }
+    }
+
+    /// Bind every name a pattern introduces as a non-writer.
+    fn bind_pattern(&mut self, pat: &Pat) {
+        for name in pattern_bindings(pat) {
+            self.bind(name, false);
+        }
+    }
+
+    fn is_writer_name(&self, name: &str) -> bool {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name))
+            .copied()
+            .unwrap_or(false)
+    }
+
     fn is_head_writer(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::MethodCall(call) => call.method == "head_mut" && call.args.is_empty(),
+            Expr::MethodCall(_) => is_head_mut_call(expr),
             Expr::Path(path) => path
                 .path
                 .get_ident()
-                .is_some_and(|ident| self.writers.contains(&ident.to_string())),
+                .is_some_and(|ident| self.is_writer_name(&ident.to_string())),
             Expr::Paren(inner) => self.is_head_writer(&inner.expr),
             _ => false,
         }
     }
+
+    /// Each slot is evaluated in its own closure, so its bindings end with it.
+    fn visit_template(&mut self, mac: &syn::Macro) {
+        visit_template_exprs(mac, |expr| self.scoped(|visitor| visitor.visit_expr(expr)));
+    }
+}
+
+fn is_head_mut_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::MethodCall(call) if call.method == "head_mut" && call.args.is_empty())
+}
+
+/// Whether a `let` initializer evaluates to `<cx>.head_mut()`, directly or
+/// as the tail of a block.
+fn yields_head_writer(expr: &Expr) -> bool {
+    match expr {
+        Expr::Paren(inner) => yields_head_writer(&inner.expr),
+        Expr::Block(block) if block.label.is_none() => match block.block.stmts.last() {
+            Some(syn::Stmt::Expr(tail, None)) => yields_head_writer(tail),
+            _ => false,
+        },
+        _ => is_head_mut_call(expr),
+    }
+}
+
+/// The name of a plain `name` / `mut name` / `name: T` binding.
+fn simple_binding(pat: &Pat) -> Option<String> {
+    match pat {
+        Pat::Ident(pat) if pat.by_ref.is_none() && pat.subpat.is_none() => {
+            Some(pat.ident.to_string())
+        }
+        Pat::Type(pat) => simple_binding(&pat.pat),
+        _ => None,
+    }
+}
+
+/// Every name a pattern may bind. Identifiers inside pattern macros count as
+/// bindings, so an opaque pattern can only hide a writer.
+fn pattern_bindings(pat: &Pat) -> Vec<String> {
+    struct Bindings(Vec<String>);
+    impl<'ast> Visit<'ast> for Bindings {
+        fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
+            self.0.push(node.ident.to_string());
+            visit::visit_pat_ident(self, node);
+        }
+        fn visit_macro(&mut self, node: &'ast syn::Macro) {
+            self.0.extend(token_idents(node.tokens.clone()));
+        }
+    }
+    let mut bindings = Bindings(Vec::new());
+    bindings.visit_pat(pat);
+    bindings.0
+}
+
+fn token_idents(tokens: proc_macro2::TokenStream) -> Vec<String> {
+    let mut idents = Vec::new();
+    for token in tokens {
+        match token {
+            proc_macro2::TokenTree::Ident(ident) => idents.push(ident.to_string()),
+            proc_macro2::TokenTree::Group(group) => idents.extend(token_idents(group.stream())),
+            _ => {}
+        }
+    }
+    idents
 }
 
 impl<'ast> Visit<'ast> for HeadMutationVisitor {
+    fn visit_block(&mut self, node: &'ast Block) {
+        self.scoped(|visitor| visit::visit_block(visitor, node));
+    }
+
     fn visit_local(&mut self, local: &'ast Local) {
-        if let (Pat::Ident(binding), Some(init)) = (&local.pat, &local.init) {
-            let name = binding.ident.to_string();
-            if matches!(init.expr.as_ref(), Expr::MethodCall(call) if call.method == "head_mut" && call.args.is_empty())
-            {
-                self.writers.insert(name);
-            } else {
-                self.writers.remove(&name);
+        // The initializer and `else` block run before the new name exists.
+        if let Some(init) = &local.init {
+            self.visit_expr(&init.expr);
+            if let Some((_, diverge)) = &init.diverge {
+                self.visit_expr(diverge);
             }
         }
-        visit::visit_local(self, local);
+        let writer = local
+            .init
+            .as_ref()
+            .is_some_and(|init| init.diverge.is_none() && yields_head_writer(&init.expr));
+        match simple_binding(&local.pat) {
+            Some(name) if writer => self.bind(name, true),
+            _ => self.bind_pattern(&local.pat),
+        }
+    }
+
+    fn visit_expr_closure(&mut self, node: &'ast syn::ExprClosure) {
+        self.scoped(|visitor| {
+            for input in &node.inputs {
+                visitor.bind_pattern(input);
+            }
+            visitor.visit_expr(&node.body);
+        });
+    }
+
+    fn visit_expr_match(&mut self, node: &'ast syn::ExprMatch) {
+        self.visit_expr(&node.expr);
+        for arm in &node.arms {
+            self.scoped(|visitor| {
+                visitor.bind_pattern(&arm.pat);
+                // syn keeps an arm's guard inside its pattern.
+                if let Pat::Guard(guarded) = &arm.pat {
+                    visitor.visit_expr(&guarded.guard);
+                }
+                visitor.visit_expr(&arm.body);
+            });
+        }
+    }
+
+    fn visit_expr_for_loop(&mut self, node: &'ast syn::ExprForLoop) {
+        self.visit_expr(&node.expr);
+        self.scoped(|visitor| {
+            visitor.bind_pattern(&node.pat);
+            visitor.visit_block(&node.body);
+        });
+    }
+
+    // `if let` / `while let` bindings reach the condition's remainder and the
+    // body, not an `else` branch.
+    fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
+        self.scoped(|visitor| {
+            visitor.visit_expr(&node.cond);
+            visitor.visit_block(&node.then_branch);
+        });
+        if let Some((_, otherwise)) = &node.else_branch {
+            self.visit_expr(otherwise);
+        }
+    }
+
+    fn visit_expr_while(&mut self, node: &'ast syn::ExprWhile) {
+        self.scoped(|visitor| {
+            visitor.visit_expr(&node.cond);
+            visitor.visit_block(&node.body);
+        });
+    }
+
+    fn visit_expr_let(&mut self, node: &'ast syn::ExprLet) {
+        self.visit_expr(&node.expr);
+        self.bind_pattern(&node.pat);
     }
 
     fn visit_expr_method_call(&mut self, node: &'ast ExprMethodCall) {
@@ -174,15 +334,22 @@ impl<'ast> Visit<'ast> for HeadMutationVisitor {
         visit::visit_expr_method_call(self, node);
     }
 
-    // Template slots run inside the same body.
     fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
-        visit_template_exprs(&node.mac, |expr| self.visit_expr(expr));
-        visit::visit_expr_macro(self, node);
+        self.visit_template(&node.mac);
     }
 
     fn visit_stmt_macro(&mut self, node: &'ast syn::StmtMacro) {
-        visit_template_exprs(&node.mac, |expr| self.visit_expr(expr));
-        visit::visit_stmt_macro(self, node);
+        if is_html_macro(&node.mac) {
+            self.visit_template(&node.mac);
+            return;
+        }
+        // A statement macro can expand to `let $name = ..` for a name passed
+        // to it, so any writer it mentions may be shadowed from here on.
+        for name in token_idents(node.mac.tokens.clone()) {
+            if self.is_writer_name(&name) {
+                self.bind(name, false);
+            }
+        }
     }
 
     // Nested items have their own bodies and roles.

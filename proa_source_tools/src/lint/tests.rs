@@ -463,6 +463,114 @@ impl WebRenderSync for Card {
 }
 
 #[test]
+fn head_mutation_writers_follow_rust_scoping() {
+    // Each `// flag` line must be reported; every other `title`,
+    // `description`, or `canonical` call reaches a non-writer.
+    let source = r#"
+impl WebRenderSync for TemplateSlot {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let head = &self.article;
+        html_sync! {
+            <p>{{ let mut head = cx.head_mut(); head.title("Late")?; () }}</p> // flag
+            <p>{head.title()}</p>
+        }
+        .render(cx)?;
+        head.title();
+        Ok(())
+    }
+}
+impl WebRenderSync for NestedBlocks {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let head = &self.article;
+        {
+            let mut head = cx.head_mut();
+            head.title("Late")?; // flag
+        }
+        head.title();
+        let mut writer = cx.head_mut();
+        {
+            let writer = &self.article;
+            writer.description();
+        }
+        writer.description("Late") // flag
+    }
+}
+impl WebRenderSync for Closures {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        let by_param = |head: &Article| head.title();
+        let local = || {
+            let head = &self.article;
+            head.title()
+        };
+        let inner = || {
+            let mut other = cx.head_mut();
+            other.title("Late") // flag
+        };
+        let other = &self.article;
+        other.title();
+        head.title("Late") // flag
+    }
+}
+impl WebRenderSync for MatchArms {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        match self.article {
+            Some(head) => head.title(),
+            Wrapper { head, .. } if head.title() => (),
+            _ => head.title("Late")?, // flag
+        }
+        if let Some(head) = self.article {
+            head.title();
+        } else {
+            head.canonical("/late")?; // flag
+        }
+        while let Some(head) = next() {
+            head.title();
+        }
+        for head in articles {
+            head.title();
+        }
+        Ok(())
+    }
+}
+impl WebRenderSync for Shadowing {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        let head = &self.article;
+        head.title();
+        let (head, _) = (cx.head_mut(), 1);
+        head.title();
+        let head = &self.article;
+        let mut head = {
+            head.title();
+            cx.head_mut()
+        };
+        head.title("Late")?; // flag
+        let Some(head) = maybe else { return Ok(()) };
+        head.title();
+        let mut writer = cx.head_mut();
+        rebind!(writer);
+        writer.title("hidden by a macro that may rebind it");
+        Ok(())
+    }
+}
+"#;
+    let expected: Vec<_> = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("// flag"))
+        .map(|(index, _)| index + 1)
+        .collect();
+    let diagnostics = lint_file(Path::new("src/head.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        expected,
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn head_role_placement_lints_resolve_package_local_imports_across_files() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();
