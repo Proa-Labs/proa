@@ -497,7 +497,15 @@ SHARED_STATE_PROVIDER_OPEN = re.compile(
     r"(?<![\w:])(?:(?:::)?rsjs::)?SharedStateProvider\s*(?:::\s*<[^;{}]*>\s*)?\{"
 )
 STATE_FIELD = re.compile(r"(?<!\w)state\s*:(?!:)")
-STRING_LITERAL = r'"(?:[^"\\]|\\.)*"'
+STRING_LITERAL = r'"(?:[^"\\]|\\[\s\S])*"'
+
+
+def seed_string_literal(delimiter: str) -> str:
+    """Match a quoted string or a raw string with the same hashes at both ends."""
+    raw = rf'r(?P<{delimiter}>#*)"(?:(?!"(?P={delimiter}))[\s\S])*"(?P={delimiter})'
+    return rf"(?:{STRING_LITERAL}|{raw})"
+
+
 # A struct field initialized with an owned literal or empty value, matching
 # `expr_is_shared_state_owned_seed` in `proa_source_tools`.
 OWNED_SEED_FIELD = re.compile(
@@ -506,9 +514,9 @@ OWNED_SEED_FIELD = re.compile(
     + "|"
     + VEC_NEW
     + r"|(?:(?:::)?std::string::)?String::from\s*\(\s*"
-    + STRING_LITERAL
-    + r"\s*\)|"
-    + STRING_LITERAL
+    + seed_string_literal("from_hashes")
+    + r"\s*,?\s*\)|"
+    + seed_string_literal("receiver_hashes")
     + r"\s*\.\s*to_(?:string|owned)\s*\(\s*\)"
     + r")\s*(?=[,}])"
 )

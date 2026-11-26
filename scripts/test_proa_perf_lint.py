@@ -294,6 +294,27 @@ class ScanFixtureTest(unittest.TestCase):
             ],
         )
 
+    def test_shared_state_seed_accepts_raw_strings_and_trailing_commas(self):
+        self.assertEqual(
+            self.codes(
+                [
+                    "{rsjs::SharedStateProvider {",
+                    "    state: WorkbenchState {",
+                    '        mode: r#"select"#.to_string(),',
+                    '        accent: String::from("blue",),',
+                    '        tone: String::from(r##"a "# b"##, ),',
+                    '        plain: r"plain".to_owned(),',
+                    '        name: String::from(self.name,),',
+                    '        title: r#"prefix "#.to_string() + self.title,',
+                    "    },",
+                    "    children: Panel,",
+                    "}}",
+                ],
+                rsjs=True,
+            ),
+            ["string-from", "to-string"],
+        )
+
     def test_browser_closure_names_outside_rsjs_items_are_flagged(self):
         # Mirrors `browser_closure_names_outside_rsjs_items_are_server_calls`
         # in proa_source_tools: without `#[rsjs]` these are ordinary calls.
