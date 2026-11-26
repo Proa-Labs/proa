@@ -181,7 +181,7 @@ pub async fn product(
 
 let app = FrameworkBuilder::new()
     .with_dynamic_routes_and_metadata(router, metadata)
-    .build()
+    .try_build()?
     .layer(ServiceBuilder::new().layer(Extension(Arc::new(AppState { db }))));
 ```
 
@@ -226,7 +226,7 @@ That body limit is one of four defaults every endpoint inherits.
 
 ## What do endpoints inherit from the framework?
 
-`FrameworkBuilder::build()` applies the same outer hardening to endpoints and pages:
+`FrameworkBuilder` applies the same outer hardening to endpoints and pages:
 
 | Default | Endpoint effect |
 |---------|-----------------|
@@ -249,18 +249,18 @@ use axum::{
     http::{Request, StatusCode},
     routing::get,
 };
-use proa::axum::{router_from_spec, FrameworkBuilder, Route};
+use proa::axum::{router_from_spec, FrameworkBuildError, FrameworkBuilder, Route};
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn health_check_returns_ok() {
+async fn health_check_returns_ok() -> Result<(), FrameworkBuildError> {
     let (router, metadata) = router_from_spec(vec![
         Route::endpoint("/healthz", get(healthz)),
     ]);
 
     let app = FrameworkBuilder::new()
         .with_dynamic_routes_and_metadata(router, metadata)
-        .build();
+        .try_build()?;
 
     let response = app
         .oneshot(Request::builder().uri("/healthz").body(Body::empty()).unwrap())
@@ -271,6 +271,7 @@ async fn health_check_returns_ok() {
 
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     assert_eq!(body.as_ref(), b"ok");
+    Ok(())
 }
 ```
 

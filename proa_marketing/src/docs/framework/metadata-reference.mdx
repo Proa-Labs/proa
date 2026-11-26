@@ -681,7 +681,7 @@ let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new(mount)?)
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 Inside a Page or layout's head hook, paths now resolve using that installed policy:
@@ -713,7 +713,7 @@ let head = HeadConfig::default().with_urls(urls);
 let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 A Page or layout can then register a stylesheet from the allowed CDN:

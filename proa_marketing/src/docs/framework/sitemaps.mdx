@@ -322,7 +322,7 @@ Visit `http://127.0.0.1:3000/sitemap.xml` for the sitemap and `/robots.txt` for 
 
 Use standalone `Sitemap`, `SitemapIndex`, `sitemap_xml`, and `sitemap_index_xml` for request-time generation or application-managed refresh. Pass the configured origin and base path explicitly. The response helpers return UTF-8 `application/xml`; render failures are logged and returned as a generic 500.
 
-`try_build()` returns invalid discovery configuration as a `DiscoveryError`. The existing `build()` API also works, but panics on invalid configuration. Axum's duplicate-route restrictions apply to both.
+`try_build()` reports invalid discovery configuration as `FrameworkBuildError::Discovery`. Axum's duplicate-route restrictions still apply.
 
 ## Next steps
 

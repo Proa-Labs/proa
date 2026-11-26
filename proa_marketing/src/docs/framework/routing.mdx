@@ -48,7 +48,7 @@ let head = HeadConfig::default()
 let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 Use your configured public origin in place of `https://acme.example`. The framework makes Axum's matched path parameters available through `cx` before head and body rendering.

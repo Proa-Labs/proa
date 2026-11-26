@@ -3,14 +3,14 @@ title: Cross-origin and CSRF
 description: Reject forged cross-origin writes, and add the CSRF defense Proa does not.
 ---
 
-`FrameworkBuilder::build()` rejects browser-issued unsafe cross-origin requests, POST, PUT, PATCH, DELETE, before they reach a handler. They return `403`.
+`FrameworkBuilder` rejects browser-issued unsafe cross-origin requests, POST, PUT, PATCH, DELETE, before they reach a handler. They return `403`.
 
 Safe methods pass. Non-browser clients pass. You do not turn this on.
 
 ```rust filename="src/main.rs"
 let app = FrameworkBuilder::new()
     .with_trusted_origin("https://admin.example.com")
-    .build();
+    .try_build()?;
 ```
 
 Add a trusted origin when a browser on another origin legitimately needs to write to your app.
