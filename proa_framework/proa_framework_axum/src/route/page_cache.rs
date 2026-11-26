@@ -343,9 +343,24 @@ where
                                 {
                                     return;
                                 }
-                                // This task's guard coalesces refreshes until the page is stored.
-                                if fetch(&layer, key, inner, request, None).await.is_err() {
-                                    tracing::warn!("page cache background regeneration failed");
+                                // The background task owns the coalescing guard. Bound
+                                // stream preparation as well as collection so a render
+                                // stalled before its first chunk releases the guard.
+                                match tokio::time::timeout(
+                                    layer.timeout,
+                                    fetch(&layer, key, inner, request, None),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(_)) => {}
+                                    Ok(Err(_)) => {
+                                        tracing::warn!("page cache background regeneration failed");
+                                    }
+                                    Err(_) => {
+                                        tracing::warn!(
+                                            "page cache background regeneration timed out"
+                                        );
+                                    }
                                 }
                             };
                             if let Some(context) = context {

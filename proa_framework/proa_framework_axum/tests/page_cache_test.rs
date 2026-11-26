@@ -26,7 +26,7 @@ use proa_framework_axum::{
     explicit_markdown, router_from_spec, FrameworkBuilder, PageCache, PageCacheLayer, Route,
     RouteResponse,
 };
-use proa_macros::{html, html_sync, md_sync};
+use proa_macros::{html, html_send, html_sync, md_sync};
 use proa_stream::Suspense;
 use tokio::sync::Notify;
 use tower::{service_fn, Layer, ServiceExt};
@@ -329,6 +329,65 @@ async fn isr_serves_stale_collapses_refreshes_and_retains_route_context() {
     assert_eq!(refreshed.status(), StatusCode::OK);
     assert_eq!(refreshed.headers()["x-proa-page-cache"], "HIT");
     assert_ne!(body(refreshed).await, first_body);
+}
+
+#[tokio::test(start_paused = true)]
+async fn isr_releases_the_lock_when_stream_preparation_stalls() {
+    let generations = Arc::new(AtomicUsize::new(0));
+    let started = Arc::new(Notify::new());
+    let routes = Router::new()
+        .route(
+            "/",
+            get({
+                let generations = generations.clone();
+                let started = started.clone();
+                move || {
+                    let generation = generations.fetch_add(1, Ordering::SeqCst);
+                    let started = started.clone();
+                    async move {
+                        if generation == 1 {
+                            return RouteResponse::ssr_stream_send(html_send! {
+                                {proa_core::await_send_component(async move {
+                                    started.notify_one();
+                                    std::future::pending::<()>().await;
+                                    html_send! { <p>"unreachable"</p> }
+                                })}
+                            });
+                        }
+                        RouteResponse::ssr(generation)
+                    }
+                }
+            }),
+        )
+        .route_layer(
+            PageCacheLayer::new("build")
+                .revalidate(Duration::from_secs(1))
+                .with_timeout(Duration::from_millis(50)),
+        );
+    let app = FrameworkBuilder::new().with_dynamic_routes(routes).build();
+
+    assert_eq!(
+        body(app.clone().oneshot(request("/")).await.unwrap()).await,
+        "0"
+    );
+    tokio::time::advance(Duration::from_secs(2)).await;
+
+    let stale = app.clone().oneshot(request("/")).await.unwrap();
+    assert_eq!(cache_status(&stale), "STALE");
+    assert_eq!(body(stale).await, "0");
+    started.notified().await;
+    tokio::time::advance(Duration::from_millis(100)).await;
+
+    let mut fresh = request("/");
+    fresh
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    let response = tokio::time::timeout(Duration::from_secs(1), app.oneshot(fresh))
+        .await
+        .expect("stalled refresh must release the cache lock")
+        .unwrap();
+    assert_eq!(cache_status(&response), "MISS");
+    assert_eq!(body(response).await, "2");
 }
 
 #[tokio::test(start_paused = true)]
