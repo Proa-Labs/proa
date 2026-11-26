@@ -3289,7 +3289,7 @@ dependencies = [
 
 [[package]]
 name = "proa"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "proa_actions",
  "proa_core",
@@ -3305,7 +3305,7 @@ dependencies = [
 
 [[package]]
 name = "proa-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base16ct",
@@ -3352,7 +3352,7 @@ dependencies = [
 
 [[package]]
 name = "proa_actions"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "proa_macros",
  "serde",
@@ -3397,7 +3397,7 @@ dependencies = [
 
 [[package]]
 name = "proa_build"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "object",
  "rayon",
@@ -3433,7 +3433,7 @@ dependencies = [
 
 [[package]]
 name = "proa_core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "arrayvec",
  "bytes",
@@ -3488,7 +3488,7 @@ dependencies = [
 
 [[package]]
 name = "proa_docs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "axum",
  "base16ct",
@@ -3542,14 +3542,14 @@ dependencies = [
 
 [[package]]
 name = "proa_fonts"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proa_core",
 ]
 
 [[package]]
 name = "proa_fonts_build"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "brotli",
  "byteorder",
@@ -3567,7 +3567,7 @@ dependencies = [
 
 [[package]]
 name = "proa_fonts_macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proa_fonts",
  "proa_fonts_parse",
@@ -3578,7 +3578,7 @@ dependencies = [
 
 [[package]]
 name = "proa_fonts_parse"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "proa_fonts",
  "proc-macro2",
@@ -3588,7 +3588,7 @@ dependencies = [
 
 [[package]]
 name = "proa_framework_axum"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3638,7 +3638,7 @@ dependencies = [
 
 [[package]]
 name = "proa_framework_core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "async-stream",
  "bytes",
@@ -3674,7 +3674,7 @@ dependencies = [
 
 [[package]]
 name = "proa_macros"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "proa_actions",
  "proa_core",
@@ -3783,7 +3783,7 @@ dependencies = [
 
 [[package]]
 name = "proa_stream"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -3818,7 +3818,7 @@ dependencies = [
 
 [[package]]
 name = "proa_third_party"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "http",
  "proa_core",
@@ -4250,7 +4250,7 @@ dependencies = [
 
 [[package]]
 name = "rsjs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.23.1",
  "linkme",
@@ -4278,7 +4278,7 @@ dependencies = [
 
 [[package]]
 name = "rsjs_macros"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bytes",
  "prettyplease",

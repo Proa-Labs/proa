@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.2.0...proa-cli-v0.2.1) - 2026-11-26
+
+### Fixed
+
+- *(cli)* ship Intel macOS release archives ([#117](https://github.com/Proa-Labs/proa/pull/117))
+
+### Other
+
+- Add Linux arm64 & Windows CLI releases, honor --to on source fallback, and speed up proa ui add ([#116](https://github.com/Proa-Labs/proa/pull/116))
+- Speed up proa dev HMR (3.5s -> 1.7s) and cut proa-rsjs disk usage by 69% ([#114](https://github.com/Proa-Labs/proa/pull/114))
+- Polish 0.4.1 onboarding: macOS arm64 CLI release, quieter installer/UI DX, and code-first docs fixes ([#112](https://github.com/Proa-Labs/proa/pull/112))
+
 ## [0.2.0](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.1.3...proa-cli-v0.2.0) - 2026-11-24
 
 ### Added
