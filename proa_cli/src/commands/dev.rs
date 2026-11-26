@@ -55,7 +55,7 @@ pub(crate) struct DevArgs {
     /// system assigns.
     #[arg(long, value_name = "PORT")]
     reload_port: Option<u16>,
-    /// Quiet window a change must survive before a rebuild starts. Defaults to 200.
+    /// Quiet window a change must survive before a rebuild starts. Defaults to 100.
     #[arg(long, value_name = "MILLISECONDS")]
     debounce_ms: Option<u64>,
     /// Print the detailed build log instead of the interactive summary.

@@ -574,6 +574,9 @@ proa_fonts_build = {{ version = "{proa_fonts_build}" }}
 http-body-util = {{ version = "0.1" }}
 tower = {{ version = "0.5", features = ["util"] }}
 
+[profile.dev.package."*"]
+debug = 0
+
 [profile.release]
 lto = "thin"
 codegen-units = 16

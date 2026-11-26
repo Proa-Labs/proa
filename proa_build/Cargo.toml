@@ -17,6 +17,7 @@ object = { workspace = true }
 rayon = { workspace = true }
 rsjs_ir = { workspace = true }
 rsjs_transport = { workspace = true, features = ["extract"] }
+same-file = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

@@ -3403,6 +3403,7 @@ dependencies = [
  "rayon",
  "rsjs_ir",
  "rsjs_transport",
+ "same-file",
  "serde",
  "serde_json",
  "sha2",
