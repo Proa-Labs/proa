@@ -550,6 +550,17 @@ jobs:
           if (Test-Path 'dist') { Remove-Item -Recurse -Force 'dist' }
           New-Item -ItemType Directory -Force $stageDir | Out-Null
 
+          # Hosted runners ship the Visual C++ runtime, so the --version smoke
+          # test below cannot catch a dynamic CRT import. Inspect the imports.
+          $vsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsPath = & $vsWhere -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem -Path "$vsPath\VC\Tools\MSVC\*\bin\*\*\dumpbin.exe" |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dumpbin) {
+            Write-Host "::error title=dumpbin not found::no dumpbin.exe under $vsPath"
+            exit 1
+          }
+
           foreach ($binary in @('proa.exe', 'cargo-proa.exe')) {
             $sourcePath = Join-Path $env:CARGO_TARGET_DIR "$($env:TARGET)\release\$binary"
             if (-not (Test-Path -LiteralPath $sourcePath)) {
@@ -558,6 +569,17 @@ jobs:
             }
             $destPath = Join-Path $stageDir $binary
             Copy-Item -LiteralPath $sourcePath -Destination $destPath
+
+            $dependents = & $dumpbin /nologo /dependents $destPath | Out-String
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Write-Host $dependents
+            $dynamicCrt = [regex]::Matches($dependents, '(?im)^\s*((?:vcruntime|msvcp|ucrtbase|api-ms-win-crt-)\S*\.dll)\s*$') |
+              ForEach-Object { $_.Groups[1].Value }
+            if ($dynamicCrt) {
+              Write-Host "::error title=Dynamic CRT import::$binary imports $($dynamicCrt -join ', ') and will not start without the Visual C++ Redistributable. Keep target-feature=+crt-static for MSVC targets in .cargo/config.toml and do not set RUSTFLAGS in this job."
+              exit 1
+            }
+
             & $destPath --version
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
