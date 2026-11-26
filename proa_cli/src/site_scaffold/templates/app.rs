@@ -589,34 +589,30 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
         ""
     };
 
-    r#"__IMPORTS__
+    // One formatting pass: the constants carry the user's title, and a later
+    // placeholder replacement would rewrite any placeholder name it contains.
+    let imports = imports.join("\n");
+    let constants = constants.join("\n");
+    let render_impl = render_impl
+        .replace("__HEAD__", head)
+        .replace("__BODY__", &body);
+    format!(
+        r#"{imports}
 
-__CONSTANTS__
+{constants}
 
 #[derive(Debug, Clone, Copy)]
 pub struct HomePage;
 
-__RENDER_IMPL__
-__MARKDOWN_IMPL__
+{render_impl}
+{markdown_impl}
 
-pub async fn handler(__ARGS__) -> Result<impl IntoResponse, AppError> {
-    __HTML_RESPONSE__
-    __RESPONSE__
-}
-__MD_HANDLER__"#
-        .replace("__IMPORTS__", &imports.join("\n"))
-        .replace("__CONSTANTS__", &constants.join("\n"))
-        .replace(
-            "__RENDER_IMPL__",
-            &render_impl
-                .replace("__HEAD__", head)
-                .replace("__BODY__", &body),
-        )
-        .replace("__MARKDOWN_IMPL__", &markdown_impl)
-        .replace("__ARGS__", args)
-        .replace("__HTML_RESPONSE__", html_response)
-        .replace("__RESPONSE__", response)
-        .replace("__MD_HANDLER__", md_handler)
+pub async fn handler({args}) -> Result<impl IntoResponse, AppError> {{
+    {html_response}
+    {response}
+}}
+{md_handler}"#
+    )
 }
 
 fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool) -> String {

@@ -32,6 +32,12 @@ pub(crate) fn database_module() -> &'static str {
     templates::database_module()
 }
 
+/// The managed-head `src/layouts/root.rs` that `proa new site` writes.
+#[cfg(test)]
+pub(crate) fn root_layout() -> &'static str {
+    templates::root_layout()
+}
+
 #[derive(Debug, Clone)]
 pub struct NewSiteOptions {
     pub path: PathBuf,
@@ -359,7 +365,7 @@ fn run_child(root: &Path, args: &[&str]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capabilities::{DatabaseChoice, StylingChoice, UiChoice};
+    use crate::capabilities::{DatabaseChoice, StarterChoice, StylingChoice, UiChoice};
 
     #[test]
     fn proa_requirement_shortens_only_equivalent_versions() {
@@ -508,6 +514,76 @@ mod tests {
                 _ => assert_eq!(markdown.unwrap().file, Path::new("src/pages/home.rs")),
             }
         }
+    }
+
+    #[test]
+    fn any_title_scaffolds_rust_that_parses_and_keeps_the_title() {
+        // Quotes, backslashes, braces, raw-string terminators, a newline,
+        // non-ASCII, and the home page template's own placeholder names.
+        let title =
+            "Sam's \"Quote\" \\ {x}} \"# \"## # caf\u{e9} \u{65e5}\u{672c} \u{1f680}\nline2 \
+            __IMPORTS__ __CONSTANTS__ __RENDER_IMPL__ __MARKDOWN_IMPL__ __ARGS__ \
+            __HTML_RESPONSE__ __RESPONSE__ __MD_HANDLER__ __HEAD__ __BODY__";
+        let temp = tempfile::tempdir().unwrap();
+        for (template, starter) in [
+            ("app", None),
+            ("app", Some(StarterChoice::Blank)),
+            ("marketing", None),
+            ("docs", None),
+            ("minimal", None),
+            ("origin", None),
+        ] {
+            let root = temp
+                .path()
+                .join(format!("{template}-{}", starter.is_some()));
+            let mut value = options(root.clone());
+            value.template = template.to_string();
+            value.overrides.starter = starter;
+            value.title = Some(title.to_string());
+            new_site(value).unwrap();
+            for entry in walkdir::WalkDir::new(&root) {
+                let path = entry.unwrap().into_path();
+                if path.extension().is_some_and(|extension| extension == "rs") {
+                    let source = std::fs::read_to_string(&path).unwrap();
+                    if let Err(error) = syn::parse_file(&source) {
+                        panic!("{template}: {} does not parse: {error}", path.display());
+                    }
+                }
+            }
+            if template == "origin" {
+                continue;
+            }
+            let home =
+                syn::parse_file(&std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap())
+                    .unwrap();
+            let constant = home
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    syn::Item::Const(constant) if constant.ident == "TITLE" => Some(constant),
+                    _ => None,
+                })
+                .expect("home page declares TITLE");
+            let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(literal),
+                ..
+            }) = constant.expr.as_ref()
+            else {
+                panic!("TITLE is a string literal");
+            };
+            assert_eq!(literal.value(), title, "{template}");
+        }
+    }
+
+    #[test]
+    fn agents_md_states_the_head_role_contract() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("agents");
+        new_site(options(root.clone())).unwrap();
+        let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        assert!(agents.contains("const ROLE: ComponentRole = ComponentRole::PAGE;"));
+        assert!(agents.contains("ComponentRole::LAYOUT"));
+        assert!(agents.contains("render_head"));
     }
 
     #[test]

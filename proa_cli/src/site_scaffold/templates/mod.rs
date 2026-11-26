@@ -9,13 +9,13 @@ use base16ct::HexDisplay;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use quote::ToTokens;
 use serde_json::{json, Map};
 use sha2::{Digest, Sha256};
 
 use crate::capabilities::{
     CapabilitySelection, DatabaseChoice, DeployChoice, StarterChoice, StylingChoice, UiChoice,
 };
+use crate::scaffold::rust_string_literal;
 
 use super::plan::SitePlan;
 
@@ -188,12 +188,6 @@ fn sha256(source: &str) -> String {
     )
 }
 
-fn rust_string_literal(value: &str) -> String {
-    syn::LitStr::new(value, proc_macro2::Span::call_site())
-        .into_token_stream()
-        .to_string()
-}
-
 fn cargo_toml(package: &str, has_database: bool) -> String {
     let proa = super::scaffold_version("proa");
 
@@ -345,6 +339,7 @@ fn agents() -> &'static str {
 - Use `WebRenderSync<L>` unless a component awaits; then use `WebRender<L>` and `html!`.
 - Put request-shared keyed reads behind `cx.load_typed(...)` and create one `DataResolver::request_scope(...)` per HTML response.
 - Keep `RootDocument` HTML-only. Put semantic non-browser output on the page with `MdRenderSync`.
+- The router enables the managed head once with `FrameworkBuilder::with_head`. Each page declares `const ROLE: ComponentRole = ComponentRole::PAGE;` and sets its title and other metadata in `render_head`, never in `render`. A layout that renders the `{cx.head()}` outlet declares `ComponentRole::LAYOUT`. A missing role can still build and lint cleanly: a page without `ROLE = PAGE` compiles, then its HTML response fails with a 500 (`HeadLifecycle(OrphanProvider)`).
 - Configure dev/build scripts, asset tasks, and `paths.public` in `proa.config.rs`. Reference managed public files with `cx.url("public/...")` so they resolve to fingerprinted URLs.
 - Static classes stay in constants and hot render paths must not allocate.
 - Every component root has a stable `data-*` marker.
@@ -766,6 +761,11 @@ fn add_deploy(
 
 pub(super) fn database_module() -> &'static str {
     app::db_rs()
+}
+
+#[cfg(test)]
+pub(super) fn root_layout() -> &'static str {
+    app::root_layout()
 }
 
 /// The Dockerfile `proa new site` and `proa add <deployment>` both write.

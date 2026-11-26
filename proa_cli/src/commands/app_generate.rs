@@ -13,7 +13,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 
-use crate::{config, util::resolve_config_root};
+use crate::{config, scaffold::rust_string_literal, util::resolve_config_root};
 
 mod registered_routes;
 use registered_routes::ensure_routes_unregistered;
@@ -130,15 +130,17 @@ pub fn page(
     add_route_spec(
         &mut routes,
         &format!(
-            "        Route::endpoint(\"{}\", get(pages::{}::{handler})),",
-            route.canonical, route.module
+            "        Route::endpoint({}, get(pages::{}::{handler})),",
+            rust_string_literal(&route.canonical),
+            route.module
         ),
     )?;
     if let Some(alias) = explicit_alias {
         add_explicit_route(
             &mut routes,
             &format!(
-                "        .route(\"{alias}\", get(pages::{}::markdown))",
+                "        .route({}, get(pages::{}::markdown))",
+                rust_string_literal(alias),
                 route.module
             ),
         )?;
@@ -148,7 +150,7 @@ pub fn page(
             PathBuf::from(format!("src/pages/{}.rs", route.module)),
             crate::scaffold::format_generated_rust(
                 &module_path,
-                &page_source(&route, markdown, router_manages_head(&routes)),
+                &page_source(&route, markdown, crate::scaffold::site_manages_head(&root)),
             )?,
         ),
         (PathBuf::from("src/pages/mod.rs"), modules),
@@ -179,8 +181,10 @@ pub fn endpoint(
     let routes_path = root.join("src/routes.rs");
     let mut routes = fs::read_to_string(&routes_path)?;
     let registration = format!(
-        "        Route::endpoint(\"{}\", axum::routing::{}(endpoints::{}::handler)),",
-        route.canonical, method, route.module
+        "        Route::endpoint({}, axum::routing::{}(endpoints::{}::handler)),",
+        rust_string_literal(&route.canonical),
+        method,
+        route.module
     );
     ensure_routes_unregistered(&routes, &route.canonical, None)?;
     add_route_spec(&mut routes, &registration)?;
@@ -258,6 +262,15 @@ fn route_name(raw: &str) -> Result<RouteName> {
             .any(|part| part.is_empty() || part == "." || part == "..")
     {
         bail!("route path must contain safe, nonempty segments");
+    }
+    // The path reaches routes.rs and the page's Markdown template. Characters
+    // outside a URL path, such as `"`, `\`, `#`, and spaces, never match a request.
+    if let Some(character) = trimmed.chars().find(|&character| {
+        !character.is_ascii_alphanumeric() && !"/-._~!$&'()*+,;=:@%{}".contains(character)
+    }) {
+        bail!(
+            "route path `{trimmed}` contains {character:?}; use URL path characters and `{{name}}` captures"
+        );
     }
     let mut module_parts = Vec::new();
     let canonical = canonical_route(&format!("/{trimmed}"));
@@ -348,29 +361,19 @@ fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result
     Ok(())
 }
 
-/// Whether the site's router enables the managed head. Sites generated before
-/// it pass the page title to `RootDocument`, which renders `<title>` itself.
-fn router_manages_head(routes: &str) -> bool {
-    routes.contains(".with_head(")
-}
-
 // proa-perf-ok(scope): CLI generator assembles trusted Rust source, not response HTML
 fn page_source(route: &RouteName, markdown: bool, managed_head: bool) -> String {
+    let title = rust_string_literal(&route.title);
     let (head_imports, title_field, page_head) = if managed_head {
         (
             "ComponentRole, SyncHeadOperation, ",
             String::new(),
             format!(
-                "    const ROLE: ComponentRole = ComponentRole::PAGE;\n\n    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {{\n        cx.head_mut().title(\"{}\")\n    }}\n\n",
-                route.title
+                "    const ROLE: ComponentRole = ComponentRole::PAGE;\n\n    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {{\n        cx.head_mut().title({title})\n    }}\n\n"
             ),
         )
     } else {
-        (
-            "",
-            format!("\n        title: \"{}\",", route.title),
-            String::new(),
-        )
+        ("", format!("\n        title: {title},"), String::new())
     };
     let document = format!(
         "RootDocument {{{title_field}\n        content: proa::to_async({}),\n    }}",
@@ -410,7 +413,7 @@ impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
     }}
 }}
 
-const MARKDOWN_ALTERNATE: MarkdownAlternate = MarkdownAlternate::new("{alias}");
+const MARKDOWN_ALTERNATE: MarkdownAlternate = MarkdownAlternate::new({alias});
 
 pub async fn handler(headers: HeaderMap) -> Result<impl IntoResponse, AppError> {{
     let html = RouteResponse::ssr_async({document});
@@ -424,7 +427,7 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {{
             ty = route.rust_type,
             title = route.title,
             path = route.canonical,
-            alias = route.markdown_alias
+            alias = rust_string_literal(&route.markdown_alias)
         )
     } else {
         format!(
@@ -444,7 +447,7 @@ impl<L: DataLoader> WebRenderSync<L> for {ty} {{
 {page_head}    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {{
         html_sync! {{
             <main data-page-{slug}>
-                <h1>"{title}"</h1>
+                <h1>{title}</h1>
             </main>
         }}
         .render(cx)
@@ -454,7 +457,7 @@ impl<L: DataLoader> WebRenderSync<L> for {ty} {{
 "#,
         imports = imports,
         ty = route.rust_type,
-        title = route.title,
+        title = title,
         slug = slug,
         markdown_impl = markdown_impl
     )
@@ -788,6 +791,19 @@ mod tests {
             let route = route_name(input).unwrap();
             assert_eq!(route.canonical, "/files/{*rest}");
             assert_eq!(route.module, "files_rest");
+        }
+    }
+
+    #[test]
+    fn route_paths_outside_url_syntax_are_rejected_before_reaching_rust() {
+        // Each of these once produced a routes.rs or page that did not parse.
+        for input in ["a\"b", "x\\y", "q#\"##", "sp ace", "caf\u{e9}", "a`b"] {
+            let error = route_name(input).unwrap_err().to_string();
+            assert!(error.contains("URL path characters"), "{input}: {error}");
+        }
+        let route = route_name("it's/a+b=c@d").unwrap();
+        for (markdown, managed_head) in [(false, true), (true, true), (true, false)] {
+            syn::parse_file(&page_source(&route, markdown, managed_head)).unwrap();
         }
     }
 
