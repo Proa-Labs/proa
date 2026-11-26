@@ -333,6 +333,136 @@ impl WebRender for ProductPage {
 }
 
 #[test]
+fn head_role_placement_lints_resolve_names_per_module() {
+    let source = r#"
+mod ui { pub struct Card; }
+mod layouts {
+    pub struct Panel;
+    impl WebRender for Panel {
+        const ROLE: ComponentRole = ComponentRole::LAYOUT;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+    }
+}
+mod aliased {
+    use crate::ui::Card as Panel;
+    pub struct APage;
+    impl WebRender for APage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod direct {
+    use crate::layouts::Panel;
+    pub struct BPage;
+    impl WebRender for BPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} {super::layouts::Panel} }.render(cx)
+        }
+    }
+}
+mod globbed {
+    use crate::layouts::*;
+    use proa::*;
+    pub struct CPage;
+    impl WebRender for CPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod shadowed {
+    use crate::layouts::Panel;
+    pub struct DPage;
+    impl WebRender for DPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            use crate::ui::Card as Panel;
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod unimported {
+    pub struct EPage;
+    impl WebRender for EPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/lib.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [26, 26],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_follow_rendered_branches_and_loop_bodies() {
+    let source = r#"
+struct Nested;
+struct Home;
+impl WebRender for Nested {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for Home {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            {if show { Nested }}
+            {if show { () } else if other { () } else { Nested }}
+            {match kind { 1 => Nested, _ => () }}
+            {for _ in 0..2 { Nested }}
+            {while more { Nested }}
+            {{ let n = 1; Nested }}
+            {if show { Nested; }}
+            {'done: { break 'done (); Nested }}
+            {for _ in 0..2 { let _ = Nested; }}
+            {if show { return; }}
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [12, 13, 14, 15, 16, 17],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_mutation_in_body_checks_template_slots() {
+    let source = r#"
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <p>{{ cx.head_mut().title("Late")?; () }}</p>
+            <div>{html_sync! { <span>{{ let mut head = cx.head_mut(); head.description("Late")?; () }}</span> }}</div>
+            <a title={cx.head_mut().canonical("/x").is_ok()}></a>
+            <p>{{ cx.head_mut().set_title("legacy"); () }}</p>
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/card.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        [5, 6, 7],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
 fn head_role_placement_lints_resolve_package_local_imports_across_files() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path();

@@ -6,13 +6,15 @@
 //! `Suspense` or inside the selected Page.
 //!
 //! Precision comes before recall. A rendered component is matched to a role
-//! only when its name resolves inside the package (defined in the same file,
-//! imported through `crate`/`self`/`super`, or spelled with such a path) and
-//! the package defines exactly one type with that name, whose render impls
-//! all declare the same literal `PAGE` or `LAYOUT` role.
+//! only when its path resolves, in the module that writes it, to the module
+//! that defines the package's only type with that name, and every render impl
+//! of that type declares the same literal `PAGE` or `LAYOUT` role. A name
+//! bound by a function body, a glob import, the prelude, an external crate,
+//! or a re-export is never resolved.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use proc_macro2::Span;
 
@@ -172,8 +174,48 @@ impl<'ast> Visit<'ast> for HeadMutationVisitor {
         visit::visit_expr_method_call(self, node);
     }
 
+    // Template slots run inside the same body.
+    fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
+        visit_template_exprs(&node.mac, |expr| self.visit_expr(expr));
+        visit::visit_expr_macro(self, node);
+    }
+
+    fn visit_stmt_macro(&mut self, node: &'ast syn::StmtMacro) {
+        visit_template_exprs(&node.mac, |expr| self.visit_expr(expr));
+        visit::visit_stmt_macro(self, node);
+    }
+
     // Nested items have their own bodies and roles.
     fn visit_item(&mut self, _: &'ast Item) {}
+}
+
+/// Visit every Rust expression in an `html!`/`html_sync!` template: slots and
+/// dynamic attribute values, including nested elements.
+fn visit_template_exprs(mac: &syn::Macro, mut visit: impl FnMut(&Expr)) {
+    if !is_html_macro(mac) {
+        return;
+    }
+    let Ok(root) = syn::parse2::<HtmlRoot>(mac.tokens.clone()) else {
+        return;
+    };
+    fn walk(nodes: &[Node], visit: &mut impl FnMut(&Expr)) {
+        for node in nodes {
+            match node {
+                Node::Element(el) => {
+                    for attr in &el.attrs {
+                        if let Attribute::Dynamic { value, .. } = attr {
+                            visit(value);
+                        }
+                    }
+                    walk(&el.children, visit);
+                }
+                Node::Fragment(children) => walk(children, visit),
+                Node::Block(expr) => visit(expr),
+                Node::Text(_) | Node::Doctype(_) | Node::XmlDeclaration(_) => {}
+            }
+        }
+    }
+    walk(&root.nodes, &mut visit);
 }
 
 // ---------------------------------------------------------------------------
@@ -233,33 +275,45 @@ struct Declaration {
     span: Span,
 }
 
+/// A module: the file holding its items, plus the inline `mod` path inside it.
+type Location = (usize, Vec<String>);
+
 #[derive(Default)]
 struct PackageIndex {
-    definitions: BTreeMap<String, usize>,
+    /// Every type definition by name; `None` locates a block-local item.
+    definitions: BTreeMap<String, Vec<Option<Location>>>,
     roles: BTreeMap<String, Vec<Declaration>>,
 }
 
 impl PackageIndex {
-    /// A metadata role, only when the name is unambiguous in the package.
-    fn metadata_role(&self, name: &str) -> Option<&Declaration> {
-        if self.definitions.get(name) != Some(&1) {
+    /// The metadata role of the package's only type named `name`, and where
+    /// that type is defined.
+    fn metadata_role(&self, name: &str) -> Option<(&Declaration, &Location)> {
+        let [Some(location)] = self.definitions.get(name)?.as_slice() else {
             return None;
-        }
+        };
         let declarations = self.roles.get(name)?;
         let first = declarations.first()?;
         let agreed = declarations.iter().all(|d| d.role == first.role);
-        (agreed && matches!(first.role, Role::Page | Role::Layout)).then_some(first)
+        (agreed && matches!(first.role, Role::Page | Role::Layout)).then_some((first, location))
     }
 }
 
 struct IndexVisitor<'a> {
     file: usize,
+    module: Vec<String>,
+    blocks: usize,
     index: &'a mut PackageIndex,
 }
 
 impl IndexVisitor<'_> {
     fn define(&mut self, name: String, attrs: &[SynAttribute]) {
-        *self.index.definitions.entry(name.clone()).or_default() += 1;
+        let location = (self.blocks == 0).then(|| (self.file, self.module.clone()));
+        self.index
+            .definitions
+            .entry(name.clone())
+            .or_default()
+            .push(location);
         // A derived component impl is invisible here; record its role so a
         // same-named metadata type elsewhere in the package stays ambiguous.
         if attrs.iter().any(derives_component) {
@@ -289,6 +343,18 @@ fn derives_component(attr: &SynAttribute) -> bool {
 }
 
 impl<'ast> Visit<'ast> for IndexVisitor<'_> {
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if node.content.is_some() {
+            self.module.push(node.ident.to_string());
+            visit::visit_item_mod(self, node);
+            self.module.pop();
+        }
+    }
+    fn visit_block(&mut self, node: &'ast Block) {
+        self.blocks += 1;
+        visit::visit_block(self, node);
+        self.blocks -= 1;
+    }
     fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
         self.define(node.ident.to_string(), &node.attrs);
         visit::visit_item_struct(self, node);
@@ -328,118 +394,315 @@ impl<'ast> Visit<'ast> for IndexVisitor<'_> {
     }
 }
 
-/// Names a file can attribute to its own package.
+/// The names one module binds directly. Rust modules do not inherit their
+/// parent's names, so resolution never looks outward.
 #[derive(Default)]
-struct FileScope {
+struct ModuleScope {
     defined: BTreeSet<String>,
-    /// Module names declared anywhere in the file.
-    modules: BTreeSet<String>,
-    /// Imported alias -> original name, through a package-local root.
-    local_imports: BTreeMap<String, String>,
-    /// Aliases imported through any other root, including external crates.
-    foreign_imports: BTreeSet<String>,
+    /// Alias -> (`use` path prefix, original name); `None` when the alias is
+    /// bound twice.
+    imports: BTreeMap<String, Option<(Vec<String>, String)>>,
+    glob: bool,
+    children: BTreeSet<String>,
 }
 
-struct Import {
-    alias: String,
-    original: String,
-    root: String,
-}
-
-impl FileScope {
-    fn new(file: &File) -> Self {
-        struct Collector<'a> {
-            scope: &'a mut FileScope,
-            imports: Vec<Import>,
-        }
-        impl<'ast> Visit<'ast> for Collector<'_> {
-            fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
-                self.scope.defined.insert(node.ident.to_string());
-            }
-            fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
-                self.scope.defined.insert(node.ident.to_string());
-            }
-            fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
-                self.scope.modules.insert(node.ident.to_string());
-                visit::visit_item_mod(self, node);
-            }
-            fn visit_item_use(&mut self, node: &'ast syn::ItemUse) {
-                collect_use(&node.tree, None, &mut self.imports);
-            }
-        }
-        let mut scope = Self::default();
-        let mut collector = Collector {
-            scope: &mut scope,
-            imports: Vec::new(),
-        };
-        collector.visit_file(file);
-        let imports = collector.imports;
-        for import in imports {
-            if is_local_root(&import.root, &scope.modules) {
-                scope.local_imports.insert(import.alias, import.original);
+impl ModuleScope {
+    fn import(&mut self, alias: String, mut prefix: Vec<String>, original: String) {
+        // `use a::b::{self}` and `use a::b::{self as c}` import module `b`.
+        let (alias, original) = if original == "self" {
+            let Some(module) = prefix.pop() else { return };
+            let alias = if alias == "self" {
+                module.clone()
             } else {
-                scope.foreign_imports.insert(import.alias);
-            }
+                alias
+            };
+            (alias, module)
+        } else {
+            (alias, original)
+        };
+        if alias == "_" {
+            return;
         }
-        scope
+        self.imports
+            .entry(alias)
+            .and_modify(|target| *target = None)
+            .or_insert(Some((prefix, original)));
     }
 
-    /// The package-local original name of a rendered component path.
-    fn resolve(&self, path: &SynPath) -> Option<String> {
+    fn add_use(&mut self, tree: &syn::UseTree, prefix: Vec<String>) {
+        match tree {
+            syn::UseTree::Path(path) => {
+                let mut prefix = prefix;
+                prefix.push(path.ident.to_string());
+                self.add_use(&path.tree, prefix);
+            }
+            syn::UseTree::Name(name) => {
+                self.import(name.ident.to_string(), prefix, name.ident.to_string());
+            }
+            syn::UseTree::Rename(rename) => {
+                self.import(rename.rename.to_string(), prefix, rename.ident.to_string());
+            }
+            syn::UseTree::Group(group) => {
+                for tree in &group.items {
+                    self.add_use(tree, prefix.clone());
+                }
+            }
+            syn::UseTree::Glob(_) => self.glob = true,
+        }
+    }
+}
+
+fn module_scopes(items: &[Item], path: Vec<String>, out: &mut BTreeMap<Vec<String>, ModuleScope>) {
+    let mut scope = ModuleScope::default();
+    for item in items {
+        if let Some(ident) = type_item_ident(item) {
+            scope.defined.insert(ident.to_string());
+        }
+        match item {
+            Item::Use(item) => scope.add_use(&item.tree, Vec::new()),
+            Item::Mod(item) => {
+                scope.children.insert(item.ident.to_string());
+                if let Some((_, items)) = &item.content {
+                    let mut child = path.clone();
+                    child.push(item.ident.to_string());
+                    module_scopes(items, child, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    out.insert(path, scope);
+}
+
+fn type_item_ident(item: &Item) -> Option<&syn::Ident> {
+    match item {
+        Item::Struct(item) => Some(&item.ident),
+        Item::Enum(item) => Some(&item.ident),
+        Item::Union(item) => Some(&item.ident),
+        Item::Type(item) => Some(&item.ident),
+        _ => None,
+    }
+}
+
+/// Names a function body binds anywhere inside it. Any of them, or a glob
+/// import, may shadow the enclosing module, so resolution gives up on them.
+#[derive(Default)]
+struct BlockShadow {
+    names: BTreeSet<String>,
+    glob: bool,
+}
+
+impl BlockShadow {
+    fn of(block: &Block) -> Self {
+        struct Collector(BlockShadow);
+        impl<'ast> Visit<'ast> for Collector {
+            fn visit_item(&mut self, item: &'ast Item) {
+                let ident = match item {
+                    Item::Mod(item) => Some(&item.ident),
+                    Item::Const(item) => Some(&item.ident),
+                    Item::Static(item) => Some(&item.ident),
+                    Item::Fn(item) => Some(&item.sig.ident),
+                    item => type_item_ident(item),
+                };
+                if let Some(ident) = ident {
+                    self.0.names.insert(ident.to_string());
+                }
+                if let Item::Use(item) = item {
+                    let mut scope = ModuleScope::default();
+                    scope.add_use(&item.tree, Vec::new());
+                    self.0.glob |= scope.glob;
+                    self.0.names.extend(scope.imports.into_keys());
+                }
+                visit::visit_item(self, item);
+            }
+        }
+        let mut collector = Collector(Self::default());
+        collector.visit_block(block);
+        collector.0
+    }
+}
+
+/// Which crate a file's `crate::` paths name. Files under `src/` (outside
+/// `src/bin/`) share the package's library or main binary module tree; any
+/// other file is treated as its own crate root.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CrateRoot {
+    Src,
+    File(usize),
+}
+
+/// Resolves rendered component paths to the module that defines them.
+struct Resolver<'a> {
+    files: &'a [PreparedFile<'a>],
+    by_path: &'a BTreeMap<PathBuf, usize>,
+}
+
+impl Resolver<'_> {
+    /// The crate-relative module path of an inline module in `file`.
+    fn module_path(&self, file: usize, inline: &[String]) -> (CrateRoot, Vec<String>) {
+        let prepared = &self.files[file];
+        let mut path = prepared.module.clone();
+        path.extend(inline.iter().cloned());
+        (prepared.root, path)
+    }
+
+    /// The absolute module named by `prefix` inside module `inline` of `file`.
+    fn resolve_prefix(
+        &self,
+        file: usize,
+        inline: &[String],
+        scope: &ModuleScope,
+        prefix: &[String],
+        depth: usize,
+    ) -> Option<(CrateRoot, Vec<String>)> {
+        let (first, rest) = prefix.split_first()?;
+        let (root, current) = self.module_path(file, inline);
+        let (root, mut path) = match first.as_str() {
+            "crate" => (root, Vec::new()),
+            "self" => (root, current),
+            "super" => {
+                let mut parent = current;
+                parent.pop()?;
+                (root, parent)
+            }
+            name if scope.children.contains(name) => {
+                let mut child = current;
+                child.push(name.to_owned());
+                (root, child)
+            }
+            name => {
+                // A module imported by `use`; bounded against import cycles.
+                let Some(Some((target, original))) = scope.imports.get(name) else {
+                    return None;
+                };
+                if depth > 8 {
+                    return None;
+                }
+                let mut full = target.clone();
+                full.push(original.clone());
+                self.resolve_prefix(file, inline, scope, &full, depth + 1)?
+            }
+        };
+        for segment in rest {
+            match segment.as_str() {
+                "super" => {
+                    path.pop()?;
+                }
+                "self" | "crate" => return None,
+                name => path.push(name.to_owned()),
+            }
+        }
+        Some((root, path))
+    }
+
+    /// The file and inline path holding the items of a module.
+    fn locate(&self, from: usize, root: CrateRoot, path: Vec<String>) -> Option<Location> {
+        let src = match root {
+            CrateRoot::File(file) => return Some((file, path)),
+            CrateRoot::Src => self.files[from].package.join("src"),
+        };
+        for split in (1..=path.len()).rev() {
+            let relative: PathBuf = path[..split].iter().collect();
+            for candidate in [
+                src.join(&relative).with_extension("rs"),
+                src.join(&relative).join("mod.rs"),
+            ] {
+                if let Some(&file) = self.by_path.get(&candidate) {
+                    return Some((file, path[split..].to_vec()));
+                }
+            }
+        }
+        // Both a library and a binary root: `crate` is ambiguous unless the
+        // path is written in one of them.
+        let roots: Vec<usize> = ["lib.rs", "main.rs"]
+            .iter()
+            .filter_map(|name| self.by_path.get(&src.join(name)).copied())
+            .collect();
+        let root = match roots.as_slice() {
+            _ if roots.contains(&from) => from,
+            [only] => *only,
+            _ => return None,
+        };
+        Some((root, path))
+    }
+
+    /// Where the type a rendered path names is defined, and its name there.
+    fn resolve(
+        &self,
+        file: usize,
+        scopes: &BTreeMap<Vec<String>, ModuleScope>,
+        finding: &Finding,
+    ) -> Option<(Location, String)> {
+        let path = &finding.path;
         if path.leading_colon.is_some() {
             return None;
         }
-        let last = path.segments.last()?.ident.to_string();
-        if path.segments.len() > 1 {
-            let root = path.segments.first()?.ident.to_string();
-            return is_local_root(&root, &self.modules).then_some(last);
-        }
-        if self.foreign_imports.contains(&last) {
+        let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        let (last, prefix) = segments.split_last()?;
+        let first = segments.first()?;
+        if finding.shadow.glob || finding.shadow.names.contains(first) {
             return None;
         }
-        if self.defined.contains(&last) {
-            return Some(last);
-        }
-        self.local_imports.get(&last).cloned()
-    }
-}
-
-fn is_local_root(root: &str, modules: &BTreeSet<String>) -> bool {
-    matches!(root, "crate" | "self" | "super") || modules.contains(root)
-}
-
-/// Flatten a `use` tree. A bare `use Name;` has no root and stays unresolved.
-fn collect_use(tree: &syn::UseTree, root: Option<&str>, out: &mut Vec<Import>) {
-    let mut push = |alias: &syn::Ident, original: &syn::Ident| {
-        out.push(Import {
-            alias: alias.to_string(),
-            original: original.to_string(),
-            root: root.unwrap_or_default().to_owned(),
-        });
-    };
-    match tree {
-        syn::UseTree::Path(path) => {
-            let ident = path.ident.to_string();
-            collect_use(&path.tree, Some(root.unwrap_or(&ident)), out);
-        }
-        syn::UseTree::Name(name) => push(&name.ident, &name.ident),
-        syn::UseTree::Rename(rename) => push(&rename.rename, &rename.ident),
-        syn::UseTree::Group(group) => {
-            for tree in &group.items {
-                collect_use(tree, root, out);
+        let scope = scopes.get(&finding.module)?;
+        if prefix.is_empty() {
+            if scope.defined.contains(last) {
+                if scope.imports.contains_key(last) {
+                    return None;
+                }
+                return Some(((file, finding.module.clone()), last.clone()));
             }
+            // A glob import or the prelude may supply anything else.
+            let Some(Some((target, original))) = scope.imports.get(last) else {
+                return None;
+            };
+            let (root, module) = self.resolve_prefix(file, &finding.module, scope, target, 0)?;
+            return Some((self.locate(file, root, module)?, original.clone()));
         }
-        syn::UseTree::Glob(_) => {}
+        let (root, module) = self.resolve_prefix(file, &finding.module, scope, prefix, 0)?;
+        Some((self.locate(file, root, module)?, last.clone()))
     }
 }
 
 /// Component expressions a template slot, `render_child`, or `Suspense::new`
-/// argument renders. Wrappers that forward their child's role are unwrapped;
-/// html templates are searched slot by slot.
+/// argument renders, following `proa_macros::render_control::lower`: only a
+/// block's tail renders, and control flow directs it into the selected branch
+/// or loop body. html templates nested in a slot are visited separately.
+fn rendered_slot<'a>(expr: &'a Expr, out: &mut Vec<(&'a SynPath, Span)>) {
+    match expr {
+        Expr::If(node) => {
+            rendered_tail(&node.then_branch, out);
+            if let Some((_, otherwise)) = &node.else_branch {
+                rendered_slot(otherwise, out);
+            }
+        }
+        Expr::Match(node) => {
+            for arm in &node.arms {
+                rendered_slot(&arm.body, out);
+            }
+        }
+        Expr::ForLoop(node) => rendered_tail(&node.body, out),
+        Expr::While(node) => rendered_tail(&node.body, out),
+        // A breaking loop also renders its break value, which stays opaque.
+        Expr::Loop(node) => rendered_tail(&node.body, out),
+        // A labeled block renders its break value instead of its tail.
+        Expr::Block(node) if node.label.is_none() => rendered_tail(&node.block, out),
+        Expr::Block(_) | Expr::Break(_) | Expr::Continue(_) | Expr::Return(_) => {}
+        _ => rendered_components(expr, out),
+    }
+}
+
+fn rendered_tail<'a>(block: &'a Block, out: &mut Vec<(&'a SynPath, Span)>) {
+    if let Some(syn::Stmt::Expr(tail, None)) = block.stmts.last() {
+        rendered_slot(tail, out);
+    }
+}
+
+/// The component a rendered value constructs. Wrappers that forward their
+/// child's role are unwrapped.
 fn rendered_components<'a>(expr: &'a Expr, out: &mut Vec<(&'a SynPath, Span)>) {
     match expr {
-        Expr::Paren(inner) => rendered_components(&inner.expr, out),
-        Expr::Group(inner) => rendered_components(&inner.expr, out),
+        Expr::Paren(inner) => rendered_slot(&inner.expr, out),
+        Expr::Group(inner) => rendered_slot(&inner.expr, out),
         Expr::Struct(node) => out.push((&node.path, expr.span())),
         Expr::Path(node) if node.qself.is_none() && is_type_like(&node.path) => {
             out.push((&node.path, expr.span()));
@@ -457,7 +720,7 @@ fn rendered_components<'a>(expr: &'a Expr, out: &mut Vec<(&'a SynPath, Span)>) {
                 "to_async" | "to_send" | "SyncToAsync" | "SendSyncToAsync" | "Some"
             ) && call.args.len() == 1
             {
-                rendered_components(&call.args[0], out);
+                rendered_slot(&call.args[0], out);
             } else if matches!(name.as_str(), "new" | "default") && func.path.segments.len() >= 2 {
                 // `Type::new(..)` names the type it constructs. `Suspense::new`
                 // is a boundary rather than a metadata provider and has no
@@ -518,31 +781,28 @@ struct Finding {
     page: Option<String>,
     path: SynPath,
     span: Span,
+    /// The inline module holding the usage, within its file.
+    module: Vec<String>,
+    shadow: Rc<BlockShadow>,
 }
 
 /// Collects components rendered inside `Suspense::new(..)` arguments
 /// anywhere in a file, and inside the body of a `PAGE` impl.
-struct UsageVisitor {
+struct UsageVisitor<'a> {
     page: Option<String>,
+    module: &'a [String],
+    shadow: Rc<BlockShadow>,
     suspense_depth: usize,
-    findings: Vec<Finding>,
+    findings: &'a mut Vec<Finding>,
 }
 
-impl UsageVisitor {
-    fn new(page: Option<String>) -> Self {
-        Self {
-            page,
-            suspense_depth: 0,
-            findings: Vec::new(),
-        }
-    }
-
+impl UsageVisitor<'_> {
     fn record(&mut self, expr: &Expr) {
         if self.suspense_depth == 0 && self.page.is_none() {
             return;
         }
         let mut found = Vec::new();
-        rendered_components(expr, &mut found);
+        rendered_slot(expr, &mut found);
         for (path, span) in found {
             self.findings.push(Finding {
                 page: (self.suspense_depth == 0)
@@ -550,6 +810,8 @@ impl UsageVisitor {
                     .flatten(),
                 path: component_path(path),
                 span,
+                module: self.module.to_vec(),
+                shadow: Rc::clone(&self.shadow),
             });
         }
     }
@@ -585,7 +847,7 @@ fn is_render_child(call: &ExprCall) -> bool {
         .is_some_and(|seg| seg.ident == "render_child" || seg.ident == "render_send_child")
 }
 
-impl<'ast> Visit<'ast> for UsageVisitor {
+impl<'ast> Visit<'ast> for UsageVisitor<'_> {
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
         if is_suspense_new(node) {
             self.suspense_depth += 1;
@@ -622,7 +884,36 @@ struct PreparedFile<'a> {
     source: &'a str,
     file: &'a File,
     package: PathBuf,
+    root: CrateRoot,
+    /// The file's module path within its crate.
+    module: Vec<String>,
     test_ranges: Vec<RangeInclusive<usize>>,
+}
+
+/// A file's crate and module path from its location under `src/`.
+fn crate_position(absolute: &Path, package: &Path, index: usize) -> (CrateRoot, Vec<String>) {
+    let own = (CrateRoot::File(index), Vec::new());
+    let Ok(relative) = absolute.strip_prefix(package.join("src")) else {
+        return own;
+    };
+    let mut module: Vec<String> = relative
+        .iter()
+        .filter_map(|part| part.to_str().map(str::to_owned))
+        .collect();
+    if module.first().is_some_and(|first| first == "bin") {
+        return own;
+    }
+    match module
+        .pop()
+        .as_deref()
+        .and_then(|file| file.strip_suffix(".rs"))
+    {
+        Some("lib" | "main") if module.is_empty() => {}
+        Some("mod") => {}
+        Some(stem) => module.push(stem.to_owned()),
+        None => return own,
+    }
+    (CrateRoot::Src, module)
 }
 
 pub(super) fn lint_parsed(
@@ -632,66 +923,91 @@ pub(super) fn lint_parsed(
     include_tests: bool,
 ) -> Vec<Diagnostic> {
     let mut package_by_dir: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
-    let files: Vec<PreparedFile<'_>> = sources
-        .iter()
-        .zip(parsed)
-        .filter(|((path, _), _)| include_tests || !is_test_path(path))
-        .filter_map(|((path, source), file)| {
-            let file = (*file)?;
-            let absolute = content::absolute(path);
-            let dir = absolute.parent().unwrap_or(&absolute).to_path_buf();
-            let package = package_by_dir
-                .entry(dir.clone())
-                .or_insert_with(|| {
-                    super::asset_urls::package_scope(&dir).unwrap_or(absolute.clone())
-                })
-                .clone();
-            Some(PreparedFile {
-                path,
-                source,
-                file,
-                package,
-                test_ranges: if include_tests {
-                    Vec::new()
-                } else {
-                    cfg_test_module_line_ranges(source)
-                },
+    let mut package_of = |absolute: &Path| {
+        let dir = absolute.parent().unwrap_or(absolute).to_path_buf();
+        package_by_dir
+            .entry(dir.clone())
+            .or_insert_with(|| {
+                super::asset_urls::package_scope(&dir).unwrap_or(absolute.to_path_buf())
             })
-        })
-        .collect();
+            .clone()
+    };
+    // An unparsed file could define a same-named type, so its package's
+    // index would be incomplete.
+    let mut incomplete = BTreeSet::new();
+    let mut files: Vec<PreparedFile<'_>> = Vec::new();
+    let mut by_path = BTreeMap::new();
+    for ((path, source), file) in sources.iter().zip(parsed) {
+        if !include_tests && is_test_path(path) {
+            continue;
+        }
+        let absolute = content::absolute(path);
+        let package = package_of(&absolute);
+        let Some(file) = *file else {
+            incomplete.insert(package);
+            continue;
+        };
+        let index = files.len();
+        let (root, module) = crate_position(&absolute, &package, index);
+        by_path.insert(absolute, index);
+        files.push(PreparedFile {
+            path,
+            source,
+            file,
+            package,
+            root,
+            module,
+            test_ranges: if include_tests {
+                Vec::new()
+            } else {
+                cfg_test_module_line_ranges(source)
+            },
+        });
+    }
 
     let mut packages: BTreeMap<&Path, PackageIndex> = BTreeMap::new();
     for (index, prepared) in files.iter().enumerate() {
-        let package = packages.entry(&prepared.package).or_default();
         IndexVisitor {
             file: index,
-            index: package,
+            module: Vec::new(),
+            blocks: 0,
+            index: packages.entry(&prepared.package).or_default(),
         }
         .visit_file(prepared.file);
     }
 
+    let resolver = Resolver {
+        files: &files,
+        by_path: &by_path,
+    };
     let mut diagnostics = Vec::new();
-    for prepared in &files {
-        if !reporting.contains(&content::absolute(prepared.path)) {
+    for (index, prepared) in files.iter().enumerate() {
+        if !reporting.contains(&content::absolute(prepared.path))
+            || incomplete.contains(&prepared.package)
+        {
             continue;
         }
-        let Some(index) = packages.get(prepared.package.as_path()) else {
+        let Some(package) = packages.get(prepared.package.as_path()) else {
             continue;
         };
-        let scope = FileScope::new(prepared.file);
-        let mut visitor = UsageVisitor::new(None);
-        visit_usage_items(&prepared.file.items, &mut visitor);
-        for finding in visitor.findings {
+        let mut scopes = BTreeMap::new();
+        module_scopes(&prepared.file.items, Vec::new(), &mut scopes);
+        let mut findings = Vec::new();
+        collect_usages(&prepared.file.items, &[], &mut findings);
+        for finding in findings {
             let start = finding.span.start();
             if line_in_ranges(start.line, &prepared.test_ranges) {
                 continue;
             }
-            let Some(name) = scope.resolve(&finding.path) else {
+            let Some((location, name)) = resolver.resolve(index, &scopes, &finding) else {
                 continue;
             };
-            let Some(declaration) = index.metadata_role(&name) else {
+            let Some((declaration, defined)) = package.metadata_role(&name) else {
                 continue;
             };
+            if *defined != location {
+                continue;
+            }
             diagnostics.push(role_diagnostic(
                 prepared,
                 &files[declaration.file],
@@ -705,8 +1021,18 @@ pub(super) fn lint_parsed(
     diagnostics
 }
 
-/// Visit every item; a `PAGE` impl's body is a Page site.
-fn visit_usage_items(items: &[Item], visitor: &mut UsageVisitor) {
+/// Visit every function body; a `PAGE` impl's body is a Page site.
+fn collect_usages(items: &[Item], module: &[String], findings: &mut Vec<Finding>) {
+    let visit = |block: &Block, page: Option<String>, findings: &mut Vec<Finding>| {
+        UsageVisitor {
+            page,
+            module,
+            shadow: Rc::new(BlockShadow::of(block)),
+            suspense_depth: 0,
+            findings,
+        }
+        .visit_block(block);
+    };
     for item in items {
         match item {
             Item::Impl(item_impl) => {
@@ -720,22 +1046,21 @@ fn visit_usage_items(items: &[Item], visitor: &mut UsageVisitor) {
                     let ImplItem::Fn(method) = impl_item else {
                         continue;
                     };
-                    match &page {
-                        Some((name, body)) if method.sig.ident == *body => {
-                            let mut page_visitor = UsageVisitor::new(Some(name.clone()));
-                            page_visitor.visit_block(&method.block);
-                            visitor.findings.extend(page_visitor.findings);
-                        }
-                        _ => visitor.visit_block(&method.block),
-                    }
+                    let site = page
+                        .as_ref()
+                        .filter(|(_, body)| method.sig.ident == *body)
+                        .map(|(name, _)| name.clone());
+                    visit(&method.block, site, findings);
                 }
             }
             Item::Mod(item_mod) => {
                 if let Some((_, items)) = &item_mod.content {
-                    visit_usage_items(items, visitor);
+                    let mut child = module.to_vec();
+                    child.push(item_mod.ident.to_string());
+                    collect_usages(items, &child, findings);
                 }
             }
-            Item::Fn(item_fn) => visitor.visit_block(&item_fn.block),
+            Item::Fn(item_fn) => visit(&item_fn.block, None, findings),
             _ => {}
         }
     }
