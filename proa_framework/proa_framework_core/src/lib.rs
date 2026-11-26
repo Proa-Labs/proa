@@ -33,13 +33,14 @@ pub use metadata::{
 };
 pub use response::{
     add_default_security_headers, build_dyn_in_order_loader_handle,
-    build_dyn_request_loader_handle, finalize_route_response, finalize_route_response_stream,
-    finalize_route_response_sync, render_async_html_response, render_send_html_response,
-    render_send_stream_html_response, render_stream_html_response, render_sync_html_response,
-    FrameworkBody, FrameworkError, FrameworkLocalStream, FrameworkLocalStreamFactory,
-    FrameworkRequestContext, FrameworkResponse, FrameworkSendStream, FrameworkSendStreamFactory,
-    FrameworkStreamFactory, InOrderStreamDriver, OutOfOrderStreamDriver, RouteFinalizeMode,
-    RouteResponse, SendInOrderStreamDriver, SendOutOfOrderStreamDriver,
+    build_dyn_request_loader_handle, finalize_route_response, finalize_route_response_deferred,
+    finalize_route_response_stream, finalize_route_response_sync, render_async_html_response,
+    render_send_html_response, render_send_stream_html_response, render_stream_html_response,
+    render_sync_html_response, FrameworkBody, FrameworkError, FrameworkLocalStream,
+    FrameworkLocalStreamFactory, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
+    FrameworkSendStreamFactory, FrameworkStreamFactory, InOrderStreamDriver,
+    OutOfOrderStreamDriver, RouteFinalization, RouteFinalizeMode, RouteResponse,
+    SendInOrderStreamDriver, SendOutOfOrderStreamDriver,
 };
 
 // Back-compat re-exports for the dyn-erasure render adapter, which now

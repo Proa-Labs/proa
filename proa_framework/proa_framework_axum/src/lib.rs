@@ -46,8 +46,8 @@ pub use route::{
     Layout, LayoutRef, LocalStreamExecutorConfig, ManagedPreparationTimeout, MarkdownAlternate,
     Metadata, MetadataRef, OpenGraph, OpenGraphImage, OpenGraphMedia, PageCacheLayer,
     PageCacheService, RepresentationResponse, ResolvedMetadata, ResolvedOpenGraphImage,
-    ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse, RouteSpec,
-    StaticPathsFn,
+    ResolvedOpenGraphMedia, Route, RouteContextLayer, RouteMode, RouteResponse,
+    RouteResponseFuture, RouteSpec, StaticPathsFn,
 };
 pub use rsjs_assets::{RsjsAssets, RsjsAssetsError, RsjsFile};
 pub use security_headers::{FrameOptions, SecurityHeadersConfig, SecurityHeadersLayer};
@@ -496,12 +496,15 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Configure the persistent executor used by local streaming renders.
+    /// Configure the persistent executor used by local (`!Send`) renders,
+    /// buffered or streamed.
     ///
-    /// This is a joint server resource decision: deployments should account
-    /// for these threads alongside Tokio's worker count. Admission and
-    /// per-response transport limits provide explicit overload and memory
-    /// bounds.
+    /// It defaults to one worker per CPU the process may use, like Tokio's
+    /// own runtime. This is a joint server resource decision: deployments
+    /// should account for these threads alongside Tokio's worker count.
+    /// Stream admission and per-response transport limits bound streamed
+    /// responses; bound buffered renders with
+    /// [`with_concurrency_limit`](Self::with_concurrency_limit).
     pub fn with_local_stream_executor(mut self, config: LocalStreamExecutorConfig) -> Self {
         self.local_stream_executor = config;
         self

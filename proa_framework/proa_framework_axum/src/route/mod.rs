@@ -38,7 +38,7 @@ pub use representation::{
 };
 pub use response::{
     drive_dyn_render, drive_dyn_send_render, DynRenderOutcome, DynSendRenderOutcome, DynWebRender,
-    DynWebRenderSend, ManagedPreparationTimeout, RouteResponse,
+    DynWebRenderSend, ManagedPreparationTimeout, RouteResponse, RouteResponseFuture,
 };
 pub use spec::{router_from_spec, Route, RouteMode, RouteSpec, StaticPathsFn};
 

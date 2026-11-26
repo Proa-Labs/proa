@@ -317,10 +317,12 @@ Markdown children and tracked HTML bridges keep that same loader instance.
 `MdRenderSync<L>` can participate in the same tree, but cannot await a load.
 See [Data loading](/docs/framework/data-loading) for request-scoped loaders.
 
-For an async Axum route, return the plan from
-`negotiate_async_with_loader(...)` or `explicit_markdown_async_with_loader(...)`.
-The adapter creates the local render future during finalization, so the handler
-can remain `Send` without requiring a `Send` Markdown render future.
+For an async Axum route, build the plan with
+`negotiate_async_with_loader(...)` or `explicit_markdown_async_with_loader(...)`
+and await it in the handler. The local render future runs on Proa's local render
+pool while the handler awaits its result, so the handler remains `Send` without
+requiring a `Send` Markdown render future, and middleware sees the finished
+response. See [Route responses](/docs/framework/responses#async-ssr).
 
 ## Streaming Markdown
 
