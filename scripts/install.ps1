@@ -2378,6 +2378,24 @@ function Get-SourceInstallArguments {
     return $arguments
 }
 
+# install-self publishes a Windows bin directory as its own junction, so it
+# refuses a directory that holds other files. Mirror that rule before a source
+# build, which would otherwise compile for minutes and then stop.
+function Assert-DedicatedInstallDirectory {
+    param([string]$BinDir)
+    $item = Get-Item -LiteralPath $BinDir -Force -ErrorAction SilentlyContinue
+    if ($null -eq $item -or -not $item.PSIsContainer) { return }
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+    $owned = @('proa.exe', 'cargo-proa.exe', 'tailwindcss.exe')
+    foreach ($entry in @(Get-ChildItem -LiteralPath $BinDir -Force)) {
+        if ($owned -cnotcontains $entry.Name) {
+            Stop-Install ('use a dedicated Proa install directory; ' + $BinDir + ' contains other files') @(
+                '',
+                'Pass -To with an empty or new directory, or omit -To to use the default.')
+        }
+    }
+}
+
 function Install-FromSource {
     param([string]$BinDir, [bool]$DirWasExplicit, [string]$VersionText)
 
@@ -2409,6 +2427,7 @@ function Install-FromSource {
             $explicitCargoRoot = $parentDir
             $cargoBin = $trimmedBinDir
         } else {
+            Assert-DedicatedInstallDirectory $trimmedBinDir
             $stagedInstall = $true
         }
         Set-PreviousVersion $trimmedBinDir

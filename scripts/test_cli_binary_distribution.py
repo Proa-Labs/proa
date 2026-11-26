@@ -356,6 +356,7 @@ chmod +x "$CARGO_INSTALL_ROOT/bin/proa" "$CARGO_INSTALL_ROOT/bin/cargo-proa"
             binaries = root / "bin"
             binaries.mkdir()
             custom_dir = root / "custom-tools"
+            root_file = root / "cargo-root"
             cargo = binaries / "cargo"
             cargo.write_text("""#!/bin/sh
 if [ "$1" = --version ]; then echo 'cargo 1.98.0'; exit 0; fi
@@ -366,6 +367,7 @@ for arg in "$@"; do
     prev="$arg"
 done
 [ -n "$root" ] || exit 93
+printf '%s\\n' "$root" > "$FIXTURE_ROOT"
 mkdir -p "$root/bin"
 printf '#!/bin/sh\\nif [ "$1" = --version ]; then echo proa 0.2.0; exit 0; fi\\nexit 1\\n' > "$root/bin/proa"
 cp "$root/bin/proa" "$root/bin/cargo-proa"
@@ -380,6 +382,7 @@ chmod +x "$root/bin/proa" "$root/bin/cargo-proa"
                 PROA_HOME=str(root / "proa-home"),
                 PROA_LOG="off",
                 NO_COLOR="1",
+                FIXTURE_ROOT=str(root_file),
             )
             result = subprocess.run(
                 ["sh", str(ROOT / "scripts/install.sh"), "--build-from-source",
@@ -390,6 +393,11 @@ chmod +x "$root/bin/proa" "$root/bin/cargo-proa"
             self.assertTrue((custom_dir / "proa").is_file())
             self.assertTrue((custom_dir / "cargo-proa").is_file())
             self.assertFalse((root / "cargo-home/bin/proa").exists())
+            # The staged binaries run before publication, so they are built on
+            # the destination's filesystem rather than a possibly noexec /tmp.
+            staged_root = Path(root_file.read_text().strip())
+            self.assertEqual(staged_root.parent, Path(f"{custom_dir}.proa"))
+            self.assertFalse(staged_root.exists())
 
     def test_unix_source_install_reuses_existing_cargo_root_for_explicit_to(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -543,7 +551,7 @@ param([string]$Installer)
 $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-foreach ($name in @('Get-SourceInstallArguments', 'Install-FromSource')) {
+foreach ($name in @('Get-SourceInstallArguments', 'Assert-DedicatedInstallDirectory', 'Install-FromSource')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -593,14 +601,13 @@ foreach ($version in @(('0.1.1-main.' + ('0' * 40) + '.beta.1'), '0.1.1-main.sho
             base + ["--registry", "crates-io"],
         ])
 
-    @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
-    def test_windows_source_install_honors_explicit_to_directory(self) -> None:
+    def run_windows_source_install(self, root: Path, target_dir: Path) -> subprocess.CompletedProcess[str]:
         harness = r"""
 param([string]$Installer, [string]$TargetDir)
 $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-foreach ($name in @('Get-SourceInstallArguments', 'Install-FromSource')) {
+foreach ($name in @('Get-SourceInstallArguments', 'Assert-DedicatedInstallDirectory', 'Install-FromSource')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -622,6 +629,7 @@ function Stop-Install { param($Message); throw $Message }
 function Publish-ProaBundle { return $false }
 function Copy-Binary { param($Source, $Destination); Copy-Item -LiteralPath $Source -Destination $Destination -Force }
 function Invoke-NativeCommand { param($Program, $Arguments)
+    [Console]::Error.WriteLine('cargo invoked')
     $rootIndex = [Array]::IndexOf($Arguments, '--root')
     if ($rootIndex -lt 0) { throw 'expected --root for explicit -To' }
     $stagedBin = Join-Path $Arguments[$rootIndex + 1] 'bin'
@@ -633,20 +641,37 @@ function Invoke-NativeCommand { param($Program, $Arguments)
 $installed = Install-FromSource $TargetDir $true '9.8.7'
 Write-Output $installed
 """
+        path = root / "test-to.ps1"
+        path.write_text(harness)
+        return subprocess.run(
+            ["pwsh", "-NoLogo", "-NoProfile", "-File", str(path),
+             str(ROOT / "scripts/install.ps1"), str(target_dir)],
+            capture_output=True, text=True, timeout=30,
+        )
+
+    @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
+    def test_windows_source_install_honors_explicit_to_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            path = root / "test-to.ps1"
-            path.write_text(harness)
             target_dir = root / "custom-bin"
-            result = subprocess.run(
-                ["pwsh", "-NoLogo", "-NoProfile", "-File", str(path),
-                 str(ROOT / "scripts/install.ps1"), str(target_dir)],
-                capture_output=True, text=True, timeout=30,
-            )
+            result = self.run_windows_source_install(root, target_dir)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(result.stdout.strip(), str(target_dir / "proa.exe"))
             self.assertTrue((target_dir / "proa.exe").is_file())
             self.assertTrue((target_dir / "cargo-proa.exe").is_file())
+
+    @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
+    def test_windows_source_install_refuses_shared_to_directory_before_building(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target_dir = root / "tools"
+            target_dir.mkdir()
+            (target_dir / "other-tool.exe").write_text("other")
+            result = self.run_windows_source_install(root, target_dir)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("use a dedicated Proa install directory", result.stderr)
+            self.assertNotIn("cargo invoked", result.stderr)
+            self.assertFalse((target_dir / "proa.exe").exists())
 
     def test_unix_installer_rejects_opposing_source_modes(self) -> None:
         result = subprocess.run(

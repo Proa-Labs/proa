@@ -2694,27 +2694,33 @@ install_from_source() {
     if [ -n "$VERSION" ]; then set -- "$@" --version "=$VERSION"; fi
     if [ -n "$explicit_cargo_root" ]; then set -- "$@" --root "$explicit_cargo_root"; fi
     detail "Building proa-cli ${VERSION:-latest} from crates.io."
-    log_info "running: cargo $*"
-    if [ -n "$staged_install" ]; then
+    if [ -n "$standalone" ]; then
         set -- "$@" --root "$TMP_DIR/cargo" --force
-        cargo_bin="$TMP_DIR/cargo/bin"
-        if [ -n "$standalone" ]; then
-            # The updater supplies an executable temporary directory beside its
-            # installation. Keep Cargo build scripts on that filesystem as well.
-            CARGO_TARGET_DIR="$TMP_DIR/b" cargo "$@" ||
-                err "cargo install failed. The output above has the compiler error."
-            install_bundle "$cargo_bin" || err "the standalone helper is unavailable"
-        else
-            cargo "$@" ||
-                err "cargo install failed. The output above has the compiler error."
-            mkdir -p "$BIN_DIR" || err "could not create $BIN_DIR"
-            if ! install_bundle "$cargo_bin"; then
-                install_file "$cargo_bin/proa" "$BIN_DIR/proa"
-                install_file "$cargo_bin/cargo-proa" "$BIN_DIR/cargo-proa"
-            fi
+        log_info "running: cargo $*"
+        # The updater supplies an executable temporary directory beside its
+        # installation. Keep Cargo build scripts on that filesystem as well.
+        CARGO_TARGET_DIR="$TMP_DIR/b" cargo "$@" ||
+            err "cargo install failed. The output above has the compiler error."
+        install_bundle "$TMP_DIR/cargo/bin" || err "the standalone helper is unavailable"
+        cargo_bin="$BIN_DIR"
+    elif [ -n "$staged_install" ]; then
+        # The new binaries run before they are published, and system /tmp may
+        # be mounted noexec. Stage them beside the destination, as
+        # install_prebuilt does.
+        mkdir -p "$BIN_DIR.proa" || err "could not create the standalone installation root"
+        BOOTSTRAP_DIR=$(mktemp -d "$BIN_DIR.proa/.bootstrap.XXXXXX") || err "could not stage the build"
+        set -- "$@" --root "$BOOTSTRAP_DIR" --force
+        log_info "running: cargo $*"
+        cargo "$@" ||
+            err "cargo install failed. The output above has the compiler error."
+        mkdir -p "$BIN_DIR" || err "could not create $BIN_DIR"
+        if ! install_bundle "$BOOTSTRAP_DIR/bin"; then
+            install_file "$BOOTSTRAP_DIR/bin/proa" "$BIN_DIR/proa"
+            install_file "$BOOTSTRAP_DIR/bin/cargo-proa" "$BIN_DIR/cargo-proa"
         fi
         cargo_bin="$BIN_DIR"
     else
+        log_info "running: cargo $*"
         cargo "$@" ||
             err "cargo install failed. The output above has the compiler error."
     fi
