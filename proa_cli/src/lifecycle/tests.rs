@@ -1822,6 +1822,25 @@ mod dev_preparation_tests {
     }
 
     #[test]
+    fn build_summary_names_what_to_run_and_what_to_deploy() {
+        let executable = Path::new("/app/target/release/web");
+        let assets = Path::new("/app/target/proa-output/web/aaa");
+        assert_eq!(
+            build_output_summary(executable, Some(assets), false),
+            "built /app/target/release/web\n  public assets /app/target/proa-output/web/aaa (`proa start` serves them with it)\n  to deploy, rerun with `--artifact-out <path>`: it writes <path> and <path>.assets, copied together\n"
+        );
+        let exported = Path::new("/out/web");
+        assert_eq!(
+            build_output_summary(exported, Some(Path::new("/out/web.assets")), true),
+            "deployable output, copy together:\n  /out/web\n  /out/web.assets\n"
+        );
+        assert_eq!(
+            build_output_summary(exported, None, true),
+            "deployable output: /out/web\n"
+        );
+    }
+
+    #[test]
     fn start_manifest_preserves_multiple_binaries_and_separates_cross_targets() {
         let temp = tempfile::tempdir().unwrap();
         let target_dir = temp.path().join("target");
