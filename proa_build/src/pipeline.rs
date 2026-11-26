@@ -210,6 +210,10 @@ pub struct OptimisticLinkedCargoOutput {
 
 /// Result of attempting a single-pass optimistic empty-plan dev build.
 #[derive(Clone, Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "keep the public success payload inline without allocating for each development rebuild"
+)]
 pub enum OptimisticLinkedCargoOutcome {
     /// Single-pass final Cargo succeeded with zero unmapped RSJS macros.
     Succeeded(OptimisticLinkedCargoOutput),
