@@ -155,13 +155,14 @@ Get-BinaryVersionForDistribution $Distribution
 class ReleaseAssetVerificationTests(unittest.TestCase):
     def test_expected_contract_has_linux_macos_and_windows_archives_and_checksum(self) -> None:
         archives = expected_archives(VERSION)
-        self.assertEqual(len(archives), 5)
+        self.assertEqual(len(archives), 6)
         self.assertEqual(
             TARGETS,
             (
                 "aarch64-apple-darwin",
                 "aarch64-pc-windows-msvc",
                 "aarch64-unknown-linux-gnu",
+                "x86_64-apple-darwin",
                 "x86_64-pc-windows-msvc",
                 "x86_64-unknown-linux-gnu",
             ),
@@ -173,6 +174,7 @@ class ReleaseAssetVerificationTests(unittest.TestCase):
                 "proa-cli-9.8.7-aarch64-apple-darwin.tar.gz",
                 "proa-cli-9.8.7-aarch64-pc-windows-msvc.zip",
                 "proa-cli-9.8.7-aarch64-unknown-linux-gnu.tar.gz",
+                "proa-cli-9.8.7-x86_64-apple-darwin.tar.gz",
                 "proa-cli-9.8.7-x86_64-pc-windows-msvc.zip",
                 "proa-cli-9.8.7-x86_64-unknown-linux-gnu.tar.gz",
             ),

@@ -11,6 +11,7 @@ name: Release CLI
 #   archives  proa-cli-<version>-x86_64-unknown-linux-gnu.tar.gz
 #             proa-cli-<version>-aarch64-unknown-linux-gnu.tar.gz
 #             proa-cli-<version>-aarch64-apple-darwin.tar.gz
+#             proa-cli-<version>-x86_64-apple-darwin.tar.gz
 #             proa-cli-<version>-x86_64-pc-windows-msvc.zip
 #             proa-cli-<version>-aarch64-pc-windows-msvc.zip
 #   checksums proa-cli-<version>-SHA256SUMS        (sha256sum --check format)
@@ -23,8 +24,8 @@ name: Release CLI
 # reproducible.
 #
 # Ubuntu x86_64 runs on the unprivileged, ephemeral GCP Linux/amd64 pool
-# (Ubuntu 24.04). Linux arm64, macOS arm64, Windows x86_64, and Windows arm64
-# build natively on GitHub-hosted runners. Other platforms use the installers'
+# (Ubuntu 24.04). The other five targets build natively on GitHub-hosted
+# runners. Other platforms use the installers'
 # existing source-build fallback. Tag pushes, workflow_dispatch, and successful
 # push-to-main workflow runs are trusted events, so pull-request code never
 # executes in this workflow.
@@ -302,6 +303,7 @@ jobs:
               echo "::warning title=strip unavailable::${binary_path} is shipping unstripped"
             fi
             chmod 755 "$binary_path"
+            "$binary_path" --version
           done
 
           cp README.md LICENSE "${stage_dir}/"
@@ -403,15 +405,26 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  build_macos_arm64:
-    name: Build macOS arm64 archive
+  build_macos:
+    name: Build macOS ${{ matrix.arch }} archive
     needs: setup
-    runs-on: macos-15
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+            runner: macos-15
+          - arch: x86_64
+            target: x86_64-apple-darwin
+            runner: macos-15-intel
     env:
-      TARGET: aarch64-apple-darwin
+      TARGET: ${{ matrix.target }}
+      ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -448,8 +461,10 @@ jobs:
               strip -x "${stage_dir}/${binary}" || echo "::warning title=strip failed::${stage_dir}/${binary} is shipping unstripped"
             fi
             chmod 755 "${stage_dir}/${binary}"
-            # Apple silicon kills a binary whose ad-hoc signature is invalid,
-            # and no later job runs this archive before it is published.
+            lipo -verify_arch "$ARCH" "${stage_dir}/${binary}"
+            # Sign the staged binary after stripping so the archive contains
+            # the same signed executable that passes the native smoke test.
+            codesign --force --sign - "${stage_dir}/${binary}"
             codesign --verify --strict "${stage_dir}/${binary}"
             "${stage_dir}/${binary}" --version
           done
@@ -466,10 +481,10 @@ jobs:
             cat "${archive}.sha256"
           )
 
-      - name: Upload the macOS arm64 archive
+      - name: Upload the macOS archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: proa-cli-aarch64-apple-darwin
+          name: proa-cli-${{ matrix.target }}
           path: |
             dist/*.tar.gz
             dist/*.sha256
@@ -588,7 +603,7 @@ jobs:
 
   release:
     name: Checksums and GitHub Release
-    needs: [setup, build, build_linux_arm64, build_macos_arm64, build_windows]
+    needs: [setup, build, build_linux_arm64, build_macos, build_windows]
     runs-on: gcp-pr-ci
     timeout-minutes: 15
     outputs:

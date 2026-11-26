@@ -7,10 +7,10 @@ Use `proa check` as the default pull-request gate. It runs `proa fmt --check --v
 
 Install a checksum-verified CLI binary before running the gate. There are two
 download flows. Prebuilt archives are published for 64-bit Ubuntu 24.04+
-(`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`), Apple Silicon
-macOS (`aarch64-apple-darwin`), and Windows (`x86_64-pc-windows-msvc` and
-`aarch64-pc-windows-msvc`); compile a pinned published version from crates.io
-on other runners.
+(`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`), macOS
+(`x86_64-apple-darwin` and `aarch64-apple-darwin`), and Windows
+(`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`). On other runners,
+compile a pinned published version from crates.io.
 
 ### Latest CLI From `main`
 
