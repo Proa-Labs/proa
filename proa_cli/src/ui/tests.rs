@@ -1515,3 +1515,92 @@ fn view_install_hint_preserves_resolved_registry_and_root_and_mjs_uses_module_ta
     assert!(cmd.contains("my site"), "{cmd}");
     assert!(cmd.ends_with(" --force"), "{cmd}");
 }
+
+#[test]
+fn add_fast_fails_version_conflict_before_fetching_dependencies_or_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+    write_manifest(
+        &public,
+        "button",
+        PUBLIC_REGISTRY,
+        "free",
+        "MIT OR Apache-2.0",
+        "@components/button/button.rs",
+        b"pub struct Button;\n",
+        &[],
+    );
+
+    add_fixture(&project, "button").unwrap();
+
+    // Publish version 2.0.0 referencing a missing dependency and missing file:
+    // non-force `add` must fail on the lockfile version conflict immediately
+    // rather than trying to resolve dependencies or fetch artifacts.
+    let updated = serde_json::json!({
+        "$schema": COMPONENT_MANIFEST_SCHEMA,
+        "schemaVersion": 1,
+        "name": "button",
+        "version": "2.0.0",
+        "registry": PUBLIC_REGISTRY,
+        "tier": "free",
+        "license": "MIT OR Apache-2.0",
+        "dependencies": ["@proa/missing_dep"],
+        "files": [{
+            "source": "files/does_not_exist.rs",
+            "target": "@components/button/button.rs",
+            "sha256": sha256_bytes(b"pub struct ButtonV2;\n"),
+        }],
+    });
+    fs::write(
+        public.join("button.json"),
+        serde_json::to_vec(&updated).unwrap(),
+    )
+    .unwrap();
+
+    let error = add_fixture(&project, "button").unwrap_err().to_string();
+    assert!(
+        error.contains("`@proa/button` is already installed at version 1.0.0"),
+        "{error}"
+    );
+    assert!(error.contains("2.0.0"), "{error}");
+}
+
+#[test]
+fn repeat_install_reuses_hash_verified_local_files_without_refetching() {
+    let temp = tempfile::tempdir().unwrap();
+    let public = temp.path().join("public");
+    let pro = temp.path().join("pro");
+    fs::create_dir_all(&public).unwrap();
+    fs::create_dir_all(&pro).unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    write_project(&project, &public, &pro);
+    write_manifest(
+        &public,
+        "button",
+        PUBLIC_REGISTRY,
+        "free",
+        "MIT OR Apache-2.0",
+        "@components/button/button.rs",
+        b"pub struct Button;\n",
+        &[],
+    );
+
+    add_fixture(&project, "button").unwrap();
+    // Remove the remote artifact while keeping the manifest; repeat install
+    // should reuse the hash-verified local file without re-fetching it.
+    fs::remove_file(public.join("files/button.rs")).unwrap();
+
+    let second = add_fixture(&project, "button").unwrap();
+    assert!(second.files_written.is_empty());
+    assert_eq!(
+        second.files_unchanged,
+        [PathBuf::from("src/components/button/button.rs")]
+    );
+}

@@ -299,6 +299,7 @@ enum PreparedCargoDependencySource {
 struct Resolver<'a> {
     root: &'a Path,
     config: &'a ProjectConfig,
+    conflict_lock: Option<&'a ComponentLockFile>,
     client: Client,
     components: BTreeMap<String, PreparedComponent>,
     order: Vec<String>,
@@ -316,6 +317,7 @@ struct ResolvedGraph {
 fn resolve_graph(
     root: &Path,
     config: &ProjectConfig,
+    conflict_lock: Option<&ComponentLockFile>,
     component: &str,
     registry: Option<&str>,
 ) -> Result<ResolvedGraph> {
@@ -352,6 +354,7 @@ fn resolve_graph(
     let mut resolver = Resolver {
         root,
         config,
+        conflict_lock,
         client,
         components: BTreeMap::new(),
         order: Vec::new(),
@@ -460,6 +463,7 @@ pub fn view(options: ViewOptions) -> Result<ViewReport> {
     let graph = resolve_graph(
         &root,
         &config,
+        None,
         &options.component,
         options.registry.as_deref(),
     )?;
@@ -785,17 +789,19 @@ fn quote_cli_path(path: &Path) -> String {
 
 pub fn add(options: AddOptions) -> Result<AddReport> {
     let root = canonical_project_root(&options.root)?;
+    let existing_lock = config::load_component_lock(&root)?;
     let config = config::load_project_config(&root)?;
+    let conflict_lock = (!options.force).then_some(&existing_lock);
     let graph = resolve_graph(
         &root,
         &config,
+        conflict_lock,
         &options.component,
         options.registry.as_deref(),
     )?;
     let resolved_registry = graph.resolved_registry;
     let resolved_id = graph.resolved_id;
 
-    let existing_lock = config::load_component_lock(&root)?;
     let next_lock = build_next_lock(&existing_lock, &graph.components, &graph.order);
 
     let transaction = prepare_transaction(
@@ -1108,6 +1114,21 @@ impl<'a> Resolver<'a> {
         }
 
         validate_manifest(registry, slug, &loaded.manifest)?;
+        // Fail before fetching dependency manifests or artifact files when a
+        // non-force `add` hits an already-installed version/registry conflict.
+        if let Some(installed) = self.conflict_lock.and_then(|lock| lock.components.get(&id)) {
+            if installed.version != loaded.manifest.version
+                || installed.registry != loaded.manifest.registry
+            {
+                bail!(
+                    "`{id}` is already installed at version {}; \
+                     `proa ui add` will not overwrite or upgrade it. \
+                     Pass `--force` to reinstall it at {}.",
+                    installed.version,
+                    loaded.manifest.version
+                );
+            }
+        }
         self.stack.push(id.clone());
 
         let mut dependency_ids = Vec::with_capacity(loaded.manifest.dependencies.len());
@@ -1168,20 +1189,38 @@ impl<'a> Resolver<'a> {
             let expected_hash = normalize_sha256(&entry.sha256)
                 .with_context(|| format!("manifest `{id}` target `{}`", entry.target))?;
             let source = loaded.location.resolve_relative(&entry.source)?;
-            let bytes = self
-                .fetch_bytes(&source, MAX_FILE_BYTES, loaded.manifest.registry.as_str())
-                .map_err(|error| {
-                    fetch_error_to_anyhow(&loaded.manifest.registry, &loaded.manifest.name, error)
-                })?;
-            let actual_hash = sha256_bytes(&bytes);
-            if actual_hash != expected_hash {
-                bail!(
-                    "artifact hash mismatch for `{}` in `{id}`: expected {}, got {}",
-                    entry.target,
-                    expected_hash,
-                    actual_hash
-                );
-            }
+            // Reuse a plain local file when its SHA-256 already matches the
+            // manifest so idempotent adds and shared dependencies skip HTTP.
+            let local_match = ensure_no_symlink_path(self.root, &target_relative)
+                .ok()
+                .and_then(|()| fs::read(&target).ok())
+                .filter(|bytes| {
+                    bytes.len() <= MAX_FILE_BYTES && sha256_bytes(bytes) == expected_hash
+                });
+            let bytes = match local_match {
+                Some(bytes) => bytes,
+                None => {
+                    let bytes = self
+                        .fetch_bytes(&source, MAX_FILE_BYTES, loaded.manifest.registry.as_str())
+                        .map_err(|error| {
+                            fetch_error_to_anyhow(
+                                &loaded.manifest.registry,
+                                &loaded.manifest.name,
+                                error,
+                            )
+                        })?;
+                    let actual_hash = sha256_bytes(&bytes);
+                    if actual_hash != expected_hash {
+                        bail!(
+                            "artifact hash mismatch for `{}` in `{id}`: expected {}, got {}",
+                            entry.target,
+                            expected_hash,
+                            actual_hash
+                        );
+                    }
+                    bytes
+                }
+            };
             self.total_bytes = self
                 .total_bytes
                 .checked_add(bytes.len())

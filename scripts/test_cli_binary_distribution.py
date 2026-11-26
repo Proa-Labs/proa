@@ -14,6 +14,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from verify_cli_release_assets import (
@@ -80,14 +81,20 @@ def add_tar_file(archive: tarfile.TarFile, name: str, *, executable: bool = Fals
 
 def make_archive(directory: Path, name: str) -> None:
     prefix = f"proa-cli-{VERSION}-"
-    target = name[len(prefix) : -len(".tar.gz")]
-    with tarfile.open(directory / name, "w:gz") as archive:
-        for member in sorted(expected_archive_files(VERSION, target)):
-            add_tar_file(
-                archive,
-                member,
-                executable=Path(member).name in {"proa", "cargo-proa"},
-            )
+    if name.endswith(".zip"):
+        target = name[len(prefix) : -len(".zip")]
+        with zipfile.ZipFile(directory / name, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for member in sorted(expected_archive_files(VERSION, target)):
+                archive.writestr(member, f"fixture:{member}\n".encode())
+    else:
+        target = name[len(prefix) : -len(".tar.gz")]
+        with tarfile.open(directory / name, "w:gz") as archive:
+            for member in sorted(expected_archive_files(VERSION, target)):
+                add_tar_file(
+                    archive,
+                    member,
+                    executable=Path(member).name in {"proa", "cargo-proa"},
+                )
 
     digest = sha256_file(directory / name)
     (directory / f"{name}.sha256").write_text(
@@ -146,18 +153,27 @@ Get-BinaryVersionForDistribution $Distribution
 
 
 class ReleaseAssetVerificationTests(unittest.TestCase):
-    def test_expected_contract_has_linux_and_macos_arm64_archives_and_checksum(self) -> None:
+    def test_expected_contract_has_linux_macos_and_windows_archives_and_checksum(self) -> None:
         archives = expected_archives(VERSION)
-        self.assertEqual(len(archives), 2)
+        self.assertEqual(len(archives), 5)
         self.assertEqual(
             TARGETS,
-            ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu"),
+            (
+                "aarch64-apple-darwin",
+                "aarch64-pc-windows-msvc",
+                "aarch64-unknown-linux-gnu",
+                "x86_64-pc-windows-msvc",
+                "x86_64-unknown-linux-gnu",
+            ),
         )
         self.assertEqual(
             expected_published_assets(VERSION),
             (
                 "proa-cli-9.8.7-SHA256SUMS",
                 "proa-cli-9.8.7-aarch64-apple-darwin.tar.gz",
+                "proa-cli-9.8.7-aarch64-pc-windows-msvc.zip",
+                "proa-cli-9.8.7-aarch64-unknown-linux-gnu.tar.gz",
+                "proa-cli-9.8.7-x86_64-pc-windows-msvc.zip",
                 "proa-cli-9.8.7-x86_64-unknown-linux-gnu.tar.gz",
             ),
         )
@@ -218,6 +234,25 @@ class ReleaseAssetVerificationTests(unittest.TestCase):
 
             with self.assertRaisesRegex(VerificationError, "unsafe member"):
                 verify_distribution(directory, VERSION)
+
+    def test_verifier_rejects_unsafe_zip_members(self) -> None:
+        for bad_member in ("proa-cli-9.8.7-x86_64-pc-windows-msvc\\proa.exe", "../escape.exe"):
+            with self.subTest(bad_member=bad_member), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                make_distribution(directory)
+                archive_name = f"proa-cli-{VERSION}-x86_64-pc-windows-msvc.zip"
+                archive_path = directory / archive_name
+                with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    for member in sorted(expected_archive_files(VERSION, "x86_64-pc-windows-msvc")):
+                        archive.writestr(member, f"fixture:{member}\n".encode())
+                    archive.writestr(bad_member, b"bad\n")
+                digest = sha256_file(archive_path)
+                (directory / f"{archive_name}.sha256").write_text(
+                    f"{digest}  {archive_name}\n", encoding="utf-8", newline="\n"
+                )
+
+                with self.assertRaisesRegex(VerificationError, "unsafe member"):
+                    verify_distribution(directory, VERSION)
 
 
 class InstallerContractTests(unittest.TestCase):
@@ -314,6 +349,104 @@ chmod +x "$CARGO_INSTALL_ROOT/bin/proa" "$CARGO_INSTALL_ROOT/bin/cargo-proa"
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((install_root / "bin/proa").is_file())
+
+    def test_unix_source_install_honors_explicit_to_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binaries = root / "bin"
+            binaries.mkdir()
+            custom_dir = root / "custom-tools"
+            root_file = root / "cargo-root"
+            cargo = binaries / "cargo"
+            cargo.write_text("""#!/bin/sh
+if [ "$1" = --version ]; then echo 'cargo 1.98.0'; exit 0; fi
+root=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = --root ]; then root="$arg"; fi
+    prev="$arg"
+done
+[ -n "$root" ] || exit 93
+printf '%s\\n' "$root" > "$FIXTURE_ROOT"
+mkdir -p "$root/bin"
+printf '#!/bin/sh\\nif [ "$1" = --version ]; then echo proa 0.2.0; exit 0; fi\\nexit 1\\n' > "$root/bin/proa"
+cp "$root/bin/proa" "$root/bin/cargo-proa"
+chmod +x "$root/bin/proa" "$root/bin/cargo-proa"
+""")
+            cargo.chmod(0o755)
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith(("CARGO_", "PROA_"))}
+            environment.update(
+                CARGO_HOME=str(root / "cargo-home"),
+                PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                PROA_HOME=str(root / "proa-home"),
+                PROA_LOG="off",
+                NO_COLOR="1",
+                FIXTURE_ROOT=str(root_file),
+            )
+            result = subprocess.run(
+                ["sh", str(ROOT / "scripts/install.sh"), "--build-from-source",
+                 "--to", str(custom_dir), "--no-modify-path", "--no-tailwind", "--yes"],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((custom_dir / "proa").is_file())
+            self.assertTrue((custom_dir / "cargo-proa").is_file())
+            self.assertFalse((root / "cargo-home/bin/proa").exists())
+            # The staged binaries run before publication, so they are built on
+            # the destination's filesystem rather than a possibly noexec /tmp.
+            staged_root = Path(root_file.read_text().strip())
+            self.assertEqual(staged_root.parent, Path(f"{custom_dir}.proa"))
+            self.assertFalse(staged_root.exists())
+
+    def test_unix_source_install_reuses_existing_cargo_root_for_explicit_to(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binaries = root / "bin"
+            binaries.mkdir()
+            existing_cargo_root = root / "existing-cargo-root"
+            existing_cargo_root.mkdir()
+            (existing_cargo_root / ".crates.toml").write_text("[v1]\n", encoding="utf-8")
+            cargo = binaries / "cargo"
+            cargo.write_text("""#!/bin/sh
+if [ "$1" = --version ]; then echo 'cargo 1.98.0'; exit 0; fi
+printf '%s\\n' "$@" > "$FIXTURE_ARGS"
+root=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = --root ]; then root="$arg"; fi
+    prev="$arg"
+done
+[ -n "$root" ] || exit 94
+mkdir -p "$root/bin"
+printf '#!/bin/sh\\necho proa 0.2.0\\n' > "$root/bin/proa"
+cp "$root/bin/proa" "$root/bin/cargo-proa"
+chmod +x "$root/bin/proa" "$root/bin/cargo-proa"
+""")
+            cargo.chmod(0o755)
+            args_file = root / "cargo-args"
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith(("CARGO_", "PROA_"))}
+            environment.update(
+                CARGO_HOME=str(root / "cargo-home"),
+                PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                PROA_HOME=str(root / "proa-home"),
+                PROA_LOG="off",
+                NO_COLOR="1",
+                FIXTURE_ARGS=str(args_file),
+            )
+            result = subprocess.run(
+                ["sh", str(ROOT / "scripts/install.sh"), "--build-from-source",
+                 "--to", str(existing_cargo_root / "bin"), "--no-modify-path", "--no-tailwind", "--yes"],
+                cwd=root, env=environment, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((existing_cargo_root / "bin/proa").is_file())
+            self.assertEqual(
+                args_file.read_text().splitlines(),
+                ["install", "--locked", "proa-cli", "--registry", "crates-io",
+                 "--root", str(existing_cargo_root)],
+            )
 
     def run_unix_fallback(self, arguments: list[str], *, latest: str = "",
                           cargo_status: int = 0, architecture: str = "x86_64") -> tuple[subprocess.CompletedProcess[str], list[str]]:
@@ -418,7 +551,7 @@ param([string]$Installer)
 $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-foreach ($name in @('Get-SourceInstallArguments', 'Install-FromSource')) {
+foreach ($name in @('Get-SourceInstallArguments', 'Assert-DedicatedInstallDirectory', 'Install-FromSource')) {
     $definition = $ast.Find({ param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
     }, $true)
@@ -467,6 +600,78 @@ foreach ($version in @(('0.1.1-main.' + ('0' * 40) + '.beta.1'), '0.1.1-main.sho
             base + ["--registry", "crates-io", "--version", "=9.8.7"],
             base + ["--registry", "crates-io"],
         ])
+
+    def run_windows_source_install(self, root: Path, target_dir: Path) -> subprocess.CompletedProcess[str]:
+        harness = r"""
+param([string]$Installer, [string]$TargetDir)
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Installer, [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw ($errors | Out-String) }
+foreach ($name in @('Get-SourceInstallArguments', 'Assert-DedicatedInstallDirectory', 'Install-FromSource')) {
+    $definition = $ast.Find({ param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+    }, $true)
+    Invoke-Expression $definition.Extent.Text
+}
+function Get-CargoBinDir { return '/tmp/cargo/bin' }
+function Test-CommandExists { return $true }
+function Test-EnvFlag { return $false }
+function Set-PreviousVersion {}
+function Write-LogSection {}
+function Write-StepStart {}
+function Write-Blank {}
+function Write-LogLine {}
+function Write-StepOk {}
+function Write-KeyValue {}
+function Get-DisplayPath { param($Path); return $Path }
+function Remove-TempDirectory { param($Path); if (Test-Path -LiteralPath $Path) { Remove-Item -Recurse -Force -LiteralPath $Path } }
+function Stop-Install { param($Message); throw $Message }
+function Publish-ProaBundle { return $false }
+function Copy-Binary { param($Source, $Destination); Copy-Item -LiteralPath $Source -Destination $Destination -Force }
+function Invoke-NativeCommand { param($Program, $Arguments)
+    [Console]::Error.WriteLine('cargo invoked')
+    $rootIndex = [Array]::IndexOf($Arguments, '--root')
+    if ($rootIndex -lt 0) { throw 'expected --root for explicit -To' }
+    $stagedBin = Join-Path $Arguments[$rootIndex + 1] 'bin'
+    New-Item -ItemType Directory -Path $stagedBin -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $stagedBin 'proa.exe') -Value 'proa'
+    Set-Content -LiteralPath (Join-Path $stagedBin 'cargo-proa.exe') -Value 'cargo-proa'
+    return 0
+}
+$installed = Install-FromSource $TargetDir $true '9.8.7'
+Write-Output $installed
+"""
+        path = root / "test-to.ps1"
+        path.write_text(harness)
+        return subprocess.run(
+            ["pwsh", "-NoLogo", "-NoProfile", "-File", str(path),
+             str(ROOT / "scripts/install.ps1"), str(target_dir)],
+            capture_output=True, text=True, timeout=30,
+        )
+
+    @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
+    def test_windows_source_install_honors_explicit_to_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target_dir = root / "custom-bin"
+            result = self.run_windows_source_install(root, target_dir)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.strip(), str(target_dir / "proa.exe"))
+            self.assertTrue((target_dir / "proa.exe").is_file())
+            self.assertTrue((target_dir / "cargo-proa.exe").is_file())
+
+    @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
+    def test_windows_source_install_refuses_shared_to_directory_before_building(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target_dir = root / "tools"
+            target_dir.mkdir()
+            (target_dir / "other-tool.exe").write_text("other")
+            result = self.run_windows_source_install(root, target_dir)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("use a dedicated Proa install directory", result.stderr)
+            self.assertNotIn("cargo invoked", result.stderr)
+            self.assertFalse((target_dir / "proa.exe").exists())
 
     def test_unix_installer_rejects_opposing_source_modes(self) -> None:
         result = subprocess.run(
