@@ -461,7 +461,7 @@ jobs:
               strip -x "${stage_dir}/${binary}" || echo "::warning title=strip failed::${stage_dir}/${binary} is shipping unstripped"
             fi
             chmod 755 "${stage_dir}/${binary}"
-            lipo -verify_arch "$ARCH" "${stage_dir}/${binary}"
+            lipo "${stage_dir}/${binary}" -verify_arch "$ARCH"
             # Sign the staged binary after stripping so the archive contains
             # the same signed executable that passes the native smoke test.
             codesign --force --sign - "${stage_dir}/${binary}"
