@@ -958,6 +958,10 @@ fn make_owner_writable(path: &Path) -> Result<()> {
             permissions.set_mode(permissions.mode() | 0o200);
         }
         #[cfg(not(unix))]
+        #[allow(
+            clippy::permissions_set_readonly_false,
+            reason = "only Unix widens write permissions for this call; the Unix branch sets the owner mode"
+        )]
         permissions.set_readonly(false);
         at(path, fs::set_permissions(path, permissions))?;
     }

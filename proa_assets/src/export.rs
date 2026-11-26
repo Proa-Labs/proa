@@ -151,7 +151,7 @@ pub fn export_with_framework_source(
     // claim is held across both moves so no server starts on a directory
     // that is about to change.
     let previous = work.path().join("previous");
-    let _claim = match fs::symlink_metadata(destination) {
+    let _claim: Option<PendingRemoval> = match fs::symlink_metadata(destination) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(source) => {
             return Err(AssetError::Io {
@@ -164,13 +164,18 @@ pub fn export_with_framework_source(
                 return Err(AssetError::NotOwned(destination.into()));
             }
             if is_output(destination) {
-                let claim = reserve_bundle_removal(destination)?
-                    .ok_or_else(|| AssetError::InUse(destination.into()))?;
+                let claim = Some(
+                    reserve_bundle_removal(destination)?
+                        .ok_or_else(|| AssetError::InUse(destination.into()))?,
+                );
                 // Windows cannot move a directory that holds an open file.
                 #[cfg(not(unix))]
-                let claim = drop(claim);
+                let claim = {
+                    drop(claim);
+                    None
+                };
                 at(destination, fs::rename(destination, &previous))?;
-                Some(claim)
+                claim
             } else {
                 // Only what an interrupted writer left may be replaced.
                 if !OutputStore::accepts(destination) {
