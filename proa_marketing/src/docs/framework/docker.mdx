@@ -3,7 +3,7 @@ title: Docker
 description: Run the Proa image yourself, and own everything a platform would have done.
 ---
 
-Proa produces one release binary with its public asset bundle beside it (`app` + `app.assets/`). Run `proa new site --deploy docker` to generate a multi-stage Dockerfile, or use this Cargo-based fallback that pins the CLI version from `proa.lock.json`:
+Proa produces one release binary with its public asset bundle beside it (`app` + `app.assets/`). Run `proa new site my-site --deploy docker` to generate a multi-stage Dockerfile, or use this Cargo-based fallback that pins the CLI version from `proa.lock.json`:
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
