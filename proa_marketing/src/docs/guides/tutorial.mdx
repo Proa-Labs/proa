@@ -203,7 +203,8 @@ add-to-cart control is a native form posting `sku` and `qty`. There is no
 JavaScript in either one.
 
 Each handler wraps its page in the generated `RootDocument` layout and hands it
-to `RouteResponse::ssr_async`, the same shape as the generated `src/pages/home.rs`.
+to `RouteResponse::ssr_async`, the same shape as the generated `src/pages/home.rs`,
+then awaits the render so middleware sees the finished page.
 `RootDocument` is async-capable, so a synchronous page goes in through
 `proa::to_async`. A loop body is its own template, so it needs its own
 `html_sync!` block.
@@ -227,6 +228,7 @@ pub async fn handler() -> impl IntoResponse {
         title: "Products",
         content: to_async(ProductsPage),
     })
+    .await
 }
 
 struct ProductsPage;
@@ -266,7 +268,8 @@ pub async fn handler(Path(slug): Path<String>) -> Result<impl IntoResponse, Stat
     Ok(RouteResponse::ssr_async(RootDocument {
         title: product.name,
         content: to_async(ProductPage { product }),
-    }))
+    })
+    .await)
 }
 
 struct ProductPage {

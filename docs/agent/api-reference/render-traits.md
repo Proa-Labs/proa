@@ -238,8 +238,24 @@ request state, register artifacts, or install stream callbacks.
 At an Axum route boundary, choose `ssr_async_send(...)` for buffered delivery
 or `ssr_stream_send(...)` for direct streaming. Their typed-loader variants
 end in `_with_loader`. Ordinary `ssr_async(...)` and `ssr_stream(...)` retain
-support for local futures and therefore use the bounded local executor when
-streaming.
+support for local futures and therefore render on the bounded local executor,
+buffered or streamed.
+
+Await a buffered response in its handler:
+
+```rust
+async fn handler() -> axum::response::Response {
+    RouteResponse::ssr_async(SearchPage { query }).await
+}
+```
+
+The render then finishes inside the handler, so every middleware sees the
+finished page, and a render error as a 500. A `Send` render runs on the
+handler's task; a local one runs on the local executor while the handler
+awaits its result. Without `.await`, a multi-thread runtime blocks the
+handler's worker until the render finishes, and a current-thread runtime
+(`#[tokio::test]`) defers it to `RouteContextLayer`, so middleware inside that
+layer sees an empty placeholder.
 
 ## Genuinely runtime-selected children
 
