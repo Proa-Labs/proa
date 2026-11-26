@@ -127,6 +127,19 @@ fn head_role_lint_ignores_body_only_components_other_traits_and_excluded_tests()
     );
 }
 
+#[test]
+fn head_role_help_names_the_public_facade() {
+    let source = "impl WebRender for Page { async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) } }";
+    let diagnostics = lint_file(Path::new("page.rs"), source);
+    let help = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-required")
+        .and_then(|d| d.help.as_deref())
+        .unwrap();
+    assert!(help.contains("proa::ComponentRole::LAYOUT"), "{help}");
+    assert!(!help.contains("proa_core"), "{help}");
+}
+
 fn write_strategy_sidecar_with_fingerprint(
     root: &Path,
     analysis_id: &str,

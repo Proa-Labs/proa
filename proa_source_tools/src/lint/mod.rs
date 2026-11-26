@@ -649,7 +649,7 @@ fn lint_head_role(
             Severity::Error,
             "render/head-role-required",
             format!("`{hook_name}` requires an explicit layout or Page role"),
-        ).with_help("set `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;` for an ancestor layout, or `ComponentRole::PAGE` for the selected Page; only the Page seals metadata before its body"));
+        ).with_help("set `const ROLE: proa::ComponentRole = proa::ComponentRole::LAYOUT;` for an ancestor layout, or `proa::ComponentRole::PAGE` for the selected Page; only the Page seals metadata before its body"));
     }
 }
 
