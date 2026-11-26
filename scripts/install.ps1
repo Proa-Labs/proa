@@ -2385,7 +2385,8 @@ function Assert-DedicatedInstallDirectory {
     param([string]$BinDir)
     $item = Get-Item -LiteralPath $BinDir -Force -ErrorAction SilentlyContinue
     if ($null -eq $item -or -not $item.PSIsContainer) { return }
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+    # install-self checks that an existing junction is its own.
+    if ($item.LinkType -eq 'Junction') { return }
     $owned = @('proa.exe', 'cargo-proa.exe', 'tailwindcss.exe')
     foreach ($entry in @(Get-ChildItem -LiteralPath $BinDir -Force)) {
         if ($owned -cnotcontains $entry.Name) {
