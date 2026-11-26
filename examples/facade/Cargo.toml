@@ -12,3 +12,6 @@ proa = { workspace = true, features = ["axum", "actions"] }
 
 [dev-dependencies]
 futures = { workspace = true }
+
+[lints]
+workspace = true

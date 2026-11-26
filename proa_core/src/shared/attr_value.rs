@@ -295,7 +295,7 @@ impl<T: fmt::Display> AttrValue for DisplayAttr<T> {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        __proa_render_fmt_attr(format_args!("{}", &self.0), cx)
+        __proa_render_fmt_attr(format_args!("{}", self.0), cx)
     }
 
     #[inline(always)]
@@ -306,7 +306,7 @@ impl<T: fmt::Display> AttrValue for DisplayAttr<T> {
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
         let mut rendered = heapless::String::<DISPLAY_URL_ATTR_PROBE_CAP>::new();
-        if fmt::write(&mut rendered, format_args!("{}", &self.0)).is_err() {
+        if fmt::write(&mut rendered, format_args!("{}", self.0)).is_err() {
             debug_assert!(
                 false,
                 "formatted URL attribute value exceeded the inline validation buffer"

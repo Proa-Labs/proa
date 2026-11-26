@@ -48,3 +48,6 @@ serde = { workspace = true }
 # changes to the user-facing message surface require an intentional
 # update to the recorded `.stderr` files.
 trybuild = { workspace = true }
+
+[lints]
+workspace = true

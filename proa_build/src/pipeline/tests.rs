@@ -493,6 +493,7 @@ fn fixture_root_artifact(
     }
 }
 
+#[cfg(unix)]
 fn fixture_final_output(
     temp: &TempDir,
     target_directory: PathBuf,

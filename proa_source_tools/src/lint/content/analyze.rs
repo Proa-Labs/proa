@@ -1842,7 +1842,7 @@ pub(super) fn summarize(
             },
             _ => None,
         })
-        .last();
+        .next_back();
     let proa_context = context_input.as_ref().is_some_and(|(_, ty)| {
         let mut ty = *ty;
         while let syn::Type::Reference(reference) = ty {

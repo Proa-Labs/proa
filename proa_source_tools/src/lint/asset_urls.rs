@@ -224,7 +224,7 @@ impl UrlSchema {
 
     fn field_role(&self, package: PackageId, type_name: &str, field: &str) -> Option<FieldRole> {
         let slot = ValueSlot::Field(FieldKey {
-            package: package,
+            package,
             type_name: type_name.to_string(),
             field: field.to_string(),
         });
@@ -242,7 +242,7 @@ impl UrlSchema {
         index: usize,
     ) -> Option<FieldRole> {
         let slot = ValueSlot::Param(ParamKey {
-            package: package,
+            package,
             type_name: type_name.map(ToString::to_string),
             func: func.to_string(),
             index,
@@ -690,7 +690,7 @@ fn collect_item_types(package: PackageId, item: &Item, schema: &mut UrlSchema) {
                     if let Some(inner) = extract_inner_type_ident(&field.ty) {
                         schema.struct_field_types.insert(
                             FieldKey {
-                                package: package,
+                                package,
                                 type_name: type_name.clone(),
                                 field: ident.to_string(),
                             },
@@ -2927,12 +2927,10 @@ fn asset_url(value: &str, catalog: Option<&PublicCatalog>) -> Option<AssetUrl> {
         Some(AssetUrl::Logical)
     } else if path.starts_with('/') && !path.starts_with("//") && names_published_file(path) {
         Some(AssetUrl::Generated)
-    } else if let Some(logical_path) =
-        catalog.and_then(|cat| cat.logical_path_for_root_relative(path))
-    {
-        Some(AssetUrl::PublicFile { logical_path })
     } else {
-        None
+        catalog
+            .and_then(|cat| cat.logical_path_for_root_relative(path))
+            .map(|logical_path| AssetUrl::PublicFile { logical_path })
     }
 }
 

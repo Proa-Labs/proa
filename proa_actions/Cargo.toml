@@ -16,3 +16,6 @@ homepage.workspace = true
 proa_macros = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

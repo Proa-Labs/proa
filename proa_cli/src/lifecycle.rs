@@ -630,7 +630,7 @@ enum AssetState {
     Unknown,
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[allow(clippy::too_many_arguments)]
 fn prepare_dev_inputs(
     root: &Path,
@@ -2137,10 +2137,7 @@ fn run_linked_dev_cycle_with_assets(
         && !build_excludes_asset_outputs(root, config, build.final_root_inputs())
     {
         dev_ui::detail!("this build reads a generated asset; rebuilding now that assets are final");
-        let first = std::mem::replace(
-            &mut build,
-            run_dev_cargo(&prepared, session.as_deref_mut())?,
-        );
+        let first = std::mem::replace(&mut build, run_dev_cargo(&prepared, session)?);
         let stale = first
             .executable()
             .filter(|path| Some(*path) != build.executable())
@@ -3001,7 +2998,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment_and_session(
     action: LinkedCargoAction,
     wrapper: PathBuf,
     environment: &BTreeMap<OsString, OsString>,
-    mut session: Option<&mut DevSessionCache>,
+    session: Option<&mut DevSessionCache>,
 ) -> Result<PreparedLinkedCargo> {
     if !wrapper.is_absolute() {
         bail!(
@@ -3049,7 +3046,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment_and_session(
         &metadata.target_directory,
         &wrapper_snapshot_root,
         &wrapper,
-        session.as_deref_mut(),
+        session,
     )?;
     timer.mark("prepare wrapper snapshot and fingerprint");
     let package_source_root = selected_root.package_source_root.clone();

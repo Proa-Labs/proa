@@ -677,7 +677,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             .first()
             .or_else(|| target.boundaries.first())
         {
-            let view = if source.boundaries.first().is_some() {
+            let view = if !source.boundaries.is_empty() {
                 source
             } else {
                 target

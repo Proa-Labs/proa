@@ -3900,12 +3900,13 @@ fn decode_lower_hex_bytes(label: &str, encoded: &str) -> Result<Vec<u8>, String>
         ));
     }
     let mut decoded = Vec::with_capacity(encoded.len() / 2);
-    for (index, pair) in encoded.as_bytes().chunks_exact(2).enumerate() {
+    let (pairs, _) = encoded.as_bytes().as_chunks::<2>();
+    for (index, [high, low]) in pairs.iter().copied().enumerate() {
         let offset = index * 2;
-        let high = lower_hex(pair[0]).ok_or_else(|| {
+        let high = lower_hex(high).ok_or_else(|| {
             format!("`{label}` contains a non-lowercase-hex byte at offset {offset}")
         })?;
-        let low = lower_hex(pair[1]).ok_or_else(|| {
+        let low = lower_hex(low).ok_or_else(|| {
             format!(
                 "`{label}` contains a non-lowercase-hex byte at offset {}",
                 offset + 1

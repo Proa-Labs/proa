@@ -151,7 +151,7 @@ pub fn export_with_framework_source(
     // claim is held across both moves so no server starts on a directory
     // that is about to change.
     let previous = work.path().join("previous");
-    let claim = match fs::symlink_metadata(destination) {
+    let _claim = match fs::symlink_metadata(destination) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(source) => {
             return Err(AssetError::Io {
@@ -196,7 +196,6 @@ pub fn export_with_framework_source(
             source,
         });
     }
-    drop(claim);
     Ok(Export {
         directory: destination.into(),
         manifest,

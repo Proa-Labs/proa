@@ -18,7 +18,7 @@
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens, TokenStreamExt};
 use std::ops::{Deref, Range};
-use std::sync::Arc;
+use std::rc::Rc;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{braced, Expr, LitStr};
@@ -55,7 +55,7 @@ struct SlotSource {
     /// Decoded template offset of the parsed text's first byte.
     origin: usize,
     len: usize,
-    literal: Option<Arc<source::LiteralMap>>,
+    literal: Option<Rc<source::LiteralMap>>,
 }
 
 impl TemplateExpr {
@@ -98,9 +98,9 @@ impl TemplateExpr {
         })
     }
 
-    fn attach(&mut self, literal: &Arc<source::LiteralMap>) {
+    fn attach(&mut self, literal: &Rc<source::LiteralMap>) {
         if let Some(source) = &mut self.source {
-            source.literal = Some(Arc::clone(literal));
+            source.literal = Some(Rc::clone(literal));
         }
     }
 }

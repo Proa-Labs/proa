@@ -225,6 +225,9 @@ pub fn final_identity(_input: TokenStream) -> TokenStream {
 use fixture_macro::final_identity;
 
 #[cfg(not(rsjs_final))]
+use fixture_macro as _;
+
+#[cfg(not(rsjs_final))]
 fn main() {}
 
 #[cfg(rsjs_final)]
