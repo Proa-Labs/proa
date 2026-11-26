@@ -518,6 +518,7 @@ impl WebRenderSync for MatchArms {
         match self.article {
             Some(head) => head.title(),
             Wrapper { head, .. } if head.title() => (),
+            _ if [true].into_iter().any(|head| head) => head.title("Late")?, // flag
             _ => head.title("Late")?, // flag
         }
         if let Some(head) = self.article {

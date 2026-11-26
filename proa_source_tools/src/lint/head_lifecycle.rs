@@ -230,6 +230,10 @@ fn pattern_bindings(pat: &Pat) -> Vec<String> {
         fn visit_macro(&mut self, node: &'ast syn::Macro) {
             self.0.extend(token_idents(node.tokens.clone()));
         }
+        // Names inside an arm guard or a const pattern (closure parameters,
+        // block locals) are scoped to that expression and never bind in the
+        // arm.
+        fn visit_expr(&mut self, _: &'ast Expr) {}
     }
     let mut bindings = Bindings(Vec::new());
     bindings.visit_pat(pat);
