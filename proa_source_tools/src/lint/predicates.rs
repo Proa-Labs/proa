@@ -163,6 +163,10 @@ pub(crate) fn tokens_contain_await_in_literal(tokens: &proc_macro2::TokenStream)
 }
 
 pub(crate) fn block_contains_await(block: &Block) -> bool {
+    stmts_contain_await(&block.stmts)
+}
+
+pub(crate) fn stmts_contain_await(stmts: &[syn::Stmt]) -> bool {
     struct Finder {
         found: bool,
     }
@@ -183,7 +187,9 @@ pub(crate) fn block_contains_await(block: &Block) -> bool {
     }
 
     let mut finder = Finder { found: false };
-    finder.visit_block(block);
+    for stmt in stmts {
+        finder.visit_stmt(stmt);
+    }
     finder.found
 }
 
@@ -1216,14 +1222,97 @@ pub(crate) fn path_is_rsjs_dialect_call(path: &syn::Path) -> bool {
 }
 
 pub(crate) fn call_path_is_rsjs_shared_state(call: &ExprCall) -> bool {
+    call_path_is_rsjs_dialect(call, &["shared"])
+}
+
+/// A bare or `rsjs::`-rooted call to one of the named dialect primitives.
+pub(crate) fn call_path_is_rsjs_dialect(call: &ExprCall, names: &[&str]) -> bool {
     let Expr::Path(path) = call.func.as_ref() else {
         return false;
     };
     path.path
         .segments
         .last()
-        .is_some_and(|segment| segment.ident == "shared")
+        .is_some_and(|segment| names.iter().any(|name| segment.ident == name))
         && path_is_rsjs_dialect_call(&path.path)
+}
+
+/// `signal(String::new())` or `signal::<Vec<T>>(Vec::new())`: an empty owned
+/// seed for client state.
+///
+/// Neither constructor allocates, and the owned type is the point: handlers
+/// write runtime strings and rows into the cell, so a borrowed seed would not
+/// type-check.
+pub(crate) fn rsjs_signal_empty_owned_seed(call: &ExprCall) -> Option<&ExprCall> {
+    if !call_path_is_rsjs_dialect(call, &["signal"]) || call.args.len() != 1 {
+        return None;
+    }
+    let Expr::Call(seed) = &call.args[0] else {
+        return None;
+    };
+    (seed.args.is_empty()
+        && (call_path_ends(seed, &["String", "new"]) || call_path_ends(seed, &["Vec", "new"])))
+    .then_some(seed)
+}
+
+/// The template RSJS analyzes in an async `#[rsjs(...)]` impl.
+///
+/// RSJS accepts only `RenderOutcome::pending(async move { .. })` as the method
+/// body and requires its tail template to be `html!`, so `html_sync!` alone is
+/// never a valid fix for that template. Returns the statements before the tail
+/// (the island prelude) and the tail macro.
+pub(crate) fn rsjs_pending_tail_template(block: &Block) -> Option<(&[syn::Stmt], &syn::Macro)> {
+    fn template(expr: &Expr) -> Option<&syn::Macro> {
+        match expr {
+            Expr::Await(expr) => template(&expr.base),
+            Expr::MethodCall(expr) => template(&expr.receiver),
+            Expr::Call(call) if call.args.len() == 2 && call_path_ends(call, &["render"]) => {
+                template(&call.args[0])
+            }
+            Expr::Paren(expr) => template(&expr.expr),
+            Expr::Group(expr) => template(&expr.expr),
+            Expr::Return(expr) => template(expr.expr.as_deref()?),
+            Expr::Macro(expr) => Some(&expr.mac),
+            _ => None,
+        }
+    }
+
+    let [syn::Stmt::Expr(Expr::Call(call), None)] = block.stmts.as_slice() else {
+        return None;
+    };
+    if !call_path_ends(call, &["RenderOutcome", "pending"]) || call.args.len() != 1 {
+        return None;
+    }
+    let Some(Expr::Async(pending)) = call.args.first() else {
+        return None;
+    };
+    let Some((syn::Stmt::Expr(tail, None), prelude)) = pending.block.stmts.split_last() else {
+        return None;
+    };
+    Some((prelude, template(tail)?))
+}
+
+/// True when the statements declare an RSJS mutation, which RSJS accepts only
+/// in an async `WebRender` island.
+pub(crate) fn stmts_declare_rsjs_mutation(stmts: &[syn::Stmt]) -> bool {
+    struct Finder {
+        found: bool,
+    }
+
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+            if call_path_is_rsjs_dialect(node, &["mutation", "mutation_with_options"]) {
+                self.found = true;
+            }
+            visit::visit_expr_call(self, node);
+        }
+    }
+
+    let mut finder = Finder { found: false };
+    for stmt in stmts {
+        finder.visit_stmt(stmt);
+    }
+    finder.found
 }
 
 pub(crate) fn call_path_is_rsjs_browser_helper(call: &ExprCall) -> bool {

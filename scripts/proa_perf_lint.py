@@ -361,6 +361,23 @@ def is_suppressed(line: str, previous_line: str) -> bool:
     )
 
 
+SIGNAL_SEED_PREFIX = re.compile(r"\bsignal\s*(?:::\s*<.*>\s*)?\(\s*$")
+SIGNAL_SEED_SUFFIX = re.compile(r"\s*\)\s*\)")
+
+
+def is_empty_signal_seed(line: str, match: re.Match[str]) -> bool:
+    """Return true for `signal(String::new())` or `signal::<Vec<T>>(Vec::new())`.
+
+    Neither constructor allocates, and RSJS needs the owned type so handlers
+    can write runtime values into the signal. Mirrors the `cargo proa lint`
+    exemption.
+    """
+    return (
+        SIGNAL_SEED_PREFIX.search(line, 0, match.start()) is not None
+        and SIGNAL_SEED_SUFFIX.match(line, match.end()) is not None
+    )
+
+
 EVENT_HANDLER_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{")
 EVENT_HANDLER_CLOSURE_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{\s*\|")
 
@@ -535,6 +552,10 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
                     if match.start() < handler_close_index:
                         continue
                     if is_client_event_handler_expression(code_line, match.start()):
+                        continue
+                    if rule.code in {"string-new", "vec-new"} and is_empty_signal_seed(
+                        code_line, match
+                    ):
                         continue
                     findings.append(
                         Finding(

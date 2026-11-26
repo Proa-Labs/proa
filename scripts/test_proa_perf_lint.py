@@ -145,6 +145,26 @@ class ScanFixtureTest(unittest.TestCase):
         )
         self.assertEqual(findings, [])
 
+    def test_empty_signal_seeds_are_not_flagged(self):
+        findings = self.scan(
+            [
+                "let draft = rsjs::signal(String::new());",
+                "let rows = signal::<Vec<Row>>( Vec::new() );",
+            ]
+        )
+        self.assertEqual(findings, [])
+
+    def test_other_empty_constructors_are_still_flagged(self):
+        codes = self.codes(
+            [
+                "let draft = rsjs::signal(String::new() + suffix);",
+                "let label = String::new();",
+                "let rows = Vec::new();",
+            ]
+        )
+        self.assertEqual(codes.count("string-new"), 2)
+        self.assertEqual(codes.count("vec-new"), 1)
+
     def test_comment_brace_does_not_keep_closed_handler_open(self):
         codes = self.codes(
             [

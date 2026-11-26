@@ -3485,10 +3485,27 @@ fn check_render_api_perf(
     }
 
     if !has_async_child_bound {
-        check_async_html_static_subtree(path, &method.block, suppressions, diagnostics);
+        let rsjs_tail = has_attr(&item_impl.attrs, &["rsjs"])
+            .then(|| rsjs_pending_tail_template(&method.block))
+            .flatten()
+            .map(|(prelude, template)| RsjsAsyncTail {
+                template,
+                requires_async: stmts_contain_await(prelude)
+                    || stmts_declare_rsjs_mutation(prelude),
+            });
+        check_async_html_static_subtree(path, &method.block, rsjs_tail, suppressions, diagnostics);
     }
 
     check_sync_child_in_async_template(path, &method.block, suppressions, diagnostics);
+}
+
+/// The analyzed tail template of an async `#[rsjs(...)]` island.
+#[derive(Clone, Copy)]
+struct RsjsAsyncTail<'a> {
+    template: &'a syn::Macro,
+    /// The island awaits server work before its template (for example an
+    /// awaited `query_with_initial` value) or declares a mutation.
+    requires_async: bool,
 }
 
 /// Flag `html!` invocations whose whole subtree is synchronous.
@@ -3496,14 +3513,19 @@ fn check_render_api_perf(
 /// Both async and sync macro output is monomorphized and unboxed. Prefer
 /// `html_sync!` when no child needs to await, keeping the synchronous contract
 /// explicit and avoiding unnecessary future construction.
+///
+/// RSJS requires `html!` as the tail of an async island, so that template is
+/// reported only when the island itself could implement `WebRenderSync`.
 fn check_async_html_static_subtree(
     path: &Path,
     block: &Block,
+    rsjs_tail: Option<RsjsAsyncTail<'_>>,
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     struct Visitor<'a> {
         path: &'a Path,
+        rsjs_tail: Option<RsjsAsyncTail<'a>>,
         suppressions: &'a SuppressionComments,
         diagnostics: &'a mut Vec<Diagnostic>,
     }
@@ -3531,6 +3553,14 @@ fn check_async_html_static_subtree(
             if root.nodes.iter().any(html_node_has_async_child) {
                 return;
             }
+            let rsjs_tail = self
+                .rsjs_tail
+                .filter(|tail| std::ptr::eq(tail.template, &node.mac));
+            let help = match rsjs_tail {
+                Some(tail) if tail.requires_async => return,
+                Some(_) => "this RSJS island neither awaits nor declares a mutation; implement WebRenderSync and render with html_sync!, because RSJS requires html! in a WebRender island",
+                None => "use html_sync! here; wrap the result with proa_core::to_async(...) if it is composed into an async tree",
+            };
             push_expr_diag(
                 self.path,
                 SpanOrigin::File,
@@ -3539,13 +3569,14 @@ fn check_async_html_static_subtree(
                 node.mac.path.span(),
                 "perf/async-html-static-subtree",
                 "async html! template has no async children",
-                "use html_sync! here; wrap the result with proa_core::to_async(...) if it is composed into an async tree",
+                help,
             );
         }
     }
 
     let mut visitor = Visitor {
         path,
+        rsjs_tail,
         suppressions,
         diagnostics,
     };
@@ -5367,6 +5398,11 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
         if is_perf_suppressed_call(node) {
             return;
+        }
+
+        if let Some(seed) = rsjs_signal_empty_owned_seed(node) {
+            let start = seed.span().start();
+            self.handled_spans.insert((start.line, start.column));
         }
 
         if matches!(self.origin, SpanOrigin::Macro(inv) if inv.dialect == MacroDialect::Html)

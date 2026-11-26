@@ -3110,6 +3110,8 @@ fn is_owned_string_initializer(arg: &Expr) -> bool {
     match arg {
         Expr::Call(call)
             if is_std_string_associated_call(&call.func, "new")
+                || (call.args.is_empty()
+                    && is_std_string_associated_call(&call.func, "default"))
                 || (call.args.len() == 1 && is_std_string_associated_call(&call.func, "from")) =>
         {
             true
