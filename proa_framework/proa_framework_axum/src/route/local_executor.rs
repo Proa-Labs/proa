@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use bytes::Bytes;
 use futures::future::LocalBoxFuture;
@@ -15,7 +15,7 @@ use tokio_stream::wrappers::ReceiverStream;
 /// Resource limits for the pinned local render executor.
 ///
 /// The pool owns exactly `worker_threads` long-lived threads, by default one
-/// per CPU the process may use. `max_in_flight` bounds queued plus active
+/// per CPU the process may use, started on the first local render. `max_in_flight` bounds queued plus active
 /// streamed responses, while both a chunk count and byte budget bound each
 /// stream's cross-thread transport. Buffered renders hold no transport and
 /// queue like ordinary tasks; bound them with
@@ -78,15 +78,26 @@ pub(super) enum LocalStreamPrepareError {
     FirstItem(FrameworkError),
 }
 
+/// Clones share one pool, which starts on the first local render. Building
+/// or reconfiguring a layer therefore starts no threads, and an application
+/// that renders nothing locally never starts any.
 #[derive(Clone)]
 pub(super) struct LocalStreamExecutor {
-    inner: Result<Arc<PoolState>, Arc<str>>,
+    config: LocalStreamExecutorConfig,
+    inner: Arc<OnceLock<Result<Arc<PoolState>, Arc<str>>>>,
 }
 
 impl LocalStreamExecutor {
     pub(super) fn new(config: LocalStreamExecutorConfig) -> Self {
-        let inner = config.validate().and_then(PoolState::start);
-        Self { inner }
+        Self {
+            config,
+            inner: Arc::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn started(&self) -> bool {
+        self.inner.get().is_some()
     }
 
     #[cfg(test)]
@@ -118,6 +129,7 @@ impl LocalStreamExecutor {
 
     fn pool(&self) -> Result<&Arc<PoolState>, LocalStreamPrepareError> {
         self.inner
+            .get_or_init(|| self.config.validate().and_then(PoolState::start))
             .as_ref()
             .map_err(|error| LocalStreamPrepareError::Unavailable(Arc::clone(error)))
     }
@@ -655,6 +667,23 @@ mod tests {
             Err(error) => error,
         };
         assert!(matches!(error, LocalStreamPrepareError::Overloaded));
+    }
+
+    #[tokio::test]
+    async fn workers_start_once_on_first_use_and_clones_share_them() {
+        use futures::FutureExt as _;
+
+        let executor = LocalStreamExecutor::new(test_config());
+        let clone = executor.clone();
+        assert!(!executor.started());
+        let output = clone
+            .run(Box::new(|| async { 7 }.boxed_local()))
+            .await
+            .unwrap();
+        assert_eq!(output, 7);
+        assert!(executor.started());
+        let first = Arc::as_ptr(executor.pool().unwrap());
+        assert_eq!(Arc::as_ptr(clone.pool().unwrap()), first);
     }
 
     #[tokio::test]

@@ -660,6 +660,7 @@ pub(super) fn defer(finalization: RouteFinalization) -> Response {
         return invalid_route_context();
     };
     let mut response = Response::new(Body::empty());
+    *response.status_mut() = pending_status();
     response
         .extensions_mut()
         .insert(DeferredRender(Arc::new(Mutex::new(Some(PendingRender {
@@ -667,6 +668,15 @@ pub(super) fn defer(finalization: RouteFinalization) -> Response {
             route,
         })))));
     response
+}
+
+/// The placeholder's status until its render finishes. A wrapper's status
+/// write leaves no other trace, so the placeholder starts with 299, which has
+/// no registered meaning, and any other value means a wrapper set it. Inner
+/// middleware sees a success; `RouteContextLayer` finishes every placeholder,
+/// so the value never reaches the client or outer middleware.
+fn pending_status() -> StatusCode {
+    StatusCode::from_u16(299).expect("299 is a valid status code")
 }
 
 /// Finish a render deferred by [`defer`], then reapply what handler wrappers
@@ -735,12 +745,12 @@ async fn render_pending(finalization: RouteFinalization, route: RouteContext) ->
 }
 
 /// Wrappers and middleware edited the placeholder after `into_response`, as
-/// they once edited the rendered response. Keep that precedence: a status
-/// other than the placeholder's 200 and each header name win, while `Vary`,
-/// `Link`, and `Set-Cookie` accumulate.
+/// they once edited the rendered response. Keep that precedence: any status
+/// they set, 200 included and even over a render error, and each header name
+/// win, while `Vary`, `Link`, and `Set-Cookie` accumulate.
 fn apply_placeholder(placeholder: Response, mut rendered: Response) -> Response {
     let (parts, _) = placeholder.into_parts();
-    if parts.status != StatusCode::OK {
+    if parts.status != pending_status() {
         *rendered.status_mut() = parts.status;
     }
     let headers = rendered.headers_mut();

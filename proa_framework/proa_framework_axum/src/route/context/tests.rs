@@ -300,3 +300,15 @@ async fn static_context_calls_the_ready_service_without_cloning_it() {
     }
     assert_eq!(clones.load(Ordering::Relaxed), 0);
 }
+
+#[test]
+fn building_and_reconfiguring_the_layer_starts_no_workers() {
+    // FrameworkBuilder constructs the default layer, then applies its config.
+    let default = RouteContextLayer::new(Arc::default());
+    assert!(!default.local_stream_executor.started());
+    let configured = default.with_local_stream_executor_config(LocalStreamExecutorConfig {
+        worker_threads: 1,
+        ..LocalStreamExecutorConfig::default()
+    });
+    assert!(!configured.local_stream_executor.started());
+}

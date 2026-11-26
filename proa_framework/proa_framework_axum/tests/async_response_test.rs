@@ -889,3 +889,58 @@ async fn buffered_async_bursts_queue_instead_of_failing() {
         assert_eq!(response.status(), StatusCode::OK);
     }
 }
+
+#[tokio::test]
+async fn an_explicit_200_wrapper_wins_like_any_other_status() {
+    let app = app(vec![
+        Route::endpoint(
+            "/local",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async(Staged)) }),
+        ),
+        Route::endpoint(
+            "/send",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async_send(Staged)) }),
+        ),
+        Route::endpoint(
+            "/failed",
+            get(|| async { (StatusCode::OK, RouteResponse::ssr_async(Fails)) }),
+        ),
+    ]);
+    for uri in ["/local", "/send"] {
+        let response = fetch(&app, uri).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(response.headers()["x-render"], "async", "{uri}");
+        assert_eq!(text(response).await, "<p>staged</p>", "{uri}");
+    }
+    // As when the render ran inside `into_response`, the wrapper's status
+    // also replaces the render error's 500.
+    let response = fetch(&app, "/failed").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(text(response).await, "render error");
+}
+
+#[tokio::test]
+async fn middleware_outside_route_context_sees_only_final_statuses() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let record = Arc::clone(&seen);
+    let mut routes = local_and_send(|| Staged);
+    routes.push(Route::endpoint(
+        "/plain",
+        get(|| async { RouteResponse::ssr_async(Yielding("plain")) }),
+    ));
+    let app = app(routes).layer(tower::util::MapResponseLayer::new(
+        move |response: Response| {
+            record.lock().unwrap().push(response.status());
+            response
+        },
+    ));
+    for uri in ["/local", "/send", "/plain"] {
+        let response = fetch(&app, uri).await;
+        assert_ne!(response.status().as_u16(), 299, "{uri}");
+        assert!(!text(response).await.is_empty(), "{uri}");
+    }
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [StatusCode::CREATED, StatusCode::CREATED, StatusCode::OK]
+    );
+}
