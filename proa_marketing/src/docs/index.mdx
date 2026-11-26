@@ -101,7 +101,7 @@ proa = { version = "0.4", features = ["axum", "rt-tokio"] }
 
 You do not have to build common UI from scratch: [proa-ui](https://ui.proa.so) is a shadcn-style catalog of Proa components (`badge`, `button`, and `card` are already vendored in the starter). Run `proa ui add alert` to vendor another component into `src/components/` where you own and edit the source directly.
 
-The starter uses managed metadata. `src/routes.rs` enables the managed head once for the whole router with `FrameworkBuilder::with_head`, `RootDocument` declares `ROLE = LAYOUT` and places the `{cx.head()}` outlet, and each page only declares `ROLE = PAGE` and sets its title and description in `render_head`. See [Layouts and Pages](/docs/framework/layouts-and-pages).
+The starter uses managed metadata. `src/routes.rs` enables the managed head once for the whole router with `FrameworkBuilder::with_head`, `RootDocument` declares `ROLE = LAYOUT` and places the `{cx.head()}` outlet, and each page declares `ROLE = PAGE` and sets its own metadata in `render_head`. The Basic app's home page sets a title and description, and the About page below sets only its title. See [Layouts and Pages](/docs/framework/layouts-and-pages).
 
 The remaining steps use the **Basic app** named `hello-proa`. If you chose
 ORIGIN, follow its generated `README.md` and run commands inside `origin-atlas`.
