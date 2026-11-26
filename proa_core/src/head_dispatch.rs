@@ -210,7 +210,7 @@ impl ComponentRole {
     const fn assert_head_role(self, has_head: bool) {
         assert!(
             !has_head || self.is_layout() || self.is_page(),
-            "render_head requires an explicit role: this component overrides its head hook, but ComponentRole::COMPONENT never runs head hooks; set const ROLE to ComponentRole::LAYOUT or ComponentRole::PAGE"
+            "render_head requires an explicit role: this component overrides its head hook, but ComponentRole::COMPONENT never runs head hooks; set const ROLE to ComponentRole::LAYOUT or ComponentRole::PAGE. A wrapper that forwards ROLE from an inner component must return the inner render_head future directly instead of awaiting it in a new async block"
         );
     }
 }

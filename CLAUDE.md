@@ -135,9 +135,14 @@ definition is:
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// Managed-head role: `COMPONENT` (default), `LAYOUT`, or `PAGE`.
     const ROLE: ComponentRole = ComponentRole::COMPONENT;
-    /// Native async metadata hook; ordinary COMPONENT values skip it entirely.
-    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        Ok(())
+    /// Async metadata hook; ordinary COMPONENT values skip it entirely.
+    /// Override it with `async fn render_head(..) -> Result<(), WriteError>`.
+    /// The default returns the zero-sized `NoHead` future.
+    fn render_head(
+        &self,
+        _cx: &mut WebContext<L, B>,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        NoHead
     }
     fn render(
         self,
@@ -158,7 +163,8 @@ Use `WebRenderSync` by default. Use `WebRender` when the body or head hook needs
 to `.await`. Async hooks need no attributes or handwritten async blocks. Run
 `cargo proa lint <changed-paths> --deny warnings` to reject missing roles and
 explicit `COMPONENT` roles on head overrides; forwarded constants must resolve
-to `LAYOUT` or `PAGE`. Sync hooks also keep their code-generation role assertion.
+to `LAYOUT` or `PAGE`. `cargo build` rejects the same mistakes for sync and
+async hooks with a code-generation role assertion (E0080).
 The `B` parameter is the advanced custom-writer escape hatch. Application
 components normally omit it and implement `WebRenderSync<L>` or `WebRender<L>`;
 that selects the default owned `RenderBuffer` and leaves only the loader
