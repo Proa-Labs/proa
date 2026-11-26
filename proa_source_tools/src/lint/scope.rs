@@ -44,10 +44,41 @@ fn is_cfg_test_module_file(path: &Path) -> bool {
     }
     let mut test_owner = false;
     for parent in &parents {
-        let Some(test_only) = module_declarations(parent).and_then(|d| d.get(name).copied()) else {
+        let Some(test_only) = module_declarations(parent).and_then(|d| d.names.get(name).copied())
+        else {
             continue;
         };
         if test_only || is_cfg_test_module_file(parent) {
+            test_owner = true;
+        } else {
+            return false;
+        }
+    }
+    test_owner || is_cfg_test_path_module_file(path, dir)
+}
+
+/// Whether a sibling declares `path` only through `#[cfg(test)] #[path =
+/// "file.rs"] mod name;`. A top-level `#[path]` resolves against the
+/// declaring file's directory. Consulted only when no ordinary declaration
+/// owns the file.
+fn is_cfg_test_path_module_file(path: &Path, dir: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    let mut test_owner = false;
+    for sibling in entries.flatten().map(|entry| entry.path()) {
+        if sibling == path || sibling.extension().is_none_or(|ext| ext != "rs") {
+            continue;
+        }
+        let Some(test_only) =
+            module_declarations(&sibling).and_then(|d| d.paths.get(file_name).copied())
+        else {
+            continue;
+        };
+        if test_only || is_cfg_test_module_file(&sibling) {
             test_owner = true;
         } else {
             return false;
@@ -57,20 +88,24 @@ fn is_cfg_test_module_file(path: &Path) -> bool {
 }
 
 /// Out-of-line `mod name;` items declared at the top level of one file,
-/// mapped to whether every declaration of that name is `#[cfg(test)]`.
-/// Declarations with `#[path]` live elsewhere and are left out; nested inline
-/// modules own other directories.
-type ModuleDeclarations = BTreeMap<String, bool>;
+/// mapped to whether every declaration is `#[cfg(test)]`. Nested inline
+/// modules own other directories and are left out.
+#[derive(Debug, Default)]
+struct ModuleDeclarations {
+    /// Declarations without `#[path]`, by module name.
+    names: BTreeMap<String, bool>,
+    /// `#[path = "..."]` declarations, by path value.
+    paths: BTreeMap<String, bool>,
+}
 
 fn parse_module_declarations(source: &str) -> ModuleDeclarations {
-    let mut declarations = ModuleDeclarations::new();
-    for (name, test_only, has_path) in crate::source::top_level_module_declarations(source) {
-        if has_path {
-            continue;
-        }
-        declarations
-            .entry(name)
-            .and_modify(|all_test| *all_test &= test_only)
+    let mut declarations = ModuleDeclarations::default();
+    for (name, test_only, path) in crate::source::top_level_module_declarations(source) {
+        let map = match path {
+            Some(path) => declarations.paths.entry(path),
+            None => declarations.names.entry(name),
+        };
+        map.and_modify(|all_test| *all_test &= test_only)
             .or_insert(test_only);
     }
     declarations

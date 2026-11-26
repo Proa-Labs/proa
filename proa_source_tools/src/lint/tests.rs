@@ -6107,6 +6107,33 @@ fn shared_or_mentioned_module_files_stay_production_code() {
 }
 
 #[test]
+fn cfg_test_path_attribute_modules_are_test_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write("lib.rs", "mod route;\n");
+    write("route.rs", "mod response;\n");
+    write(
+        "route/response.rs",
+        "#[cfg(test)]\n#[path = \"response_tests.rs\"]\nmod response_tests;\n#[path = \"shipped_impl.rs\"]\nmod shipped;\n",
+    );
+    let fixture = write("route/response_tests.rs", "");
+    let shipped = write("route/shipped_impl.rs", "");
+    let orphan = write("route/orphan.rs", "");
+    assert!(is_test_path(&fixture));
+    assert!(
+        !is_test_path(&shipped),
+        "a production #[path] owner ships the file"
+    );
+    assert!(!is_test_path(&orphan));
+}
+
+#[test]
 fn unsaved_parent_declarations_decide_test_modules() {
     let temp = tempfile::tempdir().unwrap();
     let src = temp.path().join("src");
