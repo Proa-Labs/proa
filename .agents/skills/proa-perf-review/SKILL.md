@@ -29,6 +29,19 @@ Use Proa CLI lint/check as the first reviewer and the focused perf lint as the
 render-path backstop. Treat findings as bugs unless the allocation is
 intentionally outside the SSR hot path.
 
+## Markdown scope review
+
+Audit manual `md_set_inline` save/render/restore patterns, including saved
+`Result` cleanup. Use an ordinary-string template for inline children and a
+multiline raw template for block sections. Where authored separators must
+remain exact, render the parts in sequence with a tuple or `.render_md(cx)?`
+calls instead of a wrapper template. Never put block sections inside
+an ordinary-string wrapper. Template mode cleanup restores inline mode only.
+Do not replace local cleanup with whole `MdState` restoration: it would also
+replace suffix tracking while partial output remains. Verify error/panic
+recovery and allocation-free guards, including mirrored scaffold components.
+Retain low-level mutations in tests that intentionally probe state isolation.
+
 ## Browser code review
 
 Inspect changed executable JavaScript strings, inline scripts/handlers, and
@@ -41,7 +54,7 @@ data, generated output, vendored code, tooling, and displayed examples.
 ## Managed head publication
 
 For each managed HTML document, verify that the selected Page's render impl
-declares `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`,
+declares `const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;`,
 including Pages that only inherit metadata. Check local/Send/sync implementations
 and adapter forwarding. Ancestor head providers declare `ComponentRole::LAYOUT`;
 ordinary `COMPONENT` values skip head invocation entirely. Explicit async
@@ -116,10 +129,11 @@ do not use full-repo results as a merge gate until those are cleaned up.
   outside `render`.
 - Replace owned view models built inside `render` with borrowed props,
   precomputed data, or child components.
-- Replace unsupported rsjs slot logic with a named handler, a pure helper
-  annotated once with `#[rsjs::client]`, `rsjs::server_only(...)`, or supported
-  reactive expressions. `#[rsjs::client_module]` is optional grouping, not
-  helper eligibility.
+- Use ordinary server expressions such as `cx.url(...)` directly in slots
+  and attributes. For browser-reachable logic, use a named handler, a pure
+  `#[rsjs::client]` helper, or a supported reactive expression. Reserve
+  `rsjs::server_only(...)` and `rsjs::server_attr(...)` for intentional
+  snapshots or server expressions the compiler cannot classify.
 - If `proa lint` reports an async render without await, switch to
   `WebRenderSync` and `html_sync!`.
 - Keep tests simple; the lint skips `#[cfg(test)] mod tests` by default.

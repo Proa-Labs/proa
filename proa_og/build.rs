@@ -50,6 +50,8 @@ fn build_wpe() {
                 .allowlist_function("g_timeout_add_seconds")
                 .allowlist_function("g_source_remove")
                 .allowlist_function("g_error_free")
+                .allowlist_function("g_cancellable_new")
+                .allowlist_function("g_cancellable_cancel")
                 // Cairo (for snapshot surface)
                 .allowlist_function("cairo_surface_.*")
                 .allowlist_function("cairo_image_surface_.*")
@@ -57,6 +59,7 @@ fn build_wpe() {
                 .allowlist_function("cairo_destroy")
                 .allowlist_function("cairo_set_source_surface")
                 .allowlist_function("cairo_paint")
+                .allowlist_function("cairo_status")
                 .allowlist_function("cairo_format_stride_for_width")
                 // Types
                 .allowlist_type("WebKit.*")
@@ -90,9 +93,16 @@ fn build_wpe() {
                 .generate()
                 .expect("Failed to generate WPE WebKit bindings");
 
+            // Stock WPE omits the Cairo snapshot API exported by WebKitGTK.
+            // Use the existing unavailable-platform result for those SDKs.
+            let bindings = bindings.to_string();
+            if !bindings.contains("pub fn webkit_web_view_get_snapshot(") {
+                println!("cargo:warning=This WPE WebKit SDK has no Cairo snapshot API; OG rendering requires WebKitGTK.");
+                println!("cargo:rustc-cfg=wpe_stub");
+                return;
+            }
             let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-            bindings
-                .write_to_file(out_path.join("wpe_bindings.rs"))
+            std::fs::write(out_path.join("wpe_bindings.rs"), bindings)
                 .expect("Failed to write bindings");
         }
         Err(e) => {
@@ -137,6 +147,7 @@ fn build_webkitgtk() {
                 .allowlist_function("gtk_init_check")
                 .allowlist_function("gtk_offscreen_window_new")
                 .allowlist_function("gtk_container_add")
+                .allowlist_function("gtk_container_check_resize")
                 .allowlist_function("gtk_widget_.*")
                 .allowlist_function("gtk_window_.*")
                 // GObject/GLib
@@ -151,6 +162,8 @@ fn build_webkitgtk() {
                 .allowlist_function("g_timeout_add_seconds")
                 .allowlist_function("g_source_remove")
                 .allowlist_function("g_error_free")
+                .allowlist_function("g_cancellable_new")
+                .allowlist_function("g_cancellable_cancel")
                 // Cairo (for snapshot surface)
                 .allowlist_function("cairo_surface_.*")
                 .allowlist_function("cairo_image_surface_.*")
@@ -158,6 +171,7 @@ fn build_webkitgtk() {
                 .allowlist_function("cairo_destroy")
                 .allowlist_function("cairo_set_source_surface")
                 .allowlist_function("cairo_paint")
+                .allowlist_function("cairo_status")
                 .allowlist_function("cairo_format_stride_for_width")
                 // Types
                 .allowlist_type("WebKit.*")

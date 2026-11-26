@@ -13,7 +13,7 @@ Start from the project created in [Getting Started](/docs):
 ```bash
 proa new site shop-demo --template marketing --tailwind --yes
 cd shop-demo
-proa dev --open
+proa run dev --open
 ```
 
 `proa dev` builds the Tailwind assets before starting the server, runs the
@@ -143,8 +143,8 @@ have real photography.
 <CodeFile name="src/components/product_card.rs">
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use crate::data::products::Product;
 
@@ -205,7 +205,7 @@ JavaScript in either one.
 Each handler wraps its page in the generated `RootDocument` layout and hands it
 to `RouteResponse::ssr_async`, the same shape as the generated `src/pages/home.rs`.
 `RootDocument` is async-capable, so a synchronous page goes in through
-`proa_core::to_async`. A loop body is its own template, so it needs its own
+`proa::to_async`. A loop body is its own template, so it needs its own
 `html_sync!` block.
 
 <CodeExplorer>
@@ -214,9 +214,9 @@ to `RouteResponse::ssr_async`, the same shape as the generated `src/pages/home.r
 
 ```rust
 use axum::response::IntoResponse;
-use proa_core::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_framework_axum::RouteResponse;
-use proa_macros::html_sync;
+use proa::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::axum::RouteResponse;
+use proa::html_sync;
 
 use crate::components::product_card::ProductCard;
 use crate::data::products::PRODUCTS;
@@ -254,9 +254,9 @@ impl<L: DataLoader> WebRenderSync<L> for ProductsPage {
 
 ```rust
 use axum::{extract::Path, http::StatusCode, response::IntoResponse};
-use proa_core::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_framework_axum::RouteResponse;
-use proa_macros::html_sync;
+use proa::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::axum::RouteResponse;
+use proa::html_sync;
 
 use crate::data::products::{find_product, Product};
 use crate::layouts::RootDocument;
@@ -346,7 +346,7 @@ three routes in `src/routes.rs`.
 
 ```rust
 use axum::{extract::Form, http::StatusCode, response::Redirect};
-use proa_framework_axum::app_url;
+use proa::axum::app_url;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -389,7 +389,7 @@ let (router, metadata) = router_from_spec(vec![
     // proa:route-specs:start
     Route::endpoint("/", get(pages::home::handler)),
     Route::endpoint("/products", get(pages::products::handler)),
-    Route::endpoint("/products/:slug", get(pages::product::handler)),
+    Route::endpoint("/products/{slug}", get(pages::product::handler)),
     Route::endpoint("/cart", post(endpoints::cart::add_to_cart)),
     // proa:route-specs:end
 ]);
@@ -428,7 +428,7 @@ above.
 <CodeFile name="Cargo.toml">
 
 ```toml
-rsjs = "0.2.0"
+rsjs = "0.3.0"
 ```
 
 `rsjs` re-exports the `#[rsjs]` attribute, so no separate macro crate is
@@ -439,8 +439,8 @@ needed, and the scaffold already depends on `serde`.
 <CodeFile name="src/components/quantity_stepper.rs">
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::{html_sync, text};
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::{html_sync, text};
 use rsjs::{rsjs, signal};
 
 pub struct QuantityStepper {
@@ -557,19 +557,18 @@ the component running in the demo at the top of this page.
 
 ## Serving the Island
 
-The generated site's router already merges
-`proa_framework_axum::rsjs_assets_router(&base_path)` after `.with_state(state)`.
-Keep that shared asset router: it serves the linked core runtime, query runtime,
-island modules, and component fragments with the configured URL prefix.
+`FrameworkBuilder` serves the linked core runtime, query runtime,
+island modules, and component fragments by default at content-hashed URLs under
+`/_proa/immutable/rsjs/`, with the configured URL prefix.
 
 `RouteResponse` records the rendered owners and emits the required runtime tags
 automatically, including owners arriving in streamed boundaries. Do not append
 runtime tags in `RootDocument` or add a separate `rsjs_assets.rs` implementation.
 A response without hydrated owners emits no RSJS runtime tags.
 
-For an existing hand-written server, follow [Runtime wiring](/docs/rsjs/runtime)
-and install `FrameworkBuilder::with_rsjs_assets()` or merge the shared asset
-router explicitly.
+For an existing hand-written Axum router without `FrameworkBuilder`, follow
+[Runtime wiring](/docs/rsjs/runtime) to prepare `RsjsAssets` and attach it
+explicitly.
 
 ## Verify
 

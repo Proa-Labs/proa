@@ -1,16 +1,49 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The framework configures this module once when serving linked assets.
+// An adapter that serves its own copy of this module may write a base path
+// here. The framework leaves it empty, so one file serves every deployment,
+// and delivers the base path in the page instead.
 const PROA_BASE_PATH = "";
+
+let proa_page_base_path;
+
+// The page names its base path in `<script type="application/json"
+// id="__proa">`, written ahead of the first runtime tag. No answer is kept
+// until the document exists, because a non-browser host can import this module
+// before it installs one.
+function proa_base_path() {
+    if (PROA_BASE_PATH) return PROA_BASE_PATH;
+    if (proa_page_base_path !== undefined) return proa_page_base_path;
+    if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return '';
+    let value = '';
+    try {
+        // Only the framework's own data block counts: a JSON script element.
+        // Markup from anywhere else that carries this id (a sanitizer keeps
+        // ids and drops scripts) must not be able to redirect requests. The
+        // value has to be a path on this origin.
+        const config = document.getElementById('__proa');
+        const trusted = config && String(config.tagName).toUpperCase() === 'SCRIPT' &&
+            String(config.type).toLowerCase() === 'application/json';
+        const base = trusted ? JSON.parse(config.textContent || '{}').basePath : '';
+        if (typeof base === 'string' && base.startsWith('/') && !base.startsWith('//')) {
+            value = base;
+        }
+    } catch (_) {
+        // A page without a readable config is served from the origin root.
+    }
+    proa_page_base_path = value;
+    return value;
+}
 
 /** Resolve an application URL, preserving external and already-mounted URLs. */
 export function app_url(path) {
-    if (!PROA_BASE_PATH || typeof path !== 'string' ||
+    const base = proa_base_path();
+    if (!base || typeof path !== 'string' ||
         !path.startsWith('/') || path.startsWith('//')) return path;
-    if (path === PROA_BASE_PATH || path.startsWith(PROA_BASE_PATH + '/') ||
-        path.startsWith(PROA_BASE_PATH + '?') || path.startsWith(PROA_BASE_PATH + '#')) return path;
-    return PROA_BASE_PATH + path;
+    if (path === base || path.startsWith(base + '/') ||
+        path.startsWith(base + '?') || path.startsWith(base + '#')) return path;
+    return base + path;
 }
 
 // rsjs runtime — signal scheduler + DOM bindings + hydration entry.
@@ -2712,8 +2745,7 @@ export function bind_attr(node, name, kind, getter, deps, extra_handles) {
                 }
                 return;
             }
-            const next = String(value);
-            node.setAttribute(name, kind === 'url' && has_dangerous_url_scheme(next) ? '' : next);
+            node.setAttribute(name, kind === 'url' ? safe_url_attr_value(value) : String(value));
         }
         if (name === 'value' && 'value' in node) {
             try {
@@ -2739,6 +2771,11 @@ export function bind_attr(node, name, kind, getter, deps, extra_handles) {
         const effect = tracked_effect(apply);
         return once_disposer(() => dispose_effect(effect));
     }
+}
+
+export function safe_url_attr_value(value) {
+    const text = String(value);
+    return has_dangerous_url_scheme(text) ? '' : text;
 }
 
 function has_dangerous_url_scheme(url) {

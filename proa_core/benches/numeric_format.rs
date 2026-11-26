@@ -1,9 +1,10 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use proa_core::{NoLoader, WebContext, WebRenderSync};
 use proa_macros::text;
+use std::hint::black_box;
 
 fn render_once<T>(value: T, output: &mut Vec<u8>)
 where

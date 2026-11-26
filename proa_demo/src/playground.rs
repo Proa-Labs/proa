@@ -485,7 +485,7 @@ async fn render_page(headers: HeaderMap, Json(req): Json<RenderRequest>) -> impl
                 let borrowed = owned.borrow_collections();
                 let data = owned.to_listing_data(&borrowed);
                 let (html, render_us) = render_response_with_bump(|cx| {
-                    let _ = airbnb::listing::render_into(cx, &data, None);
+                    let _ = airbnb::listing::render_into(cx, &data);
                 });
                 let e2e_us = e2e_start.elapsed().as_secs_f64() * 1_000_000.0;
                 Ok((html, render_us, render_us, deser_us, e2e_us))
@@ -1703,11 +1703,7 @@ async fn loadtest(
                     let b = owned.borrow_collections();
                     let d = owned.to_listing_data(&b);
                     render_with_bump(|buf| {
-                        let _ = airbnb::listing::render_into(
-                            &mut WebContext::with_buffer(buf),
-                            &d,
-                            None,
-                        );
+                        let _ = airbnb::listing::render_into(&mut WebContext::with_buffer(buf), &d);
                     });
                 }
             }
@@ -1832,7 +1828,6 @@ async fn loadtest(
                         let _ = airbnb::listing::render_into(
                             &mut WebContext::with_buffer(&mut *buf),
                             &d,
-                            None,
                         );
                         thread_cpu_us() - t
                     })
@@ -2251,9 +2246,9 @@ pub fn marketing_router_with_options(options: PlaygroundOptions) -> Router {
 
     Router::new()
         .route("/console", get(index))
-        .route("/console/*path", get(index))
+        .route("/console/{*path}", get(index))
         .route("/playground", get(index))
-        .route("/playground/*path", get(index))
+        .route("/playground/{*path}", get(index))
         .route("/api/render", post(render_page))
         .route("/api/render-md", post(render_page_md))
         .route("/api/loadtest", post(loadtest))
@@ -2282,7 +2277,7 @@ pub fn marketing_router_with_options(options: PlaygroundOptions) -> Router {
             get(proxy_react_ssr_sentry_otel_bundle),
         )
         .route("/showcase/nike/react", get(proxy_react_ssr_nike_root))
-        .route("/showcase/nike/react/*path", get(proxy_react_ssr_nike))
+        .route("/showcase/nike/react/{*path}", get(proxy_react_ssr_nike))
         .route("/showcase/ebay/react", get(proxy_react_ssr_ebay))
         .route(
             "/showcase/github-pr-diff/react",
@@ -2294,18 +2289,18 @@ pub fn marketing_router_with_options(options: PlaygroundOptions) -> Router {
             get(proxy_react_ssr_sentry_otel),
         )
         .route("/showcase/airbnb/node", get(proxy_node_root))
-        .route("/showcase/airbnb/node/*path", get(proxy_node))
+        .route("/showcase/airbnb/node/{*path}", get(proxy_node))
         .route("/showcase/nike/node", get(proxy_node_nike_root))
-        .route("/showcase/nike/node/*path", get(proxy_node_nike))
-        .route("/_next/*path", get(proxy_node_assets))
+        .route("/showcase/nike/node/{*path}", get(proxy_node_nike))
+        .route("/_next/{*path}", get(proxy_node_assets))
         .route("/showcase/nike/next", get(proxy_next_nike_root))
-        .route("/showcase/nike/next/*path", get(proxy_next_nike))
+        .route("/showcase/nike/next/{*path}", get(proxy_next_nike))
         .route("/showcase/ebay/next", get(proxy_next_ebay))
-        .route("/next-assets/_next/*path", get(proxy_next_assets))
+        .route("/next-assets/_next/{*path}", get(proxy_next_assets))
         .route("/showcase/airbnb/bun", get(proxy_bun_root))
-        .route("/showcase/airbnb/bun/*path", get(proxy_bun))
+        .route("/showcase/airbnb/bun/{*path}", get(proxy_bun))
         .route("/showcase/nike/bun", get(proxy_bun_nike_root))
-        .route("/showcase/nike/bun/*path", get(proxy_bun_nike))
+        .route("/showcase/nike/bun/{*path}", get(proxy_bun_nike))
         .route("/showcase/ebay/proa-rsjs", get(showcase_ebay_srp_rsjs))
         .route(
             "/showcase/ebay/proa-rsjs-consolidated",
@@ -2323,7 +2318,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index))
         .route("/playground", get(index))
-        .route("/playground/*path", get(index))
+        .route("/playground/{*path}", get(index))
         .route("/api/render", post(render_page))
         .route("/api/render-md", post(render_page_md))
         .route("/api/loadtest", post(loadtest))
@@ -2335,9 +2330,9 @@ async fn main() {
         // Static assets so the preview iframe can load CSS/JS
         .route("/proa.css", get(serve_css))
         .route("/proa.js", get(serve_js))
-        .route("/assets/*path", get(serve_asset))
-        .route("/fonts/:filename", get(serve_font))
-        .route("/images/*path", get(serve_image))
+        .route("/assets/{*path}", get(serve_asset))
+        .route("/fonts/{filename}", get(serve_font))
+        .route("/images/{*path}", get(serve_image))
         // Showcase pages — so in-page links work when navigating within the preview
         .route("/showcase", get(showcase_index))
         .route("/showcase/airbnb/proa", get(showcase_airbnb_home))
@@ -2352,12 +2347,12 @@ async fn main() {
         .route("/api/render-node", post(proxy_node_render))
         // Hono proxy routes for A/B comparison — Airbnb
         .route("/showcase/airbnb/node", get(proxy_node_root))
-        .route("/showcase/airbnb/node/*path", get(proxy_node))
+        .route("/showcase/airbnb/node/{*path}", get(proxy_node))
         // Hono proxy routes — Nike compatibility path
         .route("/showcase/nike/node", get(proxy_node_nike_root))
-        .route("/showcase/nike/node/*path", get(proxy_node_nike))
+        .route("/showcase/nike/node/{*path}", get(proxy_node_nike))
         // Proxy Hono static assets (/_next/*)
-        .route("/_next/*path", get(proxy_node_assets))
+        .route("/_next/{*path}", get(proxy_node_assets))
         // Bun render API proxy
         .route("/api/render-bun", post(proxy_bun_render))
         .route("/api/render-marko-node", post(proxy_marko_node_render))
@@ -2378,7 +2373,7 @@ async fn main() {
             get(proxy_react_ssr_sentry_otel_bundle),
         )
         .route("/showcase/nike/react", get(proxy_react_ssr_nike_root))
-        .route("/showcase/nike/react/*path", get(proxy_react_ssr_nike))
+        .route("/showcase/nike/react/{*path}", get(proxy_react_ssr_nike))
         .route("/showcase/ebay/react", get(proxy_react_ssr_ebay))
         .route(
             "/showcase/github-pr-diff/react",
@@ -2391,15 +2386,15 @@ async fn main() {
         )
         // Next.js proxy routes
         .route("/showcase/nike/next", get(proxy_next_nike_root))
-        .route("/showcase/nike/next/*path", get(proxy_next_nike))
+        .route("/showcase/nike/next/{*path}", get(proxy_next_nike))
         .route("/showcase/ebay/next", get(proxy_next_ebay))
-        .route("/next-assets/_next/*path", get(proxy_next_assets))
+        .route("/next-assets/_next/{*path}", get(proxy_next_assets))
         // Bun proxy routes for A/B comparison — Airbnb
         .route("/showcase/airbnb/bun", get(proxy_bun_root))
-        .route("/showcase/airbnb/bun/*path", get(proxy_bun))
+        .route("/showcase/airbnb/bun/{*path}", get(proxy_bun))
         // Bun proxy routes — Nike compatibility path
         .route("/showcase/nike/bun", get(proxy_bun_nike_root))
-        .route("/showcase/nike/bun/*path", get(proxy_bun_nike))
+        .route("/showcase/nike/bun/{*path}", get(proxy_bun_nike))
         // Bare-path fallbacks (React components link without engine prefix)
         .route("/showcase/airbnb", get(showcase_airbnb_home))
         .route("/showcase/airbnb/search", get(showcase_airbnb_search))
@@ -2430,11 +2425,11 @@ async fn main() {
         // Per-island handler accepts both `<asset_id>.js` (un-hashed)
         // and `<asset_id>.<hash8>.js` (content-hashed) shapes; the
         // handler dispatches by counting dots in the path segment.
-        .route("/rsjs/island/:file", get(serve_rsjs_island))
+        .route("/rsjs/island/{file}", get(serve_rsjs_island))
         // Hashed-URL routes for the runtime modules.
-        .route("/rsjs-runtime.:hash.js", get(serve_rsjs_runtime_hashed))
+        .route("/rsjs-runtime.{file}", get(serve_rsjs_runtime_hashed))
         .route(
-            "/rsjs-runtime-query.:hash.js",
+            "/rsjs-runtime-query.{file}",
             get(serve_rsjs_runtime_query_hashed),
         )
         .layer(Extension(PlaygroundOptions::standalone()));
@@ -3583,32 +3578,33 @@ async fn serve_rsjs_runtime_query(headers: axum::http::HeaderMap) -> axum::respo
     js_response(body.to_vec(), enc, UNHASHED_CACHE_CONTROL)
 }
 
-/// Hashed-URL handler for the base runtime. The router is
-/// `/rsjs-runtime.:hash.js`; we accept any hash value and serve the
-/// current bytes, so an old cached response still hits the same body
-/// (the cache-immutable promise) until a new build invalidates the
-/// hash. The current-build hash is recomputed lazily and compared
-/// only for telemetry (404 on mismatch would defeat the purpose; a
-/// stale hash from a prior deploy still serves the current bytes
-/// because that is the worst we can do without a full asset
-/// versioning story).
 async fn serve_rsjs_runtime_hashed(
-    axum::extract::Path(_hash): axum::extract::Path<String>,
-    headers: axum::http::HeaderMap,
+    axum::extract::Path(file): axum::extract::Path<String>,
+    headers: HeaderMap,
 ) -> axum::response::Response {
-    let idx = rsjs_asset_index();
-    let ae = accept_encoding_str(&headers);
-    let (body, enc) = pick_encoding(&idx.runtime, ae.as_deref());
-    js_response(body.to_vec(), enc, HASHED_CACHE_CONTROL)
+    hashed_runtime_response(&file, &headers, &rsjs_asset_index().runtime)
 }
 
 async fn serve_rsjs_runtime_query_hashed(
-    axum::extract::Path(_hash): axum::extract::Path<String>,
-    headers: axum::http::HeaderMap,
+    axum::extract::Path(file): axum::extract::Path<String>,
+    headers: HeaderMap,
 ) -> axum::response::Response {
-    let idx = rsjs_asset_index();
-    let ae = accept_encoding_str(&headers);
-    let (body, enc) = pick_encoding(&idx.runtime_query, ae.as_deref());
+    hashed_runtime_response(&file, &headers, &rsjs_asset_index().runtime_query)
+}
+
+fn hashed_runtime_response(
+    file: &str,
+    headers: &HeaderMap,
+    asset: &RsjsAsset,
+) -> axum::response::Response {
+    let Some(hash) = file.strip_suffix(".js") else {
+        return axum::http::StatusCode::NOT_FOUND.into_response();
+    };
+    if hash.len() != 8 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return axum::http::StatusCode::NOT_FOUND.into_response();
+    }
+    let ae = accept_encoding_str(headers);
+    let (body, enc) = pick_encoding(asset, ae.as_deref());
     js_response(body.to_vec(), enc, HASHED_CACHE_CONTROL)
 }
 

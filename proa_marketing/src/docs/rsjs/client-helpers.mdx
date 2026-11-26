@@ -27,8 +27,8 @@ use labels::result_label as label_for_count;
 Call the helper through an ordinary Rust path inside an analyzed component:
 
 ```rust filename="src/components/results.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{event_handler, rsjs, signal};
 
 pub struct Results;

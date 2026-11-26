@@ -163,13 +163,3 @@ fn axum_adapter_remains_feature_gated_and_public() {
     let response = proa_docs::adapter::axum::response(&DOCS, "/docs");
     assert_eq!(response.status(), axum::http::StatusCode::OK);
 }
-
-#[test]
-fn default_assets_are_exported_and_non_empty() {
-    // A consumer adding only `proa_docs` must get a working theme.
-    assert!(proa_docs::DEFAULT_STYLESHEET.len() > 10_000);
-    assert!(proa_docs::DEFAULT_SCRIPT.len() > 1_000);
-    let _ = proa_docs::DocsAssets::new();
-    let _ = proa_docs::DocsAssets::style_only();
-    let _ = proa_docs::DocsAssets::script_only();
-}

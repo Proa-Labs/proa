@@ -2,8 +2,7 @@
 
 Axum/Tokio adapter that wires Proa's rendering core (`proa_core`,
 `proa_macros`) to an HTTP server. It handles routing, island hydration, static
-assets, metadata layouts, and mounting external apps (static, SSR, CSR) behind
-a single Axum router.
+assets, and metadata layouts behind a single Axum router.
 
 This crate is the glue between a page component and an HTTP response. If you
 are writing a component, start with `proa_core` and `proa_macros`. If you are
@@ -44,17 +43,16 @@ dependency trees.
 | Module | Purpose |
 |--------|---------|
 | `route` | `Route`, `RouteResponse`, layouts, metadata cascade, route context layer |
-| `manifest` | `IslandManifest` — loads the island/asset manifest emitted by the build toolchain |
-| `bootstrap` | Renders the React import map + island bootstrap script from the manifest |
 | `static_service` | Serves embedded static assets (`EmbeddedStaticService`) |
-| `external` | Mounts external apps (`ExternalApp` — static, SSR upstream, CSR SPA) |
-| `proxy` | Reverse proxy to a fixed upstream (used by `ExternalAppStrategy::Ssr`) |
-| `process_manager` | Spawns dev servers for SSR external apps in debug builds |
+| `public_assets` | Startup URL resolution and manifest-only serving for copied public files |
 | `readiness` | Generic, timeout-bounded dependency probes for `/readyz` |
 | `server` | Signal-aware Axum accept loop with bounded graceful draining |
-| `shard` | `ShardCache` for sharded route caches |
-| `config` | `ProaConfig`, `ServerConfig`, `PathsConfig`, `CodegenConfig` |
-| `route_export` | (feature `route-export`) export routes as JSON for tooling |
+
+For build-time fingerprinting of public images, media and downloads, see
+[managed public assets](../../docs/build-output.md). `FrameworkBuilder`
+mounts the catalog at startup, from `PROA_PUBLIC_ASSETS` or else from the
+directory `proa build` wrote beside the executable, and enables
+`cx.url("public/...")` in components, including detached streams.
 
 ## Route responses
 
@@ -74,8 +72,8 @@ paths ship baseline security headers by default (`X-Content-Type-Options:
 nosn`, `Content-Type: text/html; charset=utf-8`).
 
 Return Axum's `Html`, redirects, JSON, or other ordinary responses directly
-when no Proa render is needed. Mount client-rendered SPAs with
-`ExternalApp::csr_app`.
+when no Proa render is needed. Mount client-rendered SPAs through Axum router
+composition.
 
 For async pages, use `RouteResponse::ssr_async(component)`. For streamed async
 pages with explicit fallback boundaries, use
@@ -142,12 +140,9 @@ let (router, computed_metadata) = router_from_spec(vec![Route::layout(
 
 ```rust
 use std::time::Duration;
-use proa_framework_axum::{FrameworkBuilder, IslandManifest, ProaConfig};
+use proa_framework_axum::FrameworkBuilder;
 
-let manifest = IslandManifest::load_from_path("dist/island-manifest.json")?;
-
-let app = FrameworkBuilder::new(manifest)
-    .with_config(ProaConfig::default())
+let app = FrameworkBuilder::new()
     .with_dynamic_routes(my_router())
     .with_static_service(proa_framework_axum::standalone_static_router("dist"))
     .build();
@@ -156,7 +151,29 @@ let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
 proa_framework_axum::serve(listener, app, Duration::from_secs(30)).await?;
 ```
 
+Proa uses Axum 0.8. Use `/{id}` for a capture and `/{*path}` for a catch-all
+when registering routes on an `axum::Router`. Proa's declarative `Route`
+also accepts the earlier `/:id` and `/*path` spellings.
+
 `FrameworkBuilder::build()` returns an `axum::Router`, so anything downstream of it (middleware, nesting under another router, tracing, CORS) works via the standard Axum / tower ecosystem.
+
+### Rendering without a server
+
+`RouteResponse::render_to_bytes` finalizes one response into a complete HTML
+document with no listener, no island manifest, and no async runtime. It is
+available on this crate's `RouteResponse` and on `proa_framework_core`'s, so a
+static renderer can skip Axum and tokio entirely. Static exports and snapshot
+tests get the same managed head and RSJS runtime tags a served route would.
+Async plans render buffered, a non-2xx status is an error, and no route context
+is installed, so pages that read route metadata, route params, or the base
+path should go through the built router with `oneshot` instead:
+
+```rust,ignore
+let html = RouteResponse::ssr(RootDocument { children: HomePage })
+    .with_head(HeadConfig::default())
+    .render_to_bytes()?;
+std::fs::write("output/index.html", html)?;
+```
 
 `proa_framework_axum::serve` waits for Ctrl-C or SIGTERM, immediately stops
 accepting new connections, and starts the supplied drain deadline at that
@@ -179,7 +196,7 @@ and mount prefix:
 ```rust
 use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new("/apps/demo")?)
     .with_public_origin("https://example.com")?
     .with_sitemap([SitemapUrl::new("/")?, SitemapUrl::new("/pricing")?])
@@ -303,7 +320,7 @@ should therefore use cancellation-safe async operations.
 Turn it on with one builder call:
 
 ```rust,ignore
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_strict_csp()
     .build();
 ```
@@ -329,7 +346,7 @@ rollout:
 ```rust,ignore
 use proa_framework_axum::CspPolicy;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_csp_policy(
         CspPolicy::strict()
             .with_directive("img-src", "'self' data: https://cdn.example")
@@ -357,36 +374,14 @@ applications may intentionally render style attributes; remove that exception
 when the application uses classes and external stylesheets exclusively. Script
 execution does not require `'unsafe-inline'`.
 
-## Mounting external apps
-
-`ExternalApp` lets a Proa server host other apps under sub-paths — useful when a single domain serves Proa pages plus a docs site, an admin SPA, or a legacy backend.
-
-```rust,ignore
-use proa_framework_axum::{ExternalApp, FrameworkBuilder};
-
-let app = FrameworkBuilder::new(manifest)
-    .with_external_app(ExternalApp::static_app("/docs", "apps/docs/out"))
-    .with_external_app(ExternalApp::csr_app("/app", "apps/app/dist", None))
-    .with_external_app(ExternalApp::ssr_app("/api", "http://localhost:4000".to_string()))
-    .build();
-```
-
-- **Static** — serves a directory via `tower_http::services::ServeDir`.
-- **CSR** — same, with History API fallback (SPA-style) planned.
-- **SSR** — reverse-proxies to a fixed upstream. In debug builds, `dev_command` can spawn the upstream; the upstream URL is fixed at startup and never sourced from request input.
-
 ## Security posture
 
 The framework applies these baseline controls:
 
 - **CRLF / header injection** — all response headers use Axum's typed `HeaderValue`; no user-controlled strings flow into header sinks.
-- **SSRF** — no endpoint fetches URLs supplied via query/header. The proxy upstream is immutable at startup.
+- **SSRF** — no endpoint fetches URLs supplied via query/header.
 - **Middleware-trust bypass** — no custom internal header (`X-Proa-*`, `X-Forwarded-*`) is trusted for authorization.
 - **Default security headers** — `X-Content-Type-Options: nosniff` and explicit UTF-8 charset are injected on every SSR response (`route/response.rs`, `zero_copy_body.rs`).
-
-## Feature flags
-
-- `route-export` — compiles the `route_export` module, which serializes route specs to JSON for external tooling (codegen, client payload builders).
 
 ## Testing
 
@@ -394,4 +389,4 @@ The framework applies these baseline controls:
 cargo test -p proa_framework_axum --lib
 ```
 
-Lib tests cover shard cache eviction and the layout/metadata composition path. Framework integration tests live in this crate's `tests/` directory.
+Lib tests cover the layout/metadata composition path. Framework integration tests live in this crate's `tests/` directory.

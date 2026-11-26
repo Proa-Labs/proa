@@ -10,9 +10,10 @@
 //! - Mix of static (&'static [u8]) and dynamic (short escaped strings)
 
 use bytes::Bytes;
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use proa_core::shared::write_buf::{Part, ZeroCopyBuf};
 use proa_core::WriteBuf;
+use std::hint::black_box;
 use std::io::{IoSlice, Write};
 
 // ---------------------------------------------------------------------------
@@ -504,6 +505,8 @@ impl ScatteredBuf {
     }
 }
 
+#[allow(unsafe_code)]
+
 impl WriteBuf for ScatteredBuf {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -523,7 +526,8 @@ impl WriteBuf for ScatteredBuf {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), proa_core::shared::write_buf::WriteError> {
+        let bytes = text.as_bytes();
         self.write(bytes);
         Ok(())
     }

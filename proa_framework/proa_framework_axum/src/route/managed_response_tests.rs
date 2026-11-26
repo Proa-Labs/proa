@@ -59,7 +59,7 @@ impl WebRender for ProductPage {
                 return Err(WriteError::render("late body failure"));
             }
             assert!(!cx.response_mut().set_status(StatusCode::ACCEPTED));
-            cx.output_mut().extend(b"PRODUCT_BODY")
+            cx.output_mut().extend_str("PRODUCT_BODY")
         })
     }
 }
@@ -90,7 +90,7 @@ impl WebRenderSend for ProductPage {
                 return Err(WriteError::render("late body failure"));
             }
             assert!(!cx.response_mut().set_status(StatusCode::ACCEPTED));
-            cx.output_mut().extend(b"PRODUCT_BODY")
+            cx.output_mut().extend_str("PRODUCT_BODY")
         })
     }
 }
@@ -539,7 +539,7 @@ async fn actual_route_drivers_publish_before_pending_body_in_every_delivery_mode
             .with_render_mode(mode)
             .with_head(proa_core::HeadConfig::default());
             let response = route
-                .into_stream_framework_response(&empty_manifest(), &Default::default())
+                .into_stream_framework_response(&Default::default())
                 .unwrap();
             let response = tokio::time::timeout(
                 Duration::from_secs(2),
@@ -585,7 +585,7 @@ impl WebRender for ImmediatePage {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"immediate body"),
+            cx.output_mut().extend_str("immediate body"),
         )
     }
 }
@@ -600,7 +600,7 @@ impl WebRenderSend for ImmediatePage {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"immediate body"),
+            cx.output_mut().extend_str("immediate body"),
         )
     }
 }
@@ -674,7 +674,7 @@ async fn inherited_head_is_published_before_same_poll_body_work() {
                     .unwrap(),
             );
             let response = route
-                .into_stream_framework_response(&empty_manifest(), &Default::default())
+                .into_stream_framework_response(&Default::default())
                 .unwrap();
             let FrameworkBody::Managed(factory) = response.body else {
                 panic!("expected managed stream")
@@ -723,7 +723,7 @@ async fn actual_route_publishes_before_same_poll_body_work() {
             .with_render_mode(mode)
             .with_head(proa_core::HeadConfig::default());
             let response = route
-                .into_stream_framework_response(&empty_manifest(), &Default::default())
+                .into_stream_framework_response(&Default::default())
                 .unwrap();
             let FrameworkBody::Managed(factory) = response.body else {
                 panic!("expected managed stream")
@@ -766,7 +766,7 @@ impl WebRender for BodyWork {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"body"),
+            cx.output_mut().extend_str("body"),
         )
     }
 }
@@ -777,7 +777,7 @@ impl WebRenderSend for BodyWork {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.output_mut().extend(b"body"),
+            cx.output_mut().extend_str("body"),
         )
     }
 }
@@ -828,7 +828,7 @@ async fn outlet_inside_page_publishes_before_following_body_child() {
         }
         .with_head(proa_core::HeadConfig::default());
         let response = route
-            .into_stream_framework_response(&empty_manifest(), &Default::default())
+            .into_stream_framework_response(&Default::default())
             .unwrap();
         let FrameworkBody::Managed(factory) = response.body else {
             panic!("expected managed stream")
@@ -859,7 +859,7 @@ impl WebRender for EmptyHeadPage {
         RenderOutcome::pending(async move {
             proa_core::WebRenderSync::render(cx.head(), cx)?;
             let _ = self.0.await;
-            cx.output_mut().extend(b"body")
+            cx.output_mut().extend_str("body")
         })
     }
 }
@@ -872,7 +872,7 @@ impl WebRenderSend for EmptyHeadPage {
         RenderOutcome::pending(async move {
             proa_core::WebRenderSendSync::render_send_sync(cx.head(), cx)?;
             let _ = self.0.await;
-            cx.output_mut().extend(b"body")
+            cx.output_mut().extend_str("body")
         })
     }
 }
@@ -887,7 +887,7 @@ async fn empty_head_is_ready_without_a_synthetic_byte_or_ready_body() {
         }
         .with_head(proa_core::HeadConfig::default());
         let response = route
-            .into_stream_framework_response(&empty_manifest(), &Default::default())
+            .into_stream_framework_response(&Default::default())
             .unwrap();
         let response = tokio::time::timeout(
             Duration::from_secs(2),
@@ -911,10 +911,6 @@ async fn empty_head_is_ready_without_a_synthetic_byte_or_ready_body() {
     }
 }
 
-fn empty_manifest() -> proa_framework_core::IslandManifest {
-    serde_json::from_str(r#"{"islands":{}}"#).unwrap()
-}
-
 struct BadDeferred;
 impl WebRender for BadDeferred {
     fn render(
@@ -922,7 +918,7 @@ impl WebRender for BadDeferred {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         let _ignored = cx.head_mut().title("too late");
-        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend(b"must not publish"))
+        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend_str("must not publish"))
     }
 }
 struct DeferredPage;
@@ -945,7 +941,7 @@ async fn ignored_deferred_metadata_error_terminates_the_actual_ooo_body() {
         .with_render_mode(proa_core::RenderMode::ChunkedOutOfOrder)
         .with_head(proa_core::HeadConfig::default());
     let response = route
-        .into_stream_framework_response(&empty_manifest(), &Default::default())
+        .into_stream_framework_response(&Default::default())
         .unwrap();
     let response =
         prepare_deferred_framework_stream(framework_response_to_axum(response), executor()).await;
@@ -986,7 +982,7 @@ async fn buffered_local_and_send_use_the_same_head_values_and_status() {
         }
         .with_head(proa_core::HeadConfig::default());
         let response = route
-            .into_framework_response(&empty_manifest(), &Default::default())
+            .into_framework_response(&Default::default())
             .await
             .unwrap();
         assert_eq!(response.status, StatusCode::CREATED);
@@ -995,6 +991,55 @@ async fn buffered_local_and_send_use_the_same_head_values_and_status() {
         };
         let html = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(html.contains("<head><title>Product</title></head><body>PRODUCT_BODY</body>"));
+    }
+}
+
+#[tokio::test]
+async fn buffered_client_responses_preserve_body_decisions_without_managed_head() {
+    struct Created;
+    impl Created {
+        fn stage(response: &mut proa_core::ResponseContext) {
+            response.set_status(StatusCode::CREATED);
+            response.insert_header(http::header::LOCATION, HeaderValue::from_static("/new"));
+            response.append_set_cookie(HeaderValue::from_static("a=1"));
+            response.append_set_cookie(HeaderValue::from_static("b=2"));
+        }
+    }
+    impl proa_core::WebRenderSync for Created {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            Self::stage(cx.response_mut());
+            Ok(())
+        }
+    }
+    impl proa_core::WebRenderSendSync for Created {
+        fn render_send_sync(self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+            Self::stage(cx.response_mut());
+            Ok(())
+        }
+    }
+
+    for route in [
+        CoreRouteResponse::ssr(Created),
+        CoreRouteResponse::ssr_async(proa_core::to_async(Created)),
+        CoreRouteResponse::ssr_async_send(proa_core::to_send(Created)),
+    ] {
+        let response = route
+            .into_client_payload_framework_response(None, &Default::default())
+            .await;
+        assert_eq!(response.status, StatusCode::CREATED);
+        assert_eq!(response.headers[http::header::LOCATION], "/new");
+        assert_eq!(
+            response
+                .headers
+                .get_all(http::header::SET_COOKIE)
+                .iter()
+                .count(),
+            2
+        );
+        assert_eq!(
+            response.headers[http::header::CONTENT_TYPE],
+            "application/json; charset=utf-8"
+        );
     }
 }
 
@@ -1017,7 +1062,6 @@ async fn client_payload_preserves_dynamic_title_status_cookies_and_cache_policy(
         let response = route
             .into_client_payload_framework_response(
                 Some("stale static title".into()),
-                &empty_manifest(),
                 &Default::default(),
             )
             .await;
@@ -1078,11 +1122,7 @@ async fn sync_app_defaults_explicit_clear_and_manual_override() {
             status: StatusCode::ACCEPTED,
         });
         let response = route
-            .into_client_payload_framework_response(
-                Some("legacy title".into()),
-                &empty_manifest(),
-                &request,
-            )
+            .into_client_payload_framework_response(Some("legacy title".into()), &request)
             .await;
         assert_eq!(response.status, StatusCode::ACCEPTED);
         let FrameworkBody::Full(bytes) = response.body else {
@@ -1098,7 +1138,7 @@ async fn sync_app_defaults_explicit_clear_and_manual_override() {
     }
     let response = CoreRouteResponse::ssr("manual")
         .without_head()
-        .into_framework_response(&empty_manifest(), &request)
+        .into_framework_response(&request)
         .await
         .unwrap();
     let FrameworkBody::Full(bytes) = response.body else {
@@ -1121,15 +1161,11 @@ async fn managed_buffered_and_client_paths_enforce_bodyless_status() {
             .with_head(proa_core::HeadConfig::default());
             let response = if client {
                 route
-                    .into_client_payload_framework_response(
-                        None,
-                        &empty_manifest(),
-                        &Default::default(),
-                    )
+                    .into_client_payload_framework_response(None, &Default::default())
                     .await
             } else {
                 route
-                    .into_framework_response(&empty_manifest(), &Default::default())
+                    .into_framework_response(&Default::default())
                     .await
                     .unwrap()
             };
@@ -1152,7 +1188,7 @@ async fn deferred_head_cannot_weaken_middleware_cache_bypass() {
     }))
     .with_head(proa_core::HeadConfig::default());
     let response = route
-        .into_stream_framework_response(&empty_manifest(), &Default::default())
+        .into_stream_framework_response(&Default::default())
         .unwrap();
     let mut response = framework_response_to_axum(response);
     response.headers_mut().insert(
@@ -1180,7 +1216,7 @@ impl WebRender for SeedChild {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
             cx.rsjs_query_seed_json(r#"["managed-stock"]"#, r#"{"data":42}"#);
-            cx.output_mut().extend(b"deferred-result")
+            cx.output_mut().extend_str("deferred-result")
         })
     }
 }
@@ -1206,7 +1242,7 @@ async fn managed_ooo_keeps_rsjs_seed_before_boundary_swap_after_shell() {
         .with_render_mode(proa_core::RenderMode::ChunkedOutOfOrder)
         .with_head(proa_core::HeadConfig::default());
     let response = route
-        .into_stream_framework_response(&empty_manifest(), &Default::default())
+        .into_stream_framework_response(&Default::default())
         .unwrap();
     let response =
         prepare_deferred_framework_stream(framework_response_to_axum(response), executor()).await;
@@ -1249,10 +1285,7 @@ async fn axum_context_layer_supplies_defaults_for_document_and_client_requests()
                 })
             }),
         )
-        .layer(
-            crate::RouteContextLayer::new(Arc::new(empty_manifest()), Arc::new(Default::default()))
-                .with_head(head),
-        );
+        .layer(crate::RouteContextLayer::new(Arc::new(Default::default())).with_head(head));
     for client in [false, true] {
         let mut request = http::Request::builder().uri("/");
         if client {

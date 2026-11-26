@@ -72,8 +72,8 @@ export function ListingCard({
 
 **Proa (`html_sync!`):**
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 #[derive(Clone, Copy)]
 pub enum Badge {
@@ -253,8 +253,8 @@ export default function SearchFilters({ filters }: SearchFiltersProps) {
 
 **Proa (only the interactive part ships JS):**
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{event_handler, signal};
 use rsjs_macros::rsjs;
 

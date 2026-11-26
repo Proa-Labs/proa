@@ -56,7 +56,7 @@ html_sync! {
 ```
 
 The arguments use the same supported reactive expression grammar as other
-slots. `text!`, `proa_macros::text!`, and `::proa_macros::text!` are recognized;
+slots. `text!`, `proa::text!`, and `::proa::text!` are recognized;
 other namespaces stay opaque. SSR retains Proa's streamed, escaped rendering.
 The browser updates text content or attribute values, preserving surrounding
 static markup. `{{` / `}}` still produce literal braces.
@@ -683,14 +683,14 @@ pub struct FocusInput {
 }
 
 #[rsjs::rsjs(component)]
-impl<L: proa_core::DataLoader>
-    proa_core::WebRenderSync<L> for FocusInput
+impl<L: proa::DataLoader>
+    proa::WebRenderSync<L> for FocusInput
 {
     fn render(
         self,
-        cx: &mut proa_core::WebContext<L>,
-    ) -> Result<(), proa_core::WriteError> {
-        proa_macros::html_sync! {
+        cx: &mut proa::WebContext<L>,
+    ) -> Result<(), proa::WriteError> {
+        proa::html_sync! {
             <input ref={self.input_ref}/>
         }
         .render(cx)
@@ -700,16 +700,16 @@ impl<L: proa_core::DataLoader>
 pub struct FocusPanel;
 
 #[rsjs::rsjs(component, client)]
-impl<L: proa_core::DataLoader>
-    proa_core::WebRenderSync<L> for FocusPanel
+impl<L: proa::DataLoader>
+    proa::WebRenderSync<L> for FocusPanel
 {
     fn render(
         self,
-        cx: &mut proa_core::WebContext<L>,
-    ) -> Result<(), proa_core::WriteError> {
+        cx: &mut proa::WebContext<L>,
+    ) -> Result<(), proa::WriteError> {
         let input_ref = rsjs::node_ref::<rsjs::HtmlInputElement>();
 
-        proa_macros::html_sync! {
+        proa::html_sync! {
             <section>
                 {FocusInput { input_ref }}
                 <button on_click={|_| input_ref.focus()}>"Focus"</button>
@@ -817,10 +817,11 @@ analyzed slot is reserved for a compiler-composable component edge. An unbound
 direct path such as `{Badge}` or `{crate::ui::Badge}` has the same meaning for
 a unit component; imported, renamed, and re-exported paths work through
 rustc-resolved identity. A single-segment path naming a tracked prelude or loop
-local remains an ordinary value. Keep
-`rsjs::server_attr(...)` for static-per-render dynamic attributes.
-`rsjs::server_only(...)` remains a compatibility escape hatch for syntax the
-tolerant frontend cannot yet classify; it is not the routine authoring path.
+local remains an ordinary value. Write server-rendered attributes directly,
+for example `src={cx.url("public/images/logo.svg")}`. Reserve
+`rsjs::server_attr(...)` and `rsjs::server_only(...)` for intentional
+snapshots of inbound values or server syntax the tolerant frontend cannot
+classify.
 
 Compiler-backed v2 lint may report `rsjs/unnecessary-server-only` when the
 wrapper surrounds a proven ordinary server local. It must not suggest removing
@@ -851,7 +852,8 @@ Use `rsjs::server_only(...)` or `rsjs::server_attr(...)` when a prop is
 intentionally static for that render. Parent signals and handler references
 cannot cross such a snapshot boundary.
 
-Opaque server-only dynamic attributes use `rsjs::server_attr(...)`:
+This attribute deliberately computes its class from the server snapshot of
+the inbound `self.size`:
 
 ```rust
 <input class={rsjs::server_attr(crate::components::input_classes(self.size))} />
@@ -924,7 +926,7 @@ Ordinary SSR values and calls are allowed directly:
 {label}                               // ordinary server local, SSR once
 {self.title}                          // inbound LiveRead in an analyzed component
 {render_markdown(self.document)}      // opaque server call, SSR once
-{proa_core::UnsafeRaw(self.icon_svg)} // opaque server value, SSR once
+{proa::UnsafeRaw(self.icon_svg)} // opaque server value, SSR once
 ```
 
 The opaque calls above are valid only while no browser-reachable dependency

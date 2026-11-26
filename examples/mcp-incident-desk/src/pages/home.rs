@@ -8,6 +8,7 @@ pub async fn handler(State(s): State<AppState>, h: HeaderMap) -> Result<Response
         return Ok(auth::redirect("/issues"));
     }
     page(
+        &s,
         "Welcome",
         None,
         html_sync! {

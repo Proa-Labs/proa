@@ -10,8 +10,8 @@ use super::DIALOG_ANATOMY;
 use crate::components::button::{
     ButtonColor, ButtonRadius, ButtonRecipeProps, ButtonSize, ButtonVariant, BUTTON_RECIPE,
 };
-use proa_core::{StaticRaw, WebContext, WebRenderSync, WriteBuf};
-use proa_macros::html_sync;
+use proa::{StaticRaw, WebContext, WebRenderSync, WriteBuf};
+use proa::html_sync;
 
 const CLOSE_ICON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>"#;
 /// Dialog root component - manages the dialog state
@@ -49,7 +49,7 @@ impl<Trigger, Content> Default for Dialog<Trigger, Content> {
     }
 }
 impl<
-        L: ::proa_core::DataLoader,
+        L: ::proa::DataLoader,
         B: WriteBuf,
         Trigger: WebRenderSync<L, B>,
         Content: WebRenderSync<L, B>,
@@ -58,7 +58,7 @@ impl<
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let state = crate::components::_proa::OverlayState::new(self.default_open, true);
         let initial_display = if state.hidden() { "none" } else { "block" };
         let style = DIALOG_RECIPE.resolve_root(DialogRootRecipeProps);
@@ -72,7 +72,7 @@ impl<
                 data-state={state.data_state()}
                 data-dialog-id={self.id}
                 class={style}
-                style={proa_core::style_ok(proa_macros::text!("--proa-overlay-display: {};", initial_display))}
+                style={proa::style_ok(proa::text!("--proa-overlay-display: {};", initial_display))}
             >
                 {self.trigger}
                 {self.content}
@@ -94,13 +94,13 @@ impl<C> Default for DialogTrigger<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogTrigger<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <button
                 type="button"
@@ -109,7 +109,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-part="trigger"
                 data-slot="dialog-trigger"
                 aria-haspopup="dialog"
-                class={proa_macros::text!("{} {}", DIALOG_RECIPE.trigger, self.class)}
+                class={proa::text!("{} {}", DIALOG_RECIPE.trigger, self.class)}
             >
                 {self.children}
             </button>
@@ -168,13 +168,13 @@ impl<C> Default for DialogButtonTrigger<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogButtonTrigger<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = BUTTON_RECIPE.resolve(ButtonRecipeProps {
             size: self.size,
             color: self.color,
@@ -193,7 +193,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-variant={style.variant().as_str()}
                 data-radius={style.radius().as_str()}
                 aria-haspopup="dialog"
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
             >
                 {self.children}
             </button>
@@ -206,18 +206,18 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
 pub struct DialogOverlay {
     pub class: Option<&'static str>,
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DialogOverlay {
+impl<L: ::proa::DataLoader, B: WriteBuf> WebRenderSync<L, B> for DialogOverlay {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <div
                 data-dialog-overlay
                 data-scope={DIALOG_ANATOMY.scope()}
                 data-part="overlay"
                 data-slot="dialog-overlay"
-                class={proa_macros::text!("{} {}", DIALOG_RECIPE.overlay, self.class)}
+                class={proa::text!("{} {}", DIALOG_RECIPE.overlay, self.class)}
                 aria-hidden="true"
             ></div>
         }
@@ -242,13 +242,13 @@ impl<C> Default for DialogContent<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogContent<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = DIALOG_RECIPE.resolve_content(DialogContentRecipeProps { size: self.size });
         let size = style.size();
         html_sync! {
@@ -273,7 +273,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                     data-part="content"
                     data-slot="dialog-content"
                     data-size={size.as_str()}
-                    class={proa_macros::text!("{} {}", style, self.class)}
+                    class={proa::text!("{} {}", style, self.class)}
                     role="dialog"
                     aria-modal="true"
                     tabindex="-1"
@@ -306,19 +306,19 @@ impl<C> Default for DialogHeader<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogHeader<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <div
                 data-scope={DIALOG_ANATOMY.scope()}
                 data-part="header"
                 data-slot="dialog-header"
-                class={proa_macros::text!("{} {}", DIALOG_RECIPE.header, self.class)}
+                class={proa::text!("{} {}", DIALOG_RECIPE.header, self.class)}
             >
                 {self.children}
             </div>
@@ -339,20 +339,20 @@ impl<C> Default for DialogTitle<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogTitle<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <h2
                 data-dialog-title
                 data-scope={DIALOG_ANATOMY.scope()}
                 data-part="title"
                 data-slot="dialog-title"
-                class={proa_macros::text!("{} {}", DIALOG_RECIPE.title, self.class)}
+                class={proa::text!("{} {}", DIALOG_RECIPE.title, self.class)}
             >
                 {self.children}
             </h2>
@@ -373,20 +373,20 @@ impl<C> Default for DialogDescription<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogDescription<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <p
                 data-dialog-description
                 data-scope={DIALOG_ANATOMY.scope()}
                 data-part="description"
                 data-slot="dialog-description"
-                class={proa_macros::text!("{} {}", DIALOG_RECIPE.description, self.class)}
+                class={proa::text!("{} {}", DIALOG_RECIPE.description, self.class)}
             >
                 {self.children}
             </p>
@@ -407,19 +407,19 @@ impl<C> Default for DialogFooter<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogFooter<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <div
                 data-scope={DIALOG_ANATOMY.scope()}
                 data-part="footer"
                 data-slot="dialog-footer"
-                class={proa_macros::text!("{} {}", DIALOG_RECIPE.footer, self.class)}
+                class={proa::text!("{} {}", DIALOG_RECIPE.footer, self.class)}
             >
                 {self.children}
             </div>
@@ -451,20 +451,20 @@ impl<C> Default for DialogClose<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogClose<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <span
                 data-dialog-close
                 data-scope={DIALOG_ANATOMY.scope()}
                 data-part="close"
                 data-slot="dialog-close"
-                class={proa_macros::text!("{} {}", DIALOG_RECIPE.close, self.class)}
+                class={proa::text!("{} {}", DIALOG_RECIPE.close, self.class)}
             >
                 {self.children}
             </span>
@@ -524,13 +524,13 @@ impl<C> Default for DialogCloseButton<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for DialogCloseButton<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = BUTTON_RECIPE.resolve(ButtonRecipeProps {
             size: self.size,
             color: self.color,
@@ -548,7 +548,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-color={style.color().as_str()}
                 data-variant={style.variant().as_str()}
                 data-radius={style.radius().as_str()}
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
             >
                 {self.children}
             </button>

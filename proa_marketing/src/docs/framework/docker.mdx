@@ -3,18 +3,12 @@ title: Docker
 description: Run the Proa image yourself, and own everything a platform would have done.
 ---
 
-Proa produces one release binary and a `public/` directory. This page packages both into an image and runs it on hardware you control.
-
-Read [what self-managed Docker costs you](/docs/framework/deployment) first. Take this path when you are running Proa beside an existing app, deploying into Kubernetes, Nomad, or ECS, or working somewhere a managed platform is not an option. For a plain public site, [Railway](/docs/framework/railway) or [Coolify](/docs/framework/coolify) does all of this for you.
-
-## Build the image
-
-Multi-stage: install the Proa CLI beside the Rust toolchain, build through the linked pipeline, run from a slim base. Proa dependencies resolve from crates.io without credentials. `proa new site --deploy docker` writes deployment files for you. If its pinned binary archive is unavailable, use the Cargo-based Dockerfile below. It reads the CLI version from the generated `proa.lock.json`, so the build stays pinned to your project's tooling without a version copied from these docs.
+Proa produces one release binary with its public asset bundle beside it (`app` + `app.assets/`). Run `proa new site --deploy docker` to generate a multi-stage Dockerfile, or use this Cargo-based fallback that pins the CLI version from `proa.lock.json`:
 
 ```dockerfile filename="Dockerfile"
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.93-bookworm AS build
+FROM rust:1.98-bookworm AS build
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git jq \
@@ -33,7 +27,7 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://proa.so/install.sh \
 COPY . .
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    proa build --locked --artifact-out /tmp/proa-app
+    proa build --locked --artifact-out /out/my-site
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
@@ -41,15 +35,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /tmp/proa-app /usr/local/bin/my-site
-COPY --from=build /app/public ./public
+COPY --from=build /out/ /app/
 
 ENV PROA_HOST=0.0.0.0
 ENV PORT=3000
 ENV RUST_LOG=info
 
 EXPOSE 3000
-CMD ["my-site"]
+CMD ["/app/my-site"]
 ```
 
 The first image build compiles your project's pinned CLI from crates.io, which takes several
@@ -57,7 +50,7 @@ minutes. Docker caches that installation layer separately from your application
 source. The installer handles only Tailwind and verifies its standalone binary's
 checksum. This source-build path also works with the Bookworm base images.
 
-`proa build` runs the configured asset build and the linked RSJS pipeline, then copies the attested binary to `--artifact-out`. A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT` and serves `public/` relative to its working directory, which is why the runtime stage sets `WORKDIR /app` and copies `public/` beside it.
+`proa build` runs the configured asset build and the linked RSJS pipeline, then writes the attested binary to `--artifact-out` and its read-only public asset bundle beside it, here `/out/my-site` and `/out/my-site.assets/`. That directory is the whole deployable output, so one `COPY` carries it into the runtime stage. The server loads the bundle next to its own executable and serves it under `/_proa/immutable` (content-hashed, cached for a year) and `/_proa/mutable` (revalidated); there is no path to configure. To serve those files from a CDN instead, see [serving assets from a static host](/docs/framework/deployment#serving-assets-from-a-static-host). A plain `cargo build --release` skips the asset build and fails at link time on any crate with islands. The generated server reads `PROA_HOST` and `PORT`.
 
 ```bash
 docker build -t my-site:$(git rev-parse --short HEAD) .
@@ -187,7 +180,8 @@ For more than one host, this is the point where Kubernetes, Nomad, or ECS stops 
 docker build -t my-site:test .
 docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site:test
 curl -fsS http://127.0.0.1:3000/healthz
-curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
+curl -fsS http://127.0.0.1:3000/readyz
+curl -fsS http://127.0.0.1:3000/ -o /dev/null
 docker image inspect my-site:test --format '{{.Size}}'                  # inspect the final image size
 ```
 

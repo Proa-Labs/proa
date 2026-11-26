@@ -438,9 +438,13 @@ fn render_integer<T: __ProaPrimitiveInteger, B: WriteBuf>(
         .saturating_add(layout.right_fill);
 
     if is_unescaped_fill(layout.fill) && total_chars <= COMPACT_OUTPUT_LEN {
-        return output.extend_with(total_chars, |destination| {
-            write_compact(&formatted, layout, destination)
-        });
+        // SAFETY: the fill is ASCII (`is_unescaped_fill`); sign, prefix, and
+        // digits are ASCII.
+        return unsafe {
+            output.extend_with(total_chars, |destination| {
+                write_compact(&formatted, layout, destination)
+            })
+        };
     }
 
     write_fill(output, layout.fill, layout.left_fill, target)?;
@@ -471,14 +475,17 @@ fn render_decimal<T: __ProaPrimitiveInteger, B: WriteBuf>(
             _ => 0,
         };
         if limit != 0 && magnitude < limit {
-            return output.extend_with(plan.width, |destination| {
-                let mut remaining = magnitude as u32;
-                for slot in destination[..plan.width].iter_mut().rev() {
-                    *slot = b'0' + (remaining % 10) as u8;
-                    remaining /= 10;
-                }
-                plan.width
-            });
+            // SAFETY: every slot is filled with an ASCII digit.
+            return unsafe {
+                output.extend_with(plan.width, |destination| {
+                    let mut remaining = magnitude as u32;
+                    for slot in destination[..plan.width].iter_mut().rev() {
+                        *slot = b'0' + (remaining % 10) as u8;
+                        remaining /= 10;
+                    }
+                    plan.width
+                })
+            };
         }
     }
 
@@ -499,21 +506,24 @@ fn render_decimal<T: __ProaPrimitiveInteger, B: WriteBuf>(
         .saturating_add(layout.right_fill);
 
     if is_unescaped_fill(layout.fill) && total_chars <= COMPACT_OUTPUT_LEN {
-        return output.extend_with(total_chars, |destination| {
-            let mut cursor = 0;
-            destination[..layout.left_fill].fill(layout.fill as u8);
-            cursor += layout.left_fill;
-            if let Some(sign) = sign {
-                destination[cursor] = sign;
-                cursor += 1;
-            }
-            destination[cursor..cursor + layout.internal_zeroes].fill(b'0');
-            cursor += layout.internal_zeroes;
-            destination[cursor..cursor + digit_len].copy_from_slice(&digits[..digit_len]);
-            cursor += digit_len;
-            destination[cursor..cursor + layout.right_fill].fill(layout.fill as u8);
-            cursor + layout.right_fill
-        });
+        // SAFETY: the fill is ASCII (`is_unescaped_fill`); sign and digits are ASCII.
+        return unsafe {
+            output.extend_with(total_chars, |destination| {
+                let mut cursor = 0;
+                destination[..layout.left_fill].fill(layout.fill as u8);
+                cursor += layout.left_fill;
+                if let Some(sign) = sign {
+                    destination[cursor] = sign;
+                    cursor += 1;
+                }
+                destination[cursor..cursor + layout.internal_zeroes].fill(b'0');
+                cursor += layout.internal_zeroes;
+                destination[cursor..cursor + digit_len].copy_from_slice(&digits[..digit_len]);
+                cursor += digit_len;
+                destination[cursor..cursor + layout.right_fill].fill(layout.fill as u8);
+                cursor + layout.right_fill
+            })
+        };
     }
 
     write_fill(output, layout.fill, layout.left_fill, target)?;

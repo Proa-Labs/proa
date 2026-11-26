@@ -3,8 +3,8 @@
 
 //! Spinner component implementation
 use super::recipe::{SpinnerRecipeProps, SpinnerSize, SPINNER_RECIPE};
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
+use proa::html_sync;
 /// Type-safe Spinner component using SpinnerRecipe.
 ///
 /// This struct is fully stack-allocated with no heap allocations.
@@ -16,7 +16,7 @@ use proa_macros::html_sync;
 ///
 /// ```ignore
 /// use crate::components::{Spinner, SpinnerSize};
-/// use proa_macros::html_sync;
+/// use proa::html_sync;
 ///
 /// html_sync! {
 ///     <div>
@@ -42,12 +42,12 @@ impl Spinner {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Spinner {
+impl<L: ::proa::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Spinner {
     #[inline(always)]
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = SPINNER_RECIPE.resolve(SpinnerRecipeProps { size: self.size });
         html_sync! {
             <svg
@@ -63,7 +63,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Spinner {
                 stroke-width="2"
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
                 role="status"
                 aria-label="Loading"
                 id={self.id}

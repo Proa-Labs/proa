@@ -3,8 +3,8 @@
 
 use std::future::Future;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use crate::loader::dossier_key;
 use crate::model::Dossier;
@@ -44,7 +44,7 @@ pub struct Receipt {
 }
 
 // proa-perf-ok(scope): two short measured strings once per request.
-impl<L: DataLoader> proa_core::WebRender<L> for Receipt {
+impl<L: DataLoader> proa::WebRender<L> for Receipt {
     fn render(
         self,
         cx: &mut WebContext<L>,
@@ -109,6 +109,11 @@ struct ReceiptShell<'a> {
 
 impl<L: DataLoader> WebRenderSync<L> for ReceiptShell<'_> {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let logo = cx.url(if cx.request().has_public_assets() {
+            "public/proa-logo.svg"
+        } else {
+            "/static/proa-logo.svg"
+        });
         html_sync! {
             <footer data-receipt class={base::FOOTER}>
                 <div class="flex items-center gap-[22px]">
@@ -131,7 +136,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReceiptShell<'_> {
                     </span>
                     <span class="text-ink6">"·"</span>
                     <a
-                        href="https://github.com/Proa-Labs/proa/tree/main/examples/origin-routing-atlas"
+                        href="https://github.com/Proa-Labs/proa/tree/main/proa_cli/src/site_scaffold/templates/origin"
                         class="text-ink3 tracking-[0.1em]"
                     >
                         "source"
@@ -142,7 +147,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReceiptShell<'_> {
                         class="hv-cyan flex items-center gap-[8px] text-brand tracking-[0.1em]"
                     >
                         <img
-                            src={cx.url("/static/proa-logo.svg")}
+                            src={logo}
                             width="16"
                             height="16"
                             alt=""

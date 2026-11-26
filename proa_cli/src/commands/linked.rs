@@ -41,3 +41,17 @@ pub(crate) struct LinkedExecuteArgs {
     #[arg(long)]
     pub(crate) offline: bool,
 }
+
+impl LinkedExecuteArgs {
+    pub(super) fn selects_binary(&self) -> bool {
+        self.profile.is_some()
+            || self.package.is_some()
+            || self.bin.is_some()
+            || self.target.is_some()
+            || !self.features.is_empty()
+            || self.all_features
+            || self.no_default_features
+            || self.locked
+            || self.offline
+    }
+}

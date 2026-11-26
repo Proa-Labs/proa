@@ -29,12 +29,8 @@ pub(crate) fn lower(expr: &Expr, render: &impl Fn(&Expr) -> TokenStream) -> Toke
             let arms = e.arms.iter().map(|arm| {
                 let attrs = &arm.attrs;
                 let pat = &arm.pat;
-                let guard = arm
-                    .guard
-                    .as_ref()
-                    .map(|(token, expr)| quote! { #token #expr });
                 let body = lower(&arm.body, render);
-                quote! { #(#attrs)* #pat #guard => { #body } }
+                quote! { #(#attrs)* #pat => { #body } }
             });
             quote! { #(#attrs)* match #value { #(#arms),* } }
         }
@@ -142,7 +138,7 @@ fn loop_can_break(expr: &syn::ExprLoop) -> bool {
             // are opaque and may contain a break targeting it.
             let proa_path = mac.path.leading_colon.is_some()
                 && mac.path.segments.len() == 2
-                && mac.path.segments[0].ident == "proa_macros";
+                && proa_dsl::paths::is_macro_namespace(&mac.path.segments[0].ident);
             let render_macro = proa_path
                 && mac.path.segments.last().is_some_and(|segment| {
                     matches!(

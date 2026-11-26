@@ -8,6 +8,15 @@
 AWS_LC_SYS_TARGET_CC_aarch64_apple_darwin = { value = "/usr/bin/cc", force = false }
 AWS_LC_SYS_TARGET_CXX_aarch64_apple_darwin = { value = "/usr/bin/c++", force = false }
 
+# Link the MSVC C runtime statically so released binaries start on machines
+# without the Visual C++ Redistributable (missing VCRUNTIME140.dll exits with
+# 0xC0000135 before main). Reserve an 8 MiB main-thread stack, matching the
+# Linux and macOS default instead of the 1 MiB Windows default. release-cli.yml
+# fails the release if a binary still imports the dynamic CRT. An explicit
+# RUSTFLAGS environment variable replaces these flags.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/STACK:8388608"]
+
 # In-repo alias for the Proa developer CLI: `cargo proa lint`, `cargo proa
 # fmt --verify`, `cargo proa chunks <paths>`. The package name is `proa-cli`
 # (hyphenated), which is why `-p proa_cli` does not resolve.

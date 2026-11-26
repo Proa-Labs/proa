@@ -10,21 +10,24 @@ From this directory:
 
 ```console
 ./scripts/setup.sh
-bash scripts/dev.sh
+proa run dev
 ```
 
 The setup script creates a short-lived local CA, a localhost certificate, ignored `.local/` key material, and `.env`. Review the printed `security add-trusted-cert` command before running it if you want Chrome to trust the local HTTPS certificate. The app listens on `https://localhost:5570`; the demo OAuth issuer listens on `https://127.0.0.1:5571`.
 
-`scripts/dev.sh` builds assets and watches for source and stylesheet changes through
-`proa dev`. It uses the installed CLI, or `cargo proa` inside this checkout,
-and keeps one watcher per example. Refresh the browser after changes; this
-custom HTTPS shell does not embed the browser reload client. Use
-`bash scripts/build.sh` for a release build. Both scripts forward additional
-CLI arguments. Run the TLS setup once before starting development.
+`proa.config.rs` declares `bash scripts/dev.sh` as the dev entry. The wrapper
+sets up the watcher and enters `proa dev` to build assets and watch
+source files and the configured `public/` directory. Both HTTPS origins serve the published
+catalog, including the fingerprinted favicon and revalidating stylesheets.
+An edit to a public file publishes the catalog and restarts the server.
+The wrapper keeps one watcher per example. Refresh the browser after changes
+when using this custom HTTPS shell. Use `proa run build` for a release build.
+Both wrappers forward CLI arguments and can also be entered directly with
+Bash. Run the TLS setup once before starting development.
 
 The first application start prints one password for each seeded demo account. Save those values locally. To rotate Alice's password later, stop the app and run `cargo run --bin mcp-incident-desk -- reset-password alice`. The accounts are Alice (Aster maintainer), Ben (Aster viewer), and Casey (Harbor maintainer). The database is `sqlite://data/mcp-incident-desk.db`; startup runs the committed SQLx migrations and seeds only when the seed marker is absent.
 
-Use the generated Proa lifecycle with `cargo proa site check`, `cargo proa check --all`, `cargo proa db status`, `cargo proa db migrate`, `cargo proa dev`, `cargo proa build`, `cargo proa start`, and `cargo proa test`. `proa db rollback` is for a deliberate development rollback. `proa db reset` is destructive and should only be used when you intend to delete this local demo database and reseed it.
+Use the generated Proa lifecycle with `cargo proa site check`, `cargo proa check --all`, `cargo proa db status`, `cargo proa db migrate`, `proa run dev`, `proa run build`, `cargo proa start`, and `cargo proa test`. `proa db rollback` is for a deliberate development rollback. `proa db reset` is destructive and should only be used when you intend to delete this local demo database and reseed it.
 
 ## Try the browser
 
@@ -53,7 +56,7 @@ Native browser forms require the `same-origin` referrer policy used here: `no-re
 
 ## What it demonstrates
 
-- SQLite through SQLx 0.8, generated migrations, WAL, foreign-key enforcement, bounded cleanup, and transactional seed/mutation paths.
+- SQLite through SQLx 0.9, generated migrations, WAL, foreign-key enforcement, bounded cleanup, and transactional seed/mutation paths.
 - OAuth/OIDC-shaped authorization code flow with S256 PKCE, OIDC nonce/state checks for the website, RSA-3072 RS256 signing, Argon2id passwords, opaque hashed sessions/codes/refresh tokens, rotation, replay revocation, and separate browser/MCP grants.
 - Tenant-qualified queries and reauthorization at request and write boundaries. A viewer can read Aster issues but cannot resolve them; Harbor data never appears in an Aster projection.
 - A request-local `DataResolver` that deduplicates keyed project loads before synchronous HTML or Markdown rendering. The async Markdown test lifts a sync report with `to_md_async` without carrying `WebContext` across an await in an MCP handler.

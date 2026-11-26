@@ -4,6 +4,56 @@
 use super::*;
 
 #[test]
+fn public_asset_lints_follow_html_and_typed_component_url_fields() {
+    let source = r#"
+impl WebRenderSync for Product {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let thumbnail = Image { src: Some(String::from("public/image.png")) };
+        html_sync! {
+            <a href="public/catalog.pdf">"Catalog"</a>
+            <img src={"./public/cover.png"} alt="Cover" />
+            <source srcset="https://cdn.example/logo.png 1x, public/large.png 2x" />
+            <img src={cx.url("/public/logo.png")} alt="Bad prefix" />
+            <img src="/shop/_proa/immutable/img/logo.a1b2c3d4e5f60718.svg" alt="Hard-coded" />
+            <img src={cx.url("public/ok.png")} alt="Resolved" />
+            <img srcset="data:image/png,public/fake.png 1x, https://cdn.example/image.png 2x" alt="Remote" />
+            <a href="/products">"Products"</a>
+            <a href="//cdn.example/public/a">"Remote"</a>
+            <div data-source="public/label.txt"></div>
+            {Image { src: "public/child.png".into() }}
+            {thumbnail}
+        }.render(cx)
+    }
+}
+fn copy_input() { let _ = FileCopy { src: "public/local.png" }; }
+"#;
+    let diagnostics: Vec<_> = lint_file(Path::new("src/product.rs"), source)
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code.starts_with("asset/"))
+        .collect();
+    let mut hits: Vec<_> = diagnostics
+        .iter()
+        .map(|diagnostic| (diagnostic.line, diagnostic.code))
+        .collect();
+    hits.sort_unstable();
+    assert_eq!(
+        hits,
+        [
+            (4, "asset/public-url"),
+            (6, "asset/public-url"),
+            (7, "asset/public-url"),
+            (8, "asset/public-url"),
+            (9, "asset/logical-path"),
+            (10, "asset/generated-url"),
+            (16, "asset/public-url"),
+        ]
+    );
+    assert!(diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.severity == Severity::Warning));
+}
+
+#[test]
 fn head_hooks_require_explicit_metadata_roles() {
     for (render_trait, hook) in [
         ("WebRender", "render_head"),
@@ -75,6 +125,537 @@ fn head_role_lint_ignores_body_only_components_other_traits_and_excluded_tests()
             .count(),
         1
     );
+}
+
+#[test]
+fn head_role_help_names_the_public_facade() {
+    let source = "impl WebRender for Page { async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) } }";
+    let diagnostics = lint_file(Path::new("page.rs"), source);
+    let help = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-required")
+        .and_then(|d| d.help.as_deref())
+        .unwrap();
+    assert!(help.contains("proa::ComponentRole::LAYOUT"), "{help}");
+    assert!(!help.contains("proa_core"), "{help}");
+}
+
+fn codes_at(diagnostics: &[Diagnostic], code: &str) -> Vec<usize> {
+    let mut lines: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == code)
+        .map(|d| d.line)
+        .collect();
+    lines.sort_unstable();
+    lines
+}
+
+#[test]
+fn head_mutation_in_body_flags_checked_setters_in_every_render_body() {
+    let source = r#"
+impl WebRender for Product {
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Allowed in the hook")
+    }
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            cx.head_mut().title("Too late")?;
+            Ok(())
+        })
+    }
+}
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        head.description("Too late")?;
+        cx.head_mut().set_title("legacy manual setter");
+        cx.head_mut().push_meta("robots", "noindex");
+        Ok(())
+    }
+}
+impl WebRenderSend for SendCard {
+    fn render_send(self, cx: &mut SendWebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move { (cx.head_mut()).metadata(HeadMetadata::default()) })
+    }
+}
+impl WebRenderSendSync for SyncSendCard {
+    fn render_send_sync(self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+        let title = cx.head_state().title();
+        cx.head_mut().canonical("/x")
+    }
+}
+impl OtherTrait for NotRender {
+    fn render(self, cx: &mut WebContext) { cx.head_mut().title("other trait"); }
+}
+"#;
+    let diagnostics = lint_file(Path::new("product.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        [8, 16, 24, 30],
+        "{diagnostics:#?}"
+    );
+    let first = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-mutation-in-body")
+        .unwrap();
+    assert_eq!(first.severity, Severity::Error);
+    assert!(first.message.contains("`head_mut().title(..)` in `render`"));
+    assert!(first.help.as_deref().unwrap().contains("render_head"));
+    assert!(first
+        .help
+        .as_deref()
+        .unwrap()
+        .contains("proa::ComponentRole::PAGE"));
+}
+
+#[test]
+fn head_roles_in_suspense_and_inside_a_page_are_errors() {
+    let source = r#"
+use crate::components::Card;
+use proa::stream::Suspense;
+struct Shell<C> { page: C }
+struct ProductPage;
+struct ReviewsPage;
+struct Fallback;
+impl<C: WebRender> WebRender for Shell<C> {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>{ProductPage}</main> }.render(cx)
+    }
+}
+impl WebRender for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            <section>
+                {Card { title: "ok" }}
+                {Suspense::new(Card { title: "slow" }, Fallback)}
+                {to_async(ReviewsPage)}
+                {Shell { page: () }}
+            </section>
+        }
+        .render(cx)
+    }
+}
+impl WebRender for ReviewsPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move { render_child(cx, Fallback).await })
+    }
+}
+impl WebRenderSync for Fallback {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) }
+}
+async fn route(cx: &mut WebContext) -> Result<(), WriteError> {
+    render_child(cx, Suspense::new(ProductPage, Fallback)).await?;
+    render_child(cx, Shell { page: ProductPage }).await
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [21, 22],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-suspense"),
+        [38],
+        "{diagnostics:#?}"
+    );
+    let nested = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-in-page" && d.line == 22)
+        .unwrap();
+    assert_eq!(nested.severity, Severity::Error);
+    assert!(nested.message.contains(
+        "`Shell` declares `ComponentRole::LAYOUT` but is rendered inside the Page `ProductPage`"
+    ));
+    assert!(nested
+        .help
+        .as_deref()
+        .unwrap()
+        .contains("render `ProductPage` inside `Shell`"));
+    assert_eq!(nested.labels.len(), 2);
+    assert_eq!(nested.labels[1].range.line, 9);
+    let suspense = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-in-suspense")
+        .unwrap();
+    assert!(suspense
+        .notes
+        .iter()
+        .any(|note| note.contains("HeadError::Excluded")));
+}
+
+#[test]
+fn head_role_placement_lints_skip_names_they_cannot_resolve() {
+    let source = r#"
+use ui::Header;
+use crate::layouts::*;
+struct ProductPage;
+struct Header;
+mod a { pub struct Banner; }
+mod b { pub struct Banner; }
+impl WebRender for Header {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for a::Banner {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl<T: WebRender> WebRender for Wrapper<T> {
+    const ROLE: ComponentRole = T::ROLE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        let link = ProductPage::new().href();
+        html! {
+            {Header}
+            {a::Banner}
+            {Wrapper(Inner)}
+            {RootLayout { page: () }}
+            {self.layout}
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code.starts_with("render/head-role-in")),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_skip_generic_parameters_named_like_layouts() {
+    let source = r#"
+pub struct Shell;
+impl WebRender for Shell {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+pub struct Article<Shell>(Shell);
+impl<Shell: WebRender + Default> WebRender for Article<Shell> {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { {Shell::default()} }.render(cx)
+    }
+}
+pub fn deferred<Shell: WebRender + Default>() -> impl WebRender {
+    Suspense::new(Shell::default(), ())
+}
+pub struct Note;
+impl WebRender for Note {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { {Shell} }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [21],
+        "only the module's own Shell is a layout: {diagnostics:#?}"
+    );
+    assert!(
+        codes_at(&diagnostics, "render/head-role-in-suspense").is_empty(),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_resolve_names_per_module() {
+    let source = r#"
+mod ui { pub struct Card; }
+mod layouts {
+    pub struct Panel;
+    impl WebRender for Panel {
+        const ROLE: ComponentRole = ComponentRole::LAYOUT;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+    }
+}
+mod aliased {
+    use crate::ui::Card as Panel;
+    pub struct APage;
+    impl WebRender for APage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod direct {
+    use crate::layouts::Panel;
+    pub struct BPage;
+    impl WebRender for BPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} {super::layouts::Panel} }.render(cx)
+        }
+    }
+}
+mod globbed {
+    use crate::layouts::*;
+    use proa::*;
+    pub struct CPage;
+    impl WebRender for CPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod shadowed {
+    use crate::layouts::Panel;
+    pub struct DPage;
+    impl WebRender for DPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            use crate::ui::Card as Panel;
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod unimported {
+    pub struct EPage;
+    impl WebRender for EPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/lib.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [26, 26],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_follow_rendered_branches_and_loop_bodies() {
+    let source = r#"
+struct Nested;
+struct Home;
+impl WebRender for Nested {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for Home {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            {if show { Nested }}
+            {if show { () } else if other { () } else { Nested }}
+            {match kind { 1 => Nested, _ => () }}
+            {for _ in 0..2 { Nested }}
+            {while more { Nested }}
+            {{ let n = 1; Nested }}
+            {if show { Nested; }}
+            {'done: { break 'done (); Nested }}
+            {for _ in 0..2 { let _ = Nested; }}
+            {if show { return; }}
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [12, 13, 14, 15, 16, 17],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_mutation_in_body_checks_template_slots() {
+    let source = r#"
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <p>{{ cx.head_mut().title("Late")?; () }}</p>
+            <div>{html_sync! { <span>{{ let mut head = cx.head_mut(); head.description("Late")?; () }}</span> }}</div>
+            <a title={cx.head_mut().canonical("/x").is_ok()}></a>
+            <p>{{ cx.head_mut().set_title("legacy"); () }}</p>
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/card.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        [5, 6, 7],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_mutation_writers_follow_rust_scoping() {
+    // Each `// flag` line must be reported; every other `title`,
+    // `description`, or `canonical` call reaches a non-writer.
+    let source = r#"
+impl WebRenderSync for TemplateSlot {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let head = &self.article;
+        html_sync! {
+            <p>{{ let mut head = cx.head_mut(); head.title("Late")?; () }}</p> // flag
+            <p>{head.title()}</p>
+        }
+        .render(cx)?;
+        head.title();
+        Ok(())
+    }
+}
+impl WebRenderSync for NestedBlocks {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let head = &self.article;
+        {
+            let mut head = cx.head_mut();
+            head.title("Late")?; // flag
+        }
+        head.title();
+        let mut writer = cx.head_mut();
+        {
+            let writer = &self.article;
+            writer.description();
+        }
+        writer.description("Late") // flag
+    }
+}
+impl WebRenderSync for Closures {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        let by_param = |head: &Article| head.title();
+        let local = || {
+            let head = &self.article;
+            head.title()
+        };
+        let inner = || {
+            let mut other = cx.head_mut();
+            other.title("Late") // flag
+        };
+        let other = &self.article;
+        other.title();
+        head.title("Late") // flag
+    }
+}
+impl WebRenderSync for MatchArms {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        match self.article {
+            Some(head) => head.title(),
+            Wrapper { head, .. } if head.title() => (),
+            _ if [true].into_iter().any(|head| head) => head.title("Late")?, // flag
+            _ => head.title("Late")?, // flag
+        }
+        if let Some(head) = self.article {
+            head.title();
+        } else {
+            head.canonical("/late")?; // flag
+        }
+        while let Some(head) = next() {
+            head.title();
+        }
+        for head in articles {
+            head.title();
+        }
+        Ok(())
+    }
+}
+impl WebRenderSync for Shadowing {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        let head = &self.article;
+        head.title();
+        let (head, _) = (cx.head_mut(), 1);
+        head.title();
+        let head = &self.article;
+        let mut head = {
+            head.title();
+            cx.head_mut()
+        };
+        head.title("Late")?; // flag
+        let Some(head) = maybe else { return Ok(()) };
+        head.title();
+        let mut writer = cx.head_mut();
+        rebind!(writer);
+        writer.title("hidden by a macro that may rebind it");
+        Ok(())
+    }
+}
+"#;
+    let expected: Vec<_> = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("// flag"))
+        .map(|(index, _)| index + 1)
+        .collect();
+    let diagnostics = lint_file(Path::new("src/head.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        expected,
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_resolve_package_local_imports_across_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.0.0\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/layouts.rs"),
+        r#"
+pub struct Root<C> { pub page: C }
+impl<C: WebRender> WebRender for Root<C> {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <body>{self.page}</body> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    let pages = root.join("src/pages.rs");
+    std::fs::write(
+        &pages,
+        r#"
+use crate::layouts::Root as AppRoot;
+pub struct Product;
+impl WebRender for Product {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>{AppRoot { page: () }}</main> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    let diagnostics = lint_paths(&[pages.clone()], LintOptions::default()).unwrap();
+    let found: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == "render/head-role-in-page")
+        .collect();
+    assert_eq!(found.len(), 1, "{diagnostics:#?}");
+    assert_eq!(found[0].line, 7);
+    assert!(found[0].labels[1].range.path.ends_with("src/layouts.rs"));
+    assert_eq!(found[0].labels[1].range.line, 4);
 }
 
 fn write_strategy_sidecar_with_fingerprint(
@@ -343,7 +924,7 @@ fn lint_allows_md_sync_in_markdown_renderers() {
     let source = r#"
 impl<B: WriteBuf> MdRenderSync<::proa_core::NoLoader, B> for Callout {
     fn render_md(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
-        md_sync! { "> **Note:** " { self.children } }.render_md(cx)
+        md_sync! { "> **Note:** {self.children}" }.render_md(cx)
     }
 }
 "#;
@@ -567,6 +1148,29 @@ impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Card {
     assert!(codes.contains(&"perf/format-push-str-loop"));
     assert!(codes.contains(&"perf/raw-write-html"));
     assert!(codes.contains(&"perf/unsafe-raw-string"));
+}
+
+#[test]
+fn lint_flags_text_writer_methods_like_their_byte_forms() {
+    let source = r#"
+impl<B: WriteBuf> WebRenderSync<::proa_core::NoLoader, B> for Card {
+    fn render(self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+        WriteBuf::extend_str(&mut cx.out, "<span>")?;
+        cx.out.extend_static_str("<div class=\"card\">")
+    }
+}
+impl AttrValue for AuditHref<'_> {
+    fn render_attr_value<B: WriteBuf>(&self, cx: &mut WebContext<::proa_core::NoLoader, B>) -> Result<(), WriteError> {
+        cx.out.extend_static_str("/audit/")?;
+        cx.out.extend_str(self.id)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    let codes: Vec<_> = diagnostics.iter().map(|diag| diag.code).collect();
+    assert!(codes.contains(&"perf/raw-write-html"));
+    assert!(codes.contains(&"perf/raw-attr-segment"));
+    assert!(codes.contains(&"render/manual-attr-stream"));
 }
 
 #[test]
@@ -1776,11 +2380,11 @@ impl MdRender for Page {
 }
 
 #[test]
-fn async_markdown_token_templates_recognize_opaque_children_inside_control_flow() {
+fn async_markdown_inline_templates_recognize_opaque_children_inside_control_flow() {
     let source = r####"
 impl MdRender for Page {
     fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        md! { "# Status\n" {if self.ready { DatabaseBadge }} }.render_md(cx)
+        md! { "# Status\n{if self.ready { DatabaseBadge }}" }.render_md(cx)
     }
 }
 "####;
@@ -5340,5 +5944,1164 @@ fn markdown_named_arguments_participate_in_layout_lint() {
     assert!(
         !diagnostics.iter().any(|d| d.code == "parse/template"),
         "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn lint_flags_misleading_public_url_calls_in_local_bindings() {
+    let source = r#"
+impl<L: DataLoader> WebRenderSync<L> for Hero {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let logo = cx.url("/public/logo.svg");
+        let banner = cx.url("./public/banner.png");
+        let generated = cx.url("/_proa/immutable/logo.1234abcd5e6f7a8b.svg");
+        let valid = cx.url("public/ok.svg");
+        html_sync! {
+            <header>
+                <img src={logo} />
+                <img src={banner} />
+                <img src={generated} />
+                <img src={valid} />
+            </header>
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("hero.rs"), source);
+    let logical_count = diagnostics
+        .iter()
+        .filter(|d| d.code == "asset/logical-path")
+        .count();
+    let generated_count = diagnostics
+        .iter()
+        .filter(|d| d.code == "asset/generated-url")
+        .count();
+    assert_eq!(logical_count, 2, "{diagnostics:#?}");
+    assert_eq!(generated_count, 1, "{diagnostics:#?}");
+}
+
+#[test]
+fn asset_url_lint_infers_arbitrary_struct_fields_constructors_and_data_slices() {
+    let source = r#"
+pub struct Avatar {
+    pub photo: &'static str,
+}
+impl WebRenderSync for Avatar {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={self.photo} alt="Avatar" /> }.render(cx)
+    }
+}
+
+pub struct TeamCard {
+    pub lead_photo: &'static str,
+}
+impl TeamCard {
+    pub const fn with_photo(photo: &'static str) -> Self {
+        Self { lead_photo: photo }
+    }
+}
+impl WebRenderSync for TeamCard {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <div>{Avatar { photo: self.lead_photo }}</div> }.render(cx)
+    }
+}
+
+pub struct SafeImage {
+    pub src: &'static str,
+}
+impl WebRenderSync for SafeImage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={cx.url(self.src)} alt="Safe" /> }.render(cx)
+    }
+}
+
+pub struct Project {
+    pub thumb: &'static str,
+}
+const PROJECTS: &[Project] = &[Project {
+    thumb: "public/images/brand.svg",
+}];
+
+const RAW_LOGO: &str = "public/images/raw_logo.svg";
+
+pub struct ProjectsPage;
+impl WebRenderSync for ProjectsPage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let local_icon = "public/images/local_icon.svg";
+        for project in PROJECTS {
+            html_sync! { <img src={project.thumb} alt="Thumb" /> }.render(cx)?;
+        }
+        html_sync! {
+            <main>
+                <img src={RAW_LOGO} alt="Const" />
+                <img src={local_icon} alt="Local" />
+                <img src={cx.url(RAW_LOGO)} alt="Resolved Const" />
+                {SafeImage { src: "public/images/resolved_inside.svg" }}
+            </main>
+        }
+        .render(cx)
+    }
+}
+
+pub fn handler() -> (TeamCard, TeamCard, SafeImage) {
+    (
+        TeamCard {
+            lead_photo: "public/images/alice.png",
+        },
+        TeamCard::with_photo("public/images/bob.png"),
+        SafeImage {
+            src: "public/images/safe_in_handler.svg",
+        },
+    )
+}
+"#;
+    let hits: Vec<_> = lint_file(Path::new("src/team.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            (38, "asset/public-url"), // const PROJECTS Project { thumb: "public/images/brand.svg" }
+            (52, "asset/public-url"), // <img src={RAW_LOGO} />
+            (53, "asset/public-url"), // <img src={local_icon} />
+            (65, "asset/public-url"), // TeamCard { lead_photo: "public/images/alice.png" } in handler
+            (67, "asset/public-url"), // TeamCard::with_photo("public/images/bob.png") in handler
+        ],
+        "unexpected hits: {hits:#?}"
+    );
+}
+
+#[test]
+fn asset_url_lint_checks_markdown_templates_and_render_head() {
+    let source = r####"
+pub struct ArticlePage;
+impl WebRenderSync for ArticlePage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let _media = HeadMedia::new("public/images/og.png");
+        let _icon = HeadIcon::new("public/favicon.ico");
+        html_sync! {
+            <link rel="stylesheet" href="public/styles.css" />
+            <meta property="og:image" content="public/images/share.png" />
+            <meta name="description" content="public/not-a-url" />
+        }
+        .render(cx)
+    }
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <main>"ok"</main> }.render(cx)
+    }
+}
+
+impl MdRenderSync for ArticlePage {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let raw = "public/images/slot.svg";
+        md_sync! { r###"
+            ![Static](public/images/static.svg)
+
+            ![Slot]({raw})
+
+            ![Safe]({cx.url("public/images/ok.svg")})
+
+            ![BadPrefix]({cx.url("/public/images/bad.svg")})
+
+            `![InlineCode](public/images/code.svg)`
+
+            ```md
+            ![FencedCode](public/images/fence.svg)
+            ```
+            "###
+        }
+        .render_md(cx)
+    }
+}
+"####;
+    let mut hits: Vec<_> = lint_file(Path::new("src/article.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    hits.sort_unstable();
+    assert_eq!(
+        hits,
+        vec![
+            (6, "asset/public-url"),    // HeadMedia::new("public/images/og.png")
+            (7, "asset/public-url"),    // HeadIcon::new("public/favicon.ico")
+            (9, "asset/public-url"),    // <link href="public/styles.css" />
+            (10, "asset/public-url"), // <meta property="og:image" content="public/images/share.png" />
+            (24, "asset/public-url"), // ![Static](public/images/static.svg)
+            (26, "asset/public-url"), // ![Slot]({raw})
+            (30, "asset/logical-path"), // cx.url("/public/images/bad.svg") in md_sync!
+        ],
+        "unexpected hits: {hits:#?}"
+    );
+}
+
+#[test]
+fn asset_url_lint_works_cross_file_and_detects_public_catalog_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("src/components")).unwrap();
+    std::fs::create_dir_all(root.join("src/pages")).unwrap();
+    std::fs::create_dir_all(root.join("public/images")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, ProjectPaths, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        paths: ProjectPaths { public: Some("static"), ..Default::default() },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("static/images")).unwrap();
+    std::fs::write(root.join("static/images/brand.svg"), "<svg/>").unwrap();
+    std::fs::write(
+        root.join("src/components/card.rs"),
+        r#"pub struct BrandCard {
+    pub artwork: &'static str,
+}
+impl WebRenderSync for BrandCard {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={self.artwork} alt="Brand" /> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/pages/home.rs"),
+        r#"use crate::components::card::BrandCard;
+
+pub fn make_card() -> BrandCard {
+    BrandCard {
+        artwork: "/images/brand.svg",
+    }
+}
+
+pub struct HomePage;
+impl WebRenderSync for HomePage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <main>
+                <img src="/images/brand.svg" alt="Root Relative" />
+                <a href="/projects">"Route"</a>
+                <img src={cx.url("public/images/brand.svg")} alt="Resolved" />
+            </main>
+        }
+        .render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let diagnostics = lint_paths(
+        &[root.join("src/pages/home.rs"), root.join("proa.config.rs")],
+        LintOptions::default(),
+    )
+    .unwrap();
+    let asset_diags: Vec<_> = diagnostics
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .collect();
+    let mut hits: Vec<_> = asset_diags
+        .iter()
+        .map(|d| {
+            (
+                d.path.file_name().unwrap().to_str().unwrap().to_string(),
+                d.line,
+                d.code,
+            )
+        })
+        .collect();
+    hits.sort();
+    assert_eq!(
+        hits,
+        vec![
+            ("home.rs".to_string(), 5, "asset/public-url"), // cross-file BrandCard { artwork: "/images/brand.svg" }
+            ("home.rs".to_string(), 14, "asset/public-url"), // <img src="/images/brand.svg" />
+        ],
+        "unexpected asset diagnostics: {asset_diags:#?}"
+    );
+    assert!(asset_diags.iter().all(|d| d
+        .help
+        .as_deref()
+        .unwrap_or_default()
+        .contains("cx.url(\"public/images/brand.svg\")")));
+
+    // Disabling `paths.public = None` disables root-relative `public/` file matching.
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, ProjectPaths, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        paths: ProjectPaths { public: None, ..Default::default() },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let disabled_hits: Vec<_> =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default())
+            .unwrap()
+            .into_iter()
+            .filter(|d| d.code.starts_with("asset/"))
+            .collect();
+    assert!(disabled_hits.is_empty(), "{disabled_hits:#?}");
+}
+
+#[test]
+fn asset_url_lint_respects_block_scope_foreign_macros_named_md_args_and_mixed_sinks() {
+    let source = r####"
+pub struct MixedView {
+    pub src: &'static str,
+}
+impl WebRenderSync for MixedView {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <img src={cx.url(self.src)} alt="Safe HTML" /> }.render(cx)
+    }
+}
+impl MdRenderSync for MixedView {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        md_sync! { "![Broken MD]({image})", image = self.src }.render_md(cx)
+    }
+}
+
+pub struct ScopedPage;
+impl WebRenderSync for ScopedPage {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "/route";
+        {
+            let image = "public/inner.png";
+            let _ = image;
+        }
+        let raw = "public/named_md.svg";
+        let _md = md_sync! { "![Named]({pic})", pic = raw };
+        let _foreign = yew::html! { <img src="public/yew.svg" /> };
+        html_sync! {
+            <main>
+                <img src={image} alt="Outer Route" />
+                {MixedView { src: "public/mixed.svg" }}
+            </main>
+        }
+        .render(cx)
+    }
+}
+"####;
+    let mut hits: Vec<_> = lint_file(Path::new("src/scoped.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    hits.sort_unstable();
+    assert_eq!(
+        hits,
+        vec![
+            (25, "asset/public-url"), // named md arg `pic = raw` where `raw = "public/named_md.svg"`
+            (30, "asset/public-url"), // MixedView { src: "public/mixed.svg" } (unsafe MD sink wins over safe HTML sink)
+        ],
+        "unexpected hits: {hits:#?}"
+    );
+}
+
+fn asset_hits(path: &str, source: &str) -> Vec<(usize, &'static str)> {
+    lint_file(Path::new(path), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect()
+}
+
+#[test]
+fn asset_url_lint_checks_templates_nested_in_template_slots() {
+    let source = r#"
+pub struct Gallery {
+    pub cover: &'static str,
+}
+impl WebRenderSync for Gallery {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <div>
+                {html_sync! { <img src="public/a.png" alt="A" /> }}
+                {if true { html_sync! { <img src={self.cover} alt="Cover" /> } } else { html_sync! {} }}
+                {yew::html! { <img src="public/foreign.png" /> }}
+            </div>
+        }
+        .render(cx)
+    }
+}
+
+pub fn handler() -> Gallery {
+    Gallery {
+        cover: "public/cover.png",
+    }
+}
+"#;
+    assert_eq!(
+        asset_hits("src/gallery.rs", source),
+        vec![
+            (9, "asset/public-url"),  // nested <img src="public/a.png" />
+            (20, "asset/public-url"), // `cover` reaches the nested <img src={self.cover} />
+        ]
+    );
+}
+
+#[test]
+fn asset_url_lint_propagates_builtin_head_constructors_through_wrappers() {
+    let source = r#"
+fn media(src: &'static str) -> HeadMedia {
+    HeadMedia::new(src)
+}
+
+pub fn handler() -> HeadMedia {
+    media("public/share.png")
+}
+"#;
+    assert_eq!(
+        asset_hits("src/head.rs", source),
+        vec![(7, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_resolves_markdown_arguments_in_the_callers_scope() {
+    let source = r#"
+pub struct Album {
+    pub artwork: &'static str,
+    pub caption: &'static str,
+}
+impl MdRenderSync for Album {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let a = self.artwork;
+        md_sync! { "{a} ![Image]({b})", a = self.caption, b = a }.render_md(cx)
+    }
+}
+
+pub fn handler() -> Album {
+    Album {
+        artwork: "public/art.png",
+        caption: "public/caption-text",
+    }
+}
+"#;
+    // `b = a` binds the outer `a` (`self.artwork`), not the `a` argument.
+    assert_eq!(
+        asset_hits("src/album.rs", source),
+        vec![(15, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_ignores_names_defined_more_than_once_in_a_package() {
+    let source = r#"
+mod web {
+    pub struct Image {
+        pub src: &'static str,
+    }
+    impl WebRenderSync for Image {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            html_sync! { <img src={self.src} alt="" /> }.render(cx)
+        }
+    }
+}
+
+mod files {
+    pub struct Image {
+        pub src: &'static str,
+    }
+    pub fn copy() -> Image {
+        Image {
+            src: "public/input.png",
+        }
+    }
+}
+
+mod routes {
+    pub const LOGO: &str = "/route";
+    pub struct Nav;
+    impl WebRenderSync for Nav {
+        fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+            html_sync! { <a href={LOGO}>"Home"</a> }.render(cx)
+        }
+    }
+}
+
+mod assets {
+    pub const LOGO: &str = "public/logo.svg";
+}
+"#;
+    assert_eq!(asset_hits("src/ambiguous.rs", source), vec![]);
+}
+
+#[test]
+fn asset_url_lint_points_markdown_findings_at_the_authored_text() {
+    let source = r####"
+pub struct Notes;
+impl MdRenderSync for Notes {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let raw = "public/raw.svg";
+        md_sync! { r###"
+            Intro text.
+
+            ![Static](public/static.svg) and ![Slot]({raw})
+
+            {if true { md_sync! { "![Nested](public/nested.svg)" } } else { md_sync! { "" } }}
+            "###
+        }
+        .render_md(cx)
+    }
+}
+"####;
+    let mut hits: Vec<_> = lint_file(Path::new("src/notes.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.column))
+        .collect();
+    hits.sort_unstable();
+    let line_9 = source.lines().nth(8).unwrap();
+    let line_11 = source.lines().nth(10).unwrap();
+    assert_eq!(
+        hits,
+        vec![
+            (9, line_9.find("public/static.svg").unwrap() + 1),
+            (9, line_9.find("raw}").unwrap() + 1),
+            (11, line_11.find("public/nested.svg").unwrap() + 1),
+        ]
+    );
+}
+
+#[test]
+fn files_declared_by_cfg_test_modules_are_test_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write(
+        "lib.rs",
+        "mod assets;\nmod prod;\n#[cfg(test)] pub(crate) mod fixtures;\n\n#[cfg(test)]\nmod tests;\n",
+    );
+    let prod = write("prod.rs", "pub fn shipped() {}\n");
+    let tests = write("tests.rs", "#[test]\nfn works() {}\n");
+    let fixtures = write("fixtures.rs", "mod data;\n");
+    let nested = write("fixtures/data.rs", "pub const DATA: &str = \"\";\n");
+    write(
+        "assets.rs",
+        "#[cfg(test)]\n#[allow(dead_code)]\nmod tests;\n// `mod tests_support;` stays production code.\nmod tests_support;\n",
+    );
+    let assets_tests = write("assets/tests.rs", "");
+    let assets_support = write("assets/tests_support.rs", "");
+    let module_dir = write("views/mod.rs", "#[cfg(test)]\nmod snapshots;\n");
+    let module_dir_tests = write("views/snapshots.rs", "");
+    write("lib_root_sibling.rs", "");
+
+    for path in [&tests, &fixtures, &nested, &assets_tests, &module_dir_tests] {
+        assert!(is_test_path(path), "{} should be test code", path.display());
+    }
+    for path in [&prod, &assets_support, &module_dir, &src.join("lib.rs")] {
+        assert!(
+            !is_test_path(path),
+            "{} should be production code",
+            path.display()
+        );
+    }
+
+    // End to end: a raw `public/` path in a test fixture module is not linted.
+    let fixture = "impl WebRenderSync for Fixture {\n    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {\n        html_sync! { <img src=\"public/image.png\" alt=\"\" /> }.render(cx)\n    }\n}\n";
+    std::fs::write(&assets_tests, fixture).unwrap();
+    assert!(
+        lint_file(&assets_tests, fixture)
+            .iter()
+            .all(|d| !d.code.starts_with("asset/")),
+        "test module fixtures are test code"
+    );
+    std::fs::write(&assets_support, fixture).unwrap();
+    assert!(
+        lint_file(&assets_support, fixture)
+            .iter()
+            .any(|d| d.code == "asset/public-url"),
+        "production modules are still linted"
+    );
+}
+
+#[test]
+fn asset_url_lint_ignores_reassigned_locals() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut stale = "public/logo.svg";
+        stale = "/route";
+        let mut current = "/route";
+        current += "";
+        let fixed = "public/fixed.svg";
+        html_sync! {
+            <img src={stale} alt="" />
+            <img src={current} alt="" />
+            <img src={fixed} alt="" />
+        }
+        .render(cx)
+    }
+}
+"#;
+    // Only the never-reassigned binding is trusted.
+    assert_eq!(
+        asset_hits("src/logo.rs", source),
+        vec![(13, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_checks_static_text_before_markdown_slots() {
+    let source = r####"
+pub struct Notes;
+impl MdRenderSync for Notes {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        md_sync! { "![Logo](public/logo.svg?v={version}) [see (public/x.svg)](public/x.svg) [ok](/docs/{page})", version = "2", page = "a" }
+            .render_md(cx)
+    }
+}
+"####;
+    let line = source.lines().nth(4).unwrap();
+    let hits: Vec<_> = lint_file(Path::new("src/notes.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.column))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            (5, line.find("public/logo.svg?v=").unwrap() + 1),
+            // The destination, not the copy inside the label.
+            (5, line.rfind("public/x.svg").unwrap() + 1),
+        ]
+    );
+}
+
+#[test]
+fn shared_or_mentioned_module_files_stay_production_code() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    // The library ships `shared`; only the binary's tests use `helpers`.
+    write("lib.rs", "mod shared;\nconst EXAMPLE: &str = r\"#[cfg(test)]\nmod quoted;\";\nmod outer {\n    #[cfg(test)]\n    mod inner_only;\n}\n");
+    write(
+        "main.rs",
+        "#[cfg(test)]\nmod shared;\n#[cfg(test)]\nmod helpers;\n",
+    );
+    let shared = write("shared.rs", "");
+    let helpers = write("helpers.rs", "");
+    let quoted = write("quoted.rs", "");
+    let inner_only = write("inner_only.rs", "");
+    assert!(!is_test_path(&shared), "a production owner ships the file");
+    assert!(is_test_path(&helpers));
+    assert!(
+        !is_test_path(&quoted),
+        "text inside a string is not a declaration"
+    );
+    assert!(
+        !is_test_path(&inner_only),
+        "a declaration in an inline module owns another directory"
+    );
+}
+
+#[test]
+fn cfg_test_path_attribute_modules_are_test_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write("lib.rs", "mod route;\n");
+    write("route.rs", "mod response;\n");
+    write(
+        "route/response.rs",
+        "#[cfg(test)]\n#[path = \"response_tests.rs\"]\nmod response_tests;\n#[path = \"shipped_impl.rs\"]\nmod shipped;\n",
+    );
+    let fixture = write("route/response_tests.rs", "");
+    let shipped = write("route/shipped_impl.rs", "");
+    let orphan = write("route/orphan.rs", "");
+    assert!(is_test_path(&fixture));
+    assert!(
+        !is_test_path(&shipped),
+        "a production #[path] owner ships the file"
+    );
+    assert!(!is_test_path(&orphan));
+}
+
+#[test]
+fn production_path_owners_ship_files_that_a_test_module_also_declares() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write(
+        "lib.rs",
+        "#[cfg(test)]\nmod shared;\n#[path = \"shared.rs\"]\nmod shipped;\n#[cfg(test)]\nmod helpers;\n#[cfg(test)]\n#[path = \"helpers.rs\"]\nmod helpers_again;\n",
+    );
+    let shared = write("shared.rs", "");
+    let helpers = write("helpers.rs", "");
+    assert!(
+        !is_test_path(&shared),
+        "the #[path] declaration ships shared.rs"
+    );
+    assert!(
+        is_test_path(&helpers),
+        "every owner of helpers.rs is a test"
+    );
+}
+
+#[test]
+fn path_attribute_cycles_do_not_recurse_forever() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let a = src.join("a.rs");
+    let b = src.join("b.rs");
+    std::fs::write(&a, "#[path = \"b.rs\"]\nmod x;\n").unwrap();
+    std::fs::write(&b, "#[path = \"a.rs\"]\nmod y;\n").unwrap();
+    assert!(!is_test_path(&a));
+    assert!(!is_test_path(&b));
+}
+
+#[test]
+fn unsaved_parent_declarations_decide_test_modules() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let lib = src.join("lib.rs");
+    std::fs::write(&lib, "#[cfg(test)]\nmod fixtures;\n").unwrap();
+    let fixtures = src.join("fixtures.rs");
+    std::fs::write(&fixtures, "").unwrap();
+    assert!(is_test_path(&fixtures));
+    {
+        let _overrides = SourceOverrides::install([(lib.clone(), "mod fixtures;\n".to_string())]);
+        assert!(!is_test_path(&fixtures), "the editor buffer wins");
+    }
+    assert!(
+        is_test_path(&fixtures),
+        "disk applies again after the snapshot"
+    );
+}
+
+#[test]
+fn standalone_sibling_files_keep_separate_asset_facts() {
+    let temp = tempfile::tempdir().unwrap();
+    let snippet = |name: &str| {
+        let path = temp.path().join(name);
+        std::fs::write(
+            &path,
+            "pub struct Avatar {\n    pub photo: &'static str,\n}\nimpl WebRenderSync for Avatar {\n    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {\n        html_sync! { <img src={self.photo} alt=\"\" /> }.render(cx)\n    }\n}\npub fn handler() -> Avatar {\n    Avatar {\n        photo: \"public/a.png\",\n    }\n}\n",
+        )
+        .unwrap();
+        path
+    };
+    let first = snippet("first.rs");
+    let second = snippet("second.rs");
+    let hits: Vec<_> = lint_paths(&[first, second], LintOptions::default())
+        .unwrap()
+        .into_iter()
+        .filter(|d| d.code == "asset/public-url")
+        .map(|d| d.path.file_name().unwrap().to_owned())
+        .collect();
+    assert_eq!(hits, ["first.rs", "second.rs"]);
+}
+
+#[test]
+fn asset_url_lint_tracks_reassignment_per_binding() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "public/logo.svg";
+        {
+            let mut image = "/a";
+            image = "/b";
+        }
+        let mut changed = "public/changed.svg";
+        if true {
+            changed = "/route";
+        }
+        html_sync! {
+            <img src={image} alt="" />
+            <img src={changed} alt="" />
+        }
+        .render(cx)
+    }
+}
+"#;
+    // The inner `image` is a different binding; the outer one is unchanged.
+    assert_eq!(
+        asset_hits("src/logo.rs", source),
+        vec![(15, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_ignores_asset_text_in_markdown_query_strings() {
+    let source = r####"
+pub struct Links;
+impl MdRenderSync for Links {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        md_sync! { "[Open](/search?next=/_proa/mutable/{name}) ![Raw](/_proa/mutable/{file})", name = "logo.svg", file = "x.svg" }
+            .render_md(cx)
+    }
+}
+"####;
+    let line = source.lines().nth(4).unwrap();
+    let hits: Vec<_> = lint_file(Path::new("src/links.rs"), source)
+        .into_iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.column, d.code))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![(
+            5,
+            line.rfind("/_proa/mutable/").unwrap() + 1,
+            "asset/generated-url"
+        )]
+    );
+}
+
+#[test]
+fn asset_url_lint_hides_names_shadowed_by_patterns() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "public/unused.svg";
+        let draw = |mut image: &str| {
+            image = "/route";
+            html_sync! { <img src={image} alt="" /> }
+        };
+        for image in ["/a"] {
+            html_sync! { <img src={image} alt="" /> }.render(cx)?;
+        }
+        match Some("/b") {
+            Some(image) => html_sync! { <img src={image} alt="" /> }.render(cx)?,
+            None => {}
+        }
+        if let Some(image) = Some("/c") {
+            html_sync! { <img src={image} alt="" /> }.render(cx)?;
+        }
+        let (image, _) = ("/d", 1);
+        html_sync! { <img src={image} alt="" /> }.render(cx)
+    }
+}
+"#;
+    assert_eq!(asset_hits("src/logo.rs", source), vec![]);
+}
+
+#[test]
+fn asset_url_lint_keeps_outer_bindings_after_pattern_scopes() {
+    let source = r#"
+pub struct Logo;
+impl WebRenderSync for Logo {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let image = "public/logo.svg";
+        for image in ["/a"] {
+            let _ = image;
+        }
+        let _ = |image: &str| image;
+        html_sync! { <img src={image} alt="" /> }.render(cx)
+    }
+}
+"#;
+    assert_eq!(
+        asset_hits("src/logo.rs", source),
+        vec![(10, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_scales_linearly_with_function_length() {
+    let body = |locals: usize| {
+        let mut source = String::from(
+            "pub struct Big;\nimpl WebRenderSync for Big {\n    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {\n",
+        );
+        for index in 0..locals {
+            source.push_str(&format!("        let value_{index} = \"/route\";\n"));
+        }
+        source.push_str("        html_sync! { <main></main> }.render(cx)\n    }\n}\n");
+        source
+    };
+    let time = |locals: usize| {
+        let source = body(locals);
+        let start = std::time::Instant::now();
+        lint_file(Path::new("src/big.rs"), &source);
+        start.elapsed()
+    };
+    time(250);
+    let small = time(1_000);
+    let large = time(8_000);
+    // Eight times the locals: linear work is about 8x, quadratic about 64x.
+    assert!(
+        large < small * 24,
+        "lint time grew from {small:?} to {large:?} for 8x the locals"
+    );
+}
+
+#[test]
+fn asset_url_lint_resolves_reassignment_inside_template_slots() {
+    let source = r#"
+pub struct Card {
+    pub photo: &'static str,
+}
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <div>{{ let mut image = self.photo; image = "/route"; html_sync! { <img src={image} alt="" /> } }}</div>
+        }
+        .render(cx)
+    }
+}
+
+pub struct Badge {
+    pub icon: &'static str,
+}
+impl WebRenderSync for Badge {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <div>{{ let image = self.icon; html_sync! { <img src={image} alt="" /> } }}</div>
+        }
+        .render(cx)
+    }
+}
+
+pub fn handler() -> (Card, Badge) {
+    (
+        Card {
+            photo: "public/unused.svg",
+        },
+        Badge {
+            icon: "public/icon.svg",
+        },
+    )
+}
+"#;
+    // Only `Badge.icon` reaches the image; `Card`'s alias is reassigned.
+    assert_eq!(
+        asset_hits("src/cards.rs", source),
+        vec![(32, "asset/public-url")]
+    );
+}
+
+#[test]
+fn asset_url_lint_catches_head_writer_setters_and_missing_public_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("src/pages")).unwrap();
+    std::fs::create_dir_all(root.join("public/images")).unwrap();
+    std::fs::create_dir_all(root.join("public/.well-known")).unwrap();
+    std::fs::create_dir_all(root.join("styles")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{Config, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config::default())
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("styles/input.css"), "@import \"tailwindcss\";\n").unwrap();
+    std::fs::write(root.join("public/favicon.svg"), "<svg/>").unwrap();
+    std::fs::write(root.join("public/images/og.png"), b"png").unwrap();
+    std::fs::write(
+        root.join("public/.well-known/security.txt"),
+        "Contact: hi\n",
+    )
+    .unwrap();
+
+    // Note: `public/styles.css` is intentionally NOT on disk yet; because
+    // `styles/input.css` exists and `build.assets` is default (`None`), the CLI
+    // infers `public/styles.css` and the lint must not false-positive.
+    std::fs::write(
+        root.join("src/pages/home.rs"),
+        r#"pub struct HomePage;
+impl WebRenderSync for HomePage {
+    fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let _ = HeadIcon::new("/favicon.svg");
+        let _ = HeadMedia::from_url("public/images/og.png");
+        let _ = HeadIcon::from_url("/favicon.svg");
+        let _ = cx.head_mut().og_image("/images/og.png");
+        let _ = cx.head_mut().og_image("public/images/og.png");
+        let _ = cx.head_mut().icon("/favicon.svg");
+        let _ = cx.head_mut().stylesheet("app", "/favicon.svg");
+        let _ = cx.head_mut().module("main", "public/images/og.png");
+        // Valid resolved calls + dot-prefixed asset + inferred Tailwind output + unrelated `.icon(...)`
+        let og = cx.url("public/images/og.png");
+        let _ = cx.head_mut().og_image(og);
+        let css = cx.url("public/styles.css");
+        let _ = cx.head_mut().stylesheet("app", css);
+        let _ = cx.url("public/.well-known/security.txt");
+        let _ = HeadMedia::from_url(cx.url("public/images/og.png"));
+        let _ = my_builder.icon("/favicon.svg");
+        // Missing files under public/
+        let _ = cx.url("public/images/typo.png");
+        let _ = cx.url("public/images/absent.png?v=1#top");
+        Ok(())
+    }
+
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <main>"ok"</main> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let diagnostics =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    let mut hits: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.starts_with("asset/"))
+        .map(|d| (d.line, d.code))
+        .collect();
+    hits.sort();
+    assert_eq!(
+        hits,
+        vec![
+            (4, "asset/public-url"),           // HeadIcon::new("/favicon.svg")
+            (5, "asset/public-url"),           // HeadMedia::from_url("public/images/og.png")
+            (6, "asset/public-url"),           // HeadIcon::from_url("/favicon.svg")
+            (7, "asset/public-url"),           // cx.head_mut().og_image("/images/og.png")
+            (8, "asset/public-url"),           // cx.head_mut().og_image("public/images/og.png")
+            (9, "asset/public-url"),           // cx.head_mut().icon("/favicon.svg")
+            (10, "asset/public-url"),          // cx.head_mut().stylesheet("app", "/favicon.svg")
+            (11, "asset/public-url"), // cx.head_mut().module("main", "public/images/og.png")
+            (21, "asset/missing-public-file"), // cx.url("public/images/typo.png")
+            (22, "asset/missing-public-file"), // cx.url("public/images/absent.png?v=1#top")
+        ],
+        "unexpected asset diagnostics: {diagnostics:#?}"
+    );
+
+    // Removing `styles/input.css` disables Tailwind inference, so missing `public/styles.css` now warns.
+    std::fs::remove_file(root.join("styles/input.css")).unwrap();
+    let without_input =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    assert!(
+        without_input
+            .iter()
+            .any(|d| d.line == 15 && d.code == "asset/missing-public-file"),
+        "expected missing-public-file for public/styles.css without styles/input.css: {without_input:#?}"
+    );
+
+    // Explicit `build.assets: Some(vec![AssetConfig { output: ... }])` inside `vec!`
+    // exempts the declared output (`public/styles.css`) even before the build runs,
+    // while another unbuilt output (`public/other.css`) still warns.
+    std::fs::write(
+        root.join("proa.config.rs"),
+        r#"use proa::config::{AssetConfig, BuildConfig, Config, Result};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        build: BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "tailwind",
+                command: vec![],
+                input: "styles/main.css",
+                output: "public/styles.css",
+                config: None,
+            }]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let with_declared =
+        lint_paths(&[root.join("src/pages/home.rs")], LintOptions::default()).unwrap();
+    assert!(
+        !with_declared
+            .iter()
+            .any(|d| d.line == 15 && d.code == "asset/missing-public-file"),
+        "declared `vec![AssetConfig {{ output: \"public/styles.css\" }}]` must not warn: {with_declared:#?}"
+    );
+}
+
+#[test]
+fn static_mounts_outside_the_build_output_are_reported() {
+    let source = r#"
+use include_dir::{include_dir, Dir};
+use tower_http::services::{ServeDir, ServeFile};
+
+static PUBLIC: Dir = include_dir!("$CARGO_MANIFEST_DIR/public");
+static MIGRATIONS: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+static KEYS: Dir = include_dir!("$CARGO_MANIFEST_DIR/public_keys");
+static RELATIVE: Dir = include_dir!("public");
+
+pub fn router() -> Router {
+    Router::new()
+        .nest_service("/static", ServeDir::new("public"))
+        .route_service("/logo.svg", tower_http::services::ServeFile::new_with_mime("public/logo.svg", &mime))
+        .nest_service("/uploads", ServeDir::new(uploads_directory())) // proa-perf-ok: uploads exist only at run time
+        .route("/health", get(health))
+}
+
+#[cfg(test)]
+mod tests {
+    fn fixture() -> ServeDir {
+        ServeDir::new("fixtures")
+    }
+}
+"#;
+    let hits: Vec<_> = lint_file(Path::new("src/router.rs"), source)
+        .into_iter()
+        .filter(|d| d.code == "asset/unmanaged-static")
+        .map(|d| (d.line, d.message))
+        .collect();
+    assert_eq!(
+        hits,
+        vec![
+            (
+                5,
+                "`include_dir!` serves files the build output does not contain".to_string()
+            ),
+            (
+                8,
+                "`include_dir!` serves files the build output does not contain".to_string()
+            ),
+            (
+                12,
+                "`ServeDir` serves files the build output does not contain".to_string()
+            ),
+            (
+                13,
+                "`ServeFile` serves files the build output does not contain".to_string()
+            ),
+        ]
     );
 }

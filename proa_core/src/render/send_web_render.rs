@@ -40,7 +40,8 @@ pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuf
     /// Override with `async fn render_head_send(...) -> Result<(), WriteError>`
     /// when its captured values are Send. The explicit Future bound keeps the
     /// Send guarantee visible to generic dispatch. Ordinary components skip it.
-    /// A custom hook must declare `LAYOUT` or `PAGE`; run `proa lint` to check.
+    /// A custom hook must declare `LAYOUT` or `PAGE`; code generation rejects
+    /// an override with the `COMPONENT` role, and `proa lint` reports it too.
     ///
     /// ```compile_fail
     /// use proa_core::{ComponentRole, RenderOutcome, SendWebContext, WebRenderSend, WriteError};
@@ -63,7 +64,7 @@ pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuf
         &self,
         _cx: &mut SendWebContext<L, B>,
     ) -> impl Future<Output = Result<(), WriteError>> + Send {
-        std::future::ready(Ok(()))
+        crate::head_dispatch::NoHead
     }
 
     fn render_send(
@@ -237,7 +238,7 @@ macro_rules! impl_stateless_builtin_send {
 }
 
 impl_stateless_builtin_send!(
-    String, u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64,
+    String, u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64, bool, char,
 );
 
 impl<'value, L, B> WebRenderSendSync<L, B> for &'value str
@@ -342,7 +343,7 @@ mod tests {
         ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
             RenderOutcome::pending(async move {
                 std::future::ready(()).await;
-                cx.out.extend_static(b"send")
+                cx.out.extend_static_str("send")
             })
         }
     }

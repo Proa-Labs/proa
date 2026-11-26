@@ -40,7 +40,7 @@ CLI linter guide the island shape before treating a compile error as a macro
 problem.
 
 For a managed-head document, put the selected Page boundary on an ordinary SSR
-Page wrapper: `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::PAGE;`.
+Page wrapper: `const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;`.
 It is required even if that Page inherits all metadata. Ancestor SSR wrappers
 with head hooks declare `ComponentRole::LAYOUT`; body islands keep the default
 component role. Run `cargo proa lint <changed-paths> --deny warnings` for head
@@ -76,14 +76,16 @@ the Page wrapper instead. See the
 6. Use `signal(...)`, `.get()`, `.set(...)`, `.update(|x| expr)`, and memo
    cells exactly as documented in `docs/agent/api-reference/signals.md`.
    Signal receivers must stay bare identifiers.
-7. Ordinary dependency-free locals and opaque calls remain SSR. Direct inbound
-   field/path reads are latent `LiveRead` participation: a linked live parent
-   value stays current, while `signal(self.value)` samples once for child-owned
-   state and a live query-key use rebinds its observer. Use
-   `rsjs::server_attr(...)` or `rsjs::server_only(...)` only for an intentional
-   per-render snapshot or opaque SSR boundary; do not capture reactive signals,
-   declare client primitives, or call rsjs browser helpers through those escape
-   hatches.
+7. Write ordinary server-rendered expressions directly in slots and
+   attributes. For example, use
+   `<img src={cx.url("public/images/logo.svg")} alt="Logo" />` inside an
+   island. `cx.url(...)` and ordinary server locals already render on the
+   server. Direct inbound field and path reads can stay live when a linked
+   parent supplies a live value. `signal(self.value)` samples once for child-owned
+   state, and a live query key rebinds its observer. Reserve
+   `rsjs::server_attr(...)` and `rsjs::server_only(...)` for intentional inbound
+   snapshots or server syntax the compiler cannot classify. Keep reactive signals,
+   client primitive declarations, and browser helpers outside those boundaries.
 8. For Wellformed-backed forms, generate the form module with
    `wellformed_macros::form_schema!` and use generated helpers such as
    `normalize_email`, `error_email`, and `valid_email` for client-side
@@ -121,8 +123,8 @@ For a downstream repository, run its own documented workspace commands.
 ## Minimal Shape
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{event_handler, rsjs, signal};
 
 pub struct Counter {

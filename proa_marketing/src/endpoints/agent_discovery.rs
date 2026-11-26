@@ -3,7 +3,7 @@
 
 use crate::data::routes;
 
-use std::{sync::OnceLock, time::Duration};
+use std::time::Duration;
 
 use axum::{
     extract::Path,
@@ -92,62 +92,7 @@ const SKILLS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-struct Documents {
-    auth: String,
-    docs_index: String,
-    framework_index: String,
-    rsjs_index: String,
-    ecosystem_index: String,
-    catalog: String,
-    api_catalog: String,
-    skills: String,
-    site: String,
-    server_card: String,
-    openapi: String,
-    site_openapi: String,
-}
-
-static DOCUMENTS: OnceLock<Documents> = OnceLock::new();
-
-// The response/cache boundary owns the finished documents. Renderers compose
-// typed children; serialization and rendering happen once per deployment.
-fn documents() -> &'static Documents {
-    DOCUMENTS.get_or_init(|| {
-        let origin = public_site_url();
-        Documents {
-            auth: render_markdown(Authentication { origin }),
-            docs_index: render_markdown(DocumentationIndex {
-                origin,
-                pages: docs::docs().pages,
-                section: None,
-            }),
-            framework_index: render_markdown(DocumentationIndex {
-                origin,
-                pages: docs::docs().pages,
-                section: Some(("Framework", routes::FRAMEWORK_DOCS)),
-            }),
-            rsjs_index: render_markdown(DocumentationIndex {
-                origin,
-                pages: docs::docs().pages,
-                section: Some(("RSJS", routes::RSJS_DOCS)),
-            }),
-            ecosystem_index: render_markdown(crate::pages::ecosystem::EcosystemIndex),
-            catalog: discovery::catalog(origin),
-            api_catalog: discovery::api_catalog(origin),
-            skills: discovery::skills(origin, SKILLS),
-            site: discovery::site(origin),
-            server_card: discovery::server_card(origin),
-            openapi: crate::agent::openapi::document(origin)
-                .to_json()
-                .expect("serialize generated OpenAPI"),
-            site_openapi: crate::agent::openapi::website_document(origin)
-                .to_json()
-                .expect("serialize generated website OpenAPI"),
-        }
-    })
-}
-
-pub fn text_response(body: &'static str, content_type: &'static str) -> Response {
+pub fn text_response(body: impl IntoResponse, content_type: &'static str) -> Response {
     (
         [
             (header::CONTENT_TYPE, content_type),
@@ -167,29 +112,61 @@ pub async fn index() -> Response {
     text_response(home::markdown(), "text/plain; charset=utf-8")
 }
 pub async fn docs_index() -> Response {
-    text_response(&documents().docs_index, "text/plain; charset=utf-8")
+    text_response(
+        render_markdown(DocumentationIndex {
+            origin: public_site_url(),
+            pages: docs::docs().pages,
+            section: None,
+        }),
+        "text/plain; charset=utf-8",
+    )
 }
 pub async fn framework_index() -> Response {
-    text_response(&documents().framework_index, "text/plain; charset=utf-8")
+    text_response(
+        render_markdown(DocumentationIndex {
+            origin: public_site_url(),
+            pages: docs::docs().pages,
+            section: Some(("Framework", routes::FRAMEWORK_DOCS)),
+        }),
+        "text/plain; charset=utf-8",
+    )
 }
 pub async fn rsjs_index() -> Response {
-    text_response(&documents().rsjs_index, "text/plain; charset=utf-8")
+    text_response(
+        render_markdown(DocumentationIndex {
+            origin: public_site_url(),
+            pages: docs::docs().pages,
+            section: Some(("RSJS", routes::RSJS_DOCS)),
+        }),
+        "text/plain; charset=utf-8",
+    )
 }
 pub async fn ecosystem_index() -> Response {
-    text_response(&documents().ecosystem_index, "text/plain; charset=utf-8")
+    text_response(
+        render_markdown(crate::pages::ecosystem::EcosystemIndex),
+        "text/plain; charset=utf-8",
+    )
 }
 pub async fn auth() -> Response {
-    text_response(&documents().auth, "text/markdown; charset=utf-8")
+    text_response(
+        render_markdown(Authentication {
+            origin: public_site_url(),
+        }),
+        "text/markdown; charset=utf-8",
+    )
 }
 pub async fn home() -> Response {
     text_response(home::markdown(), "text/markdown; charset=utf-8")
 }
 pub async fn catalog() -> Response {
-    text_response(&documents().catalog, "application/ai-catalog+json")
+    text_response(
+        discovery::catalog(public_site_url()),
+        "application/ai-catalog+json",
+    )
 }
 pub async fn api_catalog() -> Response {
     let mut response = text_response(
-        &documents().api_catalog,
+        discovery::api_catalog(public_site_url()),
         "application/linkset+json;profile=\"https://www.rfc-editor.org/info/rfc9727\"",
     );
     response.headers_mut().insert(
@@ -202,7 +179,10 @@ pub async fn api_catalog() -> Response {
     response
 }
 pub async fn skills() -> Response {
-    text_response(&documents().skills, "application/json; charset=utf-8")
+    text_response(
+        discovery::skills(public_site_url(), SKILLS),
+        "application/json; charset=utf-8",
+    )
 }
 /// Describe the public machine-readable interfaces.
 ///
@@ -211,31 +191,38 @@ pub async fn skills() -> Response {
 #[utoipa::path(get, path = routes::SITE_METADATA, operation_id = "getProaSiteMetadata",
     responses((status = 200, description = "Public interface metadata.", body = discovery::SiteMetadata)))]
 pub async fn site_metadata() -> Response {
-    text_response(&documents().site, "application/json; charset=utf-8")
+    text_response(
+        discovery::site(public_site_url()),
+        "application/json; charset=utf-8",
+    )
 }
 pub async fn server_card() -> Response {
     text_response(
-        &documents().server_card,
+        discovery::server_card(public_site_url()),
         "application/mcp-server-card+json; charset=utf-8",
     )
 }
 pub async fn openapi() -> Response {
     text_response(
-        &documents().openapi,
+        crate::agent::openapi::document(public_site_url())
+            .to_json()
+            .expect("serialize generated OpenAPI"),
         "application/vnd.oai.openapi+json; charset=utf-8",
     )
 }
 
 pub async fn site_openapi() -> Response {
     text_response(
-        &documents().site_openapi,
+        crate::agent::openapi::website_document(public_site_url())
+            .to_json()
+            .expect("serialize generated website OpenAPI"),
         "application/vnd.oai.openapi+json; charset=utf-8",
     )
 }
 
 pub async fn skill(Path(name): Path<String>) -> Response {
     match SKILLS.iter().find(|(skill, _, _)| *skill == name) {
-        Some((_, _, body)) => text_response(body, "text/markdown; charset=utf-8"),
+        Some((_, _, body)) => text_response(*body, "text/markdown; charset=utf-8"),
         None => super::not_found::markdown(),
     }
 }

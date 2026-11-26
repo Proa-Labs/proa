@@ -1,29 +1,12 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Proa IR - Intermediate Representation for Client-Side Interactivity
+//! Expressions, values, reactive attribute bindings, and component trees.
 //!
-//! This crate provides an IR (Intermediate Representation) that describes
-//! client-side behavior for interactive components. The IR is
-//! designed to be:
-//!
-//! - **Complete**: Express interaction logic without escape hatches
-//! - **Type-safe**: Catch errors at compile time in Rust
-//! - **Optimizable**: Enable dead code elimination and other optimizations
-//! - **Portable**: Compile to JavaScript, WASM, or other targets
-//!
-//! # Architecture
-//!
-//! The IR consists of several layers:
-//!
-//! - **Types**: Basic identifiers (`SignalId`, `FieldId`, `Selector`, etc.)
-//! - **Values**: Literal values that can appear in the IR
-//! - **Expressions**: Pure computations that produce values
-//! - **Statements**: Side effects (state updates, DOM operations, fetches)
-//! - **Triggers**: Events that cause effects to run
-//!
-//! Historical form validation APIs in this crate are deprecated. New Proa
-//! forms should use the `wellformed` crate directly.
+//! Component libraries use the shared tree and binding data for rendering and
+//! code generation. Downstream runtime-template compilers use the expression
+//! evaluator and its bounded server dialect. Browser effects and event handling
+//! belong to the compiled RSJS pipeline.
 //!
 //! # Server evaluation
 //!
@@ -42,17 +25,11 @@ pub mod dev_hot;
 pub mod dialect;
 pub mod eval;
 pub mod expr;
-pub mod form;
-pub mod form_handle;
 pub mod reactive;
 pub mod ser;
-pub mod stmt;
-pub mod trigger;
 pub mod types;
-pub mod validate;
 pub mod value;
 
-pub mod builder;
 pub mod codegen;
 pub mod component_tree;
 
@@ -62,16 +39,7 @@ pub use dialect::{
 };
 pub use eval::{eval, eval_with_budget, EvalBudget, EvalError, ScopeStack};
 pub use expr::Expr;
-pub use form::{DerivedDef, FieldDef, FormIR, FormOptions, SignalDef};
-#[allow(deprecated)]
-pub use form_handle::{
-    FieldRegistration, FieldState, FormAttrs, FormFields, FormHandle, FormSchema, FormState,
-    ValidationMode,
-};
 pub use reactive::{Binding, ReactiveAttr, ReactiveClass};
 pub use ser::{to_value, ToValueError};
-pub use stmt::{Block, FetchOptions, Stmt};
-pub use trigger::{Effect, KeyFilter, Trigger};
-pub use types::{FieldId, IrStr, Method, Selector, SignalId, ToastLevel, VarId};
-pub use validate::{FieldValidation, InputFormat, Transform, ValidationRule, ValidationTrigger};
+pub use types::{FieldId, IrStr, SignalId, VarId};
 pub use value::Value;

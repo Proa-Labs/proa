@@ -23,5 +23,7 @@ pub use context::{
 pub use csp::{csp_nonce_attr, CspNonce, CspNonceAttr, InvalidCspNonce};
 pub use send_context::{SendWebContext, SendWebContextParts};
 
-pub use base_path::{AppUrl, BasePath, InvalidBasePath};
+pub use base_path::{
+    AppUrl, BasePath, FrameworkAsset, FrameworkAssets, InvalidBasePath, PublicAssetUrls,
+};
 pub use base_path_html::BasePathHtml;

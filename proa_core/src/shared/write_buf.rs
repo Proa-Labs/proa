@@ -68,6 +68,9 @@ pub enum WriteError {
     Load(LoadError),
     /// The streaming response sink closed before the render finished.
     StreamClosed,
+    /// A raw byte write was not valid UTF-8 on its own. Text writes (`&str`)
+    /// are never checked; raw byte writes are validated where they are written.
+    InvalidUtf8,
     /// A runtime renderer failed outside the write path itself.
     ///
     /// Compiled templates normally fail through the write/load variants above.
@@ -147,6 +150,7 @@ impl core::fmt::Display for WriteError {
             }
             WriteError::Load(err) => write!(f, "load failed: {err}"),
             WriteError::StreamClosed => write!(f, "stream closed"),
+            WriteError::InvalidUtf8 => write!(f, "raw byte write was not valid UTF-8"),
             WriteError::Render(msg) => write!(f, "render failed: {msg}"),
         }
     }
@@ -168,6 +172,17 @@ impl From<LoadError> for WriteError {
     }
 }
 
+/// Check the byte count a [`WriteBuf::extend_with`] callback reported.
+///
+/// A count past the window would publish bytes the callback never wrote. That
+/// is a bug in the caller's `unsafe` code, so it panics rather than returning
+/// an error that reads like a capacity problem.
+#[inline(always)]
+fn window_len(written: usize, max_len: usize) -> usize {
+    assert!(written <= max_len, "in-place writer overran its window");
+    written
+}
+
 /// Trait for types that can be used as write buffers for HTML rendering.
 ///
 /// This trait abstracts over different buffer types (`Vec<u8>`, fixed slices, etc.)
@@ -181,6 +196,7 @@ impl From<LoadError> for WriteError {
 /// - `ChainedBumpWriter<N>` - Inline buffer that spills to heap on overflow (never fails)
 /// - `RenderBuffer` - Standard 4 KiB chained bump writer for reusable render buffers
 /// - `StreamingZeroCopyBuf` - Streaming-oriented segmented buffer with zero-copy checkpoints
+#[allow(unsafe_code)]
 pub trait WriteBuf {
     fn __head_supports_pages() -> bool {
         false
@@ -212,53 +228,145 @@ pub trait WriteBuf {
         Ok(())
     }
 
-    /// Extend the buffer with a slice of bytes.
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError>;
-
-    /// Push a single byte.
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
-        self.extend(&[byte])
-    }
-
-    /// Extend with a static byte slice. Implementations that support
-    /// scatter-gather may store the pointer directly (zero-copy) instead
-    /// of copying bytes. Default delegates to `extend()`.
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        self.extend(bytes)
-    }
-
-    /// Extend with runtime-owned shared bytes.
+    /// Append text.
     ///
-    /// This is the runtime-data counterpart to [`WriteBuf::extend_static`]:
+    /// This is the storage primitive every writer implements. `&str` carries
+    /// the UTF-8 guarantee in its type, so nothing is validated here.
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError>;
+
+    /// Append static text. Implementations that support scatter-gather may
+    /// store the pointer directly (zero-copy) instead of copying bytes.
+    /// Default delegates to `extend_str()`.
+    ///
+    /// Always inlined. Every template literal reaches the writer through this
+    /// method, and its length is a compile-time constant only while the call
+    /// is inlined. Left to the optimizer, this wrapper was emitted as a real
+    /// function once `extend_str` grew, the literal's length became a runtime
+    /// argument, and the standard benchmark page rendered 28% slower (12.9 to
+    /// 16.6 µs for ten fresh renders).
+    #[inline(always)]
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        self.extend_str(text)
+    }
+
+    /// Append `before`, `text` and `after` if no byte of `text` has an escape
+    /// class in `classes`. Otherwise append nothing and return `Ok(false)`,
+    /// and the caller escapes `text` the long way.
+    ///
+    /// This is how the escapers write a dynamic value that needs no escaping,
+    /// which is nearly every value. A buffer may also return `Ok(false)` for a
+    /// value it would rather not handle here, such as a long one. `classes` is
+    /// a set of the escapers' byte classes and always holds the markup class.
+    ///
+    /// The default checks `text` and then writes the three pieces one after
+    /// another, skipping empty ones. A zero-length write is not free on every
+    /// buffer: `ZeroCopyBuf` would record an empty part and
+    /// `StreamingZeroCopyBuf` could allocate its first chunk.
+    #[doc(hidden)]
+    #[inline(always)]
+    fn __append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        if crate::shared::escape::has_class(text.as_bytes(), classes) {
+            return Ok(false);
+        }
+        if !before.is_empty() {
+            self.extend_static_str(before)?;
+        }
+        if !text.is_empty() {
+            self.extend_str(text)?;
+        }
+        if !after.is_empty() {
+            self.extend_static_str(after)?;
+        }
+        Ok(true)
+    }
+
+    /// Append raw bytes, validating at the write that they are UTF-8.
+    ///
+    /// The bytes must be valid UTF-8 on their own: a multi-byte character
+    /// split across two calls is rejected with [`WriteError::InvalidUtf8`].
+    /// Prefer [`WriteBuf::extend_str`] when the source is already text.
+    #[inline]
+    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+        self.extend_str(checked_utf8(bytes)?)
+    }
+
+    /// Append one ASCII byte. Non-ASCII bytes are rejected because a lone
+    /// byte above `0x7F` is never valid UTF-8.
+    #[inline]
+    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+        if !byte.is_ascii() {
+            return Err(WriteError::InvalidUtf8);
+        }
+        // SAFETY: checked ASCII above.
+        unsafe { self.push_unchecked(byte) }
+    }
+
+    /// Append one byte without checking it.
+    ///
+    /// # Safety
+    ///
+    /// `byte` must be ASCII.
+    #[inline]
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
+        let buf = [byte];
+        // SAFETY: the caller guarantees one ASCII byte.
+        self.extend_str(unsafe { core::str::from_utf8_unchecked(&buf) })
+    }
+
+    /// Append static raw bytes, validating at the write that they are UTF-8.
+    /// Prefer [`WriteBuf::extend_static_str`] for literals.
+    #[inline]
+    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
+        self.extend_static_str(checked_utf8(bytes)?)
+    }
+
+    /// Extend with runtime-owned shared bytes, validating at the write that
+    /// they are UTF-8.
+    ///
+    /// This is the runtime-data counterpart to [`WriteBuf::extend_static_str`]:
     /// callers that hold pre-rendered byte runs in refcounted
     /// [`bytes::Bytes`] storage (interpreted page programs, cached
-    /// fragments) pass the handle here instead of a plain slice. The
-    /// default delegates to `extend()`, which is already optimal for
-    /// contiguous buffers like `Vec<u8>` (a single `memcpy`, no `Bytes`
-    /// refcount traffic). Scatter-gather implementations may override this
-    /// to store a clone of the handle (a refcount bump) instead of copying
-    /// the bytes per render.
+    /// fragments) pass the handle here instead of a plain slice. The default
+    /// copies through `extend()`. Scatter-gather implementations may override
+    /// this to keep a clone of the handle instead; an override must validate
+    /// the bytes itself.
+    #[inline]
     fn extend_shared(&mut self, bytes: &Bytes) -> Result<(), WriteError> {
         self.extend(bytes)
     }
 
-    /// Write directly into spare capacity via a closure. The closure receives
-    /// a `&mut [u8]` of at least `max_len` bytes and returns the number of
-    /// bytes actually written.
+    /// Write generated text directly into spare capacity via a closure. The
+    /// closure receives a `&mut [u8]` of `max_len` bytes and returns the number
+    /// of bytes it wrote, up to the length of the window. Reporting more
+    /// panics. The window's prior contents are unspecified and differ between
+    /// writers, so the closure must not read before it writes.
     ///
-    /// Implementations with contiguous spare capacity (Vec, WriteCursor, etc.)
-    /// override this to write in-place with zero intermediate copy. The default
-    /// uses a stack buffer of up to 40 bytes.
+    /// When the writer type is generic, keep `max_len` at or below 40 bytes.
+    /// The default implementation uses a 40-byte stack buffer and panics for
+    /// larger requests. Writers with contiguous spare capacity may provide
+    /// larger windows and write directly into their own storage;
+    /// [`ChainedBumpWriter`] accepts any window that fits in one page.
     ///
-    /// `max_len` must be ≤ 40.
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    /// # Safety
+    ///
+    /// The bytes the closure reports as written must be valid UTF-8 on their
+    /// own. Nothing validates them.
+    #[inline]
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
         debug_assert!(max_len <= 40);
         let mut tmp = [0u8; 40];
-        let len = f(&mut tmp[..max_len]);
-        self.extend(&tmp[..len])
+        let len = window_len(f(&mut tmp[..max_len]), max_len);
+        // SAFETY: the caller guarantees the written bytes are valid UTF-8.
+        self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
     }
 
     /// View of the written portion.
@@ -269,6 +377,261 @@ pub trait WriteBuf {
 
     /// Clear the buffer for reuse.
     fn clear(&mut self);
+}
+
+/// Whether truncating `written` at `at` leaves the stream on a character
+/// boundary. `following` is the first byte after `written` when the cut lands
+/// exactly at its end.
+///
+/// Checkpoints are captured between writes and every write is whole UTF-8, so
+/// a live checkpoint always passes. A stale checkpoint (captured before an
+/// earlier rewind and rewrite) can land inside a character; rejecting it keeps
+/// the buffer valid UTF-8.
+#[inline]
+fn cut_is_char_boundary(written: &[u8], at: usize, following: Option<u8>) -> bool {
+    match written.get(at).copied().or(following) {
+        // UTF-8 continuation bytes are 0b10xx_xxxx.
+        Some(byte) => (byte as i8) >= -0x40,
+        None => true,
+    }
+}
+
+/// Validate a raw byte write. Every raw-byte entry point funnels through here.
+///
+/// Most raw writes are ASCII markup. The ASCII check is inlined so it folds
+/// away for byte-string literals and stays a short word-at-a-time loop for
+/// runtime slices; only non-ASCII input pays for full UTF-8 validation.
+#[inline(always)]
+#[allow(unsafe_code)]
+fn checked_utf8(bytes: &[u8]) -> Result<&str, WriteError> {
+    if bytes.is_ascii() {
+        // SAFETY: ASCII is valid UTF-8.
+        return Ok(unsafe { core::str::from_utf8_unchecked(bytes) });
+    }
+    checked_utf8_slow(bytes)
+}
+
+#[inline(never)]
+fn checked_utf8_slow(bytes: &[u8]) -> Result<&str, WriteError> {
+    core::str::from_utf8(bytes).map_err(|_| WriteError::InvalidUtf8)
+}
+
+/// Copy `len` bytes, without calling `memcpy` when `len` is at most 64.
+///
+/// # Why
+///
+/// `core::ptr::copy_nonoverlapping` is `memcpy`, and the compiler handles it
+/// in one of two ways depending on whether it knows the length:
+///
+/// ```text
+/// copy_nonoverlapping(src, dst, 25);   // constant: a few direct moves, no call
+/// copy_nonoverlapping(src, dst, len);  // run time: a call to the C library
+/// ```
+///
+/// These are the instructions rustc 1.95 emits for those two lines:
+///
+/// ```text
+///                  aarch64                  x86-64
+/// constant 25      ldr  q0, [x1]            movups (%rsi), %xmm0
+///                  ldur q1, [x1, #9]        movups 9(%rsi), %xmm1
+///                  stur q1, [x0, #9]        movups %xmm1, 9(%rdi)
+///                  str  q0, [x0]            movups %xmm0, (%rdi)
+///
+/// run-time length  b    _memcpy             jmp    _memcpy
+/// ```
+///
+/// The constant case is two 16-byte moves that overlap: bytes 0..16 and bytes
+/// 9..25. The run-time case is a jump into the library.
+///
+/// For a short string the call costs more than the copy itself. Three things
+/// add up to about 1.3 ns on an Apple M4, where moving 25 bytes takes a
+/// fraction of that:
+///
+/// - the call goes through the dynamic linker's stub (the PLT on Linux) and
+///   back;
+/// - a general `memcpy` handles one byte to gigabytes, so it first branches
+///   on the length to pick a path;
+/// - the caller gives up its scratch registers across the call, so the loop
+///   around it has to reload its state.
+///
+/// Fixed text never paid this. A template literal reaches the writer with a
+/// constant length, and the compiler already turns that into a few direct
+/// loads and stores. Dynamic text always paid it: a name, a price, a label or
+/// an escaped run has a run-time length, and most of them are short.
+///
+/// This function does by hand, for run-time lengths, what the compiler
+/// already does for constants.
+///
+/// # How
+///
+/// A length from 2 to 64 is copied with two unaligned loads and two unaligned
+/// stores of one fixed width, overlapping in the middle. A 25-byte string
+/// moves as bytes 0..16 and bytes 9..25. The width is 32, 16, 8, 4 or 2 bytes,
+/// chosen by `len`. Anything longer goes to `memcpy`, where the call is a
+/// small part of the work and the library can pick wider vector registers
+/// than this build is allowed to assume.
+///
+/// For a run-time length of 16 to 31 bytes this function compiles to the same
+/// shape the compiler picks for a constant, with the second offset worked out
+/// from `len` (aarch64):
+///
+/// ```text
+/// ldp  x8, x9, [x1]        ; first 16 bytes
+/// sub  x10, x2, #16        ; len - 16
+/// add  x11, x1, x10
+/// ldp  x12, x11, [x11]     ; last 16 bytes
+/// stp  x8, x9, [x0]
+/// add  x8, x0, x10
+/// stp  x12, x11, [x8]
+/// ```
+///
+/// When `len` is a compile-time constant the branches fold away, so fixed
+/// text compiles to the same code as a plain copy.
+///
+/// # What was measured
+///
+/// The workload is the `large_page` fixture from the framework benchmarks:
+/// 16 sections of 16 cards, each card with 8 list items. One render writes
+/// 269,751 bytes of HTML in about 7,800 appends, and 2,048 of those appends
+/// are item labels of 20 to 35 bytes.
+///
+/// Rendering it into a reused `RenderBuffer` on an Apple M4 Max:
+///
+/// | Label lengths | Plain copy | This function |
+/// |---|---|---|
+/// | Known only at run time | 10.5 µs | 7.8 µs |
+/// | Hidden from the optimizer, as real data is | 13.0 µs | 9.2 µs |
+/// | Folded to constants by the optimizer | 7.8 µs | 7.8 µs |
+///
+/// The first row is the 2,048 `memcpy` calls going away, about 1.3 ns each.
+/// The last row is the benchmark's own best case, where the optimizer unrolls
+/// the item loop and works out every label's length ahead of time. Real data
+/// cannot be folded like that, so the first two rows are the ones that
+/// describe real pages.
+///
+/// The 64-byte limit comes from reasoning, not from a sweep: at about that
+/// size the call and the copy cost the same, and most dynamic HTML values are
+/// far shorter.
+///
+/// # Safety
+///
+/// `src` must be valid for reads of `len` bytes, `dst` must be valid for
+/// writes of `len` bytes, and the two ranges must not overlap.
+#[inline(always)]
+#[allow(unsafe_code)]
+unsafe fn copy_short(src: *const u8, dst: *mut u8, len: usize) {
+    // SAFETY: each branch runs only when `len` is at least the width it moves,
+    // so both the read at the start and the read ending at `len` stay inside
+    // `[src, src + len)`, and the matching writes stay inside
+    // `[dst, dst + len)`. The caller guarantees those ranges are valid and
+    // disjoint.
+    unsafe {
+        if len > 64 {
+            core::ptr::copy_nonoverlapping(src, dst, len);
+        } else if len >= 32 {
+            let head = src.cast::<[u8; 32]>().read_unaligned();
+            let tail = src.add(len - 32).cast::<[u8; 32]>().read_unaligned();
+            dst.cast::<[u8; 32]>().write_unaligned(head);
+            dst.add(len - 32).cast::<[u8; 32]>().write_unaligned(tail);
+        } else if len >= 16 {
+            let head = src.cast::<u128>().read_unaligned();
+            let tail = src.add(len - 16).cast::<u128>().read_unaligned();
+            dst.cast::<u128>().write_unaligned(head);
+            dst.add(len - 16).cast::<u128>().write_unaligned(tail);
+        } else if len >= 8 {
+            let head = src.cast::<u64>().read_unaligned();
+            let tail = src.add(len - 8).cast::<u64>().read_unaligned();
+            dst.cast::<u64>().write_unaligned(head);
+            dst.add(len - 8).cast::<u64>().write_unaligned(tail);
+        } else if len >= 4 {
+            let head = src.cast::<u32>().read_unaligned();
+            let tail = src.add(len - 4).cast::<u32>().read_unaligned();
+            dst.cast::<u32>().write_unaligned(head);
+            dst.add(len - 4).cast::<u32>().write_unaligned(tail);
+        } else if len >= 2 {
+            let head = src.cast::<u16>().read_unaligned();
+            let tail = src.add(len - 2).cast::<u16>().read_unaligned();
+            dst.cast::<u16>().write_unaligned(head);
+            dst.add(len - 2).cast::<u16>().write_unaligned(tail);
+        } else if len == 1 {
+            *dst = *src;
+        }
+    }
+}
+
+/// Copy `len` bytes, at most 64, the way [`copy_short`] does, and report
+/// whether any of them has an escape class in `classes`.
+///
+/// An escaper has to look at every byte of a value, and then the value is
+/// copied. Both walk the same bytes and branch on the same length, so doing
+/// them together reads the value once and picks the length case once. The
+/// vectors or words that are stored are the ones that are compared.
+///
+/// The caller decides what a `true` means. The bytes are copied either way.
+///
+/// # Safety
+///
+/// `len` must be at most 64, `src` must be valid for reads of `len` bytes,
+/// `dst` must be valid for writes of `len` bytes, and the two ranges must not
+/// overlap.
+#[inline(always)]
+#[allow(unsafe_code)]
+unsafe fn copy_short_classifying(src: *const u8, dst: *mut u8, len: usize, classes: u8) -> bool {
+    use crate::shared::escape::{chunk, BYTE_CLASS, CHUNK};
+    type Chunk = [u8; CHUNK];
+    let class_of = |byte: u8| BYTE_CLASS[byte as usize];
+    debug_assert!(len <= 64);
+    // SAFETY: as in `copy_short`, each branch runs only when `len` is at least
+    // the width it moves, so the read at the start and the read ending at
+    // `len` stay inside `[src, src + len)` and the matching writes stay
+    // inside `[dst, dst + len)`.
+    unsafe {
+        if len >= 16 {
+            let first = src.cast::<Chunk>().read_unaligned();
+            let last = src.add(len - 16).cast::<Chunk>().read_unaligned();
+            dst.cast::<Chunk>().write_unaligned(first);
+            let mut hit = chunk::has_class(&first, classes) | chunk::has_class(&last, classes);
+            if len > 32 {
+                // 33 to 64 bytes: the second chunk from each end as well.
+                let second = src.add(16).cast::<Chunk>().read_unaligned();
+                let third = src.add(len - 32).cast::<Chunk>().read_unaligned();
+                dst.add(16).cast::<Chunk>().write_unaligned(second);
+                dst.add(len - 32).cast::<Chunk>().write_unaligned(third);
+                hit |= chunk::has_class(&second, classes) | chunk::has_class(&third, classes);
+            }
+            dst.add(len - 16).cast::<Chunk>().write_unaligned(last);
+            hit
+        } else if len >= 8 {
+            let head = src.cast::<u64>().read_unaligned();
+            let tail = src.add(len - 8).cast::<u64>().read_unaligned();
+            dst.cast::<u64>().write_unaligned(head);
+            dst.add(len - 8).cast::<u64>().write_unaligned(tail);
+            let words = u128::from(head) | u128::from(tail) << 64;
+            chunk::has_class(&words.to_ne_bytes(), classes)
+        } else if len >= 4 {
+            let head = src.cast::<u32>().read_unaligned();
+            let tail = src.add(len - 4).cast::<u32>().read_unaligned();
+            dst.cast::<u32>().write_unaligned(head);
+            dst.add(len - 4).cast::<u32>().write_unaligned(tail);
+            // A chunk has room for the pair twice. Padding it instead would
+            // need a filler byte that is in no class, and zero is in one.
+            let pair = u64::from(head) | u64::from(tail) << 32;
+            let words = u128::from(pair) | u128::from(pair) << 64;
+            chunk::has_class(&words.to_ne_bytes(), classes)
+        } else if len >= 2 {
+            let head = src.cast::<[u8; 2]>().read_unaligned();
+            let tail = src.add(len - 2).cast::<[u8; 2]>().read_unaligned();
+            dst.cast::<[u8; 2]>().write_unaligned(head);
+            dst.add(len - 2).cast::<[u8; 2]>().write_unaligned(tail);
+            (class_of(head[0]) | class_of(head[1]) | class_of(tail[1])) & classes != 0
+        } else if len == 1 {
+            let byte = *src;
+            *dst = byte;
+            class_of(byte) & classes != 0
+        } else {
+            false
+        }
+    }
 }
 
 /// Buffer types that can rewind bytes written since a local checkpoint.
@@ -294,6 +657,7 @@ pub trait CheckpointWriteBuf: WriteBuf {
 // in an existing render context without moving the caller's buffer. Keep the
 // forwarding implementations here, beside the traits, so borrowed buffers
 // preserve every optimized write hook and do not acquire a `B: 'static` bound.
+#[allow(unsafe_code)]
 impl<B: WriteBuf + ?Sized> WriteBuf for &mut B {
     fn __head_supports_pages() -> bool {
         B::__head_supports_pages()
@@ -323,18 +687,30 @@ impl<B: WriteBuf + ?Sized> WriteBuf for &mut B {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        (**self).extend(bytes)
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        (**self).extend_str(text)
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
-        (**self).push(byte)
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
+        // SAFETY: forwarded contract.
+        unsafe { (**self).push_unchecked(byte) }
     }
 
     #[inline(always)]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
-        (**self).extend_static(bytes)
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        (**self).extend_static_str(text)
+    }
+
+    #[inline(always)]
+    fn __append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        (**self).__append_if_clean(before, text, after, classes)
     }
 
     #[inline(always)]
@@ -343,11 +719,12 @@ impl<B: WriteBuf + ?Sized> WriteBuf for &mut B {
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        (**self).extend_with(max_len, f)
+        // SAFETY: forwarded contract.
+        unsafe { (**self).extend_with(max_len, f) }
     }
 
     #[inline(always)]
@@ -384,6 +761,7 @@ impl<B: CheckpointWriteBuf + ?Sized> CheckpointWriteBuf for &mut B {
 // Vec<u8> implementation - heap allocated, growable, never fails
 // ============================================================================
 
+#[allow(unsafe_code)]
 impl WriteBuf for Vec<u8> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -402,19 +780,19 @@ impl WriteBuf for Vec<u8> {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
-        self.extend_from_slice(bytes);
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        self.extend_from_slice(text.as_bytes());
         Ok(())
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         Vec::push(self, byte);
         Ok(())
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
@@ -423,7 +801,7 @@ impl WriteBuf for Vec<u8> {
         // Grow the Vec to make spare capacity addressable, write into it,
         // then shrink to the actual length.
         self.resize(start + max_len, 0);
-        let len = f(&mut self[start..start + max_len]);
+        let len = window_len(f(&mut self[start..start + max_len]), max_len);
         self.truncate(start + len);
         Ok(())
     }
@@ -483,9 +861,9 @@ impl CheckpointWriteBuf for Vec<u8> {
 /// let mut backing = [0u8; 4096];
 /// let mut cursor = WriteCursor::new(&mut backing);
 ///
-/// cursor.extend(b"<div>").unwrap();
-/// cursor.extend(b"Hello").unwrap();
-/// cursor.extend(b"</div>").unwrap();
+/// cursor.extend_str("<div>").unwrap();
+/// cursor.extend_str("Hello").unwrap();
+/// cursor.extend_str("</div>").unwrap();
 ///
 /// assert_eq!(cursor.as_slice(), b"<div>Hello</div>");
 /// ```
@@ -521,6 +899,7 @@ impl<'a> WriteCursor<'a> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<'a> WriteBuf for WriteCursor<'a> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -541,7 +920,8 @@ impl<'a> WriteBuf for WriteCursor<'a> {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         let new_len = self.len + bytes.len();
         if new_len > self.buf.len() {
             return Err(WriteError::OutOfCapacity);
@@ -552,7 +932,7 @@ impl<'a> WriteBuf for WriteCursor<'a> {
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         if self.len == self.buf.len() {
             return Err(WriteError::OutOfCapacity);
         }
@@ -562,14 +942,14 @@ impl<'a> WriteBuf for WriteCursor<'a> {
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        if self.len + max_len > self.buf.len() {
+        if max_len > self.buf.len() - self.len {
             return Err(WriteError::OutOfCapacity);
         }
-        let len = f(&mut self.buf[self.len..self.len + max_len]);
+        let len = window_len(f(&mut self.buf[self.len..self.len + max_len]), max_len);
         self.len += len;
         Ok(())
     }
@@ -624,28 +1004,87 @@ impl<'a> CheckpointWriteBuf for WriteCursor<'a> {
 /// use proa_core::shared::write_buf::{BumpWriter, WriteBuf};
 ///
 /// let mut buf = BumpWriter::<4096>::new();
-/// buf.extend(b"<div>Hello</div>").unwrap();
+/// buf.extend_str("<div>Hello</div>").unwrap();
 /// assert_eq!(buf.as_slice(), b"<div>Hello</div>");
 /// ```
 pub struct BumpWriter<const N: usize> {
-    buf: Box<[u8; N]>,
+    // `N` bytes that start out uninitialized: like `Vec::with_capacity(N)`,
+    // the page is allocated but not zero-filled. Only `buf[..len]` has been
+    // written, and only that prefix is ever read.
+    //
+    // A boxed array is a thin pointer, which keeps this struct at two words.
+    // A boxed slice here (a fat pointer) measurably slows the write path.
+    buf: Box<[core::mem::MaybeUninit<u8>; N]>,
     len: usize,
 }
 
 impl<const N: usize> BumpWriter<N> {
-    /// Create a new zeroed `BumpWriter`.
+    /// Create an empty `BumpWriter`.
+    ///
+    /// The page is allocated without being zero-filled.
     #[inline]
     pub fn new() -> Self {
         Self {
-            buf: vec![0u8; N].into_boxed_slice().try_into().unwrap(),
+            buf: Box::new_uninit_slice(N).try_into().unwrap(),
             len: 0,
+        }
+    }
+
+    /// Hand the page to a transport as `Bytes` without copying it.
+    ///
+    /// `Bytes` owns the whole allocation as initialized bytes, so the unwritten
+    /// tail is zeroed here, at hand-off, instead of the whole page at
+    /// allocation.
+    #[inline]
+    #[allow(unsafe_code)]
+    fn into_bytes(mut self) -> Bytes {
+        let len = self.len;
+        // SAFETY: `len <= N`, so the tail lies inside the page; after zeroing
+        // it every byte of the allocation is initialized.
+        let owned: Box<[u8]> = unsafe {
+            core::ptr::write_bytes(self.ptr().add(len), 0, N - len);
+            let page: Box<[core::mem::MaybeUninit<u8>]> = self.buf;
+            page.assume_init()
+        };
+        let mut bytes = Bytes::from(owned);
+        bytes.truncate(len);
+        bytes
+    }
+
+    /// Start of the page.
+    #[inline(always)]
+    fn ptr(&mut self) -> *mut u8 {
+        self.buf.as_mut_ptr().cast()
+    }
+
+    /// A zeroed window of `max_len` spare bytes for the in-place writer.
+    ///
+    /// Only the window is zeroed, so the closure it is handed to never sees
+    /// uninitialized bytes, or bytes a reused buffer wrote earlier, and the
+    /// rest of the page stays untouched.
+    ///
+    /// # Safety
+    ///
+    /// `self.len + max_len` must not exceed `N`.
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    unsafe fn spare_window(&mut self, max_len: usize) -> &mut [u8] {
+        // SAFETY: the caller guarantees the window lies inside the page, and
+        // zeroing it makes every byte of the returned slice initialized.
+        unsafe {
+            let start = self.ptr().add(self.len);
+            core::ptr::write_bytes(start, 0, max_len);
+            core::slice::from_raw_parts_mut(start, max_len)
         }
     }
 
     /// View of the written portion.
     #[inline]
+    #[allow(unsafe_code)]
     pub fn as_written(&self) -> &[u8] {
-        &self.buf[..self.len]
+        // SAFETY: every write path initializes the bytes below `len` before
+        // advancing it.
+        unsafe { core::slice::from_raw_parts(self.buf.as_ptr().cast(), self.len) }
     }
 }
 
@@ -655,6 +1094,7 @@ impl<const N: usize> Default for BumpWriter<N> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<const N: usize> WriteBuf for BumpWriter<N> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -673,7 +1113,8 @@ impl<const N: usize> WriteBuf for BumpWriter<N> {
 
     #[inline(always)]
     #[allow(unsafe_code)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         let new_len = self.len + bytes.len();
         if new_len > N {
             return Err(WriteError::OutOfCapacity);
@@ -685,11 +1126,7 @@ impl<const N: usize> WriteBuf for BumpWriter<N> {
         // library: capacity check → copy_nonoverlapping → set_len.
         // See: https://doc.rust-lang.org/src/alloc/vec/spec_extend.rs.html
         unsafe {
-            core::ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                self.buf.as_mut_ptr().add(self.len),
-                bytes.len(),
-            );
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.ptr().add(self.len), bytes.len());
         }
         self.len = new_len;
         Ok(())
@@ -697,34 +1134,35 @@ impl<const N: usize> WriteBuf for BumpWriter<N> {
 
     #[inline(always)]
     #[allow(unsafe_code)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         if self.len >= N {
             return Err(WriteError::OutOfCapacity);
         }
         // SAFETY: bounds check above guarantees self.len < N.
         unsafe {
-            *self.buf.as_mut_ptr().add(self.len) = byte;
+            *self.ptr().add(self.len) = byte;
         }
         self.len += 1;
         Ok(())
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        if self.len + max_len > N {
+        if max_len > N - self.len {
             return Err(WriteError::OutOfCapacity);
         }
-        let len = f(&mut self.buf[self.len..self.len + max_len]);
-        self.len += len;
+        // SAFETY: the bounds check above keeps the window inside the page.
+        let written = window_len(f(unsafe { self.spare_window(max_len) }), max_len);
+        self.len += written;
         Ok(())
     }
 
     #[inline(always)]
     fn as_slice(&self) -> &[u8] {
-        &self.buf[..self.len]
+        self.as_written()
     }
 
     #[inline(always)]
@@ -775,13 +1213,6 @@ pub const DEFAULT_CHAINED_BUMP_PAGE_SIZE: usize = 4096;
 /// deliberate choice rather than the path of least resistance.
 pub type RenderBuffer = ChainedBumpWriter<DEFAULT_CHAINED_BUMP_PAGE_SIZE>;
 
-/// Compatibility alias for [`RenderBuffer`].
-///
-/// New code should use [`RenderBuffer`]. Use [`ChainedBumpWriter<N>`] when a
-/// non-standard page size is required.
-#[deprecated(since = "0.3.0", note = "use RenderBuffer")]
-pub type DefaultChainedBumpWriter = RenderBuffer;
-
 /// Chained fixed-size bump writers for unbounded output.
 ///
 /// Uses [`BumpWriter<N>`] pages internally. When the current page fills up,
@@ -799,7 +1230,7 @@ pub type DefaultChainedBumpWriter = RenderBuffer;
 /// use proa_core::shared::write_buf::{RenderBuffer, WriteBuf};
 ///
 /// let mut buf = RenderBuffer::new();
-/// buf.extend(b"<div>Hello</div>").unwrap();
+/// buf.extend_str("<div>Hello</div>").unwrap();
 /// let output = buf.to_vec(); // flatten for HTTP response
 /// ```
 pub struct ChainedBumpWriter<const N: usize> {
@@ -851,10 +1282,7 @@ impl<const N: usize> ChainedBumpWriter<N> {
                 if page.len == 0 {
                     return None;
                 }
-                let owned: Box<[u8]> = page.buf;
-                let mut bytes = Bytes::from(owned);
-                bytes.truncate(page.len);
-                Some(bytes)
+                Some(page.into_bytes())
             })
     }
 
@@ -889,11 +1317,7 @@ impl<const N: usize> ChainedBumpWriter<N> {
             // and bytes.len() <= N.
             #[allow(unsafe_code)]
             unsafe {
-                core::ptr::copy_nonoverlapping(
-                    bytes.as_ptr(),
-                    self.current.buf.as_mut_ptr().add(0),
-                    bytes.len(),
-                );
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), self.current.ptr(), bytes.len());
             }
             self.current.len = bytes.len();
         } else {
@@ -907,7 +1331,7 @@ impl<const N: usize> ChainedBumpWriter<N> {
                 unsafe {
                     core::ptr::copy_nonoverlapping(
                         chunk.as_ptr(),
-                        self.current.buf.as_mut_ptr().add(self.current.len),
+                        self.current.ptr().add(self.current.len),
                         chunk.len(),
                     );
                 }
@@ -920,7 +1344,9 @@ impl<const N: usize> ChainedBumpWriter<N> {
     #[inline(never)]
     fn push_slow(&mut self, byte: u8) {
         self.rotate();
-        self.current.buf[0] = byte;
+        // Checked on purpose: a zero-sized page panics here. For any real page
+        // size the bound is a constant and the check compiles away.
+        self.current.buf[0].write(byte);
         self.current.len = 1;
     }
 
@@ -947,10 +1373,10 @@ impl<const N: usize> ChainedBumpWriter<N> {
         if self.full.is_empty() {
             let len = self.current.len;
             let ptr = Box::into_raw(self.current.buf) as *mut u8;
-            // SAFETY: `BumpWriter<N>` allocates its page through
-            // `vec![0u8; N].into_boxed_slice()`, so the allocation layout and
-            // capacity exactly match `Vec::from_raw_parts(ptr, len, N)`.
-            // The writer invariant guarantees `len <= N`.
+            // SAFETY: a page is one allocation of `N` bytes with byte
+            // alignment, which is exactly the layout of a `Vec<u8>` with
+            // capacity `N`. The first `len` bytes are initialized and
+            // `len <= N`; the uninitialized tail becomes spare capacity.
             unsafe { Vec::from_raw_parts(ptr, len, N) }
         } else {
             self.to_vec()
@@ -960,36 +1386,20 @@ impl<const N: usize> ChainedBumpWriter<N> {
     /// Convert the buffer contents to a `String`, reusing the underlying
     /// allocation when all data fits in a single page (the common case).
     ///
-    /// When data spans multiple pages, falls back to `to_vec()` + copy.
+    /// When data spans multiple pages, the pages are copied once into a
+    /// contiguous `String`. Nothing is scanned: text writes are UTF-8 by type,
+    /// raw byte writes were validated when they were written, the unchecked
+    /// writers are `unsafe fn`s whose callers guarantee UTF-8, and rewinds only
+    /// land on character boundaries. Debug builds check the result.
     #[allow(unsafe_code)]
     pub fn into_string(self) -> String {
-        if self.full.is_empty() {
-            // Single page — convert Box<[u8; N]> → Vec<u8> without copying.
-            let len = self.current.len;
-            let ptr = Box::into_raw(self.current.buf) as *mut u8;
-            // SAFETY: Box<[u8; N]> was allocated via `vec![0u8; N]`, so the
-            // pointer, capacity N, and layout match Vec's requirements.
-            // len <= N is maintained by BumpWriter's bounds checks.
-            let vec = unsafe { Vec::from_raw_parts(ptr, len, N) };
-            // SAFETY: we only write valid UTF-8 through the html! macro. The
-            // debug assertion catches public-API misuse (writing non-UTF-8
-            // bytes, e.g. via `UnsafeRaw` with raw bytes, then calling
-            // `into_string`) in tests without any release-build cost.
-            debug_assert!(
-                core::str::from_utf8(&vec).is_ok(),
-                "ChainedBumpWriter::into_string called on non-UTF-8 buffer contents"
-            );
-            unsafe { String::from_utf8_unchecked(vec) }
-        } else {
-            // Multi-page — must copy to produce a contiguous String.
-            let vec = self.to_vec();
-            // SAFETY: same UTF-8 guarantee as above.
-            debug_assert!(
-                core::str::from_utf8(&vec).is_ok(),
-                "ChainedBumpWriter::into_string called on non-UTF-8 buffer contents"
-            );
-            unsafe { String::from_utf8_unchecked(vec) }
-        }
+        let bytes = self.into_vec();
+        debug_assert!(
+            core::str::from_utf8(&bytes).is_ok(),
+            "ChainedBumpWriter held non-UTF-8 bytes; a writer broke the UTF-8 contract"
+        );
+        // SAFETY: every write path keeps the buffer valid UTF-8 (see above).
+        unsafe { String::from_utf8_unchecked(bytes) }
     }
 }
 
@@ -999,6 +1409,7 @@ impl<const N: usize> Default for ChainedBumpWriter<N> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
     fn __head_supports_pages() -> bool {
         true
@@ -1028,14 +1439,17 @@ impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
 
     #[inline(always)]
     #[allow(unsafe_code)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         let new_len = self.current.len + bytes.len();
         if new_len <= N {
-            // SAFETY: bounds check above guarantees new_len <= N = buf capacity.
+            // SAFETY: the bounds check above keeps the destination inside the
+            // page, and `text` cannot alias a page this writer borrows mutably.
+            // Short run-time lengths are copied inline; see `copy_short`.
             unsafe {
-                core::ptr::copy_nonoverlapping(
+                copy_short(
                     bytes.as_ptr(),
-                    self.current.buf.as_mut_ptr().add(self.current.len),
+                    self.current.ptr().add(self.current.len),
                     bytes.len(),
                 );
             }
@@ -1046,13 +1460,53 @@ impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
         Ok(())
     }
 
+    /// One bounds check, one length update, and a copy that classifies the
+    /// value's bytes as it moves them.
+    ///
+    /// The value is copied before it is known to be clean. If it turns out not
+    /// to be, the length is left where it was, so the copied bytes stay in the
+    /// unwritten part of the page and the next write goes over them.
+    ///
+    /// Values over 64 bytes and values that do not fit in what is left of the
+    /// page are left to the caller, which makes one call for everything this
+    /// does not append.
     #[inline(always)]
     #[allow(unsafe_code)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    fn __append_if_clean(
+        &mut self,
+        before: &'static str,
+        text: &str,
+        after: &'static str,
+        classes: u8,
+    ) -> Result<bool, WriteError> {
+        let len = text.len();
+        let new_len = self.current.len + before.len() + len + after.len();
+        if len > 64 || new_len > N {
+            return Ok(false);
+        }
+        // SAFETY: `new_len <= N` keeps all three destinations inside the page,
+        // `len <= 64` is what `copy_short_classifying` requires, and none of
+        // the sources can alias a page this writer borrows mutably.
+        unsafe {
+            let start = self.current.ptr().add(self.current.len);
+            core::ptr::copy_nonoverlapping(before.as_ptr(), start, before.len());
+            let value = start.add(before.len());
+            if copy_short_classifying(text.as_ptr(), value, len, classes) {
+                return Ok(false);
+            }
+            core::ptr::copy_nonoverlapping(after.as_ptr(), value.add(len), after.len());
+        }
+        self.current.len = new_len;
+        Ok(true)
+    }
+
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         if self.current.len < N {
             // SAFETY: bounds check above guarantees self.current.len < N.
             unsafe {
-                *self.current.buf.as_mut_ptr().add(self.current.len) = byte;
+                *self.current.ptr().add(self.current.len) = byte;
             }
             self.current.len += 1;
             return Ok(());
@@ -1062,20 +1516,28 @@ impl<const N: usize> WriteBuf for ChainedBumpWriter<N> {
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        let new_end = self.current.len + max_len;
-        if new_end <= N {
-            let len = f(&mut self.current.buf[self.current.len..new_end]);
-            self.current.len += len;
-            return Ok(());
+        if max_len > N - self.current.len {
+            if max_len > N {
+                // The window is larger than a page: format on the stack and
+                // let `extend_str` split the bytes across pages.
+                let mut tmp = [0u8; 40];
+                let spare = tmp.get_mut(..max_len).ok_or(WriteError::OutOfCapacity)?;
+                let len = window_len(f(spare), max_len);
+                // SAFETY: the caller guarantees the written bytes are valid UTF-8.
+                return self.extend_str(unsafe { core::str::from_utf8_unchecked(&spare[..len]) });
+            }
+            // A fresh page holds any window up to `N` bytes.
+            self.rotate();
         }
-        // Slow path: fall back to stack buffer + extend
-        let mut tmp = [0u8; 40];
-        let len = f(&mut tmp[..max_len]);
-        self.extend(&tmp[..len])
+        // SAFETY: the check above, or the rotation to an empty page, keeps the
+        // window inside the current page.
+        let written = window_len(f(unsafe { self.current.spare_window(max_len) }), max_len);
+        self.current.len += written;
+        Ok(())
     }
 
     #[inline(always)]
@@ -1123,11 +1585,27 @@ impl<const N: usize> CheckpointWriteBuf for ChainedBumpWriter<N> {
             if checkpoint.current_len > self.current.len {
                 return false;
             }
+            if !cut_is_char_boundary(self.current.as_slice(), checkpoint.current_len, None) {
+                return false;
+            }
             self.current.len = checkpoint.current_len;
             return true;
         }
 
-        if checkpoint.current_len > self.full[checkpoint.full_len].len {
+        let target = &self.full[checkpoint.full_len];
+        if checkpoint.current_len > target.len {
+            return false;
+        }
+        // A write larger than one page is split across pages, so the page
+        // after the target can begin with a continuation byte.
+        let following = self
+            .full
+            .get(checkpoint.full_len + 1)
+            .unwrap_or(&self.current)
+            .as_slice()
+            .first()
+            .copied();
+        if !cut_is_char_boundary(target.as_slice(), checkpoint.current_len, following) {
             return false;
         }
         let mut restored_current = self.full.remove(checkpoint.full_len);
@@ -1246,7 +1724,7 @@ impl Default for SizeHint {
 /// use proa_core::shared::write_buf::{SmallBuf, WriteBuf};
 ///
 /// let mut buf = SmallBuf::<4096>::new();
-/// buf.extend(b"<div>Hello</div>").unwrap();
+/// buf.extend_str("<div>Hello</div>").unwrap();
 /// assert_eq!(buf.as_slice(), b"<div>Hello</div>");
 /// assert!(!buf.is_spilled()); // still inline
 /// ```
@@ -1298,6 +1776,7 @@ impl<const N: usize> Default for SmallBuf<N> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<const N: usize> WriteBuf for SmallBuf<N> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -1326,7 +1805,8 @@ impl<const N: usize> WriteBuf for SmallBuf<N> {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         if let Some(v) = &mut self.spill {
             v.extend_from_slice(bytes);
             return Ok(());
@@ -1344,7 +1824,7 @@ impl<const N: usize> WriteBuf for SmallBuf<N> {
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         if let Some(v) = &mut self.spill {
             v.push(byte);
             return Ok(());
@@ -1360,22 +1840,24 @@ impl<const N: usize> WriteBuf for SmallBuf<N> {
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
         if let Some(v) = &mut self.spill {
-            return v.extend_with(max_len, f);
+            // SAFETY: forwarded contract.
+            return unsafe { v.extend_with(max_len, f) };
         }
-        if self.len + max_len <= N {
-            let len = f(&mut self.inline[self.len..self.len + max_len]);
+        if max_len <= N - self.len {
+            let len = window_len(f(&mut self.inline[self.len..self.len + max_len]), max_len);
             self.len += len;
             Ok(())
         } else {
             // Fall back to stack buffer + extend (will spill if needed)
             let mut tmp = [0u8; 40];
-            let len = f(&mut tmp[..max_len]);
-            self.extend(&tmp[..len])
+            let len = window_len(f(&mut tmp[..max_len]), max_len);
+            // SAFETY: the caller guarantees the written bytes are valid UTF-8.
+            self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
         }
     }
 
@@ -1471,7 +1953,7 @@ impl<const N: usize> CheckpointWriteBuf for SmallBuf<N> {
 /// use proa_core::shared::write_buf::{StagedBuf, WriteBuf};
 ///
 /// let mut buf = StagedBuf::<4096>::new();
-/// buf.extend(b"<div>Hello</div>").unwrap();
+/// buf.extend_str("<div>Hello</div>").unwrap();
 /// assert_eq!(buf.len(), 16);
 /// let output = buf.finish();
 /// assert_eq!(output, b"<div>Hello</div>");
@@ -1526,6 +2008,7 @@ impl<const N: usize> Default for StagedBuf<N> {
     }
 }
 
+#[allow(unsafe_code)]
 impl<const N: usize> WriteBuf for StagedBuf<N> {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -1549,7 +2032,8 @@ impl<const N: usize> WriteBuf for StagedBuf<N> {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         let new_pos = self.pos + bytes.len();
         if new_pos <= N {
             // Fast path: fits in stage
@@ -1570,7 +2054,7 @@ impl<const N: usize> WriteBuf for StagedBuf<N> {
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         if self.pos >= N {
             self.flush();
         }
@@ -1580,18 +2064,19 @@ impl<const N: usize> WriteBuf for StagedBuf<N> {
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        if self.pos + max_len <= N {
-            let len = f(&mut self.inline[self.pos..self.pos + max_len]);
+        if max_len <= N - self.pos {
+            let len = window_len(f(&mut self.inline[self.pos..self.pos + max_len]), max_len);
             self.pos += len;
             Ok(())
         } else {
             let mut tmp = [0u8; 40];
-            let len = f(&mut tmp[..max_len]);
-            self.extend(&tmp[..len])
+            let len = window_len(f(&mut tmp[..max_len]), max_len);
+            // SAFETY: the caller guarantees the written bytes are valid UTF-8.
+            self.extend_str(unsafe { core::str::from_utf8_unchecked(&tmp[..len]) })
         }
     }
 
@@ -1702,6 +2187,7 @@ impl ZeroCopyBuf {
     }
 }
 
+#[allow(unsafe_code)]
 impl WriteBuf for ZeroCopyBuf {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -1718,7 +2204,8 @@ impl WriteBuf for ZeroCopyBuf {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         let start = self.owned.len() as u32;
         self.owned.extend_from_slice(bytes);
         // Coalesce with previous Owned part (they're always contiguous in the owned buffer)
@@ -1735,13 +2222,14 @@ impl WriteBuf for ZeroCopyBuf {
     }
 
     #[inline(always)]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         // Inline small static slices into the owned buffer rather than
         // creating separate zero-copy parts. This collapses tiny fragments
         // (quotes, closing tags, attribute prefixes) into adjacent Owned
         // runs, dramatically reducing part count.
         if bytes.len() <= 256 {
-            return self.extend(bytes);
+            return self.extend_str(text);
         }
         self.parts.push(Part::Static(bytes));
         self.total_len += bytes.len();
@@ -2050,6 +2538,7 @@ impl Default for StreamingZeroCopyBuf {
     }
 }
 
+#[allow(unsafe_code)]
 impl WriteBuf for StreamingZeroCopyBuf {
     #[inline(always)]
     fn capacity(&self) -> usize {
@@ -2068,7 +2557,8 @@ impl WriteBuf for StreamingZeroCopyBuf {
     }
 
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         self.ensure_current_capacity(bytes.len());
         self.current.extend_from_slice(bytes);
         self.total_len += bytes.len();
@@ -2076,11 +2566,12 @@ impl WriteBuf for StreamingZeroCopyBuf {
     }
 
     #[inline(always)]
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         // Keep tiny static fragments coalesced with adjacent dynamic bytes to
         // avoid exploding the part count on normal templates.
         if bytes.len() <= STREAMING_INLINE_STATIC_THRESHOLD {
-            return self.extend(bytes);
+            return self.extend_str(text);
         }
         self.seal_current();
         self.parts.push(StreamingChunkPart::Static(bytes));
@@ -2089,7 +2580,7 @@ impl WriteBuf for StreamingZeroCopyBuf {
     }
 
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         self.ensure_current_capacity(1);
         self.current.put_u8(byte);
         self.total_len += 1;
@@ -2097,14 +2588,14 @@ impl WriteBuf for StreamingZeroCopyBuf {
     }
 
     #[inline(always)]
-    fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
+    unsafe fn extend_with<F>(&mut self, max_len: usize, f: F) -> Result<(), WriteError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
         self.ensure_current_capacity(max_len);
         let start = self.current.len();
         self.current.resize(start + max_len, 0);
-        let written = f(&mut self.current[start..start + max_len]);
+        let written = window_len(f(&mut self.current[start..start + max_len]), max_len);
         self.current.truncate(start + written);
         self.total_len += written;
         Ok(())
@@ -2188,9 +2679,9 @@ mod tests {
     #[test]
     fn vec_basic_operations() {
         let mut buf: Vec<u8> = Vec::new();
-        WriteBuf::extend(&mut buf, b"hello").unwrap();
+        WriteBuf::extend_str(&mut buf, "hello").unwrap();
         WriteBuf::push(&mut buf, b' ').unwrap();
-        WriteBuf::extend(&mut buf, b"world").unwrap();
+        WriteBuf::extend_str(&mut buf, "world").unwrap();
         assert_eq!(WriteBuf::as_slice(&buf), b"hello world");
         assert_eq!(WriteBuf::len(&buf), 11);
     }
@@ -2227,9 +2718,9 @@ mod tests {
     fn cursor_writes_within_capacity() {
         let mut backing = [0u8; 32];
         let mut cur = WriteCursor::new(&mut backing);
-        cur.extend(b"<div>").unwrap();
-        cur.extend(b"test").unwrap();
-        cur.extend(b"</div>").unwrap();
+        cur.extend_str("<div>").unwrap();
+        cur.extend_str("test").unwrap();
+        cur.extend_str("</div>").unwrap();
         assert_eq!(cur.as_slice(), b"<div>test</div>");
         assert_eq!(cur.len(), 15);
         assert_eq!(cur.remaining(), 17);
@@ -2240,7 +2731,7 @@ mod tests {
         let mut backing = [0u8; 4];
         let mut cur = WriteCursor::new(&mut backing);
         assert!(matches!(
-            cur.extend(b"12345"),
+            cur.extend_str("12345"),
             Err(WriteError::OutOfCapacity)
         ));
         // len should remain unchanged on error
@@ -2263,11 +2754,11 @@ mod tests {
     fn cursor_clear_and_reuse() {
         let mut backing = [0u8; 16];
         let mut cur = WriteCursor::new(&mut backing);
-        cur.extend(b"first").unwrap();
+        cur.extend_str("first").unwrap();
         assert_eq!(cur.len(), 5);
         cur.clear();
         assert_eq!(cur.len(), 0);
-        cur.extend(b"second").unwrap();
+        cur.extend_str("second").unwrap();
         assert_eq!(cur.as_slice(), b"second");
     }
 
@@ -2277,9 +2768,48 @@ mod tests {
         let mut cur = WriteCursor::new(&mut backing);
         assert!(cur.reserve(8).is_ok());
         assert!(cur.reserve(9).is_err());
-        cur.extend(b"1234").unwrap();
+        cur.extend_str("1234").unwrap();
         assert!(cur.reserve(4).is_ok());
         assert!(cur.reserve(5).is_err());
+    }
+
+    fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+        match payload.downcast::<String>() {
+            Ok(message) => *message,
+            Err(payload) => payload
+                .downcast_ref::<&str>()
+                .map_or_else(String::new, |message| (*message).to_owned()),
+        }
+    }
+
+    /// Run `write`, which must panic, and return its panic message.
+    fn expect_panic(write: impl FnOnce()) -> String {
+        let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(write))
+            .expect_err("expected a panic");
+        panic_message(payload)
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn bump_writer_rejects_oversized_window() {
+        let mut buf = BumpWriter::<8>::new();
+        buf.extend_str("start").unwrap();
+
+        // SAFETY: the callback is never called.
+        let result = unsafe { buf.extend_with(usize::MAX, |_| panic!("reservation should fail")) };
+
+        assert_eq!(result, Err(WriteError::OutOfCapacity));
+        buf.extend_str("end").unwrap();
+        assert_eq!(buf.as_written(), b"startend");
+    }
+
+    #[test]
+    #[should_panic(expected = "in-place writer overran its window")]
+    #[allow(unsafe_code)]
+    fn bump_writer_panics_when_callback_overreports() {
+        let mut buf = BumpWriter::<8>::new();
+        // SAFETY: the panic fires before the reported bytes are published.
+        let _ = unsafe { buf.extend_with(1, |spare| spare.len() + 1) };
     }
 
     // ChainedBumpWriter tests
@@ -2287,7 +2817,7 @@ mod tests {
     #[test]
     fn chained_single_page() {
         let mut buf = ChainedBumpWriter::<64>::new();
-        buf.extend(b"hello world").unwrap();
+        buf.extend_str("hello world").unwrap();
         assert_eq!(buf.len(), 11);
         assert_eq!(buf.page_count(), 1);
         assert_eq!(buf.to_vec(), b"hello world");
@@ -2296,8 +2826,8 @@ mod tests {
     #[test]
     fn chained_into_vec_transfers_single_page_allocation() {
         let mut buf = ChainedBumpWriter::<64>::new();
-        buf.extend(b"hello world").unwrap();
-        let page_ptr = buf.current.buf.as_ptr();
+        buf.extend_str("hello world").unwrap();
+        let page_ptr = buf.current.buf.as_ptr().cast::<u8>();
 
         let bytes = buf.into_vec();
 
@@ -2309,15 +2839,162 @@ mod tests {
     #[test]
     fn chained_into_vec_flattens_multiple_pages_once() {
         let mut buf = ChainedBumpWriter::<4>::new();
-        buf.extend(b"123456789").unwrap();
+        buf.extend_str("123456789").unwrap();
 
         assert_eq!(buf.into_vec(), b"123456789");
     }
 
     #[test]
+    fn chained_into_string_transfers_single_page_allocation() {
+        let mut buf = RenderBuffer::new();
+        buf.extend_str("Grüße").unwrap();
+        let page_ptr = buf.as_slice().as_ptr();
+
+        let text = buf.into_string();
+
+        assert_eq!(text, "Grüße");
+        assert_eq!(text.as_ptr(), page_ptr);
+    }
+
+    #[test]
+    fn chained_into_string_accepts_code_point_across_pages() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("abc🦀").unwrap();
+
+        assert!(buf.page_count() > 1);
+        assert_eq!(buf.into_string(), "abc🦀");
+    }
+
+    // Release builds trust the write paths, so invalid bytes here would be
+    // undefined behavior rather than a panic.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn chained_into_string_rejects_invalid_utf8_in_debug_builds() {
+        for (prefix, pages) in [("", 1), ("abcd", 2)] {
+            let mut buf = ChainedBumpWriter::<4>::new();
+            buf.extend_str(prefix).unwrap();
+            buf.extend_str("e").unwrap();
+            assert_eq!(buf.page_count(), pages);
+            // Set the byte directly to exercise the check at string conversion.
+            buf.current.buf[0].write(0xff);
+
+            let message = expect_panic(|| drop(buf.into_string()));
+            assert!(
+                message.contains("broke the UTF-8 contract"),
+                "{pages} page(s): {message}"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_rejects_window_larger_than_scratch() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("abc").unwrap();
+
+        // SAFETY: the callback is never called.
+        let result = unsafe { buf.extend_with(usize::MAX, |_| panic!("reservation should fail")) };
+
+        assert_eq!(result, Err(WriteError::OutOfCapacity));
+        buf.extend_str("de").unwrap();
+        assert_eq!(buf.into_string(), "abcde");
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_accepts_page_sized_window_near_page_end() {
+        let mut buf = ChainedBumpWriter::<64>::new();
+        buf.extend_str(&"a".repeat(60)).unwrap();
+
+        // SAFETY: the callback writes ASCII digits.
+        unsafe {
+            buf.extend_with(48, |spare| {
+                spare[..5].copy_from_slice(b"12345");
+                5
+            })
+            .unwrap();
+        }
+
+        assert_eq!(buf.page_count(), 2);
+        assert_eq!(buf.into_string(), format!("{}12345", "a".repeat(60)));
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_splits_window_larger_than_page() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("ab").unwrap();
+
+        // SAFETY: the callback writes ASCII digits.
+        unsafe {
+            buf.extend_with(20, |spare| {
+                spare[..7].copy_from_slice(b"1234567");
+                7
+            })
+            .unwrap();
+        }
+
+        assert_eq!(buf.into_string(), "ab1234567");
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn chained_writer_panics_when_callback_overreports() {
+        // In place, after rotating to a fresh page, and through the stack
+        // window used for requests larger than a page.
+        for (prefix, max_len) in [("abc", 1), ("abc", 2), ("", 8)] {
+            let mut buf = ChainedBumpWriter::<4>::new();
+            buf.extend_str(prefix).unwrap();
+
+            // SAFETY: the panic fires before the reported bytes are published.
+            let message = expect_panic(|| {
+                let _ = unsafe { buf.extend_with(max_len, |spare| spare.len() + 1) };
+            });
+
+            assert!(
+                message.contains("in-place writer overran its window"),
+                "max_len {max_len}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn unchecked_writers_panic_when_callback_overreports() {
+        use crate::shared::output_meter::{MeteredWriteBuf, OutputMeter};
+
+        fn overreport<B: WriteBuf>(mut buf: B) -> String {
+            // SAFETY: the panic fires before the reported bytes are published.
+            expect_panic(move || {
+                let _ = unsafe { buf.extend_with(4, |spare| spare.len() + 1) };
+            })
+        }
+
+        let mut backing = [0u8; 16];
+        let meter = OutputMeter::new(1024);
+        let messages = [
+            overreport(Vec::<u8>::new()),
+            overreport(WriteCursor::new(&mut backing)),
+            overreport(SmallBuf::<16>::new()),
+            overreport(SmallBuf::<2>::new()),
+            overreport(StagedBuf::<16>::new()),
+            overreport(StagedBuf::<2>::new()),
+            overreport(StreamingZeroCopyBuf::new()),
+            overreport(MeteredWriteBuf::new(RenderBuffer::new(), meter.borrow())),
+        ];
+
+        for message in messages {
+            assert!(
+                message.contains("in-place writer overran its window"),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
     fn chained_into_pages_transfers_allocations_and_written_lengths() {
         let mut buf = ChainedBumpWriter::<4>::new();
-        buf.extend(b"123456789").unwrap();
+        buf.extend_str("123456789").unwrap();
         let pointers: Vec<_> = buf
             .slices()
             .filter(|page| !page.is_empty())
@@ -2335,9 +3012,9 @@ mod tests {
     #[test]
     fn chained_into_pages_omits_empty_and_recycled_pages() {
         let mut buf = ChainedBumpWriter::<4>::new();
-        buf.extend(b"old pages to recycle").unwrap();
+        buf.extend_str("old pages to recycle").unwrap();
         buf.clear();
-        buf.extend(b"new").unwrap();
+        buf.extend_str("new").unwrap();
         let pages: Vec<_> = buf.into_pages().collect();
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0], b"new"[..]);
@@ -2347,29 +3024,144 @@ mod tests {
     #[test]
     fn chained_rotates_on_overflow() {
         let mut buf = ChainedBumpWriter::<8>::new();
-        buf.extend(b"1234").unwrap();
-        buf.extend(b"5678").unwrap(); // fills page 1
+        buf.extend_str("1234").unwrap();
+        buf.extend_str("5678").unwrap(); // fills page 1
         assert_eq!(buf.page_count(), 1);
-        buf.extend(b"9abc").unwrap(); // triggers rotation
+        buf.extend_str("9abc").unwrap(); // triggers rotation
         assert_eq!(buf.page_count(), 2);
         assert_eq!(buf.to_vec(), b"123456789abc");
     }
 
     #[test]
+    fn chained_short_copies_match_a_plain_copy_at_every_length() {
+        // 0..=130 crosses every width class and its edges (1, 2, 4, 8, 16, 32,
+        // 64, 65). `black_box` keeps each length a run-time value so the
+        // branches in `copy_short` run instead of folding away.
+        let source: String = (0..130u8).map(|i| char::from(b'!' + i % 90)).collect();
+        for len in 0..=source.len() {
+            let mut buffer = RenderBuffer::new();
+            buffer.extend_str("xyz").unwrap();
+            buffer
+                .extend_str(std::hint::black_box(&source[..len]))
+                .unwrap();
+            buffer.extend_str("|").unwrap();
+            assert_eq!(buffer.into_string(), format!("xyz{}|", &source[..len]));
+        }
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn short_classifying_copy_copies_and_classifies_at_every_length() {
+        use crate::shared::escape::BYTE_CLASS;
+        // Markup, quotes and the first byte of U+00A0: every class.
+        let classes = 0b111;
+        // `&`, a quote, NUL and 0xC2 are in a class; `#`, `=`, 0xC3 and the
+        // rest sit next to them in the byte table and are in none.
+        let probes = [
+            b'&', b'<', b'>', b'"', b'\'', 0x00, 0xC2, b'#', b'=', b'!', 0xC3, b'a',
+        ];
+        for len in 0..=64usize {
+            for position in 0..len.max(1) {
+                for probe in probes {
+                    let mut source = [b'a'; 64];
+                    if len > 0 {
+                        source[position] = probe;
+                    }
+                    let special = len > 0 && BYTE_CLASS[probe as usize] & classes != 0;
+                    let mut destination = [b'.'; 80];
+                    // SAFETY: `len <= 64`, both arrays hold at least `len`
+                    // bytes from the pointers given, and they are distinct.
+                    let hit = unsafe {
+                        copy_short_classifying(
+                            std::hint::black_box(source.as_ptr()),
+                            destination.as_mut_ptr().add(8),
+                            std::hint::black_box(len),
+                            classes,
+                        )
+                    };
+                    let context = format!("len={len}, position={position}, probe={probe:#04x}");
+                    assert_eq!(hit, special, "{context}");
+                    assert_eq!(&destination[8..8 + len], &source[..len], "{context}");
+                    // Nothing outside the destination range is touched.
+                    assert!(destination[..8].iter().all(|&b| b == b'.'), "{context}");
+                    assert!(
+                        destination[8 + len..].iter().all(|&b| b == b'.'),
+                        "{context}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn chained_appends_a_clean_value_with_the_text_around_it() {
+        let mut buf = ChainedBumpWriter::<64>::new();
+        buf.extend_str("<a").unwrap();
+        assert_eq!(
+            buf.__append_if_clean(" href=\"", "/home", "\"", 0b111),
+            Ok(true)
+        );
+        assert_eq!(buf.__append_if_clean("", "", "", 0b111), Ok(true));
+        buf.extend_str(">").unwrap();
+        assert_eq!(buf.page_count(), 1);
+        assert_eq!(buf.into_string(), "<a href=\"/home\">");
+    }
+
+    #[test]
+    fn chained_leaves_a_value_it_does_not_append_to_the_caller() {
+        let mut buf = ChainedBumpWriter::<64>::new();
+        buf.extend_str("<a").unwrap();
+        // Something to escape: copied into the page's unwritten part, then
+        // abandoned there.
+        assert_eq!(
+            buf.__append_if_clean(" href=\"", "/a&b", "\"", 0b111),
+            Ok(false)
+        );
+        assert_eq!(buf.as_slice(), b"<a");
+        // Too long for the copying check, in a page that has room for it, so
+        // the length limit is the only thing that turns it away.
+        let mut roomy = ChainedBumpWriter::<256>::new();
+        let long = "x".repeat(65);
+        assert_eq!(roomy.__append_if_clean("", &long, "", 0b111), Ok(false));
+        assert!(roomy.is_empty());
+        assert_eq!(
+            roomy.__append_if_clean("", &long[..64], "", 0b111),
+            Ok(true)
+        );
+        assert_eq!(roomy.len(), 64);
+        // Does not fit in what is left of the page: 2 + 7 + 55 + 1 > 64.
+        let wide = "y".repeat(55);
+        assert_eq!(
+            buf.__append_if_clean(" href=\"", &wide, "\"", 0b111),
+            Ok(false)
+        );
+        assert_eq!(buf.as_slice(), b"<a");
+        // The next write goes over whatever the abandoned copy left behind.
+        buf.extend_str(">").unwrap();
+        assert_eq!(buf.into_string(), "<a>");
+    }
+
+    #[test]
+    #[should_panic]
+    fn chained_zero_sized_page_panics_on_push() {
+        let _ = ChainedBumpWriter::<0>::new().push(b'x');
+    }
+
+    #[test]
     fn chained_oversized_write() {
         let mut buf = ChainedBumpWriter::<4>::new();
-        buf.extend(b"12345678").unwrap(); // larger than page size
+        buf.extend_str("12345678").unwrap(); // larger than page size
         assert_eq!(buf.to_vec(), b"12345678");
     }
 
     #[test]
     fn chained_clear_reuse() {
         let mut buf = ChainedBumpWriter::<8>::new();
-        buf.extend(b"1234567890").unwrap();
+        buf.extend_str("1234567890").unwrap();
         assert!(buf.page_count() >= 2);
         buf.clear();
         assert_eq!(buf.len(), 0);
-        buf.extend(b"abc").unwrap();
+        buf.extend_str("abc").unwrap();
         assert_eq!(buf.to_vec(), b"abc");
     }
 
@@ -2377,7 +3169,7 @@ mod tests {
     fn chained_clear_recycles_pages() {
         let mut buf = ChainedBumpWriter::<8>::new();
         // Write 10 bytes — overflows first 8-byte page, rotates to second
-        buf.extend(b"1234567890").unwrap();
+        buf.extend_str("1234567890").unwrap();
         assert!(!buf.full.is_empty());
         assert_eq!(buf.spare.len(), 0);
 
@@ -2390,7 +3182,7 @@ mod tests {
     #[test]
     fn chained_oversized_write_spans_pages() {
         let mut buf = ChainedBumpWriter::<4>::new();
-        buf.extend(b"12345678").unwrap();
+        buf.extend_str("12345678").unwrap();
         // 8 bytes across 4-byte pages = at least 2 full pages
         assert!(!buf.full.is_empty());
         assert_eq!(buf.len(), 8);
@@ -2402,8 +3194,8 @@ mod tests {
     #[test]
     fn chained_slices_iterator() {
         let mut buf = ChainedBumpWriter::<4>::new();
-        buf.extend(b"aaaa").unwrap(); // fills page 1
-        buf.extend(b"bb").unwrap(); // starts page 2
+        buf.extend_str("aaaa").unwrap(); // fills page 1
+        buf.extend_str("bb").unwrap(); // starts page 2
         let slices: Vec<&[u8]> = buf.slices().collect();
         assert_eq!(slices, vec![b"aaaa".as_slice(), b"bb".as_slice()]);
     }
@@ -2415,11 +3207,11 @@ mod tests {
         static LARGE: &[u8] = &[b'X'; 300];
 
         let mut buf = StreamingZeroCopyBuf::with_capacity(8, 16);
-        buf.extend(b"hello").unwrap();
+        buf.extend_str("hello").unwrap();
         let hello = buf.mark();
 
         buf.extend_static(LARGE).unwrap();
-        buf.extend(b"world").unwrap();
+        buf.extend_str("world").unwrap();
         let tail = buf.mark();
 
         let first = buf.flush_through(hello).unwrap();
@@ -2454,13 +3246,13 @@ mod tests {
     #[test]
     fn streaming_zero_copy_flush_all_keeps_builder_reusable() {
         let mut buf = StreamingZeroCopyBuf::with_capacity(4, 8);
-        buf.extend(b"abc").unwrap();
+        buf.extend_str("abc").unwrap();
 
         let first = buf.flush_all().unwrap();
         assert_eq!(first.to_vec(), b"abc");
         assert!(buf.is_empty());
 
-        buf.extend(b"def").unwrap();
+        buf.extend_str("def").unwrap();
         let second = buf.freeze();
         assert_eq!(second.to_vec(), b"def");
     }
@@ -2484,7 +3276,7 @@ mod tests {
     #[test]
     fn smallbuf_stays_inline() {
         let mut buf = SmallBuf::<64>::new();
-        buf.extend(b"hello world").unwrap();
+        buf.extend_str("hello world").unwrap();
         assert_eq!(buf.as_slice(), b"hello world");
         assert_eq!(buf.len(), 11);
         assert!(!buf.is_spilled());
@@ -2493,9 +3285,9 @@ mod tests {
     #[test]
     fn smallbuf_spills_to_heap() {
         let mut buf = SmallBuf::<8>::new();
-        buf.extend(b"1234").unwrap();
+        buf.extend_str("1234").unwrap();
         assert!(!buf.is_spilled());
-        buf.extend(b"56789ABC").unwrap(); // exceeds 8 bytes
+        buf.extend_str("56789ABC").unwrap(); // exceeds 8 bytes
         assert!(buf.is_spilled());
         assert_eq!(buf.as_slice(), b"123456789ABC");
         assert_eq!(buf.len(), 12);
@@ -2516,29 +3308,29 @@ mod tests {
     #[test]
     fn smallbuf_clear_reuse() {
         let mut buf = SmallBuf::<16>::new();
-        buf.extend(b"first").unwrap();
+        buf.extend_str("first").unwrap();
         buf.clear();
         assert_eq!(buf.len(), 0);
-        buf.extend(b"second").unwrap();
+        buf.extend_str("second").unwrap();
         assert_eq!(buf.as_slice(), b"second");
     }
 
     #[test]
     fn smallbuf_clear_after_spill_reuses_heap() {
         let mut buf = SmallBuf::<4>::new();
-        buf.extend(b"12345678").unwrap(); // spill
+        buf.extend_str("12345678").unwrap(); // spill
         assert!(buf.is_spilled());
         buf.clear();
         assert_eq!(buf.len(), 0);
         // still spilled (vec is cleared, not dropped) — avoids re-spill
-        buf.extend(b"abc").unwrap();
+        buf.extend_str("abc").unwrap();
         assert_eq!(buf.as_slice(), b"abc");
     }
 
     #[test]
     fn smallbuf_exact_capacity_no_spill() {
         let mut buf = SmallBuf::<5>::new();
-        buf.extend(b"exact").unwrap();
+        buf.extend_str("exact").unwrap();
         assert!(!buf.is_spilled());
         assert_eq!(buf.as_slice(), b"exact");
     }
@@ -2546,7 +3338,7 @@ mod tests {
     #[test]
     fn smallbuf_to_vec() {
         let mut buf = SmallBuf::<32>::new();
-        buf.extend(b"<div>test</div>").unwrap();
+        buf.extend_str("<div>test</div>").unwrap();
         assert_eq!(buf.to_vec(), b"<div>test</div>");
     }
 
@@ -2555,9 +3347,9 @@ mod tests {
     #[test]
     fn stagedbuf_small_writes() {
         let mut buf = StagedBuf::<16>::new();
-        buf.extend(b"hello").unwrap();
-        buf.extend(b" ").unwrap();
-        buf.extend(b"world").unwrap();
+        buf.extend_str("hello").unwrap();
+        buf.extend_str(" ").unwrap();
+        buf.extend_str("world").unwrap();
         assert_eq!(buf.len(), 11);
         assert_eq!(buf.finish(), b"hello world");
     }
@@ -2565,10 +3357,10 @@ mod tests {
     #[test]
     fn stagedbuf_flush_on_overflow() {
         let mut buf = StagedBuf::<8>::new();
-        buf.extend(b"1234").unwrap();
-        buf.extend(b"5678").unwrap(); // fills stage exactly
+        buf.extend_str("1234").unwrap();
+        buf.extend_str("5678").unwrap(); // fills stage exactly
         assert_eq!(buf.pos, 8);
-        buf.extend(b"9").unwrap(); // triggers flush
+        buf.extend_str("9").unwrap(); // triggers flush
         assert_eq!(buf.out, b"12345678");
         assert_eq!(buf.pos, 1);
         assert_eq!(buf.finish(), b"123456789");
@@ -2577,7 +3369,7 @@ mod tests {
     #[test]
     fn stagedbuf_large_write_bypasses_stage() {
         let mut buf = StagedBuf::<4>::new();
-        buf.extend(b"12345678").unwrap(); // larger than stage
+        buf.extend_str("12345678").unwrap(); // larger than stage
         assert_eq!(buf.out, b"12345678");
         assert_eq!(buf.pos, 0);
     }
@@ -2585,19 +3377,102 @@ mod tests {
     #[test]
     fn stagedbuf_clear_reuse() {
         let mut buf = StagedBuf::<16>::new();
-        buf.extend(b"first").unwrap();
+        buf.extend_str("first").unwrap();
         buf.clear();
         assert_eq!(buf.len(), 0);
-        buf.extend(b"second").unwrap();
+        buf.extend_str("second").unwrap();
         assert_eq!(buf.finish(), b"second");
     }
 
     #[test]
     fn smallbuf_reserve_triggers_spill() {
         let mut buf = SmallBuf::<8>::new();
-        buf.extend(b"1234").unwrap();
+        buf.extend_str("1234").unwrap();
         buf.reserve(16).unwrap(); // 4 + 16 > 8, should spill
         assert!(buf.is_spilled());
         assert_eq!(buf.as_slice(), b"1234"); // data preserved
+    }
+}
+
+#[cfg(test)]
+mod utf8_contract_tests {
+    use super::*;
+
+    #[test]
+    fn raw_byte_writes_are_validated_where_they_are_written() {
+        let mut buf = RenderBuffer::new();
+        assert_eq!(buf.extend(&[0xff]), Err(WriteError::InvalidUtf8));
+        // A lone lead byte: half of a character split across two writes.
+        assert_eq!(buf.extend_static(&[0xC3]), Err(WriteError::InvalidUtf8));
+        assert_eq!(buf.push(0xC3), Err(WriteError::InvalidUtf8));
+        assert_eq!(
+            buf.extend_shared(&Bytes::from_static(&[0xE2, 0x82])),
+            Err(WriteError::InvalidUtf8)
+        );
+        assert!(buf.is_empty(), "a rejected write must not commit bytes");
+
+        buf.extend("caf\u{e9}".as_bytes()).unwrap();
+        buf.push(b'!').unwrap();
+        assert_eq!(buf.into_string(), "caf\u{e9}!");
+    }
+
+    #[test]
+    fn a_stale_checkpoint_cannot_cut_a_character_in_half() {
+        let mut buf = RenderBuffer::new();
+        buf.extend_str("ab").unwrap();
+        let start = buf.checkpoint();
+        buf.extend_str("cd").unwrap();
+        let stale = buf.checkpoint(); // byte offset 4
+        assert!(buf.rewind_to(start));
+        // Offset 4 is now inside the first two-byte character.
+        buf.extend_str("x\u{e9}\u{e9}").unwrap();
+        assert!(!buf.rewind_to(stale));
+        assert_eq!(buf.into_string(), "abx\u{e9}\u{e9}");
+    }
+
+    #[test]
+    fn a_stale_checkpoint_cannot_cut_a_character_split_across_pages() {
+        let mut buf = ChainedBumpWriter::<4>::new();
+        buf.extend_str("wxyz").unwrap();
+        let keep = buf.checkpoint();
+        buf.extend_str("abcd").unwrap();
+        let stale = buf.checkpoint(); // end of the second page
+        assert!(buf.rewind_to(keep));
+        // Larger than a page, so it is split mid-character: the second page
+        // ends on the lead byte of U+00E9 and the third starts with the rest.
+        buf.extend_str("abc\u{e9}z").unwrap();
+        assert_eq!(buf.page_count(), 3);
+        assert!(!buf.rewind_to(stale));
+        assert_eq!(buf.into_string(), "wxyzabc\u{e9}z");
+    }
+
+    #[test]
+    #[allow(unsafe_code)]
+    fn the_in_place_writer_sees_zeros_on_fresh_and_reused_pages() {
+        // Fresh page: allocated but never zero-filled.
+        let mut buffer = RenderBuffer::new();
+        // SAFETY: the closure writes ASCII digits.
+        unsafe {
+            buffer.extend_with(8, |window| {
+                assert_eq!(window, [0u8; 8]);
+                window[..2].copy_from_slice(b"42");
+                2
+            })
+        }
+        .unwrap();
+        buffer.extend_str(&"secret".repeat(100)).unwrap();
+
+        // Reused page: still holds the bytes written above.
+        buffer.clear();
+        // SAFETY: the closure writes ASCII digits.
+        unsafe {
+            buffer.extend_with(8, |window| {
+                assert_eq!(window, [0u8; 8]);
+                window[..1].copy_from_slice(b"7");
+                1
+            })
+        }
+        .unwrap();
+        assert_eq!(buffer.into_string(), "7");
     }
 }

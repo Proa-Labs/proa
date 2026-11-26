@@ -8,10 +8,10 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
-use proa_core::{
+use proa::html_sync;
+use proa::{
     DataLoader, NoLoader, RenderBuffer, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_macros::html_sync;
 
 mod assets;
 pub mod components;
@@ -29,7 +29,7 @@ pub fn app() -> Router {
         .route("/webmcp-bridge.js", get(assets::webmcp_bridge))
         .route("/rsjs-runtime.js", get(assets::rsjs_runtime))
         .route("/rsjs-runtime-query.js", get(assets::rsjs_query_runtime))
-        .route("/rsjs/island/:file", get(assets::rsjs_asset))
+        .route("/rsjs/island/{file}", get(assets::rsjs_asset))
 }
 
 async fn index() -> Html<String> {

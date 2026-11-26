@@ -26,6 +26,11 @@ release_always = true
 semver_check = true
 
 [[package]]
+name = "proa"
+release = true
+version_group = "proa-ssr-0-3"
+
+[[package]]
 name = "proa_core"
 release = true
 version_group = "proa-ssr-0-3"
@@ -47,11 +52,6 @@ release = true
 [[package]]
 name = "proa_docs_build"
 release = true
-
-[[package]]
-name = "proa_react"
-release = true
-version_group = "proa-ssr-0-3"
 
 [[package]]
 name = "proa_actions"
@@ -91,10 +91,6 @@ release = true
 
 [[package]]
 name = "proa_ir"
-release = true
-
-[[package]]
-name = "proa_codegen"
 release = true
 
 [[package]]
@@ -164,6 +160,10 @@ git_tag_enable = true
 
 [[package]]
 name = "proa_html_policy"
+release = true
+
+[[package]]
+name = "proa_assets"
 release = true
 
 [[package]]

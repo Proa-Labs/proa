@@ -101,8 +101,9 @@ impl StreamChunkFlusher for CapturingFlusher {
 #[test]
 fn render_buffer_view_preserves_multi_page_order_and_skips_empty_slices() {
     let mut buffer = RenderBuffer::new();
+    // Printable ASCII: raw byte writes must be valid UTF-8 on their own.
     let payload = (0..9_000)
-        .map(|index| (index % 251) as u8)
+        .map(|index| b' ' + (index % 95) as u8)
         .collect::<Vec<_>>();
     buffer.extend(&payload).unwrap();
 
@@ -135,7 +136,7 @@ fn failed_render_buffer_flush_discards_attempted_chunk_once() {
     let mut cx: WebContext<NoLoader, RenderBuffer> = WebContext::with_buffer(RenderBuffer::new())
         .with_render_mode(RenderMode::ChunkedInOrder)
         .with_stream_chunk_flusher(flusher);
-    cx.out.extend(b"attempted").unwrap();
+    cx.out.extend_str("attempted").unwrap();
 
     assert_eq!(cx.flush_stream_chunk(), Err(WriteError::StreamClosed));
     assert!(cx.out.is_empty());

@@ -49,70 +49,32 @@ impl<C, Fb> Suspense<C, Fb> {
 /// boundary is cancelled, unwinds, or returns before its final successful
 /// flush. Nested successful flushes have already cleared the buffer and remain
 /// committed on the wire.
-struct ClearRenderBufferOnDrop {
-    out: *mut RenderBuffer,
+struct ClearRenderBufferOnDrop<'a, L: DataLoader> {
+    cx: &'a mut WebContext<L, RenderBuffer>,
     armed: bool,
 }
 
-impl ClearRenderBufferOnDrop {
-    fn new(out: &mut RenderBuffer) -> Self {
-        Self {
-            out: std::ptr::from_mut(out),
-            armed: true,
-        }
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for ClearRenderBufferOnDrop {
-    #[allow(unsafe_code)]
+impl<L: DataLoader> Drop for ClearRenderBufferOnDrop<'_, L> {
     fn drop(&mut self) {
         if self.armed {
-            // SAFETY: the guard is created inside the boundary future from
-            // that future's exclusive context borrow before the awaited child
-            // future. The child future is dropped first during cancellation,
-            // so no outstanding child access remains when cleanup runs.
-            unsafe { (*self.out).clear() };
+            self.cx.out.clear();
         }
     }
 }
 
 /// Restores the Markdown-local state that the old disposable child context
 /// isolated when a same-context boundary does not complete successfully.
-struct RestoreMarkdownBoundaryOnDrop<L: DataLoader> {
-    cx: *mut WebContext<L, RenderBuffer>,
+struct RestoreMarkdownBoundaryOnDrop<'a, L: DataLoader> {
+    cx: &'a mut WebContext<L, RenderBuffer>,
     state: MdState,
     armed: bool,
 }
 
-impl<L: DataLoader> RestoreMarkdownBoundaryOnDrop<L> {
-    fn new(cx: &mut WebContext<L, RenderBuffer>) -> Self {
-        Self {
-            cx: std::ptr::from_mut(cx),
-            state: cx.md_state(),
-            armed: true,
-        }
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl<L: DataLoader> Drop for RestoreMarkdownBoundaryOnDrop<L> {
-    #[allow(unsafe_code)]
+impl<L: DataLoader> Drop for RestoreMarkdownBoundaryOnDrop<'_, L> {
     fn drop(&mut self) {
         if self.armed {
-            // SAFETY: this guard is created before the awaited child future,
-            // which is dropped first on cancellation/unwind. The boundary
-            // owns the exclusive context borrow for the guard's lifetime.
-            unsafe {
-                (*self.cx).out.clear();
-                (*self.cx).set_md_state(self.state);
-            }
+            self.cx.out.clear();
+            self.cx.set_md_state(self.state);
         }
     }
 }
@@ -247,7 +209,8 @@ where
                 boundary_try!(cx, pre_flush);
                 // Declared before the child future so cancellation drops the
                 // child borrow before this guard clears its unshipped bytes.
-                let mut output_guard = ClearRenderBufferOnDrop::new(&mut cx.out);
+                let mut output_guard = ClearRenderBufferOnDrop { cx, armed: true };
+                let cx = &mut *output_guard.cx;
                 let error_fallback = cx.current_boundary_error_fallback();
                 let seed_checkpoint = cx.rsjs_shared_state_seed_checkpoint();
                 let artifact_checkpoint = cx.rsjs_artifact_checkpoint();
@@ -284,7 +247,7 @@ where
                     }
                 }
                 let result = cx.flush_stream_chunk();
-                output_guard.disarm();
+                output_guard.armed = false;
                 if let Some(document) = cx.head_state().document() {
                     document.leave_boundary();
                 }
@@ -425,10 +388,14 @@ where
         RenderOutcome::pending(async move {
             if let Some(result) = pre_flush {
                 result?;
-                let mut restore = RestoreMarkdownBoundaryOnDrop::new(cx);
-                proa_core::render_md_in_context_async(cx, child).await?;
-                cx.flush_stream_chunk()?;
-                restore.disarm();
+                let mut restore = RestoreMarkdownBoundaryOnDrop {
+                    state: cx.md_state(),
+                    cx,
+                    armed: true,
+                };
+                proa_core::render_md_in_context_async(restore.cx, child).await?;
+                restore.cx.flush_stream_chunk()?;
+                restore.armed = false;
                 Ok(())
             } else {
                 proa_core::render_md_child(cx, child).await
@@ -443,11 +410,11 @@ fn write_boundary_comment<B: WriteBuf, L: DataLoader>(
     marker: &'static [u8],
     boundary_id: u64,
 ) -> Result<(), WriteError> {
-    WriteBuf::extend_static(&mut cx.out, b"<!--proa:")?;
+    WriteBuf::extend_static_str(&mut cx.out, "<!--proa:")?;
     WriteBuf::extend_static(&mut cx.out, marker)?;
-    WriteBuf::extend_static(&mut cx.out, b":")?;
+    WriteBuf::extend_static_str(&mut cx.out, ":")?;
     WebRenderSync::render(boundary_id, cx)?;
-    WriteBuf::extend_static(&mut cx.out, b"-->")
+    WriteBuf::extend_static_str(&mut cx.out, "-->")
 }
 
 fn write_send_boundary_comment<B: WriteBuf + Send, L: DataLoader>(
@@ -455,9 +422,9 @@ fn write_send_boundary_comment<B: WriteBuf + Send, L: DataLoader>(
     marker: &'static [u8],
     boundary_id: u64,
 ) -> Result<(), WriteError> {
-    WriteBuf::extend_static(&mut cx.out, b"<!--proa:")?;
+    WriteBuf::extend_static_str(&mut cx.out, "<!--proa:")?;
     WriteBuf::extend_static(&mut cx.out, marker)?;
-    WriteBuf::extend_static(&mut cx.out, b":")?;
+    WriteBuf::extend_static_str(&mut cx.out, ":")?;
     cx.__proa_with_stateless_context(|local| WebRenderSync::render(boundary_id, local))?;
-    WriteBuf::extend_static(&mut cx.out, b"-->")
+    WriteBuf::extend_static_str(&mut cx.out, "-->")
 }

@@ -162,6 +162,7 @@ fn render_trait_identity_assertion(
     parsed: &ParsedIsland,
     final_component_selection: Option<&FinalComponentSelection>,
 ) -> syn::Result<Stmt> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let trait_path = &parsed.trait_path;
     // Trust chain:
     // 1. descriptor compilation emits and type-checks the authored impl, so
@@ -180,11 +181,11 @@ fn render_trait_identity_assertion(
     };
     match parsed.render_kind {
         RenderKind::Sync => syn::parse2(quote! {
-            let _: &::proa_core::render::web_render::__private::SyncRenderTraitWitness =
+            let _: &#proa_core::render::web_render::__private::SyncRenderTraitWitness =
                 &<#render_trait_witness_receiver as #trait_path>::__PROA_RENDER_TRAIT_WITNESS;
         }),
         RenderKind::Async => syn::parse2(quote! {
-            let _: &::proa_core::render::web_render::__private::AsyncRenderTraitWitness =
+            let _: &#proa_core::render::web_render::__private::AsyncRenderTraitWitness =
                 &<#render_trait_witness_receiver as #trait_path>::__PROA_RENDER_TRAIT_WITNESS;
         }),
     }
@@ -208,7 +209,7 @@ fn emit_linked_component_impls(
     selection: &FinalComponentSelection,
 ) -> syn::Result<TokenStream> {
     let hidden_trait_path = linked_render_trait_path(parsed)?;
-    let Some((_, hidden_path, _)) = hidden.trait_.as_mut() else {
+    let Some((hidden_path, _)) = hidden.trait_.as_mut() else {
         return Err(syn::Error::new(
             hidden.span(),
             "rsjs internal error: a linked component lost its render trait",
@@ -1199,6 +1200,39 @@ mod tests {
         assert!(emitted.contains("rsjs - island"));
         assert!(emitted.ends_with(". render (cx) ;"));
         assert!(!emitted.contains("\"old\""));
+    }
+
+    #[test]
+    fn qualified_render_calls_keep_their_trait_path_and_context_around_the_new_macro() {
+        let sync_block: Block = syn::parse_quote! {{
+            return proa::WebRenderSync::render(html_sync! { <main>"old"</main> }, cx);
+        }};
+        let async_block: Block = syn::parse_quote! {{
+            <_ as WebRender<L, B>>::render(html! { <main>"old"</main> }, cx).resolve().await
+        }};
+        for (block, replacement, prefix, suffix) in [
+            (
+                sync_block,
+                quote! { ::proa_macros::html_sync! { <rsjs-island>"new"</rsjs-island> } },
+                "return proa :: WebRenderSync :: render (:: proa_macros :: html_sync !",
+                ", cx) ;",
+            ),
+            (
+                async_block,
+                quote! { ::proa_macros::html! { <rsjs-island>"new"</rsjs-island> } },
+                "< _ as WebRender < L , B > > :: render (:: proa_macros :: html !",
+                ", cx) . resolve () . await",
+            ),
+        ] {
+            let mut tail = block.stmts.into_iter().next_back().unwrap();
+            replace_render_macro(&mut tail, replacement).unwrap();
+            let emitted = tail.to_token_stream().to_string();
+
+            assert!(emitted.starts_with(prefix), "{emitted}");
+            assert!(emitted.ends_with(suffix), "{emitted}");
+            assert!(emitted.contains("rsjs - island"), "{emitted}");
+            assert!(!emitted.contains("\"old\""), "{emitted}");
+        }
     }
 
     #[test]

@@ -56,7 +56,16 @@ suppression for a specific diagnostic only when it is intentional.
 by the component. If a module needs both traits, use a qualified call such as
 `WebRenderSync::render(child, cx)` or `WebRender::render(child, cx)`. An import
 alias still brings the trait methods into scope and does not resolve the
-ambiguity. Lift a sync child into an async tree with `proa_core::to_async(...)`.
+ambiguity. Lift a sync child into an async tree with `proa::to_async(...)`.
+
+Built-in values implement both traits so they compose in `html_sync!` and
+`html!` alike: strings, every integer and float type, `bool`, and `char`. A
+direct `count.render(cx)` or `'x'.render(cx)` is therefore ambiguous in a
+module that imports both traits, exactly like a string. Inside a template
+slot (`{count}`) there is nothing to qualify. The qualified form is also
+accepted as the tail of an `#[rsjs(component)]` render body:
+`WebRenderSync::render(html_sync! { ... }, cx)` or
+`WebRender::render(html! { ... }, cx).resolve().await`.
 
 ---
 
@@ -232,7 +241,8 @@ impl Counter {
 ```
 
 **Fix:** author the complete trait impl, context parameter, return type, and
-final `.render(cx)` chain. RSJS analyzes that Rust implementation; it does not
+final `.render(cx)` chain (or its qualified form,
+`WebRenderSync::render(html_sync! { ... }, cx)`). RSJS analyzes that Rust implementation; it does not
 generate the trait plumbing.
 
 ### "`client` is only valid with `component`"
@@ -258,7 +268,7 @@ impl<L: DataLoader> WebRender<L> for AsyncIsland {
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            let data = cx.load::<Data>(self.key).await?;
+            let data = cx.load_json::<Data>(self.key).await?;
             html! { <output>{data}</output> }.render(cx).resolve().await
         })
     }
@@ -354,14 +364,59 @@ generics do not need render bounds. `WebContext<L>` uses the default owned
 **Fix:**
 ```rust
 html! {
-    <div>{ proa_core::to_async(my_sync_component) }</div>
+    <div>{ proa::to_async(my_sync_component) }</div>
 }
 ```
 
 If `my_sync_component` uses `#[derive(ProaComponent)]`, the
 `#[component(..., async_render)]` opt-in generates its zero-cost async bridge
 and removes the call-site adapter. Explicit custom components use
-`proa_core::to_async(...)`.
+`proa::to_async(...)`.
+
+---
+
+### "E0080: evaluation panicked: render_head requires an explicit role"
+
+**Triggered by:** overriding `render_head` (or `render_head_send` /
+`render_head_send_sync`) without `const ROLE`, or with an explicit
+`ComponentRole::COMPONENT`. Ordinary components never run head hooks, so the
+override would be skipped silently. The error appears during `cargo build`
+(code generation), not `cargo check`. It points into `proa_core`; the offending
+type is in the `evaluation of ... <YourType as WebRender>::render_head` note.
+
+**Fix:** declare the role on the impl that overrides the hook:
+```rust
+impl<L: DataLoader> WebRender<L> for ProductPage {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE; // or LAYOUT
+    async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.head_mut().title("Product")
+    }
+    // fn render(...)
+}
+```
+A forwarding wrapper (`const ROLE = T::ROLE`) must return the inner hook's
+future directly, `fn render_head(&self, cx) -> impl Future<..> {
+self.0.render_head(cx) }`; wrapping it in `async { .. }` reads as an override
+when `T` is an ordinary component. `cargo proa lint` reports the same mistake as
+`render/head-role-required` without building.
+
+---
+
+### Managed-head lint errors: `render/head-mutation-in-body`, `render/head-role-in-suspense`, `render/head-role-in-page`
+
+These come from `cargo proa lint`, not rustc. Each marks code that compiles but
+always fails at render time; in a streamed document the failure can arrive
+after the `200` status is sent and abort the body.
+
+- `render/head-mutation-in-body`: a checked setter such as
+  `cx.head_mut().title(..)` inside `render`. Move it into `render_head` on the
+  owning layout or Page.
+- `render/head-role-in-suspense`: a `LAYOUT` or `PAGE` component inside
+  `Suspense::new(..)`. Render the Page outside the boundary and put `Suspense`
+  inside the Page body around the slow content.
+- `render/head-role-in-page`: a `LAYOUT` or `PAGE` component rendered from a
+  Page body. Layouts wrap the selected Page; a nested Page should become an
+  ordinary `COMPONENT`.
 
 ---
 
@@ -394,7 +449,7 @@ the async-capable macro.
 
 ```rust
 md! { r###"
-Result: {proa_core::to_md_async(my_sync_child)}
+Result: {proa::to_md_async(my_sync_child)}
 "###
 }
 ```
@@ -531,14 +586,16 @@ node ref, browser helper, or reachable `#[rsjs::client]` helper call.
 
 **Most likely:** the per-island JS isn't reaching the browser. Check:
 
-1. The page response includes `<script type="module" src="/rsjs-runtime.js">`
+1. The page response includes a runtime tag such as
+   `<script type="module" src="/_proa/immutable/rsjs/runtime.<16 hex>.js">`
    or a deferred bootstrap script for the island's hydration strategy.
+   (A custom adapter that serves the canonical paths emits `/rsjs-runtime.js`.)
    `proa_framework_axum` adds this automatically from the response's
    `RsjsRenderArtifacts`; a custom adapter must use
    `Manifest::page_runtime_plan(...)` at its response boundary.
-2. There's a `<script type="module" src="/rsjs/island/<asset_id>.js">` for *your specific island* (asset_id matches the SSR `<rsjs-island data-rsjs-island-root="...">`).
+2. There's a `<script type="module" src="/_proa/immutable/rsjs/island/<asset_id>.<16 hex>.js">` for *your specific island* (asset_id matches the SSR `<rsjs-island data-rsjs-island-root="...">`; `/rsjs/island/<asset_id>.js` on a custom adapter).
 3. The browser console isn't reporting a 404 on either of those URLs.
-4. If the page is loaded from a `blob:` URL or a different origin than the asset server, the asset server needs CORS headers (`Access-Control-Allow-Origin: *` for dev).
+4. If the page is loaded from a `blob:` URL or a different origin than the asset server (including a `PROA_ASSET_PREFIX` host), the asset server needs CORS headers (`Access-Control-Allow-Origin: *` for dev).
 
 ### Initial render shows the wrong conditional branch
 

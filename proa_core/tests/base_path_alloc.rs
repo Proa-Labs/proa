@@ -4,10 +4,10 @@
 #![allow(unsafe_code)]
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::cell::Cell;
+use std::{cell::Cell, collections::BTreeMap};
 
 use proa_core::stack::WriteCursor;
-use proa_core::{BasePath, SendWebContext, WebContext, WebRenderSync, WriteBuf};
+use proa_core::{BasePath, PublicAssetUrls, SendWebContext, WebContext, WebRenderSync, WriteBuf};
 use proa_macros::html_sync;
 
 struct ThreadCountingAllocator;
@@ -78,6 +78,36 @@ fn context_urls_render_without_intermediate_allocations() {
     assert_eq!(allocations, 0);
     drop(cx);
     assert_eq!(cursor.as_slice(), br#"<link rel="stylesheet" href="/user/demo/proxy/3000/static/styles.css?v=1&amp;mode=dark">"#);
+}
+
+#[test]
+fn public_asset_urls_render_without_intermediate_allocations() {
+    let mut backing = [0u8; 128];
+    let mut cursor = WriteCursor::new(&mut backing);
+    let mut cx = WebContext::with_buffer(&mut cursor);
+    cx.request_mut()
+        .set_base_path(BasePath::new("/shop").unwrap());
+    cx.request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "img/logo.png".into(),
+            "/shop/_proa/immutable/img/logo.a1b2c3d4.png".into(),
+        )]))));
+
+    start_counting();
+    let logo = cx.url("public/img/logo.png");
+    html_sync! {
+        <img src={logo} alt="Logo" />
+    }
+    .render(&mut cx)
+    .unwrap();
+    let allocations = stop_counting();
+
+    assert_eq!(allocations, 0);
+    drop(cx);
+    assert_eq!(
+        cursor.as_slice(),
+        br#"<img src="/shop/_proa/immutable/img/logo.a1b2c3d4.png" alt="Logo">"#
+    );
 }
 
 #[test]

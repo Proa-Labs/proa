@@ -2,6 +2,7 @@
 title: Metadata and OG images
 sidebar_title: Metadata and OG images
 description: Add page titles, descriptions, canonical URLs, and social images with render_head.
+keywords: [cx.head_mut, og_image, "og:image", HeadMedia, OpenGraph, metadata]
 ---
 
 Set page metadata in `render_head`. Proa turns your `cx.head_mut()` calls into tags at the `{cx.head()}` outlet in your document.
@@ -13,7 +14,7 @@ This guide covers setup, request-loaded metadata, layout defaults, and sharing i
 Put the hook in the selected Page's `WebRender<L>` implementation. Keep its existing `render(self, cx)` body.
 
 ```rust filename="ProductPage"
-use proa_core::{ComponentRole, DataLoader, WebContext, WebRender, WriteError};
+use proa::{ComponentRole, DataLoader, WebContext, WebRender, WriteError};
 
 impl<L: DataLoader> WebRender<L> for ProductPage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
@@ -42,8 +43,8 @@ For a struct with several fields, use [`cx.head_mut().metadata(HeadMetadata { ..
 Configure a trusted public origin before rendering the document:
 
 ```rust filename="Route configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::RouteResponse;
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::RouteResponse;
 
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://shop.example", "/")?);
@@ -56,12 +57,12 @@ Use your configured production or staging origin in place of `https://shop.examp
 To enable metadata for every rendered route, pass the same configuration to the framework builder:
 
 ```rust filename="App configuration"
-use proa_framework_axum::FrameworkBuilder;
+use proa::axum::FrameworkBuilder;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(router)
-    .build();
+    .try_build()?;
 ```
 
 Use `.without_head()` on a response that keeps a manual document. Components declaring `ROLE = LAYOUT` or `ROLE = PAGE` must render inside a managed document, even without a head hook. Layouts precede the selected Page and cannot render after sealing or inside Suspense/captures/fallbacks. Use the default `COMPONENT` role for body-only wrappers or manual rendering.
@@ -168,11 +169,11 @@ A Page that only inherits metadata can omit its hook, but it still declares `ROL
 
 ### Configure app-wide defaults
 
-Use `with_defaults` for values shared by your routes, then install the configuration using `with_head(...)` on [FrameworkBuilder](/docs/framework/configuration). Here, `manifest` and `routes` are your application's existing island manifest and Axum router:
+Use `with_defaults` for values shared by your routes, then install the configuration using `with_head(...)` on [FrameworkBuilder](/docs/framework/configuration). Here, `routes` is your application's existing Axum router:
 
 ```rust filename="App configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::FrameworkBuilder;
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::FrameworkBuilder;
 
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://shop.example", "/")?)
@@ -182,24 +183,32 @@ let head = HeadConfig::default()
         Ok(())
     })?;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 Page and layout hooks can override these defaults. Call `with_urls` before `with_defaults`: default URLs are resolved when they are configured.
 
 ## Add an Open Graph image
 
-Point to an existing image and describe it with `HeadMedia`:
+For a managed public asset or local image, resolve it with `cx.url(...)` and pass it directly to `cx.head_mut().og_image(...)`:
 
 ```rust filename="render_head"
-use proa_core::{HeadMedia, OpenGraph};
+let og = cx.url("public/images/og.png");
+cx.head_mut().og_image(og)?;
+```
 
+To add alt text, MIME type, or dimensions, build a `HeadMedia` via `HeadMedia::from_url(...)` (or `HeadMedia::new(...)` for static/external URLs):
+
+```rust filename="render_head"
+use proa::{HeadMedia, OpenGraph};
+
+let og = cx.url("public/og/trail-jacket.png");
 cx.head_mut().open_graph(
     OpenGraph::new().images([
-        HeadMedia::new("/og/trail-jacket.png")
+        HeadMedia::from_url(og)?
             .mime_type("image/png")
             .alt("Trail Jacket in forest green")
             .dimensions(1200, 630),
@@ -208,12 +217,14 @@ cx.head_mut().open_graph(
 ```
 
 ```html filename="Image tags"
-<meta property="og:image" content="https://shop.example/og/trail-jacket.png">
+<meta property="og:image" content="https://shop.example/_proa/immutable/og/trail-jacket.0c3809081a2b3c4d.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:alt" content="Trail Jacket in forest green">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 ```
+
+`cx.url("public/...")` resolves a [managed public asset](/docs/framework/static-assets#managed-public-assets) to its fingerprinted URL, and the trusted public origin makes it absolute. Head metadata rejects a raw `"public/..."` string, because it would point at a path the server does not serve; resolve it with `cx.url(...)` first.
 
 `OpenGraph::new()` enables social metadata. If the document already has a title, description, or canonical URL, Open Graph also emits `og:title`, `og:description`, and `og:url` from those final values. Explicit social values override those fallbacks.
 

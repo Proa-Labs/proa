@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 
-use proa_core::{MdRenderSync, WebContext, WriteBuf, WriteError};
-use proa_macros::md_sync;
+use proa::{MdRenderSync, WebContext, WriteBuf, WriteError};
+use proa::md_sync;
 
 use crate::model::{site_for, Dossier, Site};
 
@@ -38,7 +38,7 @@ struct LiveDossierMd<'a> {
 // interleaved static list/table bytes cannot be expressed in `md_sync!`
 // because slots inside backticks stay literal.
 // proa-perf-ok(scope): typed WebContext composition for inline code spans.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for LiveDossierMd<'_> {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for LiveDossierMd<'_> {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         // proa-perf-ok(scope): a handful of short row strings per markdown
         // response on a guided demo page.
@@ -222,7 +222,7 @@ struct CuratedDossierMd {
     site: &'static Site,
 }
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for CuratedDossierMd {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for CuratedDossierMd {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         let site = self.site;
         // Same heading shape and row wording as the live dossier, so readers
@@ -244,7 +244,7 @@ impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for C
     }
 }
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for DossierMd {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for DossierMd {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         cx.md_block_boundary()?;
         let site = self.site();

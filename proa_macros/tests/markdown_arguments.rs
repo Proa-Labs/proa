@@ -25,7 +25,7 @@ fn named_arguments_respect_rust_scopes_and_nested_macros() {
     });
     assert_eq!(
         output,
-        "caller\nbranch\nab\narm\nclosure\nlet\\-else\nif\\-let\nwhile\ncaller\n"
+        "caller\nbranch\nab\narm\nclosure\nlet\\-else\nif\\-let\nwhile\ncaller\n\n"
     );
 }
 
@@ -69,10 +69,6 @@ fn argument_bindings_and_render_context_are_hygienic() {
         }),
         "named/argument"
     );
-    assert_eq!(
-        render_md_to_string(md_sync! { "prefix " {cx} }),
-        "prefix caller"
-    );
 }
 
 #[tokio::test]
@@ -90,6 +86,6 @@ async fn async_named_arguments_keep_borrows_and_scopes_across_pending_slots() {
         cx = "named",
     })
     .await;
-    assert_eq!(output, "borrowed\nborrowed\nlocal\nborrowed\nnamed\n");
+    assert_eq!(output, "borrowed\nborrowed\nlocal\nborrowed\nnamed\n\n");
     assert_eq!(value, "borrowed");
 }

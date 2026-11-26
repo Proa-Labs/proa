@@ -8,7 +8,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-const CONFIG: &str = include_str!("../../../proa_cli/schemas/proa.config.json");
 const LOCK: &str = include_str!("../../../proa_cli/schemas/proa.lock.json");
 const UI_MANIFEST: &str = include_str!("../../../proa_cli/schemas/ui-component-manifest-v1.json");
 
@@ -21,10 +20,6 @@ fn response(schema: &'static str) -> Response {
         schema,
     )
         .into_response()
-}
-
-pub async fn project_config() -> Response {
-    response(CONFIG)
 }
 
 pub async fn component_lock() -> Response {

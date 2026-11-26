@@ -3,8 +3,9 @@
 
 //! Micro-benchmark to identify closure overhead sources
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use proa_core::{el, text, Attr, AttrKey, Tag, WebContext, WebRenderSync};
+use std::hint::black_box;
 
 fn bench_overhead_sources(c: &mut Criterion) {
     let mut group = c.benchmark_group("overhead_sources");

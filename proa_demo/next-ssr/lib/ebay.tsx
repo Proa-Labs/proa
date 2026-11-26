@@ -28,9 +28,6 @@ export type Listing = {
 
 const ebayDataDir = join(process.cwd(), "..", "..", "proa_showcase", "src", "ebay", "data");
 
-const shellPre = readFileSync(join(ebayDataDir, "shell_pre.html"), "utf8");
-const shellPost = readFileSync(join(ebayDataDir, "shell_post.html"), "utf8");
-
 // The captured page's own stylesheet (extracted by scripts/gen_srp_chrome.py)
 // plus the chips toolbar stylesheet, shared verbatim with all engines.
 export const EBAY_STYLE_MAIN = readFileSync(
@@ -42,13 +39,6 @@ export const EBAY_STYLE_CHIPS = readFileSync(
   "utf8",
 );
 
-// Retain the previous helper names for callers outside this demo package.
-export const MARKETPLACE_STYLE = EBAY_STYLE_MAIN;
-export const MARKETPLACE_CHIPS_STYLE = EBAY_STYLE_CHIPS;
-
-const SHELL_LIST_OPEN_RE =
-  /\s*<ul class="(?:srp-river-results srp-list|srp-results srp-list clearfix)">\s*$/;
-const SHELL_LIST_CLOSE_RE = /^\s*<\/ul>\s*/;
 let helperPromise: Promise<{ buildListings: (n: number) => Listing[] }> | null = null;
 
 function loadEbayHelper(): Promise<{ buildListings: (n: number) => Listing[] }> {
@@ -62,14 +52,6 @@ function loadEbayHelper(): Promise<{ buildListings: (n: number) => Listing[] }> 
     helperPromise = runtimeImport(helperUrl);
   }
   return helperPromise;
-}
-
-function removeShellListOpen(html: string): string {
-  return html.replace(SHELL_LIST_OPEN_RE, "");
-}
-
-function removeShellListClose(html: string): string {
-  return html.replace(SHELL_LIST_CLOSE_RE, "");
 }
 
 export async function buildEbayListings(count = 60): Promise<Listing[]> {
@@ -122,9 +104,4 @@ function applyOverrides(listings: Listing[], overrides: any): Listing[] {
 export async function buildEbayListingsFromProps(props: any): Promise<Listing[]> {
   const listings = await buildEbayListings(props?.count ?? 60);
   return applyOverrides(listings, props?.listings);
-}
-
-export function wrapEbayBody(bodyHtml: string, listings: Listing[]): string {
-  const seed = `<script type="application/json" id="__app_data__">${JSON.stringify(listings).replace(/</g, "\\u003c")}</script>`;
-  return `${removeShellListOpen(shellPre)}<div id="__app_root__">${bodyHtml}</div>${seed}${removeShellListClose(shellPost)}`;
 }

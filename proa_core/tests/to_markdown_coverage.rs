@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 struct Html<'a>(&'a str);
 impl WebRenderSync for Html<'_> {
     fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
-        cx.out.extend(self.0.as_bytes())
+        cx.out.extend_str(self.0)
     }
 }
 fn markdown<T: WebRenderSync>(node: T) -> String {

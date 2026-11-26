@@ -12,7 +12,6 @@ mod __proa_fonts_generated {
     include!(concat!(env!("OUT_DIR"), "/proa_fonts.rs"));
 }
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::{
@@ -22,11 +21,11 @@ use axum::{
     routing::get,
     Router,
 };
-use proa_framework_axum::{
-    explicit_markdown, negotiate, router_from_spec, rsjs_assets_router, BasePath, IslandManifest,
-    MarkdownAlternate, Route, RouteContextLayer, RouteResponse,
+use proa::axum::{
+    explicit_markdown, negotiate, router_from_spec, BasePath, FrameworkBuildError,
+    FrameworkBuilder, MarkdownAlternate, Route, RouteResponse,
 };
-use proa_stream::DataResolver;
+use proa::stream::DataResolver;
 use serde::Deserialize;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
@@ -40,11 +39,10 @@ use model::Dossier;
 pub use components::markdown_string;
 
 /// Render the atlas document for one lookup through the given loader, exactly
-/// as the `/` route serves it. The golden SSR test injects a fixture loader
-/// here so the output is deterministic.
+/// as the `/` route serves it.
 pub async fn render_atlas_page<L>(raw_query: Option<&str>, loader: Arc<L>) -> String
 where
-    L: proa_core::DataLoader + Send + Sync + 'static,
+    L: proa::DataLoader + Send + Sync + 'static,
 {
     render_atlas_page_with_base_path(raw_query, loader, BasePath::default()).await
 }
@@ -57,15 +55,15 @@ pub async fn render_atlas_page_with_base_path<L>(
     base_path: BasePath,
 ) -> String
 where
-    L: proa_core::DataLoader + Send + Sync + 'static,
+    L: proa::DataLoader + Send + Sync + 'static,
 {
     let resolver = DataResolver::request_scope(loader);
-    let mut cx = proa_core::WebContext::with_loader(resolver);
+    let mut cx = proa::WebContext::with_loader(resolver);
     cx.request_mut().set_base_path(base_path);
     let published = Arc::new(Mutex::new(Vec::new()));
     let prefix = published.clone();
     cx.configure_head(
-        proa_core::HeadConfig::default(),
+        proa::HeadConfig::default(),
         Arc::new(move |_, chunks| {
             let mut bytes = prefix.lock().unwrap();
             for chunk in chunks {
@@ -75,7 +73,7 @@ where
         }),
     )
     .expect("configure managed document");
-    proa_core::render_child(
+    proa::render_child(
         &mut cx,
         RootDocument {
             content: AtlasPage::resolve(raw_query),
@@ -110,6 +108,10 @@ pub fn app() -> Router {
 }
 
 pub fn app_with_base_path(base_path: BasePath) -> Router {
+    try_app_with_base_path(base_path).expect("build the ORIGIN router")
+}
+
+pub fn try_app_with_base_path(base_path: BasePath) -> Result<Router, FrameworkBuildError> {
     // Measure one full document render from canned data (pure CPU) so the
     // receipt can report this server's own share of a lookup separately from
     // upstream latency. Inside that render the receipt itself reads the
@@ -131,21 +133,16 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
         loader: Arc::new(AtlasLoader::new(client)),
     };
     let (router, metadata) = router_from_spec(vec![Route::endpoint("/", get(index))]);
-    let manifest = Arc::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: Default::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    });
-    router
+    let router = router
         .route("/index.md", get(markdown))
-        .route("/site/:file", get(site_markdown))
+        .route("/site/{file}", get(site_markdown))
         .route("/lab/rows", get(lab_rows))
         .route("/healthz", get(health))
         .route("/readyz", get(ready))
         .nest_service(
             "/static",
-            proa_framework_axum::base_path_assets(
+            proa::axum::base_path_assets(
+                // proa-perf-ok: direct launches without a catalog read the source tree
                 Router::new().fallback_service(ServeDir::new(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/public"
@@ -153,18 +150,24 @@ pub fn app_with_base_path(base_path: BasePath) -> Router {
                 base_path.clone(),
             ),
         )
-        .nest_service(
-            "/fonts",
+        .with_state(state);
+    // The asset catalog serves the vendored fonts. A direct launch has no
+    // catalog, so the files are served from the source tree at the same URL.
+    let router = if proa::axum::PublicAssets::configured() {
+        router
+    } else {
+        router.nest_service(
+            "/_proa/immutable/fonts",
+            // proa-perf-ok: direct launches without a catalog read the source tree
             ServeDir::new(concat!(env!("CARGO_MANIFEST_DIR"), "/public/fonts")),
         )
-        .with_state(state)
-        .merge(rsjs_assets_router(&base_path))
-        .layer(
-            RouteContextLayer::new(manifest, metadata)
-                .with_base_path(base_path)
-                .with_head(proa_core::HeadConfig::default()),
-        )
-        .layer(TraceLayer::new_for_http())
+    };
+    let app = FrameworkBuilder::new()
+        .with_base_path(base_path)
+        .with_head(proa::HeadConfig::default())
+        .with_dynamic_routes_and_metadata(router, metadata)
+        .try_build()?;
+    Ok(app.layer(TraceLayer::new_for_http()))
 }
 
 /// Markdown routes fetch through the same TTL cache as the page's loader,
@@ -264,8 +267,8 @@ struct LabRowCount {
 async fn lab_rows(Query(query): Query<LabRowCount>) -> Json<serde_json::Value> {
     let count = query.n.unwrap_or(1_000).clamp(1, 200_000);
     let started = std::time::Instant::now();
-    let mut cx = proa_core::WebContext::new();
-    proa_core::WebRenderSync::render(components::LabRows { count }, &mut cx)
+    let mut cx = proa::WebContext::new();
+    proa::WebRenderSync::render(components::LabRows { count }, &mut cx)
         .expect("render lab rows");
     // The clock stops before the buffer-to-String copy: the tile claims
     // render time, so only rendering is inside the window. The profile

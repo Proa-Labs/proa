@@ -3,7 +3,7 @@
 
 //! Non-`signal(...)` prelude `let` bindings must be replayed verbatim into
 //! the generated render body. The supported prelude contract includes shapes
-//! such as `let user = cx.load::<User>(id).await?;`; before the fix the
+//! such as `let user = cx.load_json::<User>(id).await?;`; before the fix the
 //! analyser silently skipped any non-`signal(...)` local and the emitter never
 //! replayed it.
 //!

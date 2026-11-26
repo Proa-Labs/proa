@@ -216,11 +216,28 @@ fn main() {
     if std::env::args().any(|arg| arg == "--exit-before-ready") {
         std::process::exit(9);
     }
+    if std::env::args().any(|arg| arg == "--slow-exit-before-ready") {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::process::exit(9);
+    }
+    assert_eq!(std::env::args().skip(1).collect::<Vec<_>>(), ["Local shop"]);
     std::thread::sleep(std::time::Duration::from_millis(300));
     let host = std::env::var("PROA_HOST").unwrap();
     let port = std::env::var("PORT").unwrap();
+    let report = std::env::var("TEST_BROWSER_URL").ok().map(|url| {
+        let endpoint = std::env::var("PROA_DEV_READY").unwrap();
+        let (port, token) = endpoint.split_once(':').unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.connect(format!("127.0.0.1:{port}")).unwrap();
+        socket.send(token.as_bytes()).unwrap();
+        (socket, format!("{token}\n{url}"))
+    });
     let listener = std::net::TcpListener::bind(format!("{host}:{port}")).unwrap();
+    // A bound socket alone must never open the HTTP fallback for a TLS app
+    // that is still initializing its handlers.
+    if report.is_some() { std::thread::sleep(std::time::Duration::from_millis(450)); }
     std::fs::write(std::env::var("PROA_TEST_READY_FILE").unwrap(), "ready").unwrap();
+    if let Some((socket, message)) = report { socket.send(message.as_bytes()).unwrap(); }
     for connection in listener.incoming() { drop(connection.unwrap()); }
 }
 "#,
@@ -257,23 +274,21 @@ fn main() {
     for once in [false, true] {
         let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = reservation.local_addr().unwrap().port();
-        fs::write(
-            root.join("proa.config.json"),
-            serde_json::json!({
-                "dev": { "host": "0.0.0.0", "port": port, "command": ["cargo", "run"] }
-            })
-            .to_string(),
-        )
-        .unwrap();
         let _ = fs::remove_file(&ready_file);
         let _ = fs::remove_file(&browser_log);
         let log_path = root.join("dev.log");
         let log = fs::File::create(&log_path).unwrap();
         let mut command = command();
-        if once {
-            command.arg("--no-restart");
-        }
+        command.args(["--host", "0.0.0.0", "--port", &port.to_string()]);
+        let expected_url = if once {
+            let url = format!("https://localhost:{port}/shop");
+            command.arg("--no-restart").env("TEST_BROWSER_URL", &url);
+            url
+        } else {
+            format!("http://127.0.0.1:{port}")
+        };
         command
+            .args(["--", "cargo", "run", "--", "Local shop"])
             .stdout(log.try_clone().unwrap())
             .stderr(log)
             .process_group(0);
@@ -294,17 +309,24 @@ fn main() {
             std::thread::sleep(Duration::from_millis(25));
         }
         // Wait for the opener's write, rather than racing creation of its file.
-        let expected = format!("READY http://127.0.0.1:{port}\n");
+        let expected = format!("READY {expected_url}\n");
         while fs::read_to_string(&browser_log).unwrap().is_empty() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(fs::read_to_string(&browser_log).unwrap(), expected);
         assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
         drop(dev);
-        assert!(
-            TcpStream::connect(("127.0.0.1", port)).is_err(),
-            "server outlived CLI"
-        );
+        // The CLI forwards SIGTERM and exits; its server may receive that
+        // signal only after wait() has observed the CLI's exit.
+        let shutdown_deadline = Instant::now() + Duration::from_secs(5);
+        while TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            assert!(
+                Instant::now() < shutdown_deadline,
+                "server outlived CLI (once={once}):\n{}",
+                fs::read_to_string(&log_path).unwrap()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fs::remove_file(&browser_log).unwrap();
@@ -322,8 +344,183 @@ fn main() {
     assert!(!failed_start.status.success());
     assert!(!browser_log.exists(), "browser opened for a failed server");
 
+    let busy = TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied = command()
+        .args([
+            "--no-restart",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &busy.local_addr().unwrap().port().to_string(),
+            "--",
+            "cargo",
+            "run",
+            "--",
+            "--slow-exit-before-ready",
+        ])
+        .output()
+        .unwrap();
+    assert!(!occupied.status.success());
+    assert!(
+        !browser_log.exists(),
+        "browser opened for a listener owned by another process"
+    );
+    drop(busy);
+
     fs::write(root.join("src/main.rs"), "this does not compile").unwrap();
     let failed_build = command().arg("--no-restart").output().unwrap();
     assert!(!failed_build.status.success());
     assert!(!browser_log.exists(), "browser opened for a failed build");
+}
+
+#[cfg(unix)]
+#[test]
+fn proa_dev_watch_uses_single_pass_and_prunes_superseded_snapshots() {
+    use std::net::TcpListener;
+    use std::os::unix::process::CommandExt;
+    use std::time::{Duration, Instant};
+
+    struct RunningDev(std::process::Child);
+    impl Drop for RunningDev {
+        fn drop(&mut self) {
+            unsafe {
+                libc::kill(-(self.0.id() as i32), libc::SIGTERM);
+            }
+            let _ = self.0.wait();
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"watch_single_pass_fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[workspace]\n",
+    )
+    .unwrap();
+    let write_server = |marker: &str| {
+        fs::write(
+            root.join("src/main.rs"),
+            format!(
+                r#"
+fn main() {{
+    let host = std::env::var("PROA_HOST").unwrap();
+    let port = std::env::var("PORT").unwrap();
+    let listener = std::net::TcpListener::bind(format!("{{host}}:{{port}}")).unwrap();
+    std::fs::write(std::env::var("PROA_MARKER_FILE").unwrap(), {marker:?}).unwrap();
+    for connection in listener.incoming() {{
+        let _ = connection;
+    }}
+}}
+"#
+            ),
+        )
+        .unwrap();
+    };
+    write_server("v1");
+
+    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = reservation.local_addr().unwrap().port();
+    drop(reservation);
+
+    let marker_file = root.join("marker.txt");
+    let log_path = root.join("dev.log");
+    let log = fs::File::create(&log_path).unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_proa"));
+    cmd.current_dir(root)
+        .env("CARGO_TARGET_DIR", root.join("target"))
+        .env("PROA_MARKER_FILE", &marker_file)
+        .env_remove("RUSTFLAGS")
+        .args([
+            "dev",
+            "--no-assets",
+            "--no-reload",
+            "--offline",
+            "--verbose",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+        ])
+        .stdout(log.try_clone().unwrap())
+        .stderr(log)
+        .process_group(0);
+
+    let mut dev = RunningDev(cmd.spawn().unwrap());
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while fs::read_to_string(&marker_file).ok().as_deref() != Some("v1") {
+        assert!(
+            dev.0.try_wait().unwrap().is_none(),
+            "dev exited early:\n{}",
+            fs::read_to_string(&log_path).unwrap()
+        );
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for v1:\n{}",
+            fs::read_to_string(&log_path).unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    assert!(
+        !root.join("target/proa-rsjs/shared").exists(),
+        "single-pass zero-island dev boot should not create descriptor target directory"
+    );
+
+    // Edit source and verify single-pass rebuild + superseded snapshot pruning.
+    write_server("v2");
+    let rebuild_deadline = Instant::now() + Duration::from_secs(30);
+    while fs::read_to_string(&marker_file).ok().as_deref() != Some("v2") {
+        assert!(
+            dev.0.try_wait().unwrap().is_none(),
+            "dev exited during rebuild:\n{}",
+            fs::read_to_string(&log_path).unwrap()
+        );
+        assert!(
+            Instant::now() < rebuild_deadline,
+            "timed out waiting for v2:\n{}",
+            fs::read_to_string(&log_path).unwrap()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    // The new server writes its marker before the parent prunes the old
+    // snapshot, so wait for pruning rather than sleeping a fixed time.
+    let snapshot_dirs = || -> Vec<_> {
+        walkdir::WalkDir::new(root.join("target/proa-rsjs/final-target"))
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry.file_type().is_dir()
+                    && entry
+                        .path()
+                        .parent()
+                        .and_then(|parent| parent.file_name())
+                        .and_then(|name| name.to_str())
+                        == Some("rsjs-final-artifact-snapshots")
+            })
+            .map(|entry| entry.into_path())
+            .collect()
+    };
+    let prune_deadline = Instant::now() + Duration::from_secs(10);
+    while snapshot_dirs().len() != 1 && Instant::now() < prune_deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    drop(dev);
+
+    let log_text = fs::read_to_string(&log_path).unwrap();
+    assert!(
+        log_text.matches("(single-pass;").count() >= 2,
+        "expected both boot and edit rebuild to use single-pass:\n{log_text}"
+    );
+    assert!(
+        !root.join("target/proa-rsjs/shared").exists(),
+        "zero-island edit rebuild should not create descriptor target directory"
+    );
+    let snapshot_dirs = snapshot_dirs();
+    assert_eq!(
+        snapshot_dirs.len(),
+        1,
+        "expected superseded v1 snapshot to be pruned, leaving only v2: {snapshot_dirs:?}"
+    );
 }

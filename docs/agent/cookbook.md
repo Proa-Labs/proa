@@ -22,6 +22,7 @@ If you don't see your pattern here, check
 | [Compose an opaque server component inside an analyzed component](#9-compose-an-opaque-server-component-inside-an-island) | Use an ordinary render component inside an RSJS-analyzed body |
 | [Ship the rsjs runtime + per-island JS in the page](#10-ship-the-rsjs-runtime--per-island-js-in-the-page) | Wiring up a new framework adapter |
 | [Generic island with lifetime / type / const params](#11-generic-island-with-lifetime--type--const-params) | Island borrows lifetime-bound data or takes type/const params |
+| [Write a page to a static HTML file](#12-write-a-page-to-a-static-html-file) | Static export, snapshot test, or a plain `fn main` with no server |
 
 ---
 
@@ -30,8 +31,8 @@ If you don't see your pattern here, check
 Boolean signal, two conditional branches, one click handler.
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::signal;
 use rsjs_macros::rsjs;
 
@@ -200,7 +201,7 @@ explicit raw renderable in the prelude:
 
 ```rust
 let icon =
-    proa_core::UnsafeRaw(r##"<use href="#icon-heart-16"></use>"##);
+    proa::UnsafeRaw(r##"<use href="#icon-heart-16"></use>"##);
 
 html_sync! {
     <svg class="icon">
@@ -376,7 +377,7 @@ The finalizer snapshots the response's `RsjsRenderArtifacts`, derives one
 eager modules, and deferred instructions the rendered islands require.
 
 ```rust
-let response = proa_framework_core::RouteResponse::ssr(MyPage);
+let response = proa::framework::RouteResponse::ssr(MyPage);
 ```
 
 If you are implementing a framework adapter rather than using
@@ -412,7 +413,7 @@ For streamed responses, retain one `PageRuntimeEmissionState` and call
 `write_html_delta(...)` for the shell and each committed boundary. Custom
 out-of-order boundary producers return `RenderedBoundary`, which keeps the
 committed HTML and its artifact delta together. When using
-`proa_stream::drain_pending_boundaries_with_nonce_and_artifacts`, write the
+`proa::stream::drain_pending_boundaries_with_nonce_and_artifacts`, write the
 boundary query-seed fragment and runtime-plan delta immediately before
 `chunk.bytes`. The swap script inside those bytes dispatches
 `proa:boundary-ready`, so metadata appended after the frame is too late.
@@ -422,12 +423,18 @@ their HTML. Replay it with `cx.replay_rsjs_artifacts(&cached.artifacts)` when
 the fragment is reused, so its islands and query seeds participate in the
 outer response plan.
 
-You also need three Axum routes:
+`FrameworkBuilder` serves these files for you by default, at
+content-hashed names under `/_proa/immutable/rsjs/` (call
+`without_rsjs_assets()` to opt out). A custom Axum router gets
+the same files with `proa::axum::RsjsAssets::prepare()?`: merge its `router()`
+and pass it to `RouteContextLayer::with_rsjs_assets(&rsjs)`. An adapter that
+does neither serves its own copies at the canonical paths and needs three
+routes:
 
 ```rust
 .route("/rsjs-runtime.js", get(serve_rsjs_runtime))
 .route("/rsjs-runtime-query.js", get(serve_rsjs_runtime_query))
-.route("/rsjs/island/:asset_id", get(serve_rsjs_island))
+.route("/rsjs/island/{asset_id}", get(serve_rsjs_island))
 ```
 
 Where `serve_rsjs_island` looks up the asset id in `rsjs::manifest().islands`
@@ -455,7 +462,7 @@ impl<'a, T, const N: usize, Buf, Loader> WebRenderSync<Loader, Buf> for GenericI
 where
     for<'b> &'b T: LabelRef,
     Buf: WriteBuf,
-    Loader: proa_core::DataLoader,
+    Loader: proa::DataLoader,
 {
     fn render(self, cx: &mut WebContext<Loader, Buf>) -> Result<(), WriteError> {
         let label = self.label.label_ref();
@@ -478,3 +485,39 @@ the method itself carries only the trait's render/output lifetimes. See
 
 Reference: [`rsjs_macros/tests/parser_generics.rs`](../../rsjs_macros/tests/parser_generics.rs)
 (both sync and async generic island fixtures).
+
+---
+
+## 12. Write a page to a static HTML file
+
+`RouteResponse::render_to_bytes` finalizes a response the way the Axum adapter
+would (managed head, RSJS runtime tags) and hands back the bytes. No tokio, no
+`FrameworkBuilder`, no island manifest.
+
+```rust
+use proa::HeadConfig;
+use proa::framework::RouteResponse;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let html = RouteResponse::ssr(RootDocument { children: HomePage })
+        .with_head(HeadConfig::default())
+        .render_to_bytes()?;
+    std::fs::write("./output/index.html", html)?;
+    Ok(())
+}
+```
+
+`render_to_string` returns a `String` instead, and `proa::axum::RouteResponse`
+forwards both methods. `with_head` is required for any tree that declares
+`ROLE = PAGE` or `LAYOUT`; a manual document with its own `<title>` renders
+without it. Async plans render buffered, so `Suspense` resolves inline. There is
+no request: base path is the root, route params are absent, and the Axum route
+context helper `render_metadata_head` resolves to nothing;
+use `oneshot` through the built router for those pages. A non-2xx status is
+returned as `FrameworkError::StaticStatus`. Call it from sync code; inside a
+current-thread tokio runtime an async plan is refused with
+`StaticRenderInsideRuntime`. Depend on `proa_framework_core` with
+`default-features = false` to keep tokio out of a static renderer; eager
+`proa_stream` preloads are the one feature that then needs a runtime.
+
+Reference: [`proa_framework/proa_framework_core/tests/static_render.rs`](../../proa_framework/proa_framework_core/tests/static_render.rs).

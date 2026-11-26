@@ -12,7 +12,7 @@ Examples are independent: they use a fresh managed document, `https://shop.examp
 Use `metadata` to set several fields in one call:
 
 ```rust filename="render_head"
-use proa_core::HeadMetadata;
+use proa::HeadMetadata;
 
 cx.head_mut().metadata(HeadMetadata {
     title: "Trail & Travel".into(),
@@ -31,7 +31,7 @@ cx.head_mut().metadata(HeadMetadata {
 Every field defaults to `HeadValue::Inherit`. Use `.into()` to set a value and `HeadValue::Clear` to remove an inherited field. The whole patch is validated before any field changes, including URLs and list limits. A normal title uses the nearest ancestor template, just like `title(...)`.
 
 ```rust filename="render_head"
-use proa_core::{HeadMetadata, HeadTitle, HeadValue};
+use proa::{HeadMetadata, HeadTitle, HeadValue};
 
 cx.head_mut().metadata(HeadMetadata {
     title: HeadTitle::absolute("Checkout").into(),
@@ -120,7 +120,7 @@ cx.head_mut().title("Trail Jacket")?;
 <title>Trail Jacket | Acme</title>
 ```
 
-Dynamic routes work the same way: a Page at `/products/:id` or `/blog/:slug` uses `cx.param(...)` to load its display title and passes it to `title(...)` or `metadata(...)`. The template formats that title; it does not infer a title from the URL.
+Dynamic routes work the same way: a Page at `/products/{id}` or `/blog/{slug}` uses `cx.param(...)` to load its display title and passes it to `title(...)` or `metadata(...)`. The template formats that title; it does not infer a title from the URL.
 
 A template must contain exactly one `%s`. The nearest ancestor template applies once. A template set in a hook applies to descendants, not to a title set in that same hook.
 
@@ -181,7 +181,7 @@ cx.head_mut().meta("author", "Acme")?;
 
 ### Twitter cards
 
-Use the typed card builder to resolve image URLs and reuse final metadata. These types come from `proa_core`.
+Use the typed card builder to resolve image URLs and reuse final metadata. These types come from `proa`.
 
 ```rust filename="render_head"
 cx.head_mut().title("Trail Jacket")?;
@@ -246,6 +246,22 @@ cx.head_mut().icons([
 ```
 
 `IconKind::Mask` emits `rel="mask-icon"`. `.media(...)` and `.color(...)` add optional attributes. Use an empty list or `clear_icons()` to remove inherited icons. URLs are validated and resolved with the trusted public origin and mount.
+
+For one icon, `icon(...)` takes the URL directly and replaces the list with it. Both it and `HeadIcon::from_url(...)` accept a `cx.url(...)` value, so a [managed public asset](/docs/framework/static-assets#managed-public-assets) gets its fingerprinted URL:
+
+```rust filename="render_head"
+let favicon = cx.url("public/favicon.svg");
+let touch = cx.url("public/apple-touch-icon.png");
+cx.head_mut().icon(favicon)?;
+// Or, with attributes:
+let favicon = cx.url("public/favicon.svg");
+cx.head_mut().icons([
+    HeadIcon::from_url(favicon)?.sizes("any"),
+    HeadIcon::from_url(touch)?.kind(IconKind::AppleTouch),
+])?;
+```
+
+`canonical`, `manifest`, `stylesheet`, and `module` accept `cx.url(...)` values the same way. Take the URL before calling `cx.head_mut()`, since both borrow the context.
 
 ### Alternate languages and feeds
 
@@ -326,7 +342,7 @@ cx.head_mut().remove_meta("robots")?;
 
 ## Open Graph
 
-Use `OpenGraph` and `HeadMedia` from `proa_core` for these builders.
+Use `OpenGraph` and `HeadMedia` from `proa` for these builders.
 
 ### open_graph
 
@@ -393,7 +409,7 @@ cx.head_mut().open_graph(
 <meta property="og:image:height" content="630">
 ```
 
-Import `HeadMedia` and `OpenGraph` from `proa_core`. Proa resolves the image URL and emits its metadata; it does not generate or resize the image. `secure_url(...)` adds an optional `og:image:secure_url`.
+Import `HeadMedia` and `OpenGraph` from `proa`. Proa resolves the image URL and emits its metadata; it does not generate or resize the image. `secure_url(...)` adds an optional `og:image:secure_url`.
 
 ### Replace inherited images
 
@@ -651,21 +667,21 @@ Dynamic segment composition is intended to preserve the direct-buffer approach, 
 
 Configure metadata URL resolution once at application startup, then pass the resulting `HeadConfig` to [FrameworkBuilder](/docs/framework/configuration) with `with_head(...)`. The builder makes this policy available to the rendered routes' `cx.head_mut()` setters. Creating the configuration alone does not install it.
 
-In this example, `manifest` is your application's `IslandManifest` and `routes` is its Axum `Router`. Both the framework and metadata policy use the same `/shop` mount:
+In this example, `routes` is your application's Axum `Router`. Both the framework and metadata policy use the same `/shop` mount:
 
 ```rust filename="App configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::{BasePath, FrameworkBuilder};
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::{BasePath, FrameworkBuilder};
 
 let mount = "/shop";
 let head = HeadConfig::default()
     .with_urls(HeadUrlPolicy::new("https://shop.example", mount)?);
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_base_path(BasePath::new(mount)?)
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 Inside a Page or layout's head hook, paths now resolve using that installed policy:
@@ -684,20 +700,20 @@ Currently, this mount is configured separately from `FrameworkBuilder::with_base
 
 ### External resource origins
 
-This is also application startup configuration for [FrameworkBuilder](/docs/framework/configuration). Stylesheets and modules registered through `cx.head_mut()` must come from the public origin or an allowed resource origin. Allow a CDN origin in the policy, then install it with `with_head(...)` before serving your routes. `manifest` and `routes` are your application's existing manifest and Axum router:
+This is also application startup configuration for [FrameworkBuilder](/docs/framework/configuration). Stylesheets and modules registered through `cx.head_mut()` must come from the public origin or an allowed resource origin. Allow a CDN origin in the policy, then install it with `with_head(...)` before serving your routes. `routes` is your application's existing Axum router:
 
 ```rust filename="App configuration"
-use proa_core::{HeadConfig, HeadUrlPolicy};
-use proa_framework_axum::FrameworkBuilder;
+use proa::{HeadConfig, HeadUrlPolicy};
+use proa::axum::FrameworkBuilder;
 
 let urls = HeadUrlPolicy::new("https://shop.example", "/")?
     .allow_resource_origin("https://cdn.example")?;
 let head = HeadConfig::default().with_urls(urls);
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_head(head)
     .with_dynamic_routes(routes)
-    .build();
+    .try_build()?;
 ```
 
 A Page or layout can then register a stylesheet from the allowed CDN:

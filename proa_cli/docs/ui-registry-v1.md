@@ -1,7 +1,7 @@
 # Proa UI component registry protocol v1
 
 `proa ui add <slug>` resolves source components and blocks through the registry templates
-in `proa.config.json`. A bare slug checks `@proa` first and checks `@proa-pro`
+in `proa.config.rs`. A bare slug checks `@proa` first and checks `@proa-pro`
 only when the public registry returns `404 Not Found`. Callers can select a
 registry explicitly with `@proa/button`, `@proa-pro/calendar`, or
 `--registry`.

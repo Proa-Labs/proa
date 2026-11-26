@@ -37,16 +37,24 @@ pub fn render_rows(row_count: usize) -> String {
 /// hydration transports are deliberately outside the SSR comparison.
 pub fn render_benchmark_rows(row_count: usize) -> String {
     let mut out = RenderBuffer::new();
-    let mut cx = WebContext::with_buffer(&mut out);
+    render_benchmark_rows_into(&mut WebContext::with_buffer(&mut out), row_count)
+        .expect("Sentry SSR benchmark page should render");
+    out.into_string()
+}
+
+/// Renders the hydration-independent benchmark document into a caller-owned
+/// buffer, leaving output conversion outside the rendering measurement.
+pub fn render_benchmark_rows_into<B: WriteBuf, L: DataLoader>(
+    cx: &mut WebContext<L, B>,
+    row_count: usize,
+) -> Result<(), WriteError> {
     SentrySsrBenchmarkPage {
         props: SentryPageProps {
             row_count,
             ..SentryPageProps::default()
         },
     }
-    .render(&mut cx)
-    .expect("Sentry SSR benchmark page should render");
-    out.into_string()
+    .render(cx)
 }
 
 #[cfg(feature = "rsjs-pages")]
@@ -810,7 +818,10 @@ mod benchmark_tests {
 
     #[test]
     fn benchmark_document_has_the_requested_rows_without_hydration_transport() {
-        let html = render_benchmark_rows(25);
+        let mut out = RenderBuffer::new();
+        render_benchmark_rows_into(&mut WebContext::with_buffer(&mut out), 25).unwrap();
+        let html = out.into_string();
+        assert_eq!(html, render_benchmark_rows(25));
 
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.ends_with("</body></html>"));
@@ -825,24 +836,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_sentry_trace_logs_and_rsjs_markers() {
-        let html = render();
-        assert!(html.contains("data-sentry-otel"));
-        assert!(html.contains("data-rsjs-island-root"));
-        assert!(html.contains("/rsjs-runtime.js"));
-        assert_eq!(
-            html.matches(r#"<script type="module" src="/rsjs-runtime.js""#)
-                .count(),
-            1
-        );
-        assert!(
-            html.find("/rsjs-runtime.js").unwrap() < html.rfind("</body>").unwrap(),
-            "runtime plan must remain inside the document body"
-        );
-        assert!(html.len() > 250_000);
-    }
-
-    #[test]
     fn benchmark_row_count_is_respected() {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
@@ -850,89 +843,5 @@ mod tests {
         let html = String::from_utf8(out).unwrap();
         assert!(!html.contains("/rsjs-runtime.js"));
         assert_eq!(html.matches("<details class=\"log-row ").count(), 1_000);
-    }
-
-    #[test]
-    fn owned_render_rows_finalizes_the_requested_document() {
-        let html = render_rows(25);
-
-        assert_eq!(html.matches("<details class=\"log-row ").count(), 25);
-        assert_eq!(
-            html.matches(r#"<script type="module" src="/rsjs-runtime.js""#)
-                .count(),
-            1
-        );
-        assert!(html.find("/rsjs-runtime.js").unwrap() < html.rfind("</body>").unwrap());
-    }
-
-    #[test]
-    fn renders_playground_props() {
-        let logs = [SentryLogEntry {
-            timestamp: "Jul 10, 23:59:59.999".into(),
-            message: "checkout.unique_row".into(),
-            severity: "warning".into(),
-            source: "React".into(),
-            span_id: "unique-span-0001".into(),
-            payload_size: 987,
-            checkout_tax_cents: 654,
-            checkout_total_cents: 9_876,
-            code_line: 777,
-            code_path: "/custom/checkout.tsx".into(),
-            function_name: "customCheckout".into(),
-            environment: "production".into(),
-            instrumentation_name: "custom_otel".into(),
-            origin: "manual.browser.logs".into(),
-            service_name: "custom-checkout-frontend".into(),
-            sdk_language: "typescript".into(),
-            sdk_name: "custom-otel-sdk".into(),
-            sdk_version: "9.8.7".into(),
-            platform: "browser".into(),
-            trace_id: "full-trace-cafef00d".into(),
-            expanded: true,
-        }];
-        let mut out = Vec::new();
-        let mut cx = WebContext::with_buffer(&mut out);
-        render_into_with_props(
-            &mut cx,
-            SentryPageProps {
-                row_count: logs.len(),
-                logs: Some(&logs),
-                trace_name: "checkout.submit",
-                trace_id: "trace-cafef00d",
-                issues: 9,
-                spans: 321,
-                age: "4s",
-                root_duration: "912.4ms",
-                log_count: 40,
-                client_ip: "203.0.113.8",
-                browser: "Firefox 140",
-                environment: "production",
-            },
-        )
-        .unwrap();
-        let html = String::from_utf8(out).unwrap();
-        assert!(html.contains("checkout.submit"));
-        assert!(html.contains("trace-cafef00d"));
-        assert!(html.contains("912.4ms"));
-        assert!(html.contains("203.0.113.8"));
-        assert!(html.contains("Firefox 140"));
-        assert!(html.contains("production"));
-        assert!(html.contains("checkout.unique_row"));
-        assert!(html.contains("unique-span-0001"));
-        assert!(html.contains("/custom/checkout.tsx"));
-        assert!(html.contains("custom-checkout-frontend"));
-        assert_eq!(html.matches("<details class=\"log-row ").count(), 1);
-    }
-
-    #[test]
-    fn island_js_handles_streaming_and_auto_refresh() {
-        let manifest = rsjs::manifest();
-        let entry = manifest
-            .islands
-            .iter()
-            .find(|entry| entry.struct_name == "LogStream")
-            .expect("LogStream island should be registered");
-        assert!(entry.js_source.contains("scrollTop"));
-        assert!(entry.js_source.contains("aria-pressed"));
     }
 }

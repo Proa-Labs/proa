@@ -1,53 +1,59 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::rc::Rc;
-
 use htmd::{
-    element_handler::{HandlerResult, Handlers},
-    Element, Node,
+    element_handler::{Context, HandlerResult, Handlers},
+    node::Node,
+    Element,
 };
-use markup5ever_rcdom::NodeData;
 
 struct Row {
-    cells: Vec<Rc<Node>>,
+    cells: Vec<String>,
     in_head: bool,
+    header: bool,
+    complex: bool,
 }
 
-fn tag(node: &Node) -> Option<&str> {
-    match &node.data {
-        NodeData::Element { name, .. } => Some(name.local.as_ref()),
-        _ => None,
-    }
-}
-
-// proa-perf-ok(scope): opt-in table conversion owns its row/cell snapshot
-fn rows(node: &Node, in_head: bool, output: &mut Vec<Row>) {
-    for child in node.children.borrow().iter() {
-        match tag(child) {
-            Some("thead" | "tbody" | "tfoot") => rows(child, tag(child) == Some("thead"), output),
-            Some("tr") => output.push(Row {
-                cells: child
-                    .children
-                    .borrow()
+// proa-perf-ok(scope): opt-in table conversion owns its row and cell output
+fn rows(handlers: &dyn Handlers, node: &Node<'_>, in_head: bool, output: &mut Vec<Row>) {
+    for child in node.children().iter() {
+        match child.tag_name() {
+            Some("thead" | "tbody" | "tfoot") => {
+                rows(handlers, &child, child.tag_name() == Some("thead"), output)
+            }
+            Some("tr") => {
+                let mut row = Row {
+                    cells: Vec::new(),
+                    in_head,
+                    header: in_head,
+                    complex: false,
+                };
+                for cell in child
+                    .children()
                     .iter()
-                    .filter(|cell| matches!(tag(cell), Some("td" | "th")))
-                    .cloned()
-                    .collect(),
-                in_head,
-            }),
+                    .filter(|cell| matches!(cell.tag_name(), Some("td" | "th")))
+                {
+                    row.header |= cell.tag_name() == Some("th")
+                        && !cell.attr("scope").is_some_and(|s| {
+                            s.eq_ignore_ascii_case("row") || s.eq_ignore_ascii_case("rowgroup")
+                        });
+                    row.complex |= complex(&cell, true);
+                    row.cells
+                        .push(handlers.walk_children(&cell, Context::BLOCK).content);
+                }
+                output.push(row);
+            }
             _ => {}
         }
     }
 }
 
-fn complex(node: &Node, is_cell: bool) -> bool {
-    if let NodeData::Element { name, attrs, .. } = &node.data {
+fn complex(node: &Node<'_>, is_cell: bool) -> bool {
+    if let Some(name) = node.tag_name() {
         if is_cell
-            && attrs.borrow().iter().any(|attr| {
-                matches!(attr.name.local.as_ref(), "rowspan" | "colspan")
-                    && attr.value.as_ref() != "1"
-            })
+            && ["rowspan", "colspan"]
+                .iter()
+                .any(|attr| node.attr(attr).is_some_and(|v| &*v != "1"))
         {
             return true;
         }
@@ -55,7 +61,7 @@ fn complex(node: &Node, is_cell: bool) -> bool {
         // conservative inline allowlist instead of flattening their output.
         if !is_cell
             && !matches!(
-                name.local.as_ref(),
+                name,
                 "a" | "abbr"
                     | "b"
                     | "bdi"
@@ -91,33 +97,13 @@ fn complex(node: &Node, is_cell: bool) -> bool {
             return true;
         }
     }
-    node.children
-        .borrow()
-        .iter()
-        .any(|child| complex(child, false))
-}
-
-fn header(row: &Row) -> bool {
-    row.in_head
-        || row.cells.iter().any(|cell| {
-            if tag(cell) != Some("th") {
-                return false;
-            }
-            let NodeData::Element { attrs, .. } = &cell.data else {
-                return false;
-            };
-            !attrs.borrow().iter().any(|attr| {
-                attr.name.local.as_ref() == "scope"
-                    && (attr.value.eq_ignore_ascii_case("row")
-                        || attr.value.eq_ignore_ascii_case("rowgroup"))
-            })
-        })
+    node.children().iter().any(|child| complex(&child, false))
 }
 
 // proa-perf-ok(scope): buffered table conversion keeps every cell instead of filtering th/td separately
-pub(super) fn table(handlers: &dyn Handlers, element: Element<'_>) -> Option<HandlerResult> {
+pub(super) fn table(handlers: &dyn Handlers, element: &Element<'_>) -> Option<HandlerResult> {
     let mut source_rows = Vec::new();
-    rows(element.node, false, &mut source_rows);
+    rows(handlers, element.node, false, &mut source_rows);
     let columns = source_rows
         .iter()
         .map(|row| row.cells.len())
@@ -126,12 +112,11 @@ pub(super) fn table(handlers: &dyn Handlers, element: Element<'_>) -> Option<Han
     let mut output = String::from("\n\n");
     for child in element
         .node
-        .children
-        .borrow()
+        .children()
         .iter()
-        .filter(|node| tag(node) == Some("caption"))
+        .filter(|node| node.tag_name() == Some("caption"))
     {
-        let caption = handlers.walk_children(child).content;
+        let caption = handlers.walk_children(&child, Context::BLOCK).content;
         if !caption.trim().is_empty() {
             output.push_str(caption.trim_matches('\n'));
             output.push_str("\n\n");
@@ -141,28 +126,16 @@ pub(super) fn table(handlers: &dyn Handlers, element: Element<'_>) -> Option<Han
         return Some(output.into());
     }
     let linear = source_rows.iter().filter(|row| row.in_head).count() > 1
-        || source_rows
-            .iter()
-            .flat_map(|row| &row.cells)
-            .any(|cell| complex(cell, true));
-    let has_header = source_rows.first().is_some_and(header);
-    let rendered: Vec<Vec<String>> = source_rows
-        .iter()
-        .map(|row| {
-            row.cells
-                .iter()
-                .map(|cell| handlers.walk_children(cell).content)
-                .collect()
-        })
-        .collect();
+        || source_rows.iter().any(|row| row.complex);
+    let has_header = source_rows.first().is_some_and(|row| row.header);
     if linear {
         // Markdown cannot encode spans or block content in a pipe cell.
         // Ordered items retain row order, with nested items retaining cells.
-        for (index, row) in rendered.iter().enumerate() {
+        for (index, row) in source_rows.iter().enumerate() {
             let marker = format!("{}.\n", index + 1);
             let indent = marker.len() + 1;
             output.push_str(&marker);
-            for cell in row {
+            for cell in &row.cells {
                 let cell = cell
                     .trim_matches('\n')
                     .trim_start_matches([' ', '\r', '\t']);
@@ -185,15 +158,19 @@ pub(super) fn table(handlers: &dyn Handlers, element: Element<'_>) -> Option<Han
         }
     } else {
         let empty = Vec::new();
-        let first = if has_header { &rendered[0] } else { &empty };
+        let first = if has_header {
+            &source_rows[0].cells
+        } else {
+            &empty
+        };
         pipe_row(&mut output, first, columns);
         output.push('|');
         for _ in 0..columns {
             output.push_str(" --- |");
         }
         output.push('\n');
-        for row in rendered.iter().skip(usize::from(has_header)) {
-            pipe_row(&mut output, row, columns);
+        for row in source_rows.iter().skip(usize::from(has_header)) {
+            pipe_row(&mut output, &row.cells, columns);
         }
     }
     output.push_str("\n\n");

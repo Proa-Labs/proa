@@ -3,30 +3,12 @@ title: Server-rendered content
 description: Keep ordinary Rust values and renderables outside an RSJS client graph.
 ---
 
-Ordinary Rust values remain server-rendered unless a browser obligation depends on them. This page covers [what stays on the server](#keeping-values-out-of-the-client-graph), [trusted static markup](#rendering-trusted-static-markup), [server-only attributes](#setting-server-only-attributes), [child props](#passing-props-to-a-child-component), and [struct literals](#when-is-a-struct-literal-a-component-edge).
-
-## Keeping values out of the client graph
-
-You do not need to annotate every static child in an interactive component. Common cases:
-
-| Need | Pattern |
-|------|---------|
-| Render a trusted SVG or other ordinary renderable | Construct it in the prelude and render the value |
-| Render a compiler-composable child | Use a direct struct literal in the template |
-| Render an arbitrary non-component struct | Construct it in the prelude and render the resulting local |
-| Render a static-per-request attribute | `rsjs::server_attr(...)` |
-
-An ordinary server renderable may emit zero, one, or many DOM nodes. RSJS keeps reactive addressing correct without parsing or buffering that output. The generated client code takes a fast speculative DOM path and verifies the compiler-owned marker it reached. When opaque output shifts a later target, the code falls back to an owner-scoped marker lookup. You do not need to add a single-element host to stabilize an arbitrary SSR fragment's node count.
-
-Raw HTML is the clearest case of output RSJS never inspects.
-
 ## Rendering trusted static markup
 
-You must still trust raw HTML and sanitize it before rendering. That safety boundary is separate from client reachability.
+This island renders a trusted SVG on the server and updates the button label in the browser.
 
 ```rust filename="src/components/icon_button.rs"
-use proa_core::{DataLoader, UnsafeRaw, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteError, html_sync};
 use rsjs::{rsjs, signal};
 
 pub struct IconButton;
@@ -35,11 +17,17 @@ pub struct IconButton;
 impl<L: DataLoader> WebRenderSync<L> for IconButton {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let pressed = signal(false);
-        let icon =
-            UnsafeRaw(r##"<svg aria-hidden="true"><use href="#heart"></use></svg>"##);
+        let toggle = rsjs::event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+            pressed.set(!pressed.get());
+        });
+        let icon = StaticRaw(
+            r#"<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16">
+                <path d="M8 14 2 8a4 4 0 0 1 6-5 4 4 0 0 1 6 5Z"/>
+            </svg>"#,
+        );
 
         html_sync! {
-            <button type="button" on_click={|_| pressed.set(!pressed.get())}>
+            <button type="button" on_click={toggle()}>
                 {icon}
                 {if pressed.get() { "Saved" } else { "Save" }}
             </button>
@@ -49,7 +37,20 @@ impl<L: DataLoader> WebRenderSync<L> for IconButton {
 }
 ```
 
-RSJS hydrates the button and reactive label. The SVG remains ordinary SSR. Attributes take the same server-or-client decision, with an explicit marker for the server side.
+The SVG stays in the server-rendered HTML. Use `StaticRaw` for trusted static markup. Use `UnsafeRaw` for trusted runtime markup and sanitize untrusted HTML before rendering it.
+
+## Keeping values out of the client graph
+
+Ordinary Rust values stay on the server unless browser behavior depends on them. Use these patterns for static children and attributes.
+
+| Need | Pattern |
+|------|---------|
+| Render a trusted SVG or other ordinary renderable | Construct it in the prelude and render the value |
+| Render a compiler-composable child | Use a direct struct literal in the template |
+| Render an arbitrary non-component struct | Construct it in the prelude and render the resulting local |
+| Render a static-per-request attribute | `rsjs::server_attr(...)` |
+
+An ordinary server renderable may emit zero, one, or many DOM nodes. RSJS keeps reactive addressing correct without parsing or buffering that output. The generated client code takes a fast speculative DOM path and verifies the compiler-owned marker it reached. When opaque output shifts a later target, the code falls back to an owner-scoped marker lookup. You do not need to add a single-element host to stabilize an arbitrary SSR fragment's node count.
 
 ## Setting server-only attributes
 

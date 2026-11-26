@@ -1,7 +1,7 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM rust:1.95.0-slim-trixie
+FROM rust:1.100.0-slim-trixie
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

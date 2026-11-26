@@ -3,18 +3,18 @@
 
 [package]
 name = "proa_og"
-version = "0.1.2"
+version = "0.1.3"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "OG image generation using WPE WebKit headless rendering"
+description = "Open Graph image generation using WebKit snapshots"
 license-file.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
 [features]
 default = []
-wpe = []  # Use WPE WebKit instead of WebKitGTK
+wpe = []  # Select WPE when the SDK provides Cairo snapshots
 
 [dependencies]
 libc = { workspace = true }
@@ -22,8 +22,20 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [build-dependencies]
-bindgen = { version = "0.71" }
+bindgen = { version = "0.73.2" }
 pkg-config = { version = "0.3" }
 
 [dev-dependencies]
-png = { version = "0.17" }
+png = { version = "0.18.1" }
+
+# WebKit initialization, rendering, and shutdown run on the process main thread.
+[[test]]
+name = "render_test"
+harness = false
+
+[[test]]
+name = "bench_latency"
+harness = false
+
+[lints]
+workspace = true

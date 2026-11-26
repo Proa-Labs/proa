@@ -1,8 +1,0 @@
-{
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test worker.test.js"
-  },
-  "packageManager": "pnpm@9.15.2"
-}

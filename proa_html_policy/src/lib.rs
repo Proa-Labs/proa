@@ -53,32 +53,25 @@
 /// - CVE-2026-39315 — Unhead HTML-entity padded scheme bypass
 /// - OWASP XSS Filter Evasion Cheat Sheet — control-char bypass techniques
 ///
-/// Marked `#[inline]` so the release build can fold the function into
-/// `elem::write_attr`, which calls it on every URL-bearing attribute in
-/// the hot render path.
+/// Only the first-byte check below is inlined. Every URL-bearing attribute
+/// in the hot render path calls this, and nearly every URL starts with a byte
+/// that no dangerous scheme starts with (`h`, `/`, `#`, `.`, `?`), so the
+/// common case is one comparison at the call site and no call.
 #[inline]
 pub fn has_dangerous_url_scheme(url: &str) -> bool {
-    let bytes = url.as_bytes();
-    // Cheap early-out: the vast majority of URL values start with `h`
-    // (http/https), `/`, `#`, `.`, `?`, `m` (mailto), `t` (tel), etc. The
-    // slow path only needs to run when the first non-control byte could
-    // plausibly be the start of `javascript:`, `vbscript:`, or
-    // `data:text/html` — i.e. the ASCII letters j/J, v/V, d/D, OR an
-    // HTML entity reference `&#`. This skips the full scheme walk for
-    // ~99% of real-world attributes without changing the guarantee for
-    // adversarial inputs.
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b <= 0x20 {
-            i += 1;
-            continue;
-        }
-        if !matches!(b, b'j' | b'J' | b'v' | b'V' | b'd' | b'D' | b'&') {
+    if let Some(&first) = url.as_bytes().first() {
+        let may_start_scheme = matches!(first, b'j' | b'J' | b'v' | b'V' | b'd' | b'D' | b'&');
+        if first > 0x20 && !may_start_scheme {
             return false;
         }
-        break;
     }
+    has_dangerous_url_scheme_walk(url)
+}
+
+/// The full check behind [`has_dangerous_url_scheme`].
+#[inline(never)]
+fn has_dangerous_url_scheme_walk(url: &str) -> bool {
+    let bytes = url.as_bytes();
     prefix_matches_ignoring_controls(bytes, b"javascript:")
         || prefix_matches_ignoring_controls(bytes, b"vbscript:")
         || is_dangerous_data_url(bytes)

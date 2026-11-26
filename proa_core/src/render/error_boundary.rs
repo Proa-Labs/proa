@@ -242,11 +242,11 @@ mod tests {
                         partial: b"<span>inner partial</span>",
                         message: "inner failed",
                     },
-                    static_html(b"<span class=\"inner\">inner fallback</span>"),
+                    static_html("<span class=\"inner\">inner fallback</span>"),
                 ),
                 cx,
             )?;
-            cx.out.extend_static(b"<span>outer partial</span>")?;
+            cx.out.extend_static_str("<span>outer partial</span>")?;
             Err(WriteError::render("outer failed"))
         }
     }
@@ -256,7 +256,7 @@ mod tests {
     impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FatalAfterPartial {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used("fatal-island");
-            cx.out.extend_static(b"<span>partial</span>")?;
+            cx.out.extend_static_str("<span>partial</span>")?;
             Err(WriteError::OutOfCapacity)
         }
     }
@@ -270,7 +270,7 @@ mod tests {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used(self.asset_id);
             cx.rsjs_query_seed_json(self.query_key, r#"{"value":"doomed"}"#);
-            cx.out.extend_static(b"<span>doomed</span>")?;
+            cx.out.extend_static_str("<span>doomed</span>")?;
             Err(WriteError::render("artifact branch failed"))
         }
     }
@@ -281,7 +281,7 @@ mod tests {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used("fallback-island");
             cx.rsjs_query_seed_json(r#"["fallback"]"#, r#"{"value":"fallback"}"#);
-            cx.out.extend_static(b"<span>fallback</span>")
+            cx.out.extend_static_str("<span>fallback</span>")
         }
     }
 
@@ -290,7 +290,7 @@ mod tests {
     impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ArtifactThenFlushedErr {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
             cx.rsjs_island_used("already-shipped-island");
-            cx.out.extend_static(b"<span>already shipped</span>")?;
+            cx.out.extend_static_str("<span>already shipped</span>")?;
             cx.response_mut().mark_stream_chunk_flushed();
             Err(WriteError::render("failed after flush"))
         }
@@ -319,7 +319,7 @@ mod tests {
                     partial: b"<span>partial</span>",
                     message: "component failed",
                 },
-                static_html(b"<span class=\"error\">failed</span>"),
+                static_html("<span class=\"error\">failed</span>"),
             ),
             &mut cx,
         )
@@ -394,10 +394,7 @@ mod tests {
         let result = tokio::time::timeout(
             std::time::Duration::from_millis(1),
             WebRender::render(
-                ErrorBoundary::new(
-                    PendingArtifact,
-                    static_html(b"<span>unused fallback</span>"),
-                ),
+                ErrorBoundary::new(PendingArtifact, static_html("<span>unused fallback</span>")),
                 &mut cx,
             )
             .resolve(),
@@ -420,9 +417,9 @@ mod tests {
                         partial: b"<span>inner partial</span>",
                         message: "inner failed",
                     },
-                    static_html(b"<span class=\"inner\">inner fallback</span>"),
+                    static_html("<span class=\"inner\">inner fallback</span>"),
                 ),
-                static_html(b"<span class=\"outer\">outer fallback</span>"),
+                static_html("<span class=\"outer\">outer fallback</span>"),
             ),
             &mut cx,
         )
@@ -442,7 +439,7 @@ mod tests {
         WebRenderSync::render(
             ErrorBoundary::new(
                 InnerThenOuterErr,
-                static_html(b"<span class=\"outer\">outer fallback</span>"),
+                static_html("<span class=\"outer\">outer fallback</span>"),
             ),
             &mut cx,
         )
@@ -462,7 +459,7 @@ mod tests {
         let err = WebRenderSync::render(
             ErrorBoundary::new(
                 FatalAfterPartial,
-                static_html(b"<span class=\"error\">failed</span>"),
+                static_html("<span class=\"error\">failed</span>"),
             ),
             &mut cx,
         )

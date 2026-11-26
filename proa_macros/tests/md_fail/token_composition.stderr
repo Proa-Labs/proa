@@ -1,0 +1,25 @@
+error: `md_sync!` takes a string template; write the Markdown and its `{slots}` inside one string, such as `md_sync! { "**{child}**" }`. To render values in sequence without authoring Markdown, use a tuple: `(a, b).render_md(cx)`
+ --> tests/md_fail/token_composition.rs:6:44
+  |
+6 |     proa_core::render_to_string(md_sync! { {overview}{impact} });
+  |                                            ^^^^^^^^^^
+
+error: unexpected tokens after the template string; `md_sync!` takes one string with its slots inside it, such as `md_sync! { "**{child}**" }`, optionally followed by `, name = value` arguments
+ --> tests/md_fail/token_composition.rs:7:49
+  |
+7 |     proa_core::render_to_string(md_sync! { "**" {overview} "**" });
+  |                                                 ^^^^^^^^^^
+
+error: `md_sync!` takes a string template; to render nothing, write `md_sync! { "" }`
+ --> tests/md_fail/token_composition.rs:8:33
+  |
+8 |     proa_core::render_to_string(md_sync! {});
+  |                                 ^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `md_sync` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: `md!` takes a string template; write the Markdown and its `{slots}` inside one string, such as `md! { "**{child}**" }`. To render values in sequence without authoring Markdown, render each value in turn: `a.render_md(cx).resolve().await?;`
+ --> tests/md_fail/token_composition.rs:9:56
+  |
+9 |     let _ = proa_core::render_md_to_string_async(md! { {impact} });
+  |                                                        ^^^^^^^^

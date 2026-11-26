@@ -38,7 +38,7 @@ Constants cover the fragments you know at compile time. To pick between them per
 A **`ClassList<N>`** stores references to static class strings and writes them with spaces between segments. It does not allocate a `String`.
 
 ```rust filename="src/components/card/recipe.rs"
-use proa_core::ClassList;
+use proa::ClassList;
 
 pub enum CardDensity {
     Compact,

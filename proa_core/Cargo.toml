@@ -3,7 +3,7 @@
 
 [package]
 name = "proa_core"
-version = "0.3.0"
+version = "0.4.1"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -14,7 +14,7 @@ homepage.workspace = true
 
 [features]
 # Keep DOM conversion out of ordinary HTML builds.
-html-to-markdown = ["dep:htmd", "dep:markup5ever_rcdom"]
+html-to-markdown = ["dep:html5ever", "dep:htmd", "dep:markup5ever_rcdom"]
 
 [dependencies]
 proa_ir = { workspace = true }
@@ -24,8 +24,9 @@ bytes = { workspace = true }
 dashmap = { workspace = true }
 heapless = { workspace = true }
 http = { workspace = true }
-htmd = { version = "0.5.5", optional = true }
-markup5ever_rcdom = { version = "0.38", optional = true }
+html5ever = { version = "0.40.1", optional = true }
+htmd = { version = "0.6.0", default-features = false, features = ["rcdom"], optional = true }
+markup5ever_rcdom = { version = "0.40.1", optional = true }
 itoa_lut = { workspace = true }
 memchr = { version = "2.7" }
 pin-project-lite = "0.2"
@@ -42,7 +43,6 @@ arrayvec = { workspace = true }
 bytes = { workspace = true }
 criterion = { workspace = true, features = ["rayon"] }
 proa_macros = { path = "../proa_macros" }
-proa_react = { path = "../proa_react" }
 proptest = { version = "1.5" }
 pulldown-cmark = { workspace = true, features = ["html"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

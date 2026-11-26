@@ -14,13 +14,7 @@ Install the latest stable CLI from crates.io.
 cargo install proa-cli --locked
 ```
 
-No GitHub credential or Cargo publishing token is required. To install an
-unreleased source revision instead:
-
-```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --locked proa-cli
-```
+No GitHub credential or Cargo publishing token is required.
 
 Then confirm the binary is on your path:
 
@@ -28,12 +22,11 @@ Then confirm the binary is on your path:
 proa --help
 ```
 
-Cargo installs both `proa` and `cargo-proa`. Pin audited source with a full
-commit SHA:
+Cargo installs both `proa` and `cargo-proa`. Select an exact published version
+for reproducible installation:
 
 ```bash
-CARGO_NET_GIT_FETCH_WITH_CLI=true \
-  cargo install --git https://github.com/proa-labs/proa --rev <full-commit-sha> --locked --force proa-cli
+cargo install proa-cli --version '=0.2.0' --locked --force
 ```
 
 Generated project builds resolve Proa crates from crates.io and use `Cargo.lock` for reproducibility. Follow [Installation](/docs) if Cargo cannot download dependencies. When working from this repository, use:
@@ -109,8 +102,10 @@ legacy layout; rerun the installer to migrate once a capable release exists.
 The installed binary is `proa`:
 
 ```bash
-proa dev
+proa run dev
 ```
+
+`proa dev` enters the built-in watcher directly.
 
 The package also ships `cargo-proa`, so Cargo can invoke the same command as a subcommand:
 
@@ -123,12 +118,15 @@ cargo proa fmt --check --verify src
 | Command | Purpose |
 |---------|---------|
 | `proa update` | Update both CLI binaries; use `--check` to preview or `--version` to select a release. |
-| `proa init` | Add `proa.config.json` and `proa.lock.json` to an existing project. |
-| `proa config validate` | Check `proa.config.json` for unknown keys, empty commands, and invalid asset definitions. |
+| `proa init` | Add `proa.config.rs` and `proa.lock.json` to an existing project. |
+| `proa config validate` | Compile `proa.config.rs` and validate the settings. |
 | `proa config show` | Print the effective configuration with defaults filled in. |
 | `proa new site` | Create an opinionated Proa site, including optional deployment presets such as `--deploy coolify`. |
+| `proa run dev` | Run the configured development script. Defaults to `proa dev`. Arguments after the script name are forwarded, with or without a separator: `proa run dev --port 4137` and `proa run dev -- --port 4137` are the same. |
+| `proa run build` | Run the configured build script. Defaults to `proa build`. |
 | `proa dev` | Build configured assets, run the app, restart on project changes, and reload open browser tabs. See [Live reload](/docs/cli/new-site#live-reload). |
 | `proa build` | Run Proa checks, build configured assets, and compile the app for deployment. |
+| `proa start` | Start the release executable exported by `proa build` with its published public catalog. Pass `--bin <path>` and `--public-assets <dir>` to start another export. |
 | `proa run` | Compile and run one exact Proa binary through the linked RSJS pipeline. |
 | `proa test` | Compile and execute one exact test target through the linked RSJS pipeline. |
 | `proa generate component` | Generate reusable render components under `src/components`. |
@@ -151,35 +149,23 @@ cargo proa fmt --check --verify src
 
 ## Project Config
 
-Generated sites include `proa.config.json` and `proa.lock.json`. The config drives lifecycle commands and records component registry aliases:
+Generated sites include `proa.config.rs` and `proa.lock.json`. Return a
+`Config` struct literal wrapped in `Ok` to set lifecycle options and component
+registry aliases. Use `..Config::default()` for other settings. These are the
+default scripts used by `proa run dev` and `proa run build`.
 
-```json
-{
-  "$schema": "https://proa.so/schema/proa.config.json",
-  "paths": {
-    "components": "src/components",
-    "assets": "public/proa"
-  },
-  "registries": {
-    "@proa": "https://ui.proa.so/r/{name}.json",
-    "@proa-pro": "https://console.proa.so/r/{name}.json"
-  },
-  "dev": {
-    "command": ["cargo", "run"],
-    "host": "127.0.0.1",
-    "port": 3000,
-    "watch": ["src", "styles", "Cargo.toml", "build.rs", "proa.config.json"]
-  },
-  "build": {
-    "command": ["cargo", "build", "--release"],
-    "assets": [
-      {
-        "kind": "tailwind",
-        "input": "styles/input.css",
-        "output": "public/styles.css"
-      }
-    ]
-  }
+```rust
+use proa::config::{Config, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "proa dev",
+            build: "proa build",
+            ..Default::default()
+        },
+        ..Config::default()
+    })
 }
 ```
 

@@ -36,8 +36,10 @@ required-features = ["sentry-otel"]
 [dependencies]
 proa_core = { workspace = true }
 proa_macros = { workspace = true }
-proa_react = { workspace = true }
 rsjs = { workspace = true }
 rsjs_macros = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

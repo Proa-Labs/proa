@@ -403,17 +403,17 @@ macro_rules! tag_static_bytes {
         impl Tag {
             /// Returns `b"<tag"` — the opening `<` fused with the tag name.
             #[inline(always)]
-            pub fn open_bytes(self) -> &'static [u8] {
+            pub fn open_str(self) -> &'static str {
                 match self {
-                    $(Tag::$variant => concat!("<", $name).as_bytes(),)*
+                    $(Tag::$variant => concat!("<", $name),)*
                 }
             }
 
             /// Returns `b"</tag>"` — the full closing tag.
             #[inline(always)]
-            pub fn close_bytes(self) -> &'static [u8] {
+            pub fn close_str(self) -> &'static str {
                 match self {
-                    $(Tag::$variant => concat!("</", $name, ">").as_bytes(),)*
+                    $(Tag::$variant => concat!("</", $name, ">"),)*
                 }
             }
         }

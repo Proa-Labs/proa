@@ -3,7 +3,7 @@
 
 use super::*;
 
-const IMPORTS:&str = "use proa_core::{WebRenderSync, WebRender, WebRenderSend, MdRenderSync, MdRender, to_async, to_md_async, text}; use proa_macros::{html_sync, html, md_sync, md, content_part, omit};";
+const IMPORTS:&str = "use proa_core::{WebRenderSync, WebRender, WebRenderSend, MdRenderSync, MdRender, to_async, to_md_async, text}; use proa_macros::{html_sync, html, md_sync, md, omit};";
 fn fixture(html: &str, markdown: &str) -> String {
     format!("{IMPORTS}\nstruct Product {{title: String, data: Data, stock:u32, items: Vec<Data>, image: String}}\nstruct Data; struct RestockNotice; struct Impact;\nimpl WebRenderSync for Product {{fn render(self, cx: &mut Cx)->Result {{ {html} }} }}\nimpl MdRenderSync for Product {{fn render_md(self, cx: &mut Cx)->Result {{ {markdown} }} }}")
 }
@@ -43,13 +43,14 @@ fn deletion_catches_child_even_when_inputs_are_equal() {
 }
 
 #[test]
-fn markdown_layout_state_does_not_hide_missing_content() {
+fn markdown_scopes_do_not_hide_missing_content() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        r####"let previous=cx.md_set_inline(true); md_sync! {r###"{self.title}"###}.render_md(cx)?; cx.md_set_inline(previous); cx.md_blank_line()?; Ok(())"####,
-    ).replace("&mut Cx", "&mut proa_core::WebContext");
+        r#"md_sync! {"{self.title}"}.render_md(cx)?; cx.md_blank_line()?; Ok(())"#,
+    )
+    .replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&src).is_empty());
-    let missing_title = src.replace("{self.title}\"###", "\"###");
+    let missing_title = src.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
     assert_eq!(missing(&missing_title).len(), 1);
 }
 
@@ -63,11 +64,11 @@ impl<C: WebRenderSync> WebRenderSync for Badge<C> {
     fn render(self, cx: &mut Cx) -> Result { html_sync! {{self.children}}.render(cx) }
 }
 impl<C: MdCodeContent> MdRenderSync for Badge<C> {
-    fn render_md(self, cx: &mut Cx) -> Result { md_sync! {{self.children}}.render_md(cx) }
+    fn render_md(self, cx: &mut Cx) -> Result { md_sync! {"{self.children}"}.render_md(cx) }
 }
 "#;
     assert!(lint(source).is_empty());
-    let changed = source.replace("md_sync! {{self.children}}", "md_sync! {}");
+    let changed = source.replace("md_sync! {\"{self.children}\"}", "md_sync! {\"\"}");
     assert_eq!(missing(&changed).len(), 1);
 }
 #[test]
@@ -111,15 +112,27 @@ fn conditions_do_not_count_as_output_and_wrong_guard_is_unchecked() {
     assert_eq!(missing(&tested).len(), 1);
 }
 #[test]
-fn opaque_helpers_are_not_confirmed_absence() {
+fn rendered_helpers_cover_their_inputs_without_asserting_equivalent_output() {
     let src = fixture(
         "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
         "summary(self.data).render_md(cx)",
     );
-    let diags = lint(&src);
-    assert_eq!(code(&diags, "render/content-coverage"), 0);
-    assert_eq!(code(&diags, "render/content-coverage-unchecked"), 1);
-    assert!(diags[0].notes.iter().any(|n| n.contains("helper")));
+    assert!(lint(&src).is_empty(), "{:?}", lint(&src));
+    let changed = src.replace("summary(self.data)", "summary(self.image)");
+    assert_eq!(missing(&changed).len(), 1);
+    let multiple = fixture(
+        "html_sync! {{RestockNotice::new(self.data, self.stock)}}.render(cx)",
+        "summary(self.data, self.stock).render_md(cx)",
+    );
+    assert!(lint(&multiple).is_empty(), "{:?}", lint(&multiple));
+    assert_eq!(
+        missing(&multiple.replace(
+            "summary(self.data, self.stock)",
+            "summary(self.data, self.image)"
+        ))
+        .len(),
+        1
+    );
 }
 
 #[test]
@@ -171,10 +184,10 @@ fn context_and_loader_preparation_do_not_create_content_obligations() {
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 0);
 }
 #[test]
-fn rendered_loader_and_context_data_need_explicit_correspondence() {
+fn rendered_loader_inputs_match_without_markers_and_context_output_is_informational() {
     let src = fixture(
-        "let stock = cx.load_typed::<Data>(html_query).await?; html_sync! {{content_part!(\"stock\", badge(stock))}}.render(cx)",
-        r####"let stock = cx.load_typed::<Data>(md_query).await?; md_sync! {r###"{content_part!("stock", summary(stock))}"###}.render_md(cx)"####,
+        "let stock = cx.load_typed::<Data>(self.stock).await?; html_sync! {{badge(stock)}}.render(cx)",
+        r####"let stock = cx.load_typed::<Data>(self.stock).await?; md_sync! {r###"{summary(stock)}"###}.render_md(cx)"####,
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&src).is_empty(), "{:?}", lint(&src));
     for output in [
@@ -249,7 +262,7 @@ fn borrowed_callbacks_remain_unchecked_instead_of_confirmed_missing() {
 fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     let src = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        r####"cx.load(query); md_sync! {r###""###}.render_md(cx)"####,
+        r####"cx.load_json(query); md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     let local = format!("mod proa_core {{ pub struct WebContext; }} {src}")
@@ -264,7 +277,7 @@ fn familiar_method_names_do_not_exempt_custom_or_shadowed_contexts() {
     );
     let shadowed = fixture(
         "html_sync! {{self.title}}.render(cx)",
-        r####"let cx = custom_context(); cx.load(query); md_sync! {r###""###}.render_md(cx)"####,
+        r####"let cx = custom_context(); cx.load_json(query); md_sync! {r###""###}.render_md(cx)"####,
     )
     .replace("&mut Cx", "&mut proa_core::WebContext");
     assert_eq!(
@@ -304,27 +317,27 @@ fn line_omissions_are_precise_and_checked_for_rot() {
     assert_eq!(code(&lint(&redundant), "render/content-omit-redundant"), 1);
 }
 #[test]
-fn local_and_role_omissions_allow_intentional_differences() {
+fn local_and_literal_omissions_allow_intentional_differences() {
     let src = fixture(
         "html_sync! {{RestockNotice::new(self.data)}}.render(cx)",
         r####"let notice=RestockNotice::new(self.data);omit!(&notice, "Web only", from="html");md_sync! {r###""###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
     let src = fixture(
-        "html_sync! {{content_part!(\"notice\", RestockNotice::new(self.data))}}.render(cx)",
-        r####"omit!("notice");md_sync! {r###""###}.render_md(cx)"####,
+        "html_sync! { \"Available\" }.render(cx)",
+        r####"omit!("Available");md_sync! {r###""###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
 }
 #[test]
-fn named_parts_map_transforms_and_static_copy() {
+fn helper_inputs_and_static_copy_are_inferred() {
     let src = fixture(
-        "html_sync! {{content_part!(\"status\", badge(self.stock))}}.render(cx)",
-        r####"md_sync! {r###"{content_part!("status", status_text(self.stock))}"###}.render_md(cx)"####,
+        "html_sync! {{badge(self.stock)}}.render(cx)",
+        r####"md_sync! {r###"{status_text(self.stock)}"###}.render_md(cx)"####,
     );
     assert!(lint(&src).is_empty());
     let src = fixture(
-        "html_sync! {{content_part!(\"notice\", text(\"Available soon\"))}}.render(cx)",
+        "html_sync! {{text(\"Available soon\")}}.render(cx)",
         r####"md_sync! {r###""###}.render_md(cx)"####,
     );
     assert_eq!(missing(&src).len(), 1);
@@ -568,7 +581,7 @@ fn multi(files: &[(&str, &str)], selected: &[&str]) -> Vec<Diagnostic> {
 fn changed_file_pairs_unchanged_counterpart_and_modules_do_not_collide() {
     let root = "mod product;mod html;mod markdown;mod unrelated;";
     let product = "pub struct Product;";
-    let html=format!("{IMPORTS} use crate::product::Product;impl WebRenderSync for Product {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\", text(\"available\"))}}}}.render(cx)}}}}");
+    let html=format!("{IMPORTS} use crate::product::Product;impl WebRenderSync for Product {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{text(\"available\")}}}}.render(cx)}}}}");
     let md = format!(
         r####"{IMPORTS} use crate::product::Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
     );
@@ -595,16 +608,13 @@ fn changed_file_pairs_unchanged_counterpart_and_modules_do_not_collide() {
     assert!(multi(&files, &["src/unrelated.rs"]).is_empty());
 }
 #[test]
-fn separate_types_require_named_semantic_mapping() {
+fn explicit_separate_types_compare_shared_literals() {
     let src = format!(
-        r####"{IMPORTS} struct HtmlProduct;struct MdProduct;impl WebRenderSync for HtmlProduct {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!("notice", text("Available"))}}}}.render(cx)}}}} #[proa_macros::content(source=HtmlProduct,from="html")] impl MdRenderSync for MdProduct {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###"{{content_part!("notice", text("Available"))}}"###}}.render_md(cx)}}}}"####
+        r####"{IMPORTS} struct HtmlProduct;struct MdProduct;impl WebRenderSync for HtmlProduct {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{text("Available")}}}}.render(cx)}}}} #[proa_macros::content(source=HtmlProduct,from="html")] impl MdRenderSync for MdProduct {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###"{{text("Available")}}"###}}.render_md(cx)}}}}"####
     );
     assert_eq!(code(&lint(&src), "render/content-coverage"), 0);
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 0);
-    let bad = src.replace(
-        "{content_part!(\"notice\", text(\"Available\"))}\"###",
-        "\"###",
-    );
+    let bad = src.replace("{text(\"Available\")}\"###", "\"###");
     assert_eq!(missing(&bad).len(), 1);
 }
 #[test]
@@ -646,7 +656,7 @@ fn incomplete_module_graph_does_not_create_a_counterpart_requirement() {
 }
 #[test]
 fn nested_inline_module_resolves_out_of_line_counterpart() {
-    let root=format!("{IMPORTS} pub struct Product;impl WebRenderSync for Product {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\",text(\"Notice\"))}}}}.render(cx)}}}} mod views {{mod markdown;}}");
+    let root=format!("{IMPORTS} pub struct Product;impl WebRenderSync for Product {{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{text(\"Notice\")}}}}.render(cx)}}}} mod views {{mod markdown;}}");
     let md = format!(
         r####"{IMPORTS} use crate::Product;impl MdRenderSync for Product {{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
     );
@@ -729,6 +739,10 @@ fn constructor_argument_roles_and_literals_are_not_field_set_equality() {
         (
             "RestockNotice {at:self.title,description:self.image}",
             "RestockNotice {at:self.image,description:self.title}",
+        ),
+        (
+            r#"RestockNotice::new(proa_macros::text!("({})", self.title))"#,
+            r#"RestockNotice::new(proa_macros::text!("[{}]", self.title))"#,
         ),
     ] {
         let src = fixture(
@@ -823,8 +837,10 @@ fn actual_product_fixture_and_real_incident_report_deletions_are_caught() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../examples/mcp-incident-desk/src/components/issue_report/issue_report.rs");
     let source = std::fs::read_to_string(&path).unwrap();
-    assert!(source.contains("{impact}"));
-    let mutated = source.replace("{impact}", "");
+    // The report composes its sections as a tuple; dropping one element is
+    // the Markdown view forgetting that section.
+    assert!(source.contains("Impact::new(self.data),"));
+    let mutated = source.replace("Impact::new(self.data),", "");
     let d = lint_sources(
         &[(path.clone(), mutated)],
         &BTreeSet::from([discover::absolute(&path)]),
@@ -903,25 +919,25 @@ fn missing_child_primary_is_the_template_and_alias_evidence_is_at_the_sink() {
 }
 
 #[test]
-fn named_parts_retain_structural_guards_and_can_map_direct_writes() {
-    let src=fixture("html_sync! {{content_part!(\"notice\", if self.stock==0 {html_sync! {{self.title}}}else{()})}}.render(cx)",r####"md_sync! {r###"{content_part!("notice", if self.stock>0 {md_sync! {r#"{self.title}"#}}else{()})}"###}.render_md(cx)"####);
+fn structural_guards_and_opaque_direct_writes_are_distinct() {
+    let src = fixture(
+        "html_sync! {{if self.stock==0 {html_sync! {{self.title}}}else{()}}}.render(cx)",
+        r####"md_sync! {r###"{if self.stock>0 {md_sync! {r#"{self.title}"#}}else{()}}"###}.render_md(cx)"####,
+    );
     assert_eq!(code(&lint(&src), "render/content-coverage-unchecked"), 1);
     let direct = fixture(
-        "content_part!(\"notice\", write_html(self.data,cx));Ok(())",
-        "content_part!(\"notice\", write_md(self.data,cx));Ok(())",
+        "write_html(self.data,cx);Ok(())",
+        "write_md(self.data,cx);Ok(())",
     );
-    assert!(lint(&direct).is_empty());
-    let unused = direct.replace(
-        "content_part!(\"notice\", write_md(self.data,cx));Ok(())",
-        r####"let unused=content_part!("notice", md_sync! {r###"{self.title}"###});Ok(())"####,
-    );
-    assert_eq!(missing(&unused).len(), 1);
+    let diagnostics = lint(&direct);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].severity, Severity::Info);
 }
 #[test]
 fn one_opaque_boundary_retains_evidence_for_all_unchecked_children() {
     let src = fixture(
         "html_sync! {{RestockNotice::new(self.data)} {Impact::new(self.data)}}.render(cx)",
-        "summary(self.data).render_md(cx)",
+        "summary().render_md(cx)",
     );
     let d = lint(&src);
     assert_eq!(d.len(), 1);
@@ -934,7 +950,7 @@ fn one_opaque_boundary_retains_evidence_for_all_unchecked_children() {
 #[test]
 fn loop_exits_compound_assignment_and_obvious_mutation_are_unchecked() {
     let html = "html_sync! {{for item in self.items {html_sync! {{item}}}}}.render(cx)";
-    let md="md_sync! { {for item in self.items { if item.stop {break;} md_sync! {{item}} }} }.render_md(cx)";
+    let md = "md_sync! { r#\"{for item in self.items { if item.stop {break;} md_sync! { \"{item}\" } }}\"# }.render_md(cx)";
     assert_eq!(
         code(
             &lint(&fixture(html, md)),
@@ -1029,7 +1045,7 @@ fn nested_library_named_module_is_not_another_cargo_entry_point() {
         "[package]\nname=\"fixture\"\nversion=\"0.1.0\"\n",
     )
     .unwrap();
-    let root=format!("{IMPORTS} pub struct Product;impl WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!(\"notice\",text(\"Notice\"))}}}}.render(cx)}}}} #[path=\"view/lib.rs\"] mod view;");
+    let root=format!("{IMPORTS} pub struct Product;impl WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{text(\"Notice\")}}}}.render(cx)}}}} #[path=\"view/lib.rs\"] mod view;");
     let view = format!(
         r####"{IMPORTS} use crate::Product;impl MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
     );
@@ -1091,7 +1107,7 @@ fn opaque_tuple_destructuring_does_not_render_the_whole_constructed_child() {
 #[test]
 fn locally_shadowed_render_trait_paths_are_not_registered_external_targets() {
     let source = format!(
-        r####"{IMPORTS} mod proa_core {{pub trait WebRenderSync{{}} pub trait MdRenderSync{{}}}} struct Product;impl proa_core::WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{content_part!("notice",text("Notice"))}}}}.render(cx)}}}} impl proa_core::MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
+        r####"{IMPORTS} mod proa_core {{pub trait WebRenderSync{{}} pub trait MdRenderSync{{}}}} struct Product;impl proa_core::WebRenderSync for Product{{fn render(self,cx:&mut Cx)->Result{{html_sync! {{{{text("Notice")}}}}.render(cx)}}}} impl proa_core::MdRenderSync for Product{{fn render_md(self,cx:&mut Cx)->Result{{md_sync! {{r###""###}}.render_md(cx)}}}}"####
     );
     assert!(lint(&source).is_empty());
 }
@@ -1201,7 +1217,7 @@ fn literal_copy_matches_markdown_blocks_and_links_without_annotations() {
 fn literal_omissions_are_explicit_and_detect_stale_exceptions() {
     let source = fixture(
         r#"html_sync! { <span aria-label="Loading"></span> }.render(cx)"#,
-        r#"omit!("Loading"); md_sync! {}.render_md(cx)"#,
+        r#"omit!("Loading"); md_sync! {""}.render_md(cx)"#,
     );
     assert!(lint(&source).is_empty());
     let stale = source.replace("aria-label=\"Loading\"", "aria-label=\"Working\"");
@@ -1216,7 +1232,10 @@ fn proven_markdown_writers_preserve_child_coverage() {
     )
     .replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
-    let deleted = source.replace("self.title.render_md(out)", "md_sync! {}.render_md(out)");
+    let deleted = source.replace(
+        "self.title.render_md(out)",
+        "md_sync! {\"\"}.render_md(out)",
+    );
     assert_eq!(missing(&deleted).len(), 1);
     let opaque = source.replace("md_heading_with", "custom_heading_with");
     assert_eq!(code(&lint(&opaque), "render/content-coverage-unchecked"), 1);
@@ -1231,10 +1250,10 @@ fn proven_markdown_writers_preserve_child_coverage() {
 fn typed_loader_fields_match_by_query_and_payload_not_local_spelling() {
     let source = fixture(
         "let html_data = cx.load_typed::<Data>(query()).await?; html_sync! {{html_data.title}}.render(cx)",
-        "let markdown_data = cx.load_typed::<Data>(query()).await?; md_sync! {{markdown_data.title}}.render_md(cx)",
+        "let markdown_data = cx.load_typed::<Data>(query()).await?; md_sync! {\"{markdown_data.title}\"}.render_md(cx)",
     ).replace("&mut Cx", "&mut proa_core::WebContext");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
-    let deleted = source.replace("{{markdown_data.title}}", "{}");
+    let deleted = source.replace("{\"{markdown_data.title}\"}", "{\"\"}");
     assert_eq!(missing(&deleted).len(), 1);
     let changed_key = source.replace(
         "::<Data>(query()).await?; md_sync",
@@ -1260,7 +1279,7 @@ impl WebRenderSync for Input {
 }
 impl MdRenderSync for Input {
     fn render_md(self, cx: &mut WebContext) -> Result {
-        if let Some(label) = self.placeholder { md_sync! {{label}}.render_md(cx)?; }
+        if let Some(label) = self.placeholder { md_sync! {"{label}"}.render_md(cx)?; }
         Ok(())
     }
 }
@@ -1273,7 +1292,7 @@ impl MdRenderSync for Input {
     assert!(lint(&qualified).is_empty(), "{:?}", lint(&qualified));
     let borrowed = source.replace("= self.placeholder {", "= self.placeholder.as_ref() {");
     assert!(lint(&borrowed).is_empty(), "{:?}", lint(&borrowed));
-    let deleted = source.replace("md_sync! {{label}}", "md_sync! {}");
+    let deleted = source.replace("md_sync! {\"{label}\"}", "md_sync! {\"\"}");
     assert_eq!(missing(&deleted).len(), 1);
     let guarded = source
         .replace("if let Some(label)", "if self.allowed { if let Some(label)")
@@ -1288,7 +1307,7 @@ impl MdRenderSync for Input {
 fn only_fully_static_markup_is_inferred_for_the_framework_raw_adapter() {
     let source = fixture(
         "html_sync! {{proa_core::StaticRaw(ICON)} {self.title}}.render(cx)",
-        "md_sync! {{self.title}}.render_md(cx)",
+        "md_sync! {\"{self.title}\"}.render_md(cx)",
     );
     let source = format!("const ICON: &str = r#\"<svg aria-hidden=\"true\"><path d=\"M0 0L1 1\"/></svg>\"#;\n{source}");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
@@ -1296,49 +1315,42 @@ fn only_fully_static_markup_is_inferred_for_the_framework_raw_adapter() {
         "proa_core::StaticRaw(ICON)",
         "proa_core::StaticRaw(self.image)",
     );
-    assert_eq!(
-        code(&lint(&dynamic_raw), "render/content-coverage-unchecked"),
-        1
-    );
+    assert_eq!(missing(&dynamic_raw).len(), 1);
     let opaque_raw = source.replace("proa_core::StaticRaw", "custom::StaticRaw");
-    assert_eq!(
-        code(&lint(&opaque_raw), "render/content-coverage-unchecked"),
-        1
-    );
-    let erased_title = source.replace("md_sync! {{self.title}}", "md_sync! {}");
+    assert_eq!(missing(&opaque_raw).len(), 1);
+    let erased_title = source.replace("md_sync! {\"{self.title}\"}", "md_sync! {\"\"}");
     assert_eq!(missing(&erased_title).len(), 1);
 }
 
 #[test]
-fn shadowed_some_function_is_not_treated_as_the_option_constructor() {
+fn ordinary_helpers_named_some_still_contribute_their_inputs() {
     let source = fixture(
         "html_sync! {{Some(self.title)}}.render(cx)",
-        "md_sync! {}.render_md(cx)",
+        "md_sync! {\"\"}.render_md(cx)",
     );
     let source = format!("fn Some(value: String) -> String {{ value }}\n{source}");
-    assert_eq!(code(&lint(&source), "render/content-coverage-unchecked"), 1);
-    assert!(missing(&source).is_empty());
+    assert_eq!(missing(&source).len(), 1);
 }
 
 #[test]
 fn child_options_and_unit_variants_keep_input_identity() {
     let source = fixture(
         "html_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}.render(cx)",
-        "md_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}.render_md(cx)",
+        "md_sync! {\"{RestockNotice { size: Some(Size::Small), id: None }}\"}.render_md(cx)",
     );
     let source = format!("enum Size {{ Small, Large }}\n{source}");
     assert!(lint(&source).is_empty(), "{:?}", lint(&source));
     let changed = source.replace(
-        "size: Some(Size::Small), id: None }}}.render_md",
-        "size: Some(Size::Large), id: None }}}.render_md",
+        "size: Some(Size::Small), id: None }}\"}.render_md",
+        "size: Some(Size::Large), id: None }}\"}.render_md",
     );
     assert_eq!(
         code(&lint(&changed), "render/content-coverage-unchecked"),
         1
     );
     let deleted = source.replace(
-        "md_sync! {{RestockNotice { size: Some(Size::Small), id: None }}}",
-        "md_sync! {}",
+        "md_sync! {\"{RestockNotice { size: Some(Size::Small), id: None }}\"}",
+        "md_sync! {\"\"}",
     );
     assert_eq!(missing(&deleted).len(), 1);
     let unknown = source.replace("Size::Small", "external::Size::Small");
@@ -1347,17 +1359,14 @@ fn child_options_and_unit_variants_keep_input_identity() {
         1
     );
     let shadowed = format!("const None: &str = \"visible\";\n{source}");
-    assert_eq!(
-        code(&lint(&shadowed), "render/content-coverage-unchecked"),
-        1
-    );
+    assert!(lint(&shadowed).is_empty());
 }
 
 #[test]
 fn raw_markup_constants_cannot_override_shadowing_or_configuration() {
     let source = fixture(
         "html_sync! {{proa_core::StaticRaw(ICON)} {self.title}}.render(cx)",
-        "md_sync! {{self.title}}.render_md(cx)",
+        "md_sync! {\"{self.title}\"}.render_md(cx)",
     );
     let constant = "const ICON: &str = r#\"<svg aria-hidden=\"true\"/>\"#;";
     for prefix in [
@@ -1366,21 +1375,15 @@ fn raw_markup_constants_cannot_override_shadowing_or_configuration() {
         format!("{constant}\nconst ICON: &str = other();"),
     ] {
         let conditional = format!("{prefix}\n{source}");
-        assert_eq!(
-            code(&lint(&conditional), "render/content-coverage-unchecked"),
-            1,
-            "{:?}",
-            lint(&conditional)
-        );
+        assert_eq!(missing(&conditional).len(), 1, "{:?}", lint(&conditional));
     }
     let shadowed = format!(
         "{constant}\n{}",
         source.replace("html_sync!", "let ICON = self.image; html_sync!")
     );
-    assert_eq!(
-        code(&lint(&shadowed), "render/content-coverage-unchecked"),
-        1
-    );
+    let diagnostics = missing(&shadowed);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("self.image"));
 }
 
 #[test]
@@ -1403,7 +1406,7 @@ fn inline_code_projection_is_supported_but_arbitrary_callbacks_are_opaque() {
 }
 
 #[test]
-fn context_url_preserves_path_content_without_trusting_arbitrary_url_methods() {
+fn context_url_and_application_url_helpers_track_rendered_inputs() {
     let source = fixture(
         "html_sync! { <a href={cx.url(self.image)}>{self.title}</a> }.render(cx)",
         r####"let url = cx.url(self.image); md_sync! {r###"[{self.title}]({url})"###}.render_md(cx)"####,
@@ -1413,7 +1416,7 @@ fn context_url_preserves_path_content_without_trusting_arbitrary_url_methods() {
     let missing_path = source.replace("let url = cx.url(self.image);", "let url = \"/other\";");
     assert_eq!(missing(&missing_path).len(), 1);
     let unknown = source.replace("cx.url(self.image)", "self.data.url(self.image)");
-    assert!(code(&lint(&unknown), "render/content-coverage-unchecked") > 0);
+    assert!(lint(&unknown).is_empty(), "{:?}", lint(&unknown));
     let shadowed = source.replace("&mut proa_core::WebContext", "&mut ApplicationContext");
     assert!(code(&lint(&shadowed), "render/content-coverage-unchecked") > 0);
 }
@@ -1466,4 +1469,178 @@ fn nested_markdown_diagnostics_compose_literal_source_maps() {
             .collect();
         assert_eq!(selected, "self.stock>0");
     }
+}
+
+#[test]
+fn text_macros_track_formatted_inputs_and_ordinary_copy() {
+    let source = fixture(
+        r#"html_sync! { <p>{proa_macros::text!("Stock: {:03}", self.stock)}</p> }.render(cx)"#,
+        r####"md_sync! {r###"Stock: {self.stock}"###}.render_md(cx)"####,
+    );
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let deleted = source.replace("Stock: {self.stock}", "Stock:");
+    let diagnostics = missing(&deleted);
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("self.stock"));
+    let foreign = source.replace("proa_macros::text!", "foreign::text!");
+    assert!(lint(&foreign)
+        .iter()
+        .any(|d| d.code == "render/content-coverage-unchecked" && d.severity == Severity::Info));
+}
+
+#[test]
+fn repeated_inputs_do_not_impose_output_cardinality() {
+    let source = fixture(
+        "html_sync! {<img alt={self.title} /><h1>{self.title}</h1>}.render(cx)",
+        "md_sync! {\"# {self.title}\"}.render_md(cx)",
+    );
+    assert!(lint(&source).is_empty());
+    assert_eq!(missing(&source.replace("# {self.title}", "")).len(), 1);
+}
+
+#[test]
+fn text_macro_child_inputs_preserve_literal_copy() {
+    for text in [
+        r#"proa_macros::text!("Before")"#,
+        r#"proa_macros::text!("Before: {}", self.stock)"#,
+    ] {
+        let html = format!("html_sync! {{{{RestockNotice::new({text})}}}}.render(cx)");
+        for (markdown, expected_code) in [
+            (
+                format!(
+                    r####"md_sync! {{r###"{{RestockNotice::new({text})}}"###}}.render_md(cx)"####
+                ),
+                "render/content-coverage-unchecked",
+            ),
+            (
+                format!("summary({text}).render_md(cx)"),
+                "render/content-coverage",
+            ),
+        ] {
+            let matching = lint(&fixture(&html, &markdown));
+            assert!(matching.is_empty(), "{text}: {matching:?}");
+
+            let changed = lint(&fixture(&html, &markdown.replace("Before", "After")));
+            assert_eq!(code(&changed, expected_code), 1, "{text}: {changed:?}");
+        }
+    }
+}
+
+#[test]
+fn punctuation_only_child_inputs_do_not_require_literal_contributions() {
+    for input in [
+        r#"proa_macros::text!("{} - {}", self.title, self.stock)"#,
+        r#"proa_macros::text!("({})", self.title)"#,
+        r#"self.title, " - ", self.stock"#,
+    ] {
+        let html = format!("html_sync! {{{{RestockNotice::new({input})}}}}.render(cx)");
+        let markdown = format!("summary({input}).render_md(cx)");
+        let matching = lint(&fixture(&html, &markdown));
+        assert!(matching.is_empty(), "{input}: {matching:?}");
+
+        let changed = fixture(&html, &markdown.replace("self.title", "self.image"));
+        assert_eq!(missing(&changed).len(), 1, "{input}");
+    }
+}
+
+#[test]
+fn constants_dereferences_and_url_children_need_no_content_markers() {
+    let source = fixture(
+        "html_sync! {{TITLE}<img src={self.image} />{for item in self.items {html_sync! {{*item}}}}}.render(cx)",
+        r####"md_sync! {r###"{TITLE} ![]({Url(self.image)}) {for item in self.items {md_sync! {"{*item}"}}}"###}.render_md(cx)"####,
+    );
+    let source = format!(r#"const TITLE: &str = "Product"; struct Url(String); {source}"#);
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    let deleted = source.replace("![]({Url(self.image)})", "");
+    assert_eq!(missing(&deleted).len(), 1);
+}
+
+#[test]
+fn document_head_and_stylesheets_are_outside_body_content_coverage() {
+    let source = fixture(
+        "html_sync! {<html><head><title>{self.title}\" - Site\"</title></head><body><link rel=\"stylesheet\" href={self.image} /><h1>{self.title}</h1></body></html>}.render(cx)",
+        "md_sync! {\"# {self.title}\"}.render_md(cx)",
+    );
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+    assert_eq!(missing(&source.replace("# {self.title}", "")).len(), 1);
+}
+
+#[test]
+fn helper_literals_cover_child_inputs_and_changed_literals_remain_missing() {
+    for literal in [r#""Notice""#, r#""  Notice   text  ""#, "42", "true", "'!'"] {
+        let source = fixture(
+            &format!("html_sync! {{{{RestockNotice::new(self.data, {literal})}}}}.render(cx)"),
+            &format!("summary(self.data, {literal}).render_md(cx)"),
+        );
+        assert!(lint(&source).is_empty(), "{literal}: {:?}", lint(&source));
+        let changed = source.replace(
+            &format!("summary(self.data, {literal})"),
+            "summary(self.data, self.image)",
+        );
+        assert_eq!(missing(&changed).len(), 1, "{literal}");
+    }
+}
+
+#[test]
+fn helper_child_guard_differences_are_warnings_in_both_directions() {
+    for (html, markdown) in [
+        ("html_sync! {{if self.stock > 0 {html_sync! {{RestockNotice::new(self.data, \"Notice\")}}}}}.render(cx)", "summary(self.data, \"Notice\").render_md(cx)"),
+        ("html_sync! {{RestockNotice::new(self.data, \"Notice\")}}.render(cx)", "if self.stock > 0 { summary(self.data, \"Notice\").render_md(cx) } else { Ok(()) }"),
+    ] {
+        let diagnostics = lint(&fixture(html, markdown));
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].code, "render/content-coverage-unchecked");
+        assert_eq!(diagnostics[0].severity, Severity::Warning);
+        assert!(diagnostics[0].message.contains("different presence conditions"));
+    }
+}
+
+#[test]
+fn facade_imports_preserve_coverage_and_detect_omitted_inputs() {
+    let original = fixture(
+        "html_sync! {{self.title}}.render(cx)",
+        r#"md_sync! {"{self.title}"}.render_md(cx)"#,
+    )
+    .replace("proa_core::", "proa::")
+    .replace("proa_macros::", "proa::");
+    assert!(lint(&original).is_empty());
+    let changed = original.replace(r#"md_sync! {"{self.title}"}"#, r#"md_sync! {""}"#);
+    let diagnostics = missing(&changed);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(
+        diagnostics[0].suggestions[0].replacement,
+        "proa::omit!(self.title);"
+    );
+    let facade_imports = IMPORTS
+        .replace("proa_core::", "proa::")
+        .replace("proa_macros::", "proa::");
+    let grouped_imports = format!(
+        "use {{ {} }};",
+        facade_imports.replace("use ", "").replace(';', ",")
+    );
+    let grouped = changed.replace(&facade_imports, &grouped_imports);
+    let grouped_diagnostics = missing(&grouped);
+    assert_eq!(grouped_diagnostics.len(), 1);
+    assert_eq!(
+        grouped_diagnostics[0].suggestions[0].replacement,
+        "proa::omit!(self.title);"
+    );
+    let qualified = changed
+        .replace("html_sync!", "proa::html_sync!")
+        .replace("md_sync!", "proa::md_sync!");
+    assert_eq!(missing(&qualified).len(), 1);
+}
+
+#[test]
+fn markdown_image_alt_and_link_labels_match_across_dynamic_destinations() {
+    let matched = fixture(
+        r#"html_sync! { <img src={self.image} alt="Brand" /><a href={self.title}>"Docs"</a> }.render(cx)"#,
+        r####"md_sync! { r###"![Brand]({self.image}) [Docs]({self.title})"### }.render_md(cx)"####,
+    );
+    assert!(missing(&matched).is_empty(), "{:?}", lint(&matched));
+
+    let wrong_alt = matched.replace("![Brand]", "![Other]");
+    let diagnostics = missing(&wrong_alt);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics[0].message.contains("Brand"), "{diagnostics:?}");
 }

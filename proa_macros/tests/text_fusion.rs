@@ -23,6 +23,8 @@ struct CountingBuf {
     dynamic_writes: usize,
 }
 
+#[allow(unsafe_code)]
+
 impl WriteBuf for CountingBuf {
     fn capacity(&self) -> usize {
         self.bytes.capacity()
@@ -37,13 +39,15 @@ impl WriteBuf for CountingBuf {
         Ok(())
     }
 
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         self.dynamic_writes += 1;
         self.bytes.extend_from_slice(bytes);
         Ok(())
     }
 
-    fn extend_static(&mut self, bytes: &'static [u8]) -> Result<(), WriteError> {
+    fn extend_static_str(&mut self, text: &'static str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         self.static_writes += 1;
         self.bytes.extend_from_slice(bytes);
         Ok(())

@@ -216,7 +216,11 @@ a {
   cursor: pointer;
   box-shadow: none;
 }
-.air-calendar [data-calendar-day]:hover:not(:disabled):not([data-range-start]):not([data-range-end]):not([data-state="selected"]) {
+/* In the listing's April 2026 grid the first day falls on Wednesday. */
+[data-listing-calendar][data-month="4"] [data-calendar-day="1"] {
+  grid-column-start: 4;
+}
+.air-calendar [data-calendar-day]:hover:not(:disabled):not([data-range-start="true"]):not([data-range-end="true"]):not([data-state="selected"]) {
   background: var(--air-soft);
   color: #222;
 }
@@ -225,19 +229,19 @@ a {
   opacity: 0.38;
   cursor: default;
 }
-.air-calendar [data-calendar-day][data-in-range] {
+.air-calendar [data-calendar-day][data-in-range="true"] {
   background: var(--air-soft);
   color: #222;
   border-radius: 0;
 }
-.air-calendar [data-calendar-day][data-range-start],
-.air-calendar [data-calendar-day][data-range-end],
+.air-calendar [data-calendar-day][data-range-start="true"],
+.air-calendar [data-calendar-day][data-range-end="true"],
 .air-calendar [data-calendar-day][data-state="selected"] {
   background: #222;
   color: #fff;
 }
-.air-calendar [data-calendar-day][data-range-start]:hover,
-.air-calendar [data-calendar-day][data-range-end]:hover,
+.air-calendar [data-calendar-day][data-range-start="true"]:hover,
+.air-calendar [data-calendar-day][data-range-end="true"]:hover,
 .air-calendar [data-calendar-day][data-state="selected"]:hover {
   background: #222;
   color: #fff;
@@ -278,6 +282,14 @@ a {
   border-radius: 24px;
   background: #fff;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+}
+.airbnb-booking-popover[popover] {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
 }
 .airbnb-booking-popover.hidden {
   display: none;
@@ -484,6 +496,7 @@ a {
   display: none;
 }
 .airbnb-ratings-card {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;

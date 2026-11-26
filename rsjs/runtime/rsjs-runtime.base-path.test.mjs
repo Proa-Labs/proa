@@ -24,27 +24,62 @@ for (const prefix of ['', '/apps/demo', '/user/alice%40example/proxy/3000']) {
         assert.equal(core.app_url(path), expected);
         assert.equal(app_url(app_url(path)), expected);
     }
-    for (const [index, fetcher] of [
-        '/api/items',
-        { url: '/api/items', method: 'GET' },
-        JSON.stringify({ url: '/api/items', method: 'GET' }),
-        { url: `${prefix}/api/items`, method: 'GET' },
-        'https://api.test/items',
-        '//cdn.test/items',
-        () => ({ url: '/api/items' }),
+    for (const [index, [fetcher, expected]] of [
+        ['/api/items', '/api/items'],
+        [{ url: '/api/items', method: 'GET' }, '/api/items'],
+        [JSON.stringify({ url: '/api/items', method: 'GET' }), '/api/items'],
+        [{ url: '/api/items', apply_base_path: true }, `${prefix}/api/items`],
+        [JSON.stringify({ url: '/api/items', apply_base_path: true }), `${prefix}/api/items`],
+        [{ url: `${prefix}/api/items`, apply_base_path: true }, `${prefix}/api/items`],
+        ['https://api.test/items', 'https://api.test/items'],
+        ['//cdn.test/items', '//cdn.test/items'],
+        [() => ({ url: '/api/items' }), '/api/items'],
+        [() => ({ url: '/api/items', apply_base_path: true }), `${prefix}/api/items`],
     ].entries()) {
         const key = ['base-path', prefix, index];
         const query = rsjs.query(key);
         register_query({ island: `mounted-${index}`, query_id: index, key, fetcher, options: {} });
         await query.refetch();
-        const expected = index < 4 || index === 6 ? `${prefix}/api/items` : fetcher;
         assert.equal(requests.at(-1).url, expected);
     }
-    const mutation = register_mutation({ island: 'mounted-mutation', mutation_id: 0,
-        runner: { url: '/api/save', method: 'POST' }, options: {}, invalidates: [] });
-    assert.deepEqual(await mutation.run({ value: 42 }), { saved: true });
-    assert.equal(requests.at(-1).url, `${prefix}/api/save`);
-    assert.equal(requests.at(-1).init.method, 'POST');
-    assert.equal(requests.at(-1).init.body, '{"value":42}');
+    for (const [index, [runner, expected]] of [
+        [{ url: '/api/save', method: 'POST' }, '/api/save'],
+        [{ url: '/api/save', method: 'POST', apply_base_path: true }, `${prefix}/api/save`],
+        [JSON.stringify({ url: '/api/save', apply_base_path: true }), `${prefix}/api/save`],
+    ].entries()) {
+        const mutation = register_mutation({ island: 'mounted-mutation', mutation_id: index,
+            key: ['mounted-mutation', prefix, index], runner, options: {}, invalidates: [] });
+        assert.deepEqual(await mutation.run({ value: 42 }), { saved: true });
+        assert.equal(requests.at(-1).url, expected);
+        assert.equal(requests.at(-1).init.method, 'POST');
+        assert.equal(requests.at(-1).init.body, '{"value":42}');
+    }
+}
+
+// The framework serves the file as written and names the base path in the
+// page, so the same bytes work under any mount.
+const block = (textContent) => ({ tagName: 'SCRIPT', type: 'application/json', textContent });
+for (const [config, expected] of [
+    [block('{"basePath":"/apps/demo"}'), '/apps/demo/api/items'],
+    [block('{}'), '/api/items'],
+    [block('not json'), '/api/items'],
+    [null, '/api/items'],
+    // An element that only borrows the id is not the framework's block, and a
+    // value that is not a path on this origin is not a base path.
+    [{ tagName: 'DIV', textContent: '{"basePath":"/evil"}' }, '/api/items'],
+    [{ tagName: 'SCRIPT', type: 'text/plain', textContent: '{"basePath":"/evil"}' }, '/api/items'],
+    [block('{"basePath":"https://evil.example"}'), '/api/items'],
+    [block('{"basePath":"//evil.example"}'), '/api/items'],
+]) {
+    globalThis.document = {
+        querySelectorAll: () => [],
+        getElementById: (id) => (id === '__proa' ? config : null),
+    };
+    const source = await readFile(new URL('./rsjs-runtime.js', import.meta.url), 'utf8');
+    // A comment makes each import a fresh module instance.
+    const label = JSON.stringify(config);
+    const core = await import(`data:text/javascript;base64,${Buffer.from(`${source}\n// ${label}`).toString('base64')}`);
+    assert.equal(core.app_url('/api/items'), expected, label);
+    assert.equal(core.app_url('https://api.test/items'), 'https://api.test/items');
 }
 console.log('runtime base-path tests passed');

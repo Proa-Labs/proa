@@ -55,6 +55,9 @@ pub struct RequestContext {
     client_ip: Option<String>,
     original_pathname: Option<String>,
     base_path: super::BasePath,
+    public_assets: Option<super::PublicAssetUrls>,
+    framework_assets: Option<super::FrameworkAssets>,
+    asset_prefix: Option<std::sync::Arc<str>>,
 }
 
 fn empty_headers() -> &'static HeaderMap {
@@ -79,6 +82,64 @@ impl RequestContext {
     pub fn with_base_path(mut self, base_path: super::BasePath) -> Self {
         self.set_base_path(base_path);
         self
+    }
+
+    /// Attach the public URL map prepared by the host.
+    pub fn set_public_asset_urls(&mut self, urls: Option<super::PublicAssetUrls>) {
+        self.public_assets = urls;
+    }
+
+    /// Attach the framework's own published files, when the host serves them
+    /// under content-hashed names.
+    pub fn set_framework_assets(&mut self, assets: Option<super::FrameworkAssets>) {
+        self.framework_assets = assets;
+    }
+
+    /// The framework's own published files. `None` means the host serves them
+    /// at their fixed logical URLs.
+    pub fn framework_assets(&self) -> Option<&super::FrameworkAssets> {
+        self.framework_assets.as_ref()
+    }
+
+    /// Name the host that serves the published files in place of this
+    /// server, as the URL its copy of them starts at.
+    pub fn set_asset_prefix(&mut self, prefix: Option<std::sync::Arc<str>>) {
+        self.asset_prefix = prefix;
+    }
+
+    /// What a URL to a published file starts with: the asset host when one
+    /// is configured, the base path otherwise. Published files live under
+    /// `/_proa/`; application routes always use [`base_path`](Self::base_path).
+    pub fn asset_prefix(&self) -> &str {
+        self.asset_prefix
+            .as_deref()
+            .unwrap_or(self.base_path.as_str())
+    }
+
+    /// A shared handle to the configured asset host, for a renderer that
+    /// writes it while it also holds the output buffer.
+    pub fn asset_host(&self) -> Option<std::sync::Arc<str>> {
+        self.asset_prefix.clone()
+    }
+
+    /// Whether published files are fetched from another origin.
+    pub fn assets_are_cross_origin(&self) -> bool {
+        self.asset_prefix
+            .as_deref()
+            .is_some_and(|prefix| !prefix.starts_with('/'))
+    }
+
+    /// Whether the host installed a managed public asset catalog for this request.
+    pub fn has_public_assets(&self) -> bool {
+        self.public_assets.is_some()
+    }
+
+    /// Compose an application URL or resolve a logical `public/...` path.
+    pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
+        match path.strip_prefix("public/") {
+            Some(logical) => super::PublicAssetUrls::resolve(self.public_assets.as_ref(), logical),
+            None => self.base_path.url(path),
+        }
     }
 
     pub fn method(&self) -> Option<&Method> {
@@ -441,12 +502,10 @@ impl<'a> HeadWriter<'a> {
     );
 
     /// Set a manifest URL resolved against the trusted public origin and mount.
-    pub fn manifest(
-        &mut self,
-        value: impl Into<std::borrow::Cow<'static, str>>,
-    ) -> Result<(), crate::WriteError> {
+    pub fn manifest(&mut self, value: impl crate::TryIntoHeadUrl) -> Result<(), crate::WriteError> {
+        let value: String = value.try_into_head_url()?.into();
         self.metadata(crate::HeadMetadata {
-            manifest: value.into().into(),
+            manifest: std::borrow::Cow::<'static, str>::Owned(value).into(),
             ..Default::default()
         })
     }
@@ -511,26 +570,35 @@ impl<'a> HeadWriter<'a> {
     ) -> Result<(), crate::WriteError> {
         self.meta("description", value)
     }
-    pub fn canonical(&mut self, value: &str) -> Result<(), crate::WriteError> {
-        self.managed()?.canonical(value)
+    pub fn canonical(
+        &mut self,
+        value: impl crate::TryIntoHeadUrl,
+    ) -> Result<(), crate::WriteError> {
+        let value = value.try_into_head_url()?;
+        self.managed()?.canonical(value.as_ref())
     }
     pub fn module<K: Eq + Send + Sync + 'static>(
         &mut self,
         key: K,
-        value: &str,
+        value: impl crate::TryIntoHeadUrl,
     ) -> Result<(), crate::WriteError> {
-        self.managed()?
-            .resource(crate::head_fields::ResourceFamily::Module, key, Some(value))
+        let value = value.try_into_head_url()?;
+        self.managed()?.resource(
+            crate::head_fields::ResourceFamily::Module,
+            key,
+            Some(value.as_ref()),
+        )
     }
     pub fn stylesheet<K: Eq + Send + Sync + 'static>(
         &mut self,
         key: K,
-        value: &str,
+        value: impl crate::TryIntoHeadUrl,
     ) -> Result<(), crate::WriteError> {
+        let value = value.try_into_head_url()?;
         self.managed()?.resource(
             crate::head_fields::ResourceFamily::Stylesheet,
             key,
-            Some(value),
+            Some(value.as_ref()),
         )
     }
     pub fn remove_module<K: Eq + Send + Sync + 'static>(
@@ -573,6 +641,27 @@ impl<'a> HeadWriter<'a> {
         patch: crate::head_fields::OpenGraph,
     ) -> Result<(), crate::WriteError> {
         self.managed()?.open_graph(patch)
+    }
+    /// Set the Open Graph image to exactly this one, from a URL, a
+    /// `cx.url(...)` value, or a described [`crate::HeadMedia`].
+    ///
+    /// Like every Open Graph list, this replaces the images set so far,
+    /// including a layout's and an earlier call's, and leaves the other
+    /// Open Graph fields alone. For several images use
+    /// [`open_graph`](Self::open_graph) with `OpenGraph::new().images([...])`.
+    ///
+    /// Take the URL before borrowing the head:
+    /// `let og = cx.url("public/og.png"); cx.head_mut().og_image(og)?;`
+    pub fn og_image(&mut self, image: impl crate::TryIntoOgImage) -> Result<(), crate::WriteError> {
+        let media = image.try_into_og_image()?;
+        self.open_graph(crate::OpenGraph::new().images([media]))
+    }
+    /// Set the icon list to exactly this one icon, from a URL or a
+    /// `cx.url(...)` value. Use [`icons`](Self::icons) for several, or for a
+    /// kind, size, or media query.
+    pub fn icon(&mut self, url: impl crate::TryIntoHeadUrl) -> Result<(), crate::WriteError> {
+        let icon = crate::HeadIcon::from_url(url)?;
+        self.icons([icon])
     }
     pub fn remove_stylesheet<K: Eq + Send + Sync + 'static>(
         &mut self,
@@ -966,23 +1055,16 @@ pub struct RsjsRenderArtifacts {
 }
 
 /// Deterministic browser-runtime artifacts recorded by a rendered subtree.
-///
-/// React island names share the same request-local ownership transactions as
-/// rsjs artifacts. A detached Suspense branch therefore publishes both sets
-/// together only after its HTML is ready, while cancellation and error
-/// fallback rollback discard both sets together.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RenderArtifacts {
     /// rsjs modules and serialized seed state required by the subtree.
     pub rsjs: RsjsRenderArtifacts,
-    /// React island manifest names used by the subtree, sorted and deduplicated.
-    pub react_islands: Vec<String>,
 }
 
 impl RenderArtifacts {
     /// Whether this snapshot carries no browser-runtime work.
     pub fn is_empty(&self) -> bool {
-        self.rsjs.is_empty() && self.react_islands.is_empty()
+        self.rsjs.is_empty()
     }
 
     /// Merge another committed branch snapshot into this owned snapshot.
@@ -993,20 +1075,6 @@ impl RenderArtifacts {
     #[doc(hidden)]
     pub fn merge_committed(&mut self, other: Self) {
         self.rsjs.merge_committed(other.rsjs);
-        self.react_islands.extend(other.react_islands);
-        self.react_islands.sort_unstable();
-        self.react_islands.dedup();
-    }
-
-    #[doc(hidden)]
-    pub fn record_react_island(&mut self, name: &str) {
-        match self
-            .react_islands
-            .binary_search_by(|candidate| candidate.as_str().cmp(name))
-        {
-            Ok(_) => {}
-            Err(index) => self.react_islands.insert(index, name.to_owned()),
-        }
     }
 }
 
@@ -1180,12 +1248,6 @@ struct RsjsIslandArtifactContribution {
 }
 
 #[derive(Debug, Clone)]
-struct ReactIslandArtifactContribution {
-    name: String,
-    owner: Option<Rc<RsjsArtifactTransaction>>,
-}
-
-#[derive(Debug, Clone)]
 struct RsjsQuerySeedContribution {
     seed: RsjsQuerySeedArtifact,
     owner: Option<Rc<RsjsArtifactTransaction>>,
@@ -1256,10 +1318,8 @@ fn owner_resolves_to_transaction(
 struct RsjsArtifactPage {
     islands: HashSet<&'static str>,
     island_contributions: Vec<RsjsIslandArtifactContribution>,
-    react_island_contributions: Vec<ReactIslandArtifactContribution>,
     query_seed_contributions: Vec<RsjsQuerySeedContribution>,
     shared_state_seed_contributions: Vec<RsjsSharedStateSeedContribution>,
-    next_react_island_id: u64,
 }
 
 impl RsjsArtifactPage {
@@ -1283,31 +1343,6 @@ impl RsjsArtifactPage {
         self.island_contributions
             .push(RsjsIslandArtifactContribution { asset_id, owner });
         self.islands.insert(asset_id);
-    }
-
-    fn record_react_island(&mut self, name: &str, owner: Option<Rc<RsjsArtifactTransaction>>) {
-        if matches!(
-            resolve_rsjs_artifact_owner(owner.clone()),
-            ResolvedRsjsArtifactOwner::RolledBack
-        ) {
-            return;
-        }
-        if self.react_island_contributions.iter().any(|contribution| {
-            contribution.name == name && same_rsjs_artifact_owner(&contribution.owner, &owner)
-        }) {
-            return;
-        }
-        self.react_island_contributions
-            .push(ReactIslandArtifactContribution {
-                name: name.to_owned(),
-                owner,
-            });
-    }
-
-    fn next_react_island_id(&mut self) -> u64 {
-        let id = self.next_react_island_id;
-        self.next_react_island_id = self.next_react_island_id.wrapping_add(1);
-        id
     }
 
     fn record_query_seed(
@@ -1400,12 +1435,9 @@ impl RsjsArtifactPage {
     }
 
     fn render_snapshot(&self) -> RenderArtifacts {
-        self.render_snapshot_matching(|owner| {
-            matches!(
-                resolve_rsjs_artifact_owner(owner),
-                ResolvedRsjsArtifactOwner::Root
-            )
-        })
+        RenderArtifacts {
+            rsjs: self.snapshot(),
+        }
     }
 
     fn snapshot_for_transaction(
@@ -1419,25 +1451,8 @@ impl RsjsArtifactPage {
         &self,
         transaction: &Rc<RsjsArtifactTransaction>,
     ) -> RenderArtifacts {
-        self.render_snapshot_matching(|owner| owner_resolves_to_transaction(owner, transaction))
-    }
-
-    fn render_snapshot_matching(
-        &self,
-        mut include: impl FnMut(Option<Rc<RsjsArtifactTransaction>>) -> bool,
-    ) -> RenderArtifacts {
-        let rsjs = self.snapshot_matching(&mut include);
-        let mut react_islands: Vec<_> = self
-            .react_island_contributions
-            .iter()
-            .filter(|contribution| include(contribution.owner.clone()))
-            .map(|contribution| contribution.name.clone())
-            .collect();
-        react_islands.sort_unstable();
-        react_islands.dedup();
         RenderArtifacts {
-            rsjs,
-            react_islands,
+            rsjs: self.snapshot_for_transaction(transaction),
         }
     }
 
@@ -1497,12 +1512,6 @@ impl RsjsArtifactPage {
             )
         });
         self.query_seed_contributions.retain(|contribution| {
-            !matches!(
-                resolve_rsjs_artifact_owner(contribution.owner.clone()),
-                ResolvedRsjsArtifactOwner::RolledBack
-            )
-        });
-        self.react_island_contributions.retain(|contribution| {
             !matches!(
                 resolve_rsjs_artifact_owner(contribution.owner.clone()),
                 ResolvedRsjsArtifactOwner::RolledBack
@@ -1996,7 +2005,7 @@ impl RsjsArtifactBranch {
             .snapshot_for_transaction(&checkpoint.transaction)
     }
 
-    /// Deterministic React and rsjs artifacts owned by this branch.
+    /// Deterministic RSJS artifacts owned by this branch.
     pub fn render_artifacts_snapshot(&self) -> RenderArtifacts {
         let checkpoint = self
             .checkpoint
@@ -2141,9 +2150,9 @@ impl WebContextParts {
         &self.request
     }
 
-    /// Compose an application URL using the configured base path.
+    /// Compose an application URL or resolve a logical `public/...` path.
     pub fn url<'a>(&self, path: &'a str) -> super::AppUrl<'a> {
-        self.request.base_path().url(path)
+        self.request.url(path)
     }
 
     pub fn request_mut(&mut self) -> &mut RequestContext {
@@ -2395,7 +2404,7 @@ pub struct WebContext<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// snapshots copy it through `RsjsSharedStateContext::current_transaction`.
     rsjs_shared_state_transaction: Option<u64>,
 
-    /// Request-scoped data loader for `cx.load(...)`. Owned via `Arc` so it
+    /// Request-scoped data loader for `cx.load_json(...)`. Owned via `Arc` so it
     /// can be shared with futures that outlive the borrow on `WebContext`.
     loader: Arc<L>,
 
@@ -2991,15 +3000,19 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         &self.ensure_context_parts().request
     }
 
-    /// Compose an application URL using the configured base path.
+    /// Compose an application URL or resolve a logical `public/...` path.
     ///
     /// Pass an unprefixed root-relative path, such as `/products`. External,
-    /// protocol-relative, document-relative, query-only and fragment references
-    /// pass through. Plain URL strings in templates are not prefixed implicitly.
+    /// protocol-relative, query-only and fragment references pass through.
+    /// Document-relative paths beginning with `public/` resolve against the
+    /// configured public asset catalog. A missing asset produces a render
+    /// error when used in a template. Other document-relative paths pass through.
+    /// Plain URL strings in templates are emitted without this lookup.
     ///
     /// The returned value borrows only `path`, shares the base path, and writes
     /// both directly into HTML attributes or Markdown without allocating an
-    /// intermediate string. Use `.to_string()` only when an owned URL is needed.
+    /// intermediate string. It shares a prepared public URL when applicable.
+    /// Use `.try_to_string()` when an owned URL is needed.
     ///
     /// ```
     /// use proa_core::{BasePath, WebContext, WebRenderSync, WriteBuf};
@@ -3348,40 +3361,6 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
         self
     }
 
-    /// Load JSON request-scoped data through the configured [`DataLoader`].
-    #[deprecated(
-        note = "use load_json for JSON bytes, load_bytes for raw bytes, or load_typed for typed values"
-    )]
-    pub async fn load<T>(&self, key: LoadKey) -> Result<T, LoadError>
-    where
-        T: DeserializeOwned,
-    {
-        self.load_json(key).await
-    }
-
-    /// Load JSON request-scoped data with advisory policy hints.
-    #[deprecated(
-        note = "use load_json_with for JSON bytes, load_bytes_request for raw bytes, or load_typed_request for typed values"
-    )]
-    pub async fn load_with<T>(&self, key: LoadKey, hints: LoadHints) -> Result<T, LoadError>
-    where
-        T: DeserializeOwned,
-    {
-        self.load_json_request(LoadRequest::with_hints(key, hints))
-            .await
-    }
-
-    /// Load JSON request-scoped data from a full [`LoadRequest`].
-    #[deprecated(
-        note = "use load_json_request for JSON bytes, load_bytes_request for raw bytes, or load_typed_request for typed values"
-    )]
-    pub async fn load_request<T>(&self, request: LoadRequest) -> Result<T, LoadError>
-    where
-        T: DeserializeOwned,
-    {
-        self.load_json_request(request).await
-    }
-
     /// Load raw bytes by key.
     pub async fn load_bytes(&self, key: LoadKey) -> Result<Bytes, LoadError> {
         self.load_bytes_request(LoadRequest::new(key)).await
@@ -3466,32 +3445,6 @@ impl<L: DataLoader, B: WriteBuf> WebContext<L, B> {
             .ensure_page()
             .borrow_mut()
             .record_island(asset_id, owner);
-    }
-
-    /// Record a React island manifest name in this request's artifact ledger.
-    ///
-    /// The contribution is owned by the active render transaction, if any,
-    /// so a cancelled or rolled-back Suspense/ErrorBoundary subtree cannot
-    /// leak client bootstrap work into the response.
-    pub fn react_island_used(&self, name: &str) {
-        let owner = self.current_rsjs_artifact_transaction();
-        self.ensure_context_parts()
-            .rsjs_artifacts
-            .ensure_page()
-            .borrow_mut()
-            .record_react_island(name, owner);
-    }
-
-    /// Allocate the next unnamed React island id for this request.
-    ///
-    /// Counters are shared by detached contexts belonging to the same
-    /// response, but never by unrelated responses or threads.
-    pub fn next_react_island_id(&self) -> u64 {
-        self.ensure_context_parts()
-            .rsjs_artifacts
-            .ensure_page()
-            .borrow_mut()
-            .next_react_island_id()
     }
 
     /// Read-only view of the set of rsjs island asset ids that have
@@ -4662,7 +4615,7 @@ mod tests {
                 .active
                 .get()
                 .is_none());
-            child.out.extend_static(b"child")?;
+            child.out.extend_static_str("child")?;
             Ok::<_, crate::WriteError>(())
         })
         .unwrap();
@@ -4740,7 +4693,7 @@ mod tests {
                 child.set_render_mode(RenderMode::Agent);
                 child.head_mut().set_title("after");
                 child.rsjs_island_used("metered");
-                child.out.extend_static(b"metered")?;
+                child.out.extend_static_str("metered")?;
                 Ok::<_, WriteError>(17)
             })
             .unwrap();
@@ -4765,7 +4718,7 @@ mod tests {
         let error = cx
             .with_metered_output(meter.borrow(), |child| {
                 child.enter_mode(ContentMode::Script);
-                child.out.extend_static(b"three")
+                child.out.extend_static_str("three")
             })
             .unwrap_err();
         assert_eq!(
@@ -4803,7 +4756,7 @@ mod tests {
                 tokio::task::yield_now().await;
                 child.__proa_enter_escape_dialect(EscapeDialect::Xml);
                 child.rsjs_island_used("async-metered");
-                child.out.extend_static(b"async")?;
+                child.out.extend_static_str("async")?;
                 Ok::<_, WriteError>(29)
             })
             .await
@@ -4853,7 +4806,7 @@ mod tests {
             .with_reserved_output(reservation, |child| {
                 child.enter_mode(ContentMode::Style);
                 child.head_mut().set_title("reserved");
-                child.out.extend_static(b"hello")?;
+                child.out.extend_static_str("hello")?;
                 Ok(23)
             })
             .unwrap();
@@ -4878,7 +4831,7 @@ mod tests {
         let incomplete = cx.out.reserve_exact(4).unwrap();
         let error = cx
             .with_reserved_output(incomplete, |child| {
-                child.out.extend_static(b"ok")?;
+                child.out.extend_static_str("ok")?;
                 Ok(())
             })
             .unwrap_err();
@@ -4894,7 +4847,7 @@ mod tests {
         let exceeded = cx.out.reserve_exact(1).unwrap();
         let error = cx
             .with_reserved_output(exceeded, |child| {
-                child.out.extend_static(b"no")?;
+                child.out.extend_static_str("no")?;
                 Ok(())
             })
             .unwrap_err();
@@ -4978,44 +4931,6 @@ mod tests {
             ["open-island"]
         );
         assert_eq!(committed.query_seeds().len(), 1);
-    }
-
-    #[test]
-    fn react_artifacts_share_transaction_commit_and_rollback() {
-        let mut out = Vec::new();
-        let cx = WebContext::with_buffer(&mut out);
-
-        cx.react_island_used("Shell");
-        let committed = cx.rsjs_artifact_checkpoint();
-        cx.react_island_used("CommittedBoundary");
-        cx.rsjs_artifact_commit(committed);
-
-        let rolled_back = cx.rsjs_artifact_checkpoint();
-        cx.react_island_used("DiscardedBoundary");
-        cx.rsjs_artifact_rollback(rolled_back);
-
-        assert_eq!(
-            cx.render_artifacts_snapshot().react_islands,
-            ["CommittedBoundary".to_owned(), "Shell".to_owned()]
-        );
-    }
-
-    #[test]
-    fn detached_contexts_share_ids_only_with_their_own_request() {
-        let mut first_out = Vec::new();
-        let mut first = WebContext::with_buffer(&mut first_out);
-        let first_parts = first.context_parts();
-        let mut first_child_out = Vec::new();
-        let first_child =
-            WebContext::with_buffer(&mut first_child_out).with_context_parts(first_parts);
-
-        let mut second_out = Vec::new();
-        let second = WebContext::with_buffer(&mut second_out);
-
-        assert_eq!(first.next_react_island_id(), 0);
-        assert_eq!(second.next_react_island_id(), 0);
-        assert_eq!(first_child.next_react_island_id(), 1);
-        assert_eq!(second.next_react_island_id(), 1);
     }
 
     #[test]

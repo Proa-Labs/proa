@@ -55,8 +55,8 @@ library still follows the rule above.
 ## Anatomy of a working island
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 pub struct Counter;
@@ -78,7 +78,10 @@ impl<L: DataLoader> WebRenderSync<L> for Counter {
 ```
 
 The trait impl, method signature, context parameter, result type, and final
-`.render(cx)` call are ordinary authored Rust. `component` asks RSJS to analyze
+`.render(cx)` call are ordinary authored Rust. When a module imports both
+render traits, write the tail qualified instead:
+`WebRenderSync::render(html_sync! { ... }, cx)`, or
+`WebRender::render(html! { ... }, cx).resolve().await` in an async component. `component` asks RSJS to analyze
 that implementation. `client` grants permission to originate browser behavior;
 it does not force unused code to ship. Bare `#[rsjs]`, inherent impl shorthand,
 and `async fn render` sugar are rejected.
@@ -117,8 +120,9 @@ capability inherits that dependency's origin requirement.
 Ordinary non-reactive Rust expressions inside an analyzed template stay opaque
 SSR automatically. Calls such as `render_markdown(document)` and
 `UnsafeRaw(svg)` do not need a `server_only(...)` wrapper when their visible
-arguments contain no RSJS state, handler, or browser primitive. Dynamic
-attributes follow the same rule. Inbound fields are different: direct reads
+arguments contain no RSJS state, handler, or browser primitive. Use
+`src={cx.url("public/images/logo.svg")}` and `href={cx.url("/products")}`
+directly in island attributes. Both URLs resolve on the server. Direct reads
 such as `self.label` are latent `LiveRead` participation, and opaque calls that
 depend on an inbound value fail closed if a live caller would otherwise be
 silently snapshotted. A value implementing `ClientEncode` or coming from a
@@ -636,7 +640,7 @@ impl<L: DataLoader> WebRenderSync<L> for IconButton {
         html_sync! {
             <button on_click={|_| pressed.set(!pressed.get())}>
                 <span class="icon">
-                    {proa_core::UnsafeRaw("<svg>...</svg>")}
+                    {proa::UnsafeRaw("<svg>...</svg>")}
                 </span>
             </button>
         }
@@ -746,6 +750,8 @@ Use a literal URL for the common client refetch case, or `rsjs::FetchRequest`
 when the browser request needs method, headers, body, credentials, timeout, or
 non-JSON response decoding. `query_with_initial(...)` is the only Rust query
 declaration surface; there is no separate static-JSON query form.
+Pass `cx.url("/api/items")` directly as the request argument when the endpoint
+belongs to the mounted app; a plain `"/api/items"` targets the origin root.
 Event handlers can call `query.refetch()` to fetch immediately or
 `query.invalidate()` to mark the cache stale and refetch when the query is
 observed.
@@ -776,6 +782,7 @@ impl<L: DataLoader> WebRender<L> for StockTicker {
                 initial_price,
                 rsjs::FetchRequest {
                     url: "/api/stocks/AAPL",
+                    apply_base_path: true,
                     headers: &[("Accept", "application/json")],
                     timeout_ms: Some(5_000),
                     ..Default::default()
@@ -793,6 +800,7 @@ impl<L: DataLoader> WebRender<L> for StockTicker {
                 rsjs::QueryKey::new(("update_cart", "AAPL")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),
@@ -1485,7 +1493,7 @@ it is too late.
 cargo test -p <your-crate> --lib
 
 # Inspect the generated SSR HTML byte-for-byte
-let html = proa_core::render_to_string(MyIsland);
+let html = proa::render_to_string(MyIsland);
 # Expected shape:
 #   <rsjs-island data-rsjs-island-root="myisland_<hash>">
 #     ...with data-rsjs-handler="N", data-rsjs-bind="N", data-rsjs-cond-then="N:0" markers...
@@ -1500,8 +1508,7 @@ generated mechanically from the same IR.
 
 ## Common errors
 
-See [`footguns.md`](footguns.md) for the full gallery. The top three:
+See [`footguns.md`](footguns.md) for the full gallery.
 
-1. **`X is not a recognised IR primitive or linked #[rsjs::client] helper`** — A browser-reachable value crossed an opaque operation. Keep the operation server-only in the prelude, or annotate a portable helper with `#[rsjs::client]`.
-2. **`dynamic href attributes are not supported`** — Keep island URLs static or render vetted server-side values with `rsjs::server_attr(...)`.
-3. **`expected identifier, found keyword` inside `<svg>`** — Pre-existing bug, fixed: keyword tag names like `<use>` now parse. If you still see this, your `proa_dsl` is stale.
+1. **`X is not a recognised IR primitive or linked #[rsjs::client] helper`**. A browser-reachable value crossed an opaque operation. Keep the operation server-only in the prelude, or annotate a portable helper with `#[rsjs::client]`.
+2. **`expected identifier, found keyword` inside `<svg>`**. Keyword tag names like `<use>` parse with the current `proa_dsl`.

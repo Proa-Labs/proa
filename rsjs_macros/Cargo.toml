@@ -3,7 +3,7 @@
 
 [package]
 name = "rsjs_macros"
-version = "0.2.0"
+version = "0.3.1"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -36,7 +36,7 @@ syn = { workspace = true, features = ["full", "extra-traits", "visit", "visit-mu
 # comparison so the golden file stays human-readable across rustfmt
 # changes.
 bytes = { workspace = true }
-prettyplease = { version = "0.2" }
+prettyplease = { version = "0.3.0" }
 proa_core = { workspace = true }
 proa_macros = { workspace = true }
 # Cyclic dev-dep: integration tests for the proc-macro need to resolve
@@ -48,3 +48,6 @@ serde = { workspace = true }
 # changes to the user-facing message surface require an intentional
 # update to the recorded `.stderr` files.
 trybuild = { workspace = true }
+
+[lints]
+workspace = true

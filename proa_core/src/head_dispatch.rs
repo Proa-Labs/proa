@@ -8,9 +8,21 @@ use crate::{
 };
 use std::future::Future;
 
-/// Absence marker for synchronous hooks. Async hooks use native futures and
-/// their render trait's role selects whether to invoke the hook.
+/// Absence marker for the default head hooks. Synchronous defaults return it
+/// as their operation; async defaults return it as an immediately ready,
+/// zero-sized future. Code generation treats any other (non-zero-sized) async
+/// hook future as an override, and an override requires `LAYOUT` or `PAGE`.
 pub struct NoHead;
+impl Future for NoHead {
+    type Output = Result<(), WriteError>;
+    #[inline]
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
 
 // Box only metadata boundaries. Keeping a provider's head/body continuation
 // inline would recursively enlarge ordinary component futures, even when their
@@ -50,6 +62,7 @@ where
     B: WriteBuf + 'a,
     C: WebRender<L, B> + 'a,
 {
+    async_presence(<C as WebRender<L, B>>::render_head);
     if C::ROLE.is_layout() || C::ROLE.is_page() {
         return match start_provider(child, cx) {
             Ok(future) => RenderOutcome::pending(BoundaryFuture::Provider {
@@ -107,6 +120,7 @@ where
     B: WriteBuf + 'a,
     C: WebRender<L, B> + 'a,
 {
+    async_presence(<C as WebRender<L, B>>::render_head);
     if C::ROLE.is_layout() || C::ROLE.is_page() {
         let future = start_provider(child, cx);
         return BoundaryFuture::Provider {
@@ -130,6 +144,7 @@ where
     B: WriteBuf + Send + 'a,
     C: WebRenderSend<L, B> + 'a,
 {
+    send_async_presence(<C as WebRenderSend<L, B>>::render_head_send);
     if C::ROLE.is_layout() || C::ROLE.is_page() {
         let permission = match cx
             .require_managed_head()
@@ -195,7 +210,7 @@ impl ComponentRole {
     const fn assert_head_role(self, has_head: bool) {
         assert!(
             !has_head || self.is_layout() || self.is_page(),
-            "render_head requires an explicit role: set const ROLE to ComponentRole::LAYOUT or ComponentRole::PAGE"
+            "render_head requires an explicit role: this component overrides its head hook, but ComponentRole::COMPONENT never runs head hooks; set const ROLE to ComponentRole::LAYOUT or ComponentRole::PAGE. A wrapper that forwards ROLE from an inner component must return the inner render_head future directly instead of awaiting it in a new async block"
         );
     }
 }
@@ -259,12 +274,14 @@ pub trait SyncHeadOperation: sync_sealed::Operation {
 }
 impl SyncHeadOperation for NoHead {
     const HAS_HEAD: bool = false;
-    type Async = std::future::Ready<Result<(), WriteError>>;
+    // Zero-sized, so adapters that lift a hookless sync component keep the
+    // async default's override witness.
+    type Async = NoHead;
     fn finish(self) -> Result<(), WriteError> {
         Ok(())
     }
     fn into_async(self) -> Self::Async {
-        std::future::ready(Ok(()))
+        self
     }
 }
 impl SyncHeadOperation for Result<(), WriteError> {
@@ -310,6 +327,33 @@ pub fn sync<'a, L: DataLoader + 'a, B: WriteBuf + 'a, C: crate::WebRenderSync<L,
         cx.managed_seal()?;
     }
     scope.finish(child.render(cx))
+}
+
+/// Async hooks are native futures, so the trait cannot expose a `HAS_HEAD`
+/// marker. The default returns the zero-sized [`NoHead`]; every `async fn` or
+/// `async` block future has at least a state tag (and an override captures
+/// `&self` and `cx`), so a non-zero size proves an override. A zero-sized
+/// override cannot reach `self` or `cx` and therefore cannot write metadata.
+fn async_presence<'a, L, B, C, F>(_: impl FnOnce(&'a C, &'a mut WebContext<L, B>) -> F)
+where
+    L: DataLoader + 'a,
+    B: WriteBuf + 'a,
+    C: WebRender<L, B> + 'a,
+{
+    const {
+        C::ROLE.assert_head_role(std::mem::size_of::<F>() != 0);
+    }
+}
+
+fn send_async_presence<'a, L, B, C, F>(_: impl FnOnce(&'a C, &'a mut SendWebContext<L, B>) -> F)
+where
+    L: DataLoader + 'a,
+    B: WriteBuf + Send + 'a,
+    C: WebRenderSend<L, B> + 'a,
+{
+    const {
+        C::ROLE.assert_head_role(std::mem::size_of::<F>() != 0);
+    }
 }
 
 pub(crate) fn send_sync_presence<

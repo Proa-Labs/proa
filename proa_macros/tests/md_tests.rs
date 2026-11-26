@@ -32,7 +32,7 @@ fn raw_template_is_the_canonical_document_form() {
         "###
     });
 
-    assert_eq!(out, "# Markdown rendering\n\nTyped body\n");
+    assert_eq!(out, "# Markdown rendering\n\nTyped body\n\n");
 }
 
 #[test]
@@ -62,6 +62,7 @@ md_sync! { r#"{literal}"# }
 ```
 
 After `{inline}`.
+
 "##
     );
 }
@@ -82,7 +83,7 @@ fn raw_template_preserves_braces_in_tilde_fences() {
 
     assert_eq!(
         out,
-        "Before rendered.\n\n~~~rust\nThing { field: value }\n~~~\n\nAfter rendered.\n"
+        "Before rendered.\n\n~~~rust\nThing { field: value }\n~~~\n\nAfter rendered.\n\n"
     );
 }
 
@@ -93,7 +94,7 @@ fn raw_template_composes_control_flow_without_escaped_newlines() {
         ## Items
 
         {for item in items {
-            md_sync! { "- " {item} "\n" }
+            md_sync! { "- {item}\n" }
         }}
         "###
     });
@@ -115,7 +116,7 @@ fn control_flow_is_rust_and_markdown_re_enters_through_nested_templates() {
             {if true {
                 md_sync! { r#"
                     {if enabled { "visible" } else { "hidden" }}
-                    {for item in items { md_sync! { "(" {item} ")" } }}
+                    {for item in items { md_sync! { "({item})" } }}
                 "# }
             }}
             "###
@@ -132,9 +133,9 @@ fn control_flow_is_rust_and_markdown_re_enters_through_nested_templates() {
 #[test]
 fn whitespace_inside_a_slot_is_rust_layout() {
     let value = "a*b";
-    let compact = r(md_sync!("{if true { md_sync! { {value} \"\\n\" } }}"));
-    let spread = r(md_sync!("{if true {\n    md_sync! { {value} \"\\n\" }\n}}"));
-    let tabbed = r(md_sync!("{if true {\t\n\tmd_sync! { {value} \"\\n\" }\n}}"));
+    let compact = r(md_sync!("{if true { md_sync! { \"{value}\\n\" } }}"));
+    let spread = r(md_sync!("{if true {\n    md_sync! { \"{value}\\n\" }\n}}"));
+    let tabbed = r(md_sync!("{if true {\t\n\tmd_sync! { \"{value}\\n\" }\n}}"));
     assert_eq!(compact, "a\\*b\n");
     assert_eq!(spread, compact);
     assert_eq!(tabbed, compact);
@@ -189,7 +190,7 @@ fn prose_starting_with_control_words_is_text_at_every_depth() {
         for guests in rooms {label}.
         "###
     });
-    assert_eq!(top, "if enabled a\\*b.\nfor guests in rooms a\\*b.\n");
+    assert_eq!(top, "if enabled a\\*b.\nfor guests in rooms a\\*b.\n\n");
     let nested = r(md_sync! { r###"
         {if true {
             md_sync! { r#"
@@ -217,14 +218,14 @@ fn match_arms_render_their_tails() {
             {match count {
                 0 => md_sync! { "_none_" },
                 1 => "one",
-                _ => md_sync! { "**" {count} "**" },
+                _ => md_sync! { "**{count}**" },
             }}
             "###
         })
     };
-    assert_eq!(render(0), "_none_\n");
-    assert_eq!(render(1), "one\n");
-    assert_eq!(render(7), "**7**\n");
+    assert_eq!(render(0), "_none_\n\n");
+    assert_eq!(render(1), "one\n\n");
+    assert_eq!(render(7), "**7**\n\n");
 }
 
 #[test]
@@ -232,7 +233,7 @@ fn multiple_fragments_compose_in_one_template_tail() {
     let groups = [["a", "b"], ["c", "d"]];
     let output = r(md_sync! { r###"
         {for (index, group) in groups.iter().enumerate() {
-            md_sync! { {if index > 0 { md_sync! { "\n" } }} {for item in group { md_sync! { "{item}\n" } }} }
+            md_sync! { r#"{if index > 0 { md_sync! { "\n" } }}{for item in group { md_sync! { "{item}\n" } }}"# }
         }}
         "###
     });
@@ -279,8 +280,8 @@ fn control_headers_support_if_let_and_multiline_rust_whitespace() {
     );
     assert_eq!(
         r(md_sync! { r###"{for item in
-        [2, 3] { md_sync! { "(" {item} ")" } }}"### }),
-        "(2)(3)"
+        [2, 3] { md_sync! { "({item})" } }}"### }),
+        "(2)(3)\n\n"
     );
 }
 
@@ -289,11 +290,11 @@ fn named_arguments_seed_conditions_and_iterators() {
     let values = [2, 4];
     let output = r(md_sync! { r###"
         {if show {
-            for item in items { md_sync! { "(" {item} ")" } }
+            for item in items { md_sync! { "({item})" } }
         }}
         "###, show = true, items = &values
     });
-    assert_eq!(output, "(2)(4)\n");
+    assert_eq!(output, "(2)(4)\n\n");
 }
 #[test]
 fn template_field_access() {
@@ -313,7 +314,7 @@ fn template_for_loop() {
     let items = ["alpha", "beta", "gamma"];
     let out = r(md_sync!(
         "
-{for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
+{for item in items.iter() { md_sync! { \"- {item}\\n\" } }}
 "
     ));
     assert_eq!(out, "- alpha\n- beta\n- gamma\n\n");
@@ -358,11 +359,11 @@ fn template_nested_for() {
         {for (name, items) in groups.iter() {
             md_sync! { r#"
         ## {name}
-        {for item in items.iter() { md_sync! { "- " {item} "\n" } }}"# }
+        {for item in items.iter() { md_sync! { "- {item}\n" } }}"# }
         }}
         "###
     });
-    assert_eq!(out, "## Fruits\n- apple\n- banana\n## Vegs\n- carrot\n\n");
+    assert_eq!(out, "## Fruits\n- apple\n- banana\n\n## Vegs\n- carrot\n\n");
 }
 #[test]
 fn template_dedents_layout_indentation() {
@@ -436,7 +437,7 @@ fn template_dedent_applies_inside_control_flow() {
     let out = r(md_sync! { "
         # Items
 
-        {for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
+        {for item in items.iter() { md_sync! { \"- {item}\\n\" } }}
         "
     });
     // The newline after `}}` is part of the template, as in `template_nested_for`.
@@ -550,37 +551,6 @@ fn template_mixed_tabs_and_spaces_are_left_alone() {
 }
 
 #[test]
-fn braced_component_mode_basic() {
-    let name = "World";
-    let out = r(md_sync! {
-        "# Hello " { name } "\n"
-    });
-    assert_eq!(out, "# Hello World\n");
-}
-
-#[test]
-fn braced_source_lines_insert_block_boundaries() {
-    let title = "Hello";
-    let body = "World";
-    let out = r(md_sync! {
-        "# " { title }
-        { body }
-    });
-
-    assert_eq!(out, "# Hello\n\nWorld");
-}
-
-#[test]
-fn braced_source_lines_complete_existing_line_breaks() {
-    let out = r(md_sync! {
-        "First\n"
-        "Second"
-    });
-
-    assert_eq!(out, "First\n\nSecond");
-}
-
-#[test]
 fn multiline_raw_strings_dedent_source_indentation() {
     let out = r(md_sync! {
         r"---
@@ -591,7 +561,7 @@ fn multiline_raw_strings_dedent_source_indentation() {
 
     assert_eq!(
         out,
-        "---\ntitle: Markdown rendering\ndescription: Render typed Rust values to Markdown.\n---"
+        "---\ntitle: Markdown rendering\ndescription: Render typed Rust values to Markdown.\n---\n\n"
     );
 }
 
@@ -607,21 +577,8 @@ fn multiline_raw_strings_preserve_relative_indentation() {
 
     assert_eq!(
         out,
-        "## Features\n\n- Fast\n  - No runtime parsing\n- Typed"
+        "## Features\n\n- Fast\n  - No runtime parsing\n- Typed\n\n"
     );
-}
-
-#[test]
-fn braced_multiline_raw_strings_dedent_before_composed_children() {
-    let body = "Body";
-    let out = r(md_sync! {
-        r"---
-        title: Markdown rendering
-        ---"
-        { body }
-    });
-
-    assert_eq!(out, "---\ntitle: Markdown rendering\n---\n\nBody");
 }
 
 #[test]
@@ -629,33 +586,6 @@ fn escaped_newlines_preserve_intentional_indentation() {
     let out = r(md_sync! { "Paragraph\n    indented code" });
 
     assert_eq!(out, "Paragraph\n    indented code");
-}
-
-#[test]
-fn braced_source_lines_do_not_break_inline_contexts() {
-    use proa_core::WebContext;
-    use proa_core::{MdRenderSync, WriteBuf};
-
-    struct InlinePair;
-
-    impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for InlinePair {
-        fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            let previous_inline = cx.md_set_inline(true);
-            let result = md_sync! {
-                "Before"
-                "After"
-            }
-            .render_md(cx);
-            cx.md_set_inline(previous_inline);
-            result
-        }
-    }
-
-    let mut buf = Vec::new();
-    InlinePair
-        .render_md(&mut WebContext::with_buffer(&mut buf))
-        .unwrap();
-    assert_eq!(String::from_utf8(buf).unwrap(), "BeforeAfter");
 }
 
 struct DelayedMd(&'static str);
@@ -698,13 +628,13 @@ async fn async_md_composes_async_and_immediate_children() {
     })
     .await;
 
-    assert_eq!(out, "Result: ready (3)\n");
+    assert_eq!(out, "Result: ready (3)\n\n");
 }
 
 #[tokio::test]
 async fn async_md_accepts_explicitly_lifted_sync_children() {
     let out = proa_core::render_md_to_string_async(md! {
-        "Wrapped: " { proa_core::to_md_async(SyncOnlyMd("sync")) }
+        r#"Wrapped: {proa_core::to_md_async(SyncOnlyMd("sync"))}"#
     })
     .await;
 
@@ -716,7 +646,7 @@ async fn async_md_supports_template_control_flow() {
     let items = ["alpha".to_owned(), "beta".to_owned()];
     let show_footer = true;
     let out = proa_core::render_md_to_string_async(md!("
-{for item in items.iter() { md_sync! { \"- \" {item} \"\\n\" } }}
+{for item in items.iter() { md_sync! { \"- {item}\\n\" } }}
 {if show_footer { md! { \"Done\" } }}
 "))
     .await;
@@ -740,7 +670,7 @@ async fn async_nested_conditions_await_children_and_keep_following_prose() {
     .await;
     assert_eq!(
         out,
-        "zero\n\nelsewhere\none\n\nelsewhere\nother\n\nelsewhere\n\n"
+        "zero\n\nelsewhere\n\none\n\nelsewhere\n\nother\n\nelsewhere\n\n"
     );
 }
 
@@ -774,21 +704,10 @@ async fn async_md_bridges_to_async_web_rendering() {
 }
 
 #[tokio::test]
-async fn async_md_braced_mode_composes_children() {
-    let out = proa_core::render_md_to_string_async(md! { "Before " { DelayedMd("after") } }).await;
+async fn async_md_composes_pending_children_inline() {
+    let out = proa_core::render_md_to_string_async(md! { r#"Before {DelayedMd("after")}"# }).await;
 
     assert_eq!(out, "Before after");
-}
-
-#[tokio::test]
-async fn async_md_braced_source_lines_insert_block_boundaries() {
-    let out = proa_core::render_md_to_string_async(md! {
-        "Before"
-        { DelayedMd("after") }
-    })
-    .await;
-
-    assert_eq!(out, "Before\n\nafter");
 }
 
 #[test]
@@ -799,7 +718,7 @@ fn md_renders_via_web_render() {
     }
     impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Page {
         fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! { "# " { self.title } "\n" }.render(cx)
+            md_sync! { "# {self.title}\n" }.render(cx)
         }
     }
     let out = render_to_string(Page { title: "Hello" });
@@ -827,9 +746,11 @@ fn dual_trait_component() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Card {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "## " { self.title }
-                { self.body } "\n"
+            md_sync! { r#"
+                ## {self.title}
+
+                {self.body}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -852,7 +773,7 @@ fn dual_trait_component() {
         .unwrap();
     }
     let md_out = String::from_utf8(buf).unwrap();
-    assert_eq!(md_out, "## Hello\n\nWorld\n");
+    assert_eq!(md_out, "## Hello\n\nWorld\n\n");
 }
 #[test]
 fn md_composes_md_render_children() {
@@ -876,9 +797,11 @@ fn md_composes_md_render_children() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Card {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "## " { self.title }
-                { self.body } "\n"
+            md_sync! { r#"
+                ## {self.title}
+
+                {self.body}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -890,13 +813,15 @@ fn md_composes_md_render_children() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Page {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "# Featured"
-                { self.featured }
-                "# Nearby"
-                { for card in self.nearby {
-                    card
-                }}
+            md_sync! { r#"
+                # Featured
+
+                {self.featured}
+
+                # Nearby
+
+                {for card in self.nearby { card }}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -975,9 +900,11 @@ fn md_render_with_chained_bump_writer() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Article {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "# " { self.title }
-                { self.body } "\n"
+            md_sync! { r#"
+                # {self.title}
+
+                {self.body}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -994,7 +921,7 @@ fn md_render_with_chained_bump_writer() {
         .unwrap();
     }
     let out = String::from_utf8(buf.to_vec()).unwrap();
-    assert_eq!(out, "# Hello\n\nWorld\n");
+    assert_eq!(out, "# Hello\n\nWorld\n\n");
     assert!(buf.page_count() >= 1);
 }
 #[test]
@@ -1007,11 +934,11 @@ fn md_render_chained_bump_large_output() {
     }
     impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for Listing {
         fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), proa_core::WriteError> {
-            md_sync! {
-                "# Items"
-                { for item in self.items.iter() {
-                    md_sync! { "- " { item } "\n" }
-                }}
+            md_sync! { r#"
+                # Items
+
+                {for item in self.items.iter() { md_sync! { "- {item}\n" } }}
+                "#
             }
             .render_md(cx)?;
             Ok(())
@@ -1028,7 +955,7 @@ fn md_render_chained_bump_large_output() {
     let out = String::from_utf8(buf.to_vec()).unwrap();
     assert_eq!(
         out,
-        "# Items\n\n- alpha\n- beta\n- gamma\n- delta\n- epsilon\n"
+        "# Items\n\n- alpha\n- beta\n- gamma\n- delta\n- epsilon\n\n"
     );
     assert!(
         buf.page_count() >= 2,
@@ -1055,7 +982,7 @@ fn template_named_args_bind_field_access() {
     });
     assert_eq!(
         out,
-        "| Points | Min (ms) | Max (ms) |\n| --- | --- | --- |\n| 40 | 12 | 95 |\n"
+        "| Points | Min (ms) | Max (ms) |\n| --- | --- | --- |\n| 40 | 12 | 95 |\n\n"
     );
 }
 
@@ -1066,7 +993,7 @@ fn template_named_arg_can_be_reused_when_copy() {
         "###,
         value = 2 + 3
     });
-    assert_eq!(out, "5 and 5\n");
+    assert_eq!(out, "5 and 5\n\n");
 }
 
 #[test]
@@ -1078,7 +1005,7 @@ fn template_named_arg_shadows_like_named_local() {
         "###,
         value = "named"
     });
-    assert_eq!(out, "named\n");
+    assert_eq!(out, "named\n\n");
 }
 
 #[tokio::test]
@@ -1093,7 +1020,7 @@ async fn async_template_supports_named_args() {
         median = stats.median,
     })
     .await;
-    assert_eq!(out, "Median: 7\n");
+    assert_eq!(out, "Median: 7\n\n");
 }
 
 #[test]
@@ -1103,5 +1030,151 @@ fn template_spaced_placeholder_renders_like_bare() {
         # { title }
         "###
     });
-    assert_eq!(out, "# Spaced\n");
+    assert_eq!(out, "# Spaced\n\n");
+}
+
+#[test]
+fn markdown_link_and_image_destinations_preserve_urls_and_allow_cx_url() {
+    use proa_core::render::MdRenderSync;
+    use proa_core::{BasePath, PublicAssetUrls, WebContext};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let mut cx = WebContext::new();
+    cx.request_mut()
+        .set_base_path(BasePath::new("/apps/demo").unwrap());
+    cx.request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/apps/demo/_proa/immutable/images/brand.0dd0d0d7.svg"),
+        )]))));
+
+    let label = "Brand_Logo.svg";
+    let evil = "javascript:alert(1)";
+    let with_parens = "/docs/rust_(lang)/v1.0";
+    md_sync! { r###"
+        ![{label}]({cx.url("public/images/brand.svg")})
+
+        [Docs]({cx.url(with_parens)})
+
+        [Blocked]({evil})
+        "###
+    }
+    .render_md(&mut cx)
+    .unwrap();
+
+    let out = cx.into_output().into_string();
+    assert_eq!(
+        out,
+        "![Brand\\_Logo\\.svg](/apps/demo/_proa/immutable/images/brand.0dd0d0d7.svg)\n\n\
+         [Docs](/apps/demo/docs/rust_\\(lang\\)/v1.0)\n\n\
+         [Blocked]()\n\n"
+    );
+
+    // Inline templates also apply URL-destination escaping and support cx.url(...).
+    let mut inline_cx = WebContext::new();
+    inline_cx
+        .request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/_proa/immutable/images/brand.0dd0d0d7.svg"),
+        )]))));
+    md_sync! { "![Brand]({inline_cx.url(\"public/images/brand.svg\")})" }
+        .render_md(&mut inline_cx)
+        .unwrap();
+    assert_eq!(
+        inline_cx.into_output().into_string(),
+        "![Brand](/_proa/immutable/images/brand.0dd0d0d7.svg)"
+    );
+}
+
+#[tokio::test]
+async fn async_markdown_allows_cx_url_in_destinations() {
+    use proa_core::render::MdRender;
+    use proa_core::{PublicAssetUrls, WebContext};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    let mut cx = WebContext::new();
+    cx.request_mut()
+        .set_public_asset_urls(Some(PublicAssetUrls::new(BTreeMap::from([(
+            "images/brand.svg".to_string(),
+            Arc::from("/_proa/immutable/images/brand.0dd0d0d7.svg"),
+        )]))));
+    md! { r###"
+        ![Brand]({cx.url("public/images/brand.svg")})
+        "###
+    }
+    .render_md(&mut cx)
+    .resolve()
+    .await
+    .unwrap();
+    assert_eq!(
+        cx.into_output().into_string(),
+        "![Brand](/_proa/immutable/images/brand.0dd0d0d7.svg)\n\n"
+    );
+}
+
+#[test]
+fn markdown_url_slots_encode_html_and_preserve_fallible_url_arguments() {
+    use proa_core::{MdRenderSync, WebContext, WriteError};
+
+    struct UrlResolver;
+    impl UrlResolver {
+        fn url(&self, path: &'static str) -> &'static str {
+            path
+        }
+    }
+
+    fn lookup() -> Result<&'static str, WriteError> {
+        Ok("/docs/a_b.md")
+    }
+
+    fn build_fragment(resolver: &UrlResolver) -> impl MdRenderSync + '_ {
+        md_sync! { "[Open]({resolver.url(lookup()?)})" }
+    }
+
+    let resolver = UrlResolver;
+    let mut cx = WebContext::new();
+    build_fragment(&resolver).render_md(&mut cx).unwrap();
+    assert_eq!(cx.into_output().into_string(), "[Open](/docs/a_b.md)");
+
+    let hostile = "/ok<script>alert`1`</script>";
+    let mut safe_cx = WebContext::new();
+    md_sync! { "[Open]({hostile}) and [Angle](<{hostile}>)" }
+        .render_md(&mut safe_cx)
+        .unwrap();
+    assert_eq!(
+        safe_cx.into_output().into_string(),
+        "[Open](/ok%3Cscript%3Ealert%601%60%3C/script%3E) and [Angle](</ok%3Cscript%3Ealert%601%60%3C/script%3E>)"
+    );
+}
+
+#[test]
+fn markdown_url_calls_with_temporary_arguments_stay_in_the_render_closure() {
+    use proa_core::{BasePath, MdRenderSync, WebContext};
+
+    // A temporary argument cannot be hoisted: the `AppUrl` borrows it, so the
+    // call must run inside the render closure where the temporary lives for
+    // the whole statement.
+    let base = BasePath::new("/apps").unwrap();
+    let mut cx = WebContext::new();
+    md_sync! { "[Intro]({base.url(String::from(\"/docs/intro_page\").as_str())})" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(
+        cx.into_output().into_string(),
+        "[Intro](/apps/docs/intro_page)"
+    );
+
+    // Field places are still hoisted, so the render context can resolve them.
+    struct Link {
+        path: &'static str,
+    }
+    let link = Link { path: "/docs/a_b" };
+    let mut cx = WebContext::new();
+    md_sync! { "[Docs]({cx.url(link.path)})" }
+        .render_md(&mut cx)
+        .unwrap();
+    assert_eq!(cx.into_output().into_string(), "[Docs](/docs/a_b)");
 }

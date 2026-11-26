@@ -15,6 +15,9 @@ use serde::Serialize;
 
 use crate::{config, util::resolve_config_root};
 
+mod registered_routes;
+use registered_routes::ensure_routes_unregistered;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GenerateReport {
@@ -92,26 +95,18 @@ pub fn migration(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn page(
     raw_path: String,
     root: Option<PathBuf>,
     _layout: Option<String>,
     force_markdown: bool,
     no_markdown: bool,
-    no_test: bool,
     dry_run: bool,
     json: bool,
 ) -> Result<()> {
     let root = resolve_config_root(root)?;
     let route = route_name(&raw_path)?;
-    let project = config::load_project_config(&root)?;
-    let configured_markdown = project
-        .representations
-        .as_ref()
-        .and_then(|value| value.pointer("/markdown/enabled"))
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+    let configured_markdown = config::load_component_lock(&root)?.scaffold_markdown() == Some(true);
     let markdown = force_markdown || (!no_markdown && configured_markdown);
     if force_markdown && !configured_markdown {
         bail!("Markdown is not installed for this project; run `proa add representation markdown` first");
@@ -124,49 +119,47 @@ pub fn page(
     add_module(&mut modules, &route.module);
     let routes_path = root.join("src/routes.rs");
     let mut routes = fs::read_to_string(&routes_path)?;
+    let captured_alias = markdown && route.canonical.ends_with('}');
+    let explicit_alias = (markdown && !captured_alias).then_some(route.markdown_alias.as_str());
+    ensure_routes_unregistered(&routes, &route.canonical, explicit_alias)?;
+    let handler = if captured_alias {
+        "handler_with_markdown_alias"
+    } else {
+        "handler"
+    };
     add_route_spec(
         &mut routes,
         &format!(
-            "        Route::endpoint(\"{}\", get(pages::{}::handler)),",
+            "        Route::endpoint(\"{}\", get(pages::{}::{handler})),",
             route.canonical, route.module
         ),
     )?;
-    if markdown {
+    if let Some(alias) = explicit_alias {
         add_explicit_route(
             &mut routes,
             &format!(
-                "        .route(\"{}\", get(pages::{}::markdown))",
-                route.markdown_alias, route.module
+                "        .route(\"{alias}\", get(pages::{}::markdown))",
+                route.module
             ),
         )?;
     }
-    let mut files = vec![
+    let files = vec![
         (
             PathBuf::from(format!("src/pages/{}.rs", route.module)),
-            page_source(&route, markdown),
+            crate::scaffold::format_generated_rust(&module_path, &page_source(&route, markdown))?,
         ),
         (PathBuf::from("src/pages/mod.rs"), modules),
         (PathBuf::from("src/routes.rs"), routes),
     ];
-    if !no_test {
-        files.push((
-            PathBuf::from(format!("tests/pages/{}.rs", route.module)),
-            format!(
-                "#[test]\nfn route_contract() {{\n    let source = include_str!(\"../../src/pages/{}.rs\");\n    assert!(source.contains(\"data-page-{}\"));\n}}\n",
-                route.module, route.module
-            ),
-        ));
-    }
+
     finish_generated(&root, "generate.page", files, dry_run, json)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn endpoint(
     raw_path: String,
     root: Option<PathBuf>,
     method: &'static str,
     response: &'static str,
-    no_test: bool,
     dry_run: bool,
     json: bool,
 ) -> Result<()> {
@@ -186,11 +179,9 @@ pub fn endpoint(
         "        Route::endpoint(\"{}\", axum::routing::{}(endpoints::{}::handler)),",
         route.canonical, method, route.module
     );
-    if routes.contains(&format!("\"{}\"", route.canonical)) {
-        bail!("route path is already registered: {}", route.canonical);
-    }
+    ensure_routes_unregistered(&routes, &route.canonical, None)?;
     add_route_spec(&mut routes, &registration)?;
-    let mut files = vec![
+    let files = vec![
         (
             PathBuf::from(format!("src/endpoints/{}.rs", route.module)),
             endpoint_source(response),
@@ -198,15 +189,7 @@ pub fn endpoint(
         (PathBuf::from("src/endpoints/mod.rs"), modules),
         (PathBuf::from("src/routes.rs"), routes),
     ];
-    if !no_test {
-        files.push((
-            PathBuf::from(format!("tests/endpoints/{}.rs", route.module)),
-            format!(
-                "#[test]\nfn endpoint_contract() {{\n    let source = include_str!(\"../../src/endpoints/{}.rs\");\n    assert!(source.contains(\"pub async fn handler\"));\n}}\n",
-                route.module
-            ),
-        ));
-    }
+
     finish_generated(&root, "generate.endpoint", files, dry_run, json)
 }
 
@@ -236,7 +219,7 @@ pub fn model(
     let table = format!("{name}s");
     let mut modules = fs::read_to_string(root.join("src/models/mod.rs")).unwrap_or_default();
     add_module(&mut modules, &name);
-    let mut files = vec![
+    let files = vec![
         (
             PathBuf::from(format!("src/models/{name}.rs")),
             model_source(&struct_name, &fields),
@@ -251,12 +234,7 @@ pub fn model(
             format!("DROP TABLE {table};\n"),
         ),
     ];
-    files.push((
-        PathBuf::from(format!("tests/models/{name}.rs")),
-        format!(
-            "#[test]\nfn model_is_an_ordinary_sqlx_row() {{\n    let source = include_str!(\"../../src/models/{name}.rs\");\n    assert!(source.contains(\"sqlx::FromRow\"));\n}}\n"
-        ),
-    ));
+
     finish_generated(&root, "generate.model", files, dry_run, json)
 }
 
@@ -266,6 +244,7 @@ struct RouteName {
     markdown_alias: String,
     module: String,
     rust_type: String,
+    title: String,
 }
 
 fn route_name(raw: &str) -> Result<RouteName> {
@@ -278,19 +257,52 @@ fn route_name(raw: &str) -> Result<RouteName> {
         bail!("route path must contain safe, nonempty segments");
     }
     let mut module_parts = Vec::new();
-    for part in trimmed.split('/') {
-        let part = part.trim_start_matches(':');
-        let normalized = snake_name(part)?;
-        module_parts.push(normalized);
+    let canonical = canonical_route(&format!("/{trimmed}"));
+    for part in canonical.trim_start_matches('/').split('/') {
+        let name = part
+            .strip_prefix('{')
+            .and_then(|name| name.strip_suffix('}'))
+            .unwrap_or(part);
+        module_parts.push(snake_name(name)?);
     }
     let module = module_parts.join("_");
-    let canonical = format!("/{trimmed}");
     Ok(RouteName {
         markdown_alias: format!("{canonical}.md"),
         rust_type: format!("{}Page", rust_type_name(&module)),
+        title: human_title(&module),
         canonical,
         module,
     })
+}
+
+/// Spell `/:id` and `/*path` captures as `/{id}` and `/{*path}`.
+fn canonical_route(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if let Some(name) = segment.strip_prefix(':') {
+                format!("{{{name}}}")
+            } else if let Some(name) = segment.strip_prefix('*') {
+                format!("{{*{name}}}")
+            } else {
+                segment.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn human_title(name: &str) -> String {
+    name.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut characters = part.chars();
+            characters
+                .next()
+                .map(|first| format!("{}{}", first.to_ascii_uppercase(), characters.as_str()))
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn rust_type_name(name: &str) -> String {
@@ -326,9 +338,6 @@ fn add_explicit_route(source: &mut String, line: &str) -> Result<()> {
 }
 
 fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result<()> {
-    if source.contains(line) {
-        return Ok(());
-    }
     let offset = source.find(marker).with_context(|| {
         format!("generated ownership marker `{marker}` is missing; no arbitrary Rust was changed")
     })?;
@@ -336,45 +345,69 @@ fn insert_before_marker(source: &mut String, marker: &str, line: &str) -> Result
     Ok(())
 }
 
+// proa-perf-ok(scope): CLI generator assembles trusted Rust source, not response HTML
 fn page_source(route: &RouteName, markdown: bool) -> String {
     let imports = if markdown {
-        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa_core::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa_framework_axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};\nuse proa_macros::{html_sync, md_sync};"
+        "use axum::{http::HeaderMap, response::IntoResponse};\nuse proa::{WebContext, DataLoader, MdRenderSync, WebRenderSync, WriteBuf, WriteError};\nuse proa::axum::{negotiate, MarkdownAlternate, RouteResponse};\nuse proa::{html_sync, md_sync};"
     } else {
-        "use axum::response::IntoResponse;\nuse proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};\nuse proa_framework_axum::RouteResponse;\nuse proa_macros::html_sync;"
+        "use axum::response::IntoResponse;\nuse proa::{DataLoader, WebContext, WebRenderSync, WriteError};\nuse proa::axum::RouteResponse;\nuse proa::html_sync;"
     };
     let markdown_impl = if markdown {
+        // Axum matches an entire captured segment. A single route must serve
+        // both /blog/example and /blog/example.md.
+        let alias_handler = if route.canonical.ends_with('}') {
+            r#"
+pub async fn handler_with_markdown_alias(uri: axum::http::Uri, headers: HeaderMap) -> Result<impl IntoResponse, AppError> {
+    if uri.path().ends_with(".md") {
+        return Ok(markdown().await?.into_response());
+    }
+    Ok(handler(headers).await?.into_response())
+}
+"#
+        } else {
+            ""
+        };
         format!(
             r####"
-impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
+impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for {ty} {{
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {{
         md_sync! {{ r###"
-            # {ty}
+            # {title}
 
             Canonical route: `{path}`
             "###
-        }}.render_md(cx)
+        }}
+        .render_md(cx)
     }}
 }}
 
+const MARKDOWN_ALTERNATE: MarkdownAlternate = MarkdownAlternate::new("{alias}");
+
 pub async fn handler(headers: HeaderMap) -> Result<impl IntoResponse, AppError> {{
-    let html = RouteResponse::ssr_async(RootDocument {{ title: "{ty}", content: proa_core::to_async({ty}) }});
-    Ok(negotiate(&headers, html, {ty}, MarkdownAlternate::new("{alias}"))?)
+    let html = RouteResponse::ssr_async(RootDocument {{
+        title: "{title}",
+        content: proa::to_async({ty}),
+    }});
+    Ok(negotiate(&headers, html, {ty}, MARKDOWN_ALTERNATE)?)
 }}
 
 pub async fn markdown() -> Result<impl IntoResponse, AppError> {{
-    Ok(explicit_markdown({ty})?)
+    Ok(MARKDOWN_ALTERNATE.render_explicit({ty})?)
 }}
-"####,
+{alias_handler}"####,
             ty = route.rust_type,
+            title = route.title,
             path = route.canonical,
             alias = route.markdown_alias
         )
     } else {
         format!(
-            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{ title: \"{ty}\", content: proa_core::to_async({ty}) }}))\n}}\n",
-            ty = route.rust_type
+            "\npub async fn handler() -> Result<impl IntoResponse, AppError> {{\n    Ok(RouteResponse::ssr_async(RootDocument {{\n        title: \"{title}\",\n        content: proa::to_async({ty}),\n    }}))\n}}\n",
+            ty = route.rust_type,
+            title = route.title
         )
     };
+    let slug = route.module.replace('_', "-");
     format!(
         r#"{imports}
 
@@ -385,14 +418,20 @@ pub struct {ty};
 
 impl<L: DataLoader> WebRenderSync<L> for {ty} {{
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {{
-        html_sync! {{ <main data-page-{module}><h1>"{ty}"</h1></main> }}.render(cx)
+        html_sync! {{
+            <main data-page-{slug}>
+                <h1>"{title}"</h1>
+            </main>
+        }}
+        .render(cx)
     }}
 }}
 {markdown_impl}
 "#,
         imports = imports,
         ty = route.rust_type,
-        module = route.module,
+        title = route.title,
+        slug = slug,
         markdown_impl = markdown_impl
     )
 }
@@ -562,12 +601,8 @@ fn commit_mutations(root: &Path, files: &[(PathBuf, String)]) -> Result<()> {
 
 fn require_sqlite(root: &Path) -> Result<()> {
     let project = config::load_project_config(root)?;
-    if project
-        .database
-        .as_ref()
-        .and_then(|database| database.get("driver"))
-        .and_then(serde_json::Value::as_str)
-        != Some("sqlite")
+    if project.database.as_ref().map(|database| database.driver)
+        != Some(crate::config::DatabaseDriver::Sqlite)
     {
         bail!("No database capability is configured.\nAdd one with: proa add database sqlite");
     }
@@ -712,5 +747,49 @@ mod tests {
     fn normalizes_migration_names() {
         assert_eq!(snake_name("CreatePosts").unwrap(), "create_posts");
         assert_eq!(snake_name("add posts-slug").unwrap(), "add_posts_slug");
+    }
+
+    #[test]
+    fn generates_axum_capture_syntax_for_both_route_spellings() {
+        for input in ["blog/:slug", "blog/{slug}"] {
+            let route = route_name(input).unwrap();
+            assert_eq!(route.canonical, "/blog/{slug}");
+            assert_eq!(route.markdown_alias, "/blog/{slug}.md");
+            assert_eq!(route.module, "blog_slug");
+            let source = page_source(&route, true);
+            syn::parse_file(&source).unwrap();
+            assert!(source.contains("fn handler_with_markdown_alias("));
+        }
+        for input in ["files/*rest", "files/{*rest}"] {
+            let route = route_name(input).unwrap();
+            assert_eq!(route.canonical, "/files/{*rest}");
+            assert_eq!(route.module, "files_rest");
+        }
+    }
+
+    #[test]
+    fn generated_page_source_is_formatted_and_uses_human_titles() {
+        let route = route_name("user-settings").unwrap();
+        assert_eq!(route.rust_type, "UserSettingsPage");
+        assert_eq!(route.title, "User Settings");
+        for markdown in [false, true] {
+            let source = page_source(&route, markdown);
+            assert!(source.contains("<h1>\"User Settings\"</h1>"), "{source}");
+            assert!(source.contains("title: \"User Settings\""), "{source}");
+            let formatted = proa_source_tools::fmt::format_file(
+                Path::new("src/pages/user_settings.rs"),
+                &source,
+            )
+            .unwrap();
+            assert!(
+                formatted.diagnostics.is_empty(),
+                "{:?}",
+                formatted.diagnostics
+            );
+            assert_eq!(
+                formatted.output, source,
+                "generated page must pass proa fmt"
+            );
+        }
     }
 }

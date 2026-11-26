@@ -61,6 +61,7 @@ pub struct IntegerFormatPlan {
 
 impl IntegerFormatPlan {
     pub fn tokens(self) -> TokenStream2 {
+        let proa_core = crate::paths::runtime("proa_core");
         let Self {
             fill,
             align,
@@ -76,7 +77,7 @@ impl IntegerFormatPlan {
             None => quote! { ::core::option::Option::None },
         };
         quote! {
-            ::proa_core::shared::numeric::__ProaIntegerFormatPlan::__proa_new(
+            #proa_core::shared::numeric::__ProaIntegerFormatPlan::__proa_new(
                 #fill,
                 #align,
                 #sign_plus,
@@ -183,7 +184,7 @@ fn is_intrinsic_path(path: &syn::Path) -> bool {
                 && matches!(text.arguments, syn::PathArguments::None)
         }
         (Some(crate_name), Some(text), None) => {
-            crate_name.ident == "proa_macros"
+            crate::paths::is_macro_namespace(&crate_name.ident)
                 && matches!(crate_name.arguments, syn::PathArguments::None)
                 && text.ident == "text"
                 && matches!(text.arguments, syn::PathArguments::None)

@@ -81,7 +81,7 @@ flowchart TD
 |---|---|
 | Output and loader | Own `B` and `Arc<L>`. Preserve `new()`, `with_buffer(B)`, `with_loader(Arc<L>)`, `with_loader_buffer(B, Arc<L>)`, and `into_output()`. Borrowed writers remain possible through `B = &mut Writer`. |
 | Common render machinery | One implementation of render modes, output adapters, metering, reservations, flusher configuration, and flushing. Keep scoped output mutation distinct from detached rendering. |
-| Markdown state | Inline `MdState`: heading offset, list depth, inline mode, trailing-line state, and pending CR. Rename `MdContextState` to `MdState` and migrate callers directly, without a compatibility alias. Snapshots exclude the loader and output. |
+| Markdown state | Inline `MdState`: list depth, inline mode, trailing-line state, and pending CR. Rename `MdContextState` to `MdState` and migrate callers directly, without a compatibility alias. Snapshots exclude the loader and output. |
 | HTML formatting state | Keep `ContentMode` and `EscapeDialect` cheap to access. Do not introduce Markdown as an HTML escape dialect or switch representation through a global format flag. |
 | Metadata and browser state | Keep the existing eager `Option<Box<WebContextParts>>` ownership policy. Ordinary roots have parts, transport-only contexts do not, and scoped output guards temporarily move and return the live box. Existing field-level laziness stays unchanged. |
 
@@ -295,12 +295,12 @@ cargo fmt --all --check
 cargo check --workspace --all-targets --locked
 cargo test --workspace --lib --no-fail-fast --locked \
   --exclude proa_demo --exclude proa_marketing \
-  --exclude proa_showcase_web --exclude proa-lean-server \
-  --exclude proa_webmcp_pizza --exclude proa_origin_routing_atlas
+  --exclude proa_showcase_web \
+  --exclude proa_webmcp_pizza
 cargo test --workspace --tests --no-fail-fast --locked \
   --exclude proa_demo --exclude proa_marketing \
-  --exclude proa_showcase_web --exclude proa-lean-server --exclude proa_showcase \
-  --exclude proa_webmcp_pizza --exclude proa_origin_routing_atlas
+  --exclude proa_showcase_web --exclude proa_showcase \
+  --exclude proa_webmcp_pizza
 python3 scripts/proa_perf_lint.py --changed --base 1166812
 ```
 

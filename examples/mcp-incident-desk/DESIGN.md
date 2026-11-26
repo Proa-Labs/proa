@@ -82,7 +82,7 @@ proa new site <fresh-staging-parent>/mcp-incident-desk --template app --database
 
 Preserve the generated application contract:
 
-- **Configuration:** `proa.config.json`, `proa.lock.json`, environment loading, and explicit app-binary selection alongside the reference-client binary.
+- **Configuration:** `proa.config.rs`, `proa.lock.json`, environment loading, and explicit app-binary selection alongside the reference-client binary.
 - **Database:** `src/db.rs`, `AppState.db`, `migrations/`, `data/`, and migration tracking in `build.rs`.
 - **Web structure:** registered pages/endpoints, source components, layouts, public assets, styling, and health/readiness routes.
 - **Lifecycle:** `proa dev`, `proa build`, `proa start`, and `proa test` remain the documented entry points.
@@ -92,7 +92,7 @@ Document the dependency adaptation in the README. Extend configuration for HTTPS
 
 ### Database and migrations
 
-Use generated **SQLx 0.8**, with Tokio, SQLite, migration support, and explicit `macros` support for derives. Use parameterized queries and typed rows. The default database is `sqlite://data/mcp-incident-desk.db`.
+Use generated **SQLx 0.9**, with Tokio, SQLite, migration support, and explicit `macros` support for derives. Use parameterized queries and typed rows. The default database is `sqlite://data/mcp-incident-desk.db`.
 
 Keep the helper's foreign keys, WAL, five-second busy timeout, five-connection pool, and `sqlx::migrate!()` startup migrations. No additional ORM, database service, migration runner, or `sqlx-cli` is needed.
 
@@ -151,7 +151,7 @@ Extend the generated structure. Component subdirectories follow the workspace's 
 ```text
 examples/mcp-incident-desk/
   DESIGN.md, README.md, Cargo.toml, build.rs
-  proa.config.json, proa.lock.json, .env.example, .gitignore
+  proa.config.rs, proa.lock.json, .env.example, .gitignore
   migrations/                       # Versioned up/down SQL
   data/.gitkeep                     # Database files ignored
   .local/                           # Ignored keys, TLS, client secret
@@ -278,7 +278,7 @@ Each section owns its trailing block spacing. Use multiline raw templates, typed
 
 Keep an async composition example/test with `md!` and `to_md_async(...)`. Live MCP handlers use the sync path: `WebContext` contains `Rc`, while SDK handlers require `Send`. Do not retain it across an await, block on async rendering, or add unsafe `Send`. Core Markdown supports async loading on a local render future. The Axum adapter offers deferred loader-aware Markdown responses; an MCP integration still needs an appropriate local execution boundary before it can await rendering from a `Send` handler.
 
-Source map: [Render traits](../../docs/agent/api-reference/render-traits.md), [Markdown traits](../../proa_core/src/render/md_render.rs), [Markdown context](../../proa_core/src/md/context.rs), [web context](../../proa_core/src/web/context.rs). Loading: [Typed values](../../proa_core/src/render/load_value.rs), [resolver](../../proa_stream/src/resolver.rs). Integration: [HTTP helpers](../../proa_framework/proa_framework_axum/src/route/representation.rs), [existing example](../origin-routing-atlas/src/lib.rs).
+Source map: [Render traits](../../docs/agent/api-reference/render-traits.md), [Markdown traits](../../proa_core/src/render/md_render.rs), [Markdown context](../../proa_core/src/md/context.rs), [web context](../../proa_core/src/web/context.rs). Loading: [Typed values](../../proa_core/src/render/load_value.rs), [resolver](../../proa_stream/src/resolver.rs). Integration: [HTTP helpers](../../proa_framework/proa_framework_axum/src/route/representation.rs), [existing example](../../proa_cli/src/site_scaffold/templates/origin/src/lib.rs).
 
 ## Representation contracts
 
@@ -289,10 +289,10 @@ All routes below use the browser session; the write also requires CSRF protectio
 | Route | Result |
 |---|---|
 | `GET /issues` | HTML issue list. |
-| `GET /issues/:id` | HTML by default; Markdown when explicitly preferred. |
-| `GET /issues/:id.md` | `text/markdown; charset=utf-8`. |
-| `GET /issues/:id.json` | Typed JSON projection. |
-| `POST /issues/:id/resolve` | Shared command, then redirect to issue. |
+| `GET /issues/{id}` | HTML by default; Markdown when explicitly preferred. |
+| `GET /issues/{id}.md` | `text/markdown; charset=utf-8`. |
+| `GET /issues/{id}.json` | Typed JSON projection. |
+| `POST /issues/{id}/resolve` | Shared command, then redirect to issue. |
 
 Use Proa's `explicit_markdown` / `negotiate` helpers for HTML/Markdown; handle JSON separately. Authorize before selecting a representation. Signed-out HTML navigation redirects to login; machine representations return 401. Inaccessible and nonexistent IDs produce the same not-found response. Protected responses use `Cache-Control: private, no-store`; negotiated responses add `Vary: Accept`. Static assets and public metadata have separate cache policies.
 

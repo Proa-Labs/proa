@@ -12,9 +12,9 @@ The Rust filenames below show one way to organize your app. Register generators 
 Add crawler rules to your application builder:
 
 ```rust filename="src/main.rs" {4}
-use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+use proa::axum::{FrameworkBuilder, RobotsTxt};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_robots(RobotsTxt::new().allow("/")?.disallow("/private/")?)
     .try_build()?;
 ```
@@ -36,7 +36,7 @@ Disallow: /private/
 Use `group` for one bot or `group_agents` to share a rule group between several bots:
 
 ```rust filename="src/main.rs" {4,7}
-use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+use proa::axum::{FrameworkBuilder, RobotsTxt};
 
 let robots = RobotsTxt::new()
     .group("Googlebot")?
@@ -45,7 +45,7 @@ let robots = RobotsTxt::new()
     .group_agents(["Applebot", "Bingbot"])?
     .disallow("/")?;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_robots(robots)
     .try_build()?;
 ```
@@ -74,7 +74,7 @@ As in [Next.js robots metadata](https://nextjs.org/docs/app/api-reference/file-c
 
 ```rust filename="src/main.rs" {7-10}
 use std::time::Duration;
-use proa_framework_axum::{FrameworkBuilder, RobotsTxt};
+use proa::axum::{FrameworkBuilder, RobotsTxt};
 
 let robots = RobotsTxt::new()
     .group("SeznamBot")?
@@ -84,7 +84,7 @@ let robots = RobotsTxt::new()
     .host("https://example.com")?
     .sitemap("https://example.com/news-sitemap.xml")?;
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_robots(robots)
     .try_build()?;
 ```
@@ -111,7 +111,7 @@ An application-owned `generate_robots` function can read configuration, a databa
 
 ```rust filename="src/robots.rs" {5,8}
 use crate::db::Database;
-use proa_framework_axum::RobotsTxt;
+use proa::axum::RobotsTxt;
 
 pub async fn generate_robots(db: &Database) -> anyhow::Result<RobotsTxt> {
     let paths = db.crawler_exclusions().await?;
@@ -129,10 +129,10 @@ Await the result when configuring the same builder as the [sitemap generator](/d
 mod robots;
 mod sitemap;
 
-use proa_framework_axum::FrameworkBuilder;
+use proa::axum::FrameworkBuilder;
 
 // Inside async main, before binding the listener:
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_dynamic_routes_and_metadata(routes, metadata)
     .with_base_path(base_path)
     .with_public_origin(&origin)?
@@ -167,9 +167,9 @@ Wildcard-leading rules follow the example in [RFC 9309 §5.1](https://www.rfc-ed
 Show the mount behavior with a concrete configuration:
 
 ```rust filename="src/main.rs" {5,7}
-use proa_framework_axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
+use proa::axum::{BasePath, FrameworkBuilder, RobotsTxt, SitemapUrl};
 
-let app = FrameworkBuilder::new(manifest)
+let app = FrameworkBuilder::new()
     .with_public_origin("https://example.com")?
     .with_base_path(BasePath::new("/apps/demo")?)
     .with_sitemap([SitemapUrl::new("/pricing")?])

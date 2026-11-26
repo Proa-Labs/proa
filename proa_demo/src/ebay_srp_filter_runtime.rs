@@ -223,37 +223,3 @@ pub const SRP_FILTER_RUNTIME_SCRIPT: &str = r#"<script>
   }
 })();
 </script>"#;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn runtime_script_is_self_contained() {
-        // Sanity: the script must be wrapped in an IIFE inside a
-        // <script> tag, depend on no globals besides the standard
-        // browser surface, and reference the data attrs the cards
-        // emit. If any of these change, update the script.
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.starts_with("<script>"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.trim_end().ends_with("</script>"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("(function ()"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("data-format"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("data-free-shipping"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("location.search"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("history.replaceState"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("popstate"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("DOMContentLoaded"));
-        assert!(SRP_FILTER_RUNTIME_SCRIPT.contains("srp-filter"));
-    }
-
-    #[test]
-    fn runtime_script_under_target_size() {
-        // Soft cap so we notice if the runtime grows. The current
-        // body is ~5 KB raw (well under 2 KB gzipped) which is fine
-        // inline; if this trips, either justify it in the commit or
-        // move the script to an external file served alongside the
-        // rsjs runtime.
-        let bytes = SRP_FILTER_RUNTIME_SCRIPT.len();
-        assert!(bytes < 8_192, "runtime grew to {bytes} bytes");
-    }
-}

@@ -120,9 +120,9 @@ impl<L: DataLoader, B: WriteBuf, const N: usize> WebRenderSync<L, B> for ClassLi
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         for (i, class) in self.classes[..self.count].iter().enumerate() {
             if i > 0 {
-                cx.out.extend(b" ")?;
+                cx.out.extend_str(" ")?;
             }
-            cx.out.extend(class.as_bytes())?;
+            cx.out.extend_str(class)?;
         }
         Ok(())
     }

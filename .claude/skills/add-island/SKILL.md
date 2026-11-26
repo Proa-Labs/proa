@@ -46,17 +46,17 @@ JavaScript bridge; follow the [RSJS-first policy](../../../docs/agent/rsjs-islan
 ## Minimal island
 
 ```rust
-use proa_macros::html_sync;
+use proa::html_sync;
 use rsjs::{rsjs, signal};
 
 pub struct Counter { pub initial: i64 }
 
 #[rsjs(component, client)]
-impl<L: proa_core::DataLoader>
-    proa_core::WebRenderSync<L> for Counter
+impl<L: proa::DataLoader>
+    proa::WebRenderSync<L> for Counter
 {
-    fn render(self, cx: &mut proa_core::WebContext<L>)
-        -> Result<(), proa_core::WriteError>
+    fn render(self, cx: &mut proa::WebContext<L>)
+        -> Result<(), proa::WriteError>
     {
         let count = signal(self.initial);
         html_sync! {
@@ -153,7 +153,7 @@ inline tiny islands).
 
 ## Common mistakes
 
-- **Forgetting to bring `proa_core::WebContext` / `WebRenderSync` into scope**
+- **Forgetting to bring `proa::WebContext` / `WebRenderSync` into scope**
   at the impl site. The macro needs them.
 - **Using `let mut` in render for state.** Use `signal(...)` instead;
   `let mut` only mutates server-side and won't survive the hydrate.
@@ -177,6 +177,9 @@ All the macro essentials from `/add-component` still apply:
 - Underscores in attribute names → dashes (`hx_post` → `hx-post`).
 - `Option<&str>` attrs auto-omit when None.
 - Boolean attrs render as `attr=""`.
+- Use `src={cx.url("public/images/logo.svg")}` and other ordinary server
+  expressions directly. Reserve `rsjs::server_attr(...)` for an intentional
+  snapshot of an inbound value or a server expression the compiler cannot classify.
 - Performance: no `format!()`, use inline segments and pre-computed
   strings (see `/add-component` § Performance for details).
 - Security: automatic XSS escape, `javascript:` URL blocking,
@@ -200,7 +203,9 @@ The island gets its compiled JS embedded in the binary at link time
 via `linkme::distributed_slice`. The framework adapter
 (`proa_demo/src/playground.rs::serve_rsjs_*` is the reference) serves
 it from memory at `/rsjs/island/<asset_id>.<hash>.js` with brotli +
-`Cache-Control: immutable`.
+`Cache-Control: immutable`. An application that uses `FrameworkBuilder` serves the module by default at
+`/_proa/immutable/rsjs/island/<name>.<16 hex>.js` instead; read the exact URL
+from the page's script tags.
 
 Fix any `scripts/proa_perf_lint.py` finding before reporting done. Suppress
 with `// proa-perf-ok: reason` only when an allocation is deliberate and outside

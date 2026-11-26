@@ -1,0 +1,34 @@
+# Copyright Proa Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "proa_assets"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Public asset manifests and content-addressed local output for Proa"
+license-file.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[features]
+build = ["dep:cssparser", "dep:mime_guess", "dep:percent-encoding", "dep:tempfile"]
+
+[dependencies]
+base16ct = { workspace = true }
+base64 = { workspace = true }
+cssparser = { version = "0.38.0", optional = true }
+percent-encoding = { version = "2", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+mime_guess = { version = "2", optional = true }
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -3,7 +3,36 @@ title: Browser APIs
 description: Reach browser capabilities through the analyzed RSJS surface.
 ---
 
-RSJS does not expose raw browser globals, so every browser capability reaches your island through an analyzed, typed surface. This page covers [the surface map](#mapping-browser-apis-to-rsjs-surfaces), [events](#handling-events), [node refs](#using-node-refs), [window and storage](#reading-window-url-and-storage), [observers](#which-observers-can-i-use), and [network calls](#fetching-data-in-the-browser).
+RSJS exposes browser APIs through typed events, node refs, and helpers. This island displays the search input's current value as you type.
+
+```rust filename="src/components/search_preview.rs"
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError, html_sync};
+use rsjs::{rsjs, signal};
+
+pub struct SearchPreview;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for SearchPreview {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        // proa-perf-ok: an empty String does not allocate
+        let query = signal(String::new());
+        let update_query = rsjs::event_handler(|event: rsjs::InputEvent<rsjs::elem::Input>| {
+            query.set(event.current_value());
+        });
+
+        html_sync! {
+            <div>
+                <label>
+                    "Search"
+                    <input type="search" on_input={update_query()} />
+                </label>
+                <p>{query.get()}</p>
+            </div>
+        }
+        .render(cx)
+    }
+}
+```
 
 ## Mapping browser APIs to RSJS surfaces
 
@@ -23,18 +52,12 @@ Use the analyzed surface: event attributes, event accessors, node refs, `rsjs::`
 | Timers | `rsjs::interval(...)` and `rsjs::debounce(...)`; RSJS does not expose raw `setTimeout`. |
 | WebAuthn | JSON ceremony helpers: `create_json_into(...)`, `get_json_into(...)`, and fallback variants. |
 
-The rest of this page works through the families in turn, starting with events.
-
 ## Handling events
 
-```rust filename="src/components/search_filters.rs"
-let query = signal(String::new());
+Use `DragEvent` to read the name of a dropped file. Call `prevent_default()` during `dragover` to allow the drop.
+
+```rust filename="src/components/file_drop.rs"
 let dropped = signal(String::new());
-let update_query = rsjs::event_handler(
-    |event: rsjs::InputEvent<rsjs::elem::Input>| {
-        query.set(event.current_value());
-    },
-);
 let accept_drop = rsjs::event_handler(|event: rsjs::DragEvent| {
     event.prevent_default();
     dropped.set(event.data_transfer_first_file_name());
@@ -44,17 +67,9 @@ let allow_drop = rsjs::event_handler(|event: rsjs::DragEvent| {
 });
 
 html_sync! {
-    <div>
-        <input
-            type="search"
-            on_input={update_query()}
-        />
-        <div
-            on_drop={accept_drop()}
-            on_dragover={allow_drop()}
-        >
-            {dropped.get()}
-        </div>
+    <div on_drop={accept_drop()} on_dragover={allow_drop()}>
+        "Drop a file here"
+        <p>{dropped.get()}</p>
     </div>
 }
 ```
@@ -228,10 +243,10 @@ Use queries and mutations for browser fetch work. A query can stay synchronous w
 ```rust filename="src/components/cart_updater.rs"
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::html;
+use proa::html;
 use rsjs::rsjs;
 
 pub struct CartUpdater;
@@ -247,6 +262,7 @@ impl<L: DataLoader> WebRender<L> for CartUpdater {
                 rsjs::QueryKey::new(("cart", "update")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),

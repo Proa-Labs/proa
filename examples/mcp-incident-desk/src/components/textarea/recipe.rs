@@ -6,8 +6,8 @@
 //! Provides size variants and base styling for the Textarea component.
 
 use crate::tw_join;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::{AttrValue, SafeAttr};
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles for the textarea - similar to Input but with textarea-specific adjustments
 mod base {
@@ -50,7 +50,7 @@ mod base {
 }
 
 /// Size variants for the textarea
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "size", path = "crate::components::_proa::variant_spec")]
 pub enum TextareaSize {
     Sm,
@@ -132,9 +132,12 @@ impl AttrValue for TextareaStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.root.as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.size.classes().as_bytes())
+        proa::text!(
+            "{} {}",
+            SafeAttr(self.recipe.root),
+            SafeAttr(self.size.classes()),
+        )
+        .render_attr_value(cx)
     }
 }
 

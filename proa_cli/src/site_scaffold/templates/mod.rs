@@ -40,14 +40,20 @@ pub fn populate(
     let blank = selection.starter == StarterChoice::Blank;
 
     plan.write("Cargo.toml", cargo_toml(package, has_database))?;
-    plan.write("rust-toolchain.toml", rust_toolchain())?;
-    plan.write(".cargo/config.toml", cargo_config())?;
     plan.write(".env.example", env_example(package, has_database))?;
     plan.write(".gitignore", gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
     plan.write("README.md", readme(package, title, selection))?;
-    plan.write("build.rs", build_rs(has_database))?;
-    plan.write("proa.config.json", project_config(package, selection)?)?;
+    if has_database {
+        plan.write(
+            "build.rs",
+            "fn main() {\n    println!(\"cargo:rerun-if-changed=migrations\");\n}\n",
+        )?;
+    }
+    plan.write(
+        crate::config::CONFIG_FILE,
+        project_config(package, selection)?,
+    )?;
 
     plan.write("src/main.rs", app::main_rs(has_database))?;
     plan.write("src/app.rs", app::app_state(has_database))?;
@@ -63,11 +69,7 @@ pub fn populate(
     plan.write("src/pages/mod.rs", "pub mod home;\n")?;
     plan.write(
         "src/pages/home.rs",
-        format!(
-            "{}\n{}",
-            app::home_rs(has_database, has_ui, selection.markdown, blank),
-            app::home_handler(has_database, selection.markdown, title)
-        ),
+        app::home_rs(has_database, has_ui, selection.markdown, blank, title),
     )?;
     plan.write("src/endpoints/mod.rs", "pub mod health;\n")?;
     plan.write("src/endpoints/health.rs", app::health_rs(has_database))?;
@@ -86,7 +88,7 @@ pub fn populate(
         )?;
         plan.write(
             "src/docs/getting-started.md",
-            "# Getting started\n\nEdit this collection and run `proa dev`.\n",
+            "# Getting started\n\nEdit this collection and run `proa run dev`.\n",
         )?;
     }
     if has_database {
@@ -140,7 +142,6 @@ pub fn populate(
     )?;
     plan.write("proa.lock.json", lock_file(selection, component_sources)?)?;
 
-    plan.write("tests/smoke.rs", smoke_test())?;
     if has_database {
         plan.write("tests/dataloader.rs", dataloader_test())?;
     }
@@ -193,8 +194,10 @@ fn rust_string_literal(value: &str) -> String {
 }
 
 fn cargo_toml(package: &str, has_database: bool) -> String {
+    let proa = super::scaffold_version("proa");
+
     let database = if has_database {
-        "sqlx = { version = \"0.8\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
+        "sqlx = { version = \"0.9.1\", features = [\"runtime-tokio\", \"sqlite\", \"migrate\"] }\n"
     } else {
         ""
     };
@@ -203,20 +206,17 @@ fn cargo_toml(package: &str, has_database: bool) -> String {
 name = "{package}"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.93"
+rust-version = "1.98"
 
 [dependencies]
+proa = {{ version = "{proa}", features = ["axum", "rt-tokio"] }}
 anyhow = "1"
-axum = "0.7.9"
+axum = "0.8.9"
 dotenvy = "0.15"
-proa_core = {{ version = "0.3.0" }}
-proa_framework_axum = {{ version = "0.3.0" }}
-proa_macros = {{ version = "0.3.0" }}
-proa_stream = {{ version = "0.3.0" }}
 serde = {{ version = "1", features = ["derive"] }}
 {database}thiserror = "2"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
-tower-http = {{ version = "0.6", features = ["fs", "trace"] }}
+tower-http = {{ version = "0.7.1", features = ["fs", "trace"] }}
 tracing = "0.1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 
@@ -224,19 +224,14 @@ tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 http-body-util = "0.1"
 tower = {{ version = "0.5", features = ["util"] }}
 
+[profile.dev.package."*"]
+debug = 0
+
 [profile.release]
 lto = "thin"
-codegen-units = 1
+codegen-units = 16
 "#
     )
-}
-
-fn rust_toolchain() -> &'static str {
-    "[toolchain]\nchannel = \"1.93.0\"\nprofile = \"minimal\"\ncomponents = [\"rustfmt\", \"clippy\"]\n"
-}
-
-fn cargo_config() -> &'static str {
-    "[net]\ngit-fetch-with-cli = true\n"
 }
 
 fn env_example(package: &str, has_database: bool) -> String {
@@ -252,71 +247,33 @@ fn gitignore() -> &'static str {
     ".env\n/target/\n/data/*.db\n/data/*.db-shm\n/data/*.db-wal\n"
 }
 
-fn build_rs(has_database: bool) -> &'static str {
-    if has_database {
-        "fn main() {\n    println!(\"cargo:rerun-if-changed=migrations\");\n    println!(\"cargo:rerun-if-changed=public\");\n}\n"
-    } else {
-        "fn main() {\n    println!(\"cargo:rerun-if-changed=public\");\n}\n"
-    }
-}
-
 fn project_config(package: &str, selection: CapabilitySelection) -> Result<String> {
-    let database = match selection.database {
-        DatabaseChoice::Sqlite => json!({
-            "driver": "sqlite",
-            "migrations": "migrations",
-            "runMigrationsOnStartup": true
-        }),
-        DatabaseChoice::None => json!({ "driver": "none" }),
+    use crate::config::{
+        ApplicationConfig, BuildConfig, DatabaseConfig, DatabaseDriver, DeployConfig, ProjectConfig,
     };
-    let markdown = if selection.markdown {
-        json!({
-            "enabled": true,
-            "negotiateOnCanonicalPath": true,
-            "explicitSuffix": ".md",
-            "rootPath": "/index.md"
-        })
-    } else {
-        json!({ "enabled": false })
-    };
-    let styling = match selection.styling {
-        StylingChoice::Tailwind => json!({
-            "kind": "tailwind", "input": "styles/input.css", "output": "public/styles.css"
-        }),
-        StylingChoice::Css => json!({ "kind": "css", "output": "public/styles.css" }),
-        StylingChoice::Docs => json!({ "kind": "docs", "output": "public/styles.css" }),
-    };
-    let assets = if selection.styling == StylingChoice::Tailwind {
-        json!([{ "kind": "tailwind", "input": "styles/input.css", "output": "public/styles.css" }])
-    } else {
-        json!([])
-    };
-    let value = json!({
-        "$schema": crate::config::CONFIG_SCHEMA_URL,
-        "application": {
-            "kind": "site", "package": package, "binary": package,
-            "template": selection.template.as_str(), "starter": selection.starter.as_str()
-        },
-        "database": database,
-        "ui": { "provider": selection.ui.as_str() },
-        "representations": { "html": { "enabled": true }, "markdown": markdown },
-        "styling": styling,
-        "paths": {
-            "pages": "src/pages", "endpoints": "src/endpoints",
-            "components": "src/components", "layouts": "src/layouts",
-            "models": "src/models", "public": "public", "runtimeData": "data"
-        },
-        "deploy": { "provider": selection.deploy.as_str() },
-        "tasks": {},
-        "dev": {
-            "command": ["cargo", "run"], "before": [],
-            "watch": ["src", "styles", "migrations", "Cargo.toml", "build.rs", "proa.config.json", "proa.lock.json"]
-        },
-        "build": { "command": ["cargo", "build", "--release"], "before": [], "assets": assets },
-        "test": { "before": [] },
-        "registries": { "@proa": "https://ui.proa.so/r/{name}.json" }
+
+    let database = (selection.database == DatabaseChoice::Sqlite).then(|| DatabaseConfig {
+        driver: DatabaseDriver::Sqlite,
+        ..Default::default()
     });
-    Ok(format!("{}\n", serde_json::to_string_pretty(&value)?))
+    crate::config::generated_rust_config(&ProjectConfig {
+        application: Some(ApplicationConfig {
+            binary: package.into(),
+        }),
+        database,
+        deploy: (selection.deploy != crate::capabilities::DeployChoice::None).then(|| {
+            DeployConfig {
+                provider: selection.deploy.as_str().into(),
+                ..Default::default()
+            }
+        }),
+        build: BuildConfig {
+            assets: (selection.styling != StylingChoice::Tailwind).then(Vec::new),
+            ..Default::default()
+        },
+        registries: crate::config::RegistriesConfig::public_only(),
+        ..Default::default()
+    })
 }
 
 fn lock_file(
@@ -375,7 +332,7 @@ fn components_mod(has_database: bool, has_ui: bool) -> String {
 
 fn readme(package: &str, title: &str, selection: CapabilitySelection) -> String {
     format!(
-        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
+        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa run dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa run build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
         selection.template.as_str(),
         if selection.markdown { " and the same typed resource has semantic Markdown at `/index.md`" } else { "" }
     )
@@ -387,9 +344,10 @@ fn agents() -> &'static str {
 - Use `WebRenderSync<L>` unless a component awaits; then use `WebRender<L>` and `html!`.
 - Put request-shared keyed reads behind `cx.load_typed(...)` and create one `DataResolver::request_scope(...)` per HTML response.
 - Keep `RootDocument` HTML-only. Put semantic non-browser output on the page with `MdRenderSync`.
+- Configure dev/build scripts, asset tasks, and `paths.public` in `proa.config.rs`. Reference managed public files with `cx.url("public/...")` so they resolve to fingerprinted URLs.
 - Static classes stay in constants and hot render paths must not allocate.
 - Every component root has a stable `data-*` marker.
-- Run `cargo fmt`, `cargo test`, `proa check`, and the Proa performance lint before merging render changes.
+- Run `cargo fmt`, `proa fmt --check`, `proa lint --deny warnings`, `proa config validate`, and `proa test` before merging render changes.
 "#
 }
 
@@ -454,7 +412,7 @@ jobs:
           persist-credentials: false
 
       # Download immutable release artifacts and verify them before execution.
-      # rust-toolchain.toml separately pins the Rust toolchain.
+      # Cargo.toml declares rust-version = "1.98"; CI uses the runner's installed Rust toolchain.
       - name: Install the Proa CLI and Tailwind
         shell: bash
         run: |
@@ -506,6 +464,9 @@ jobs:
           cargo fmt --all -- --check
           proa fmt --check
 
+      - name: Validate config
+        run: proa config validate
+
       - name: Lint
         run: proa lint
 
@@ -516,7 +477,7 @@ jobs:
         run: env -u RUSTC_WRAPPER proa test
 
       - name: Release build
-        run: env -u RUSTC_WRAPPER proa build
+        run: env -u RUSTC_WRAPPER proa run build
 "#
     )
 }
@@ -525,23 +486,13 @@ fn tailwind_input() -> &'static str {
     "@layer theme, base, proa-compat, components, utilities;\n@import \"tailwindcss\";\n@import \"./starter.css\" layer(components);\n@source \"../src/**/*.rs\";\n"
 }
 
-fn smoke_test() -> &'static str {
-    r##"#[test]
-fn generated_project_has_no_client_root() {
-    let home = include_str!("../src/pages/home.rs");
-    assert!(!home.contains("#[rsjs(component, client)]"));
-    assert!(!home.contains("with_islands"));
-}
-"##
-}
-
 fn dataloader_test() -> &'static str {
     r#"#![allow(dead_code)]
 
 use std::{future::Future, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
-use proa_core::{DataLoader, LoadError, LoadRequest, LoadValue, MdRender, WebContext, WebRender};
-use proa_stream::DataResolver;
+use proa::{DataLoader, LoadError, LoadRequest, LoadValue, MdRender, WebContext, WebRender};
+use proa::stream::DataResolver;
 
 #[path = "../src/app.rs"] mod app;
 #[path = "../src/components/mod.rs"] mod components;
@@ -629,9 +580,9 @@ fn representation_test(has_database: bool, starter: StarterChoice) -> String {
         r#"let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
     let pool = db::connect(&database_url).await.unwrap();
     let loader = Arc::new(loader::AppLoader::new(pool.clone()));
-    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa_core::BasePath::new("/apps/demo").unwrap());"#
+    let app = routes::router(app::AppState { db: pool.clone(), loader }, proa::BasePath::new("/apps/demo").unwrap()).unwrap();"#
     } else {
-        "let app = routes::router(app::AppState, proa_core::BasePath::new(\"/apps/demo\").unwrap());"
+        "let app = routes::router(app::AppState, proa::BasePath::new(\"/apps/demo\").unwrap()).unwrap();"
     };
     let close = if has_database {
         "pool.close().await;"
@@ -672,7 +623,21 @@ async fn canonical_and_explicit_markdown_share_one_page_policy() {
     assert_eq!(html.headers()[header::VARY], "Accept");
     assert!(html.headers()[header::LINK].to_str().unwrap().contains("/apps/demo/index.md"));
     let document = String::from_utf8(body(html).await).unwrap();
-    assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
+    // A published stylesheet is named after its bytes, so read its URL from the page.
+    let stylesheet = if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
+        let start = document.find("href=\"/apps/demo/_proa/immutable/styles.").expect("hashed stylesheet link") + "href=\"/apps/demo".len();
+        &document[start..start + document[start..].find('"').unwrap()]
+    } else {
+        assert!(document.contains("href=\"/apps/demo/static/styles.css\""));
+        "/static/styles.css"
+    };
+    let css = app.clone().oneshot(Request::builder().uri(stylesheet).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(css.status(), StatusCode::OK);
+    assert!(css.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/css"));
+    if std::env::var_os("PROA_PUBLIC_ASSETS").is_some() {
+        let unmanaged = app.clone().oneshot(Request::builder().uri("/static/styles.css").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(unmanaged.status(), StatusCode::NOT_FOUND);
+    }
 __NAVIGATION_ASSERTIONS__
     let refused_markdown = app.clone().oneshot(
         Request::builder().uri("/").header(header::ACCEPT, "text/markdown;q=0, text/html").body(Body::empty()).unwrap()
@@ -713,7 +678,7 @@ fn vscode_settings() -> &'static str {
 
 fn vscode_tasks(has_database: bool) -> String {
     let mut tasks = vec![
-        json!({ "label": "proa: dev", "type": "process", "command": "proa", "args": ["dev", "--open"], "problemMatcher": [] }),
+        json!({ "label": "proa: dev", "type": "process", "command": "proa", "args": ["run", "dev", "--open"], "problemMatcher": [] }),
         json!({ "label": "proa: check", "type": "process", "command": "proa", "args": ["check", "--all"], "problemMatcher": ["$rustc"] }),
     ];
     if has_database {
@@ -734,15 +699,7 @@ fn add_deploy(
     if deploy == DeployChoice::None {
         return Ok(());
     }
-    let migration_copy = if has_database {
-        "COPY --from=build /app/migrations ./migrations\n"
-    } else {
-        ""
-    };
-    plan.write(
-        "Dockerfile",
-        deployment_dockerfile(migration_copy, CLI_DISTRIBUTION_VERSION),
-    )?;
+    plan.write("Dockerfile", current_deployment_dockerfile(has_database))?;
     plan.write(".dockerignore", "target\n.git\n.env\ndata/*.db*\n")?;
     let mut deployment = "# Deployment\n\nBuild the generated Dockerfile. Proa dependencies resolve from crates.io without credentials:\n\n```bash\ndocker build .\n```\n\nUse `/readyz` for readiness and `/healthz` for liveness.\n".to_string();
     if has_database {
@@ -784,6 +741,15 @@ fn add_deploy(
     Ok(())
 }
 
+/// The Dockerfile `proa new site` and `proa add <deployment>` both write.
+pub(super) fn current_deployment_dockerfile(has_database: bool) -> String {
+    let mut copies = String::new();
+    if has_database {
+        copies.push_str("COPY --from=build /app/migrations ./migrations\n");
+    }
+    deployment_dockerfile(&copies, CLI_DISTRIBUTION_VERSION)
+}
+
 fn cli_download_base(version: &str) -> String {
     let snapshot = version
         .split_once('-')
@@ -798,7 +764,7 @@ fn cli_download_base(version: &str) -> String {
 fn deployment_dockerfile(migration_copy: &str, cli_version: &str) -> String {
     let cli_download_base = cli_download_base(cli_version);
     format!(
-        r#"FROM rust:1.93-bookworm AS rust-toolchain
+        r#"FROM rust:1.98-bookworm AS rust-toolchain
 FROM ubuntu:24.04 AS build
 ENV RUSTUP_HOME="/usr/local/rustup" CARGO_HOME="/usr/local/cargo" PATH="/usr/local/cargo/bin:$PATH" DEBIAN_FRONTEND="noninteractive"
 COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup
@@ -806,42 +772,59 @@ COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential ca-certificates curl git libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV PROA_CLI_VERSION="{cli_version}"
+# Proa publishes a prebuilt CLI for x86-64 only. An ARM64 build compiles the
+# same published version from crates.io, so the image matches its builder.
 RUN set -eux; \
     install_dir="/usr/local/bin"; \
     temp_dir="$(mktemp -d)"; \
-    target="x86_64-unknown-linux-gnu"; \
-    archive="proa-cli-$PROA_CLI_VERSION-$target.tar.gz"; \
-    sums="proa-cli-$PROA_CLI_VERSION-SHA256SUMS"; \
-    base="{cli_download_base}"; \
-    curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$archive" "$base/$archive"; \
-    curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$sums" "$base/$sums"; \
-    awk -v archive="$archive" '($2 == archive || $2 == "*" archive) && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {{ print tolower($1) "  " archive; found = 1 }} END {{ exit found ? 0 : 1 }}' "$temp_dir/$sums" > "$temp_dir/selected-SHA256SUMS"; \
-    (cd "$temp_dir" && sha256sum --check --strict selected-SHA256SUMS); \
-    tar -xzf "$temp_dir/$archive" -C "$temp_dir"; \
-    release_dir="$temp_dir/proa-cli-$PROA_CLI_VERSION-$target"; \
-    install -m 0755 "$release_dir/proa" "$install_dir/proa"; \
+    case "$(uname -m)" in \
+        x86_64) \
+            target="x86_64-unknown-linux-gnu"; \
+            archive="proa-cli-$PROA_CLI_VERSION-$target.tar.gz"; \
+            sums="proa-cli-$PROA_CLI_VERSION-SHA256SUMS"; \
+            base="{cli_download_base}"; \
+            curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$archive" "$base/$archive"; \
+            curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$sums" "$base/$sums"; \
+            awk -v archive="$archive" '($2 == archive || $2 == "*" archive) && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {{ print tolower($1) "  " archive; found = 1 }} END {{ exit found ? 0 : 1 }}' "$temp_dir/$sums" > "$temp_dir/selected-SHA256SUMS"; \
+            (cd "$temp_dir" && sha256sum --check --strict selected-SHA256SUMS); \
+            tar -xzf "$temp_dir/$archive" -C "$temp_dir"; \
+            release_dir="$temp_dir/proa-cli-$PROA_CLI_VERSION-$target"; \
+            install -m 0755 "$release_dir/proa" "$install_dir/proa"; \
+            tailwind_asset="tailwindcss-linux-x64"; \
+            tailwind_sha256="dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a"; \
+            ;; \
+        aarch64) \
+            case "$PROA_CLI_VERSION" in \
+                *-main.*) echo "Proa main snapshots have no ARM64 CLI. Build this image with --platform linux/amd64, or use a published Proa version." >&2; exit 1 ;; \
+            esac; \
+            cargo install --locked proa-cli --registry crates-io --version "=$PROA_CLI_VERSION" --root "$temp_dir/cargo"; \
+            install -m 0755 "$temp_dir/cargo/bin/proa" "$install_dir/proa"; \
+            tailwind_asset="tailwindcss-linux-arm64"; \
+            tailwind_sha256="55fd0b241214eff3de1e8ee4f22796662f2d2e7a49bcfca7477cfd0bac398195"; \
+            ;; \
+        *) echo "Proa has no CLI for $(uname -m)." >&2; exit 1 ;; \
+    esac; \
     tailwind_version="4.3.3"; \
-    tailwind_asset="tailwindcss-linux-x64"; \
     curl --fail --location --proto '=https' --proto-redir '=https' --silent --show-error --tlsv1.2 --output "$temp_dir/$tailwind_asset" "https://github.com/tailwindlabs/tailwindcss/releases/download/v$tailwind_version/$tailwind_asset"; \
-    printf '%s  %s\n' "dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a" "$tailwind_asset" > "$temp_dir/tailwind-SHA256SUMS"; \
+    printf '%s  %s\n' "$tailwind_sha256" "$tailwind_asset" > "$temp_dir/tailwind-SHA256SUMS"; \
     (cd "$temp_dir" && sha256sum --check --strict tailwind-SHA256SUMS); \
     install -m 0755 "$temp_dir/$tailwind_asset" "$install_dir/tailwindcss"; \
     rm -rf "$temp_dir"
 COPY . .
 RUN set -eu; \
     if [ -f Cargo.lock ]; then \
-        proa build --locked --artifact-out /tmp/proa-app; \
+        proa build --locked --artifact-out /out/app; \
     else \
-        proa build --artifact-out /tmp/proa-app; \
+        proa build --artifact-out /out/app; \
     fi
 FROM ubuntu:24.04
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 && rm -rf /var/lib/apt/lists/*
-COPY --from=build /tmp/proa-app /usr/local/bin/app
-COPY --from=build /app/public ./public
+# The build output is the executable and its public asset catalog, side by side.
+COPY --from=build /out/ /app/
 {migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000
 EXPOSE 3000
-CMD ["/usr/local/bin/app"]
+CMD ["/app/app"]
 "#
     )
 }
@@ -855,30 +838,29 @@ mod tests {
         for source in [
             cargo_toml("minimal", false),
             cargo_toml("app", true),
-            origin::manifest("atlas", origin::ManifestFlavor::Standalone),
+            origin::manifest("atlas"),
         ] {
-            let manifest: toml::Value = source.parse().unwrap();
+            let manifest: toml::Value = toml::from_str(&source).unwrap();
             for section in ["dependencies", "build-dependencies"] {
                 if let Some(dependencies) = manifest.get(section).and_then(toml::Value::as_table) {
                     for (name, dependency) in dependencies {
-                        if name.starts_with("proa_") || name == "rsjs" {
-                            assert!(dependency
-                                .get("version")
-                                .and_then(toml::Value::as_str)
-                                .is_some());
+                        if name.starts_with("proa_") || name == "proa" || name == "rsjs" {
+                            assert_eq!(
+                                dependency.get("version").and_then(toml::Value::as_str),
+                                Some(super::super::scaffold_version(name).as_str()),
+                                "{name} must use the Cargo dependency version"
+                            );
                             assert!(
                                 dependency.get("git").is_none(),
                                 "{name} must resolve from crates.io"
                             );
                             assert!(dependency.get("registry").is_none());
+                            assert!(dependency.get("path").is_none());
                         }
                     }
                 }
             }
         }
-        let config: toml::Value = cargo_config().parse().unwrap();
-        assert!(config.get("registries").is_none());
-        assert_eq!(config["net"]["git-fetch-with-cli"].as_bool(), Some(true));
     }
 
     #[test]
@@ -924,9 +906,22 @@ mod tests {
             "base=\"https://proa.so/downloads/cli/main/{version}\""
         )));
         assert!(dockerfile.contains("sha256sum --check --strict"));
-        assert!(dockerfile.contains("proa build --locked --artifact-out /tmp/proa-app"));
-        assert!(dockerfile.contains("proa build --artifact-out /tmp/proa-app"));
-        assert!(dockerfile.contains("COPY --from=build /tmp/proa-app /usr/local/bin/app"));
+        // The builder's own architecture decides how the CLI is obtained.
+        assert!(dockerfile.contains("case \"$(uname -m)\" in"));
+        assert!(dockerfile.contains(
+            "cargo install --locked proa-cli --registry crates-io --version \"=$PROA_CLI_VERSION\""
+        ));
+        assert!(dockerfile.contains("tailwindcss-linux-arm64"));
+        assert!(dockerfile.contains("proa build --locked --artifact-out /out/app;"));
+        assert!(dockerfile.contains("proa build --artifact-out /out/app;"));
+        // One copy carries the executable and the catalog bundled beside it,
+        // and the server finds that catalog without being told where it is.
+        assert!(dockerfile.contains("COPY --from=build /out/ /app/"));
+        assert!(dockerfile.contains("CMD [\"/app/app\"]"));
+        assert!(!dockerfile.contains("PROA_PUBLIC_ASSETS"));
+        assert!(!dockerfile.contains("COPY --from=build /app/public ./public"));
+        // Vendored fonts are in the catalog with every other public file.
+        assert!(!dockerfile.contains("/app/public/fonts"));
         assert!(!dockerfile.contains("cargo build --release"));
         assert!(!dockerfile.contains("/app/target/release/"));
         assert!(!dockerfile.contains("install.sh"));

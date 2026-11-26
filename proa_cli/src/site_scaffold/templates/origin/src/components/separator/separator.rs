@@ -5,8 +5,8 @@
 //!
 //! Renders a visual divider between content sections.
 use super::recipe::{SeparatorOrientation, SeparatorRecipeProps, SEPARATOR_RECIPE};
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
+use proa::html_sync;
 /// Separator component - a visual divider between content sections
 ///
 /// A pure CSS separator that supports horizontal and vertical orientations.
@@ -18,7 +18,7 @@ use proa_macros::html_sync;
 ///
 /// ```ignore
 /// use crate::components::{Separator, SeparatorOrientation};
-/// use proa_macros::html_sync;
+/// use proa::html_sync;
 ///
 /// html_sync! {
 ///     <div>
@@ -53,12 +53,12 @@ impl Default for Separator {
         Self::new()
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Separator {
+impl<L: ::proa::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Separator {
     #[inline(always)]
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = SEPARATOR_RECIPE.resolve(SeparatorRecipeProps {
             orientation: Some(self.orientation),
         });
@@ -69,7 +69,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for Separator 
                 data-slot="separator"
                 data-orientation={style.orientation().as_str()}
                 role={role}
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
             ></div>
         }
         .render(cx)

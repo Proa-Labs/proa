@@ -10,35 +10,28 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use proa_framework_axum::{router_from_spec, IslandManifest, Route, RouteContextLayer};
-use std::{collections::HashMap, sync::Arc};
+use proa::axum::{router_from_spec, Route, RouteContextLayer};
 pub fn router(state: AppState) -> Router {
     let (router, metadata) = router_from_spec(vec![
         // proa:route-specs:start
         Route::endpoint("/", get(pages::home::handler)),
         Route::endpoint("/issues", get(pages::issues)),
-        Route::endpoint("/issues/:id", get(pages::issue)),
-        Route::endpoint("/issues/:id/resolve", post(pages::resolve)),
-        Route::endpoint("/runbooks/:id", get(pages::runbook)),
+        Route::endpoint("/issues/{id}", get(pages::issue)),
+        Route::endpoint("/issues/{id}/resolve", post(pages::resolve)),
+        Route::endpoint("/runbooks/{id}", get(pages::runbook)),
         Route::endpoint("/connections", get(pages::connections)),
         Route::endpoint("/connections/revoke", post(pages::revoke)),
         Route::endpoint("/connect", get(pages::connect)),
         Route::endpoint("/lab", get(pages::lab)),
         // proa:route-specs:end
     ]);
-    let manifest = Arc::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: Default::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    });
     let mcp = Router::new()
         .nest_service("/mcp", crate::mcp::service(state.clone()))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             crate::mcp::authenticate,
         ));
-    router
+    let router = router
         .route("/healthz", get(endpoints::health::live))
         .route("/readyz", get(endpoints::health::ready))
         // proa:explicit-routes:start
@@ -54,10 +47,10 @@ pub fn router(state: AppState) -> Router {
             get(auth::provider::resource),
         )
         // proa:explicit-routes:end
-        .merge(mcp)
-        .nest_service("/static", static_assets::service())
+        .merge(mcp);
+    static_assets::mount(router, state.public_assets.as_ref())
         .with_state(state.clone())
-        .layer(RouteContextLayer::new(manifest, metadata))
+        .layer(RouteContextLayer::new(metadata))
         .layer(DefaultBodyLimit::max(16384))
         .layer(middleware::from_fn_with_state(
             state.config.app_origin.clone(),
@@ -66,7 +59,7 @@ pub fn router(state: AppState) -> Router {
 }
 pub fn issuer(state: AppState) -> Router {
     let expected = state.config.issuer.clone();
-    Router::new()
+    let router = Router::new()
         .route(
             "/.well-known/oauth-authorization-server",
             get(auth::provider::metadata),
@@ -81,8 +74,8 @@ pub fn issuer(state: AppState) -> Router {
         .route("/authorize/login", post(auth::provider::login))
         .route("/consent", post(auth::provider::consent))
         .route("/token", post(auth::provider::token))
-        .route("/revoke", post(auth::provider::revoke))
-        .nest_service("/static", static_assets::service())
+        .route("/revoke", post(auth::provider::revoke));
+    static_assets::mount(router, state.public_assets.as_ref())
         .with_state(state)
         .layer(DefaultBodyLimit::max(16384))
         .layer(middleware::from_fn_with_state(expected, boundary))

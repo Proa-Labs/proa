@@ -26,7 +26,7 @@ async fn table_cell_code_boundaries_are_independent() {
         "###
     })
     .await;
-    let expected = "| One | Two |\n| --- | --- |\n| `{not_rust` | Ada |\n| ` | Ada ` |\n| ` | Ada |\n| ` | other |\n";
+    let expected = "| One | Two |\n| --- | --- |\n| `{not_rust` | Ada |\n| ` | Ada ` |\n| ` | Ada |\n| ` | other |\n\n";
     assert_eq!(sync, expected);
     assert_eq!(asynchronous, expected);
 }
@@ -71,7 +71,7 @@ async fn commonmark_containers_and_paragraphs_control_interpolation() {
         "###
     })
     .await;
-    let expected = "- Example\n\n    ~~~text\n    {{value}} {not_rust\n    ~~~\n\nBefore `\n\nAda\n\nAfter `\n\n    {{value}} {not_rust\n\nAda\n";
+    let expected = "- Example\n\n    ~~~text\n    {{value}} {not_rust\n    ~~~\n\nBefore `\n\nAda\n\nAfter `\n\n    {{value}} {not_rust\n\nAda\n\n";
     assert_eq!(sync, expected);
     assert_eq!(asynchronous, expected);
 }
@@ -102,6 +102,7 @@ async fn escapes_decode_once_in_sync_and_async_templates() {
 {{name}} | {{name}} | {Ada}
 {Ada}
 `{{name}}` | `{name}`
+
 ";
     assert_eq!(sync, expected);
     assert_eq!(asynchronous, expected);
@@ -141,7 +142,7 @@ async fn quoted_fences_are_opaque_in_sync_and_async_templates() {
     })
     .await;
     let expected =
-        "> ~~~text\n> {{name}} {not_rust\n> ~~~\nAda\n> > ```text\n> > {{name}} {not_rust\n> Ada\n";
+        "> ~~~text\n> {{name}} {not_rust\n> ~~~\nAda\n> > ```text\n> > {{name}} {not_rust\n> Ada\n\n";
     assert_eq!(sync, expected);
     assert_eq!(asynchronous, expected);
 }

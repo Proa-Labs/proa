@@ -145,6 +145,12 @@ fn linked_pipeline_accepts_only_the_lifecycle_phase_rewrites() {
         &["test", "-p", "app", "--bin", "server", "--", "--nocapture"].map(OsString::from),
     )
     .unwrap();
+    let compile_only = ["test", "-p", "app", "--bin", "server", "--no-run"].map(OsString::from);
+    validate_phase_cargo_arguments(&compile_only, &compile_only).unwrap();
+    assert_eq!(
+        requested_final_execution(&compile_only),
+        FinalExecution::None
+    );
     validate_phase_cargo_arguments(
         &["check", "-p", "app", "--bin", "server"].map(OsString::from),
         &["check", "-p", "app", "--bin", "server"].map(OsString::from),
@@ -330,7 +336,7 @@ fn final_root_attestation_requires_the_descriptor_coordinate_and_real_file() {
             &output,
             std::slice::from_ref(&final_root),
             &selector,
-            &descriptor_root,
+            Some(&descriptor_root),
         )
         .unwrap(),
         final_root
@@ -345,7 +351,7 @@ fn final_root_attestation_requires_the_descriptor_coordinate_and_real_file() {
             &output,
             std::slice::from_ref(&mismatched_root),
             &selector,
-            &descriptor_root,
+            Some(&descriptor_root),
         ),
         Err(LinkedCargoError::FinalRootCoordinateMismatch { .. })
     ));
@@ -390,7 +396,7 @@ fn a_mismatched_final_root_is_rejected_before_its_executable_can_run() {
             &output,
             std::slice::from_ref(&final_root),
             &selector,
-            &descriptor_root,
+            Some(&descriptor_root),
         ),
         Err(LinkedCargoError::FinalRootCoordinateMismatch { .. })
     ));
@@ -437,7 +443,7 @@ fn attested_execution_forwards_runtime_arguments_environment_and_nonzero_status(
         &output,
         std::slice::from_ref(&final_root),
         &selector,
-        &descriptor_root,
+        Some(&descriptor_root),
     )
     .unwrap();
     execute_requested_final_root(&request, &attested).unwrap();
@@ -487,6 +493,7 @@ fn fixture_root_artifact(
     }
 }
 
+#[cfg(unix)]
 fn fixture_final_output(
     temp: &TempDir,
     target_directory: PathBuf,

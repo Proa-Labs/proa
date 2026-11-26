@@ -4,29 +4,15 @@ description: Seed browser queries from server-rendered data, refetch them, and r
 keywords: [query, mutation, fetch]
 ---
 
-An RSJS query starts from the value the server already rendered, so the first paint and the browser cache agree. This page covers [seeding a query](#seeding-a-query-from-server-data), [awaiting the initial value](#awaiting-the-initial-value), [query keys](#choosing-query-keys), [reads](#reading-query-state), and [mutations](#running-mutations).
-
-When served with `FrameworkBuilder::with_rsjs_assets()` and
-`with_base_path(...)`, root-relative query and mutation endpoints follow that
-public mount automatically. For example, `/api/items` becomes
-`/apps/demo/api/items`. Keep the endpoint's server route unprefixed; absolute
-external URLs and already-mounted browser URLs remain unchanged. Custom runtime
-handlers configure the source with `rsjs::runtime_assets::with_base_path`.
-See [runtime wiring](/docs/rsjs/runtime#serving-linked-assets-with-axum).
-
 ## Seeding a query from server data
 
-Use a **query** when the server renders data first and the browser later
-observes, refetches, or invalidates it. Use a **mutation** when a browser action
-writes to the server and updates related query entries.
-
-`query_with_initial(...)` does not make rendering asynchronous by itself. If
-the initial `serde::Serialize` value is already available, keep the component on
-the synchronous fast path:
+Pass a serializable server value to `query_with_initial(...)`. This synchronous
+island shows that value on first render and fetches a fresh one when you click
+**Refresh**.
 
 ```rust filename="src/components/stock_tile.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{event_handler, rsjs, QueryKey};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -47,6 +33,7 @@ impl<L: DataLoader> WebRenderSync<L> for StockTile {
             self.initial,
             rsjs::FetchRequest {
                 url: "/api/stocks/AAPL",
+                apply_base_path: true,
                 response: Some(rsjs::ResponseKind::Json),
                 headers: &[("Accept", "application/json")],
                 timeout_ms: Some(1_500),
@@ -74,6 +61,13 @@ impl<L: DataLoader> WebRenderSync<L> for StockTile {
 }
 ```
 
+Render `StockTile` with a `StockPrice` already in hand and serve
+`GET /api/stocks/AAPL` with JSON such as `{"value":190.0,"currency":"USD"}`.
+
+Use a **query** when the browser observes, refetches, or invalidates server data.
+Use a [**mutation**](#running-mutations) when a browser action writes to the
+server and updates related query entries.
+
 The initial value is ordinary server Rust. RSJS serializes it into the
 response's page-level query seed table, and the adjacent island metadata names
 the effective key. The server-rendered output and browser cache therefore begin
@@ -91,10 +85,10 @@ not support `async fn render` shorthand.
 ```rust filename="src/components/async_stock_tile.rs"
 use std::future::Future;
 
-use proa_core::{
+use proa::{
     DataLoader, LoadKey, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa_macros::html;
+use proa::html;
 use rsjs::{rsjs, QueryKey};
 use crate::components::stock_tile::StockPrice;
 
@@ -113,6 +107,7 @@ impl<L: DataLoader> WebRender<L> for AsyncStockTile {
                 initial,
                 rsjs::FetchRequest {
                     url: "/api/stocks/AAPL",
+                    apply_base_path: true,
                     response: Some(rsjs::ResponseKind::Json),
                     ..Default::default()
                 },
@@ -173,6 +168,7 @@ or mutation payload; keep the endpoint shape in the descriptor.
 ```rust filename="src/components/stock_tile.rs"
 rsjs::FetchRequest {
     url: "/api/stocks/AAPL",
+    apply_base_path: true,
     method: Some(rsjs::HttpMethod::Post),
     credentials: Some(rsjs::FetchCredentials::SameOrigin),
     response: Some(rsjs::ResponseKind::Json),
@@ -181,6 +177,20 @@ rsjs::FetchRequest {
     timeout_ms: Some(1_500),
 }
 ```
+
+Query and mutation URLs use normal browser resolution by default: `/api/items`
+targets the origin root even if the app is mounted under `/apps/demo`. For an
+endpoint served by the mounted app, set `FetchRequest.apply_base_path: true`;
+the runtime then requests `/apps/demo/api/items`. Keep that endpoint's server
+route unprefixed. Absolute URLs and already-mounted URLs remain unchanged.
+For a simple JSON GET or POST, pass `cx.url("/api/items")` directly as the
+query or mutation request argument. Use a literal path in that direct call. It
+uses the same mount behavior without a `FetchRequest` descriptor. Use
+`FetchRequest` when request options are needed.
+This works out of the box with `FrameworkBuilder` and `with_base_path(...)`.
+Custom runtime handlers configure the source with
+`rsjs::runtime_assets::with_base_path`.
+See [runtime wiring](/docs/rsjs/runtime#serving-linked-assets-with-axum).
 
 Available response decoders are `Json`, `Text`, `Bytes`, and `Empty`.
 `QueryOptions` also supports retry, polling, staleness, focus refetching,
@@ -247,8 +257,8 @@ successful run.
 
 ```rust filename="src/components/cart_editor.rs"
 use std::future::Future;
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa_macros::html;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
 use rsjs::{rsjs, QueryKey};
 
 pub struct CartEditor;
@@ -265,6 +275,7 @@ impl<L: DataLoader> WebRender<L> for CartEditor {
                 QueryKey::new(("cart", "update")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
+                    apply_base_path: true,
                     method: Some(rsjs::HttpMethod::Patch),
                     credentials: Some(rsjs::FetchCredentials::SameOrigin),
                     response: Some(rsjs::ResponseKind::Empty),
@@ -317,6 +328,7 @@ let save = rsjs::mutation_with_options::<String, ()>(
     QueryKey::new(("cart", "update")),
     rsjs::FetchRequest {
         url: "/api/cart",
+        apply_base_path: true,
         method: Some(rsjs::HttpMethod::Patch),
         response: Some(rsjs::ResponseKind::Empty),
         ..Default::default()

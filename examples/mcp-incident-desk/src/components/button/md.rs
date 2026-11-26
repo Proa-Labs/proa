@@ -2,17 +2,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::Button;
-use proa_core::WebContext;
-use proa_core::{MdRenderSync, WriteBuf, WriteError};
+use proa::WebContext;
+use proa::{MdRenderSync, WriteBuf, WriteError};
 
 /// Button renders as just its label text — the visual chrome is meaningless in markdown.
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>>
-    MdRenderSync<Loader, B> for Button<C>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdRenderSync<Loader, B>> MdRenderSync<Loader, B>
+    for Button<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
-        let prev = cx.md_set_inline(true);
-        self.children.render_md(cx)?;
-        cx.md_set_inline(prev);
-        Ok(())
+        proa::md_sync! { "{self.children}" }.render_md(cx)
     }
 }

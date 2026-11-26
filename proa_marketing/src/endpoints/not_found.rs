@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use proa_core::{DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
-use proa_macros::{content_part, html_sync, md_sync, omit};
+use proa_macros::{html_sync, md_sync};
 
 struct NotFoundPage {
     title: &'static str,
@@ -42,7 +42,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for NotFoundPage {
             <html lang="en">
                 <head>
                     <title>
-                        {content_part!("browser-title", html_sync! { {self.title} " - Proa" })}
+                        {html_sync! {
+                            {self.title}
+                            " - Proa"
+                        }}
                     </title>
                     <meta name="viewport" content="width=device-width, initial-scale=1" />
                 </head>
@@ -51,9 +54,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for NotFoundPage {
                         <h1>{self.title}</h1>
                         <p>
                             {self.message}
-                            <a href={content_part!("docs-url", self.docs_url)}>{self.docs_label}</a>
+                            <a href={self.docs_url}>{self.docs_label}</a>
                             {self.conjunction}
-                            <a href={content_part!("home-url", self.home_url)}>{self.home_label}</a>
+                            <a href={self.home_url}>{self.home_label}</a>
                             "."
                         </p>
                     </main>
@@ -67,14 +70,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for NotFoundPage {
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for NotFoundPage {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         use crate::utils::document::Url;
-        omit!(
-            "browser-title",
-            "The browser-tab title repeats the page heading"
-        );
         md_sync! { r###"
             # {self.title}
 
-            {self.message}[{self.docs_label}]({content_part!("docs-url", Url(self.docs_url))}){self.conjunction}[{self.home_label}]({content_part!("home-url", Url(self.home_url))}).
+            {self.message}[{self.docs_label}]({Url(self.docs_url)}){self.conjunction}[{self.home_label}]({Url(self.home_url)}).
 
             Find machine-readable resources in the [agent index](/llms.txt), or browse the [sitemap](/sitemap.xml).
             "###

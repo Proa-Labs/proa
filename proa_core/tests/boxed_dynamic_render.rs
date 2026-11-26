@@ -19,7 +19,7 @@ struct Alpha;
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Alpha {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend(b"alpha")
+        cx.out.extend_str("alpha")
     }
 }
 
@@ -27,7 +27,7 @@ struct Beta;
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Beta {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend(b"beta")
+        cx.out.extend_str("beta")
     }
 }
 
@@ -62,7 +62,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for AsyncAlpha {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::Pending(async move {
             std::future::ready(()).await;
-            cx.out.extend(b"async-alpha")
+            cx.out.extend_str("async-alpha")
         })
     }
 }
@@ -76,7 +76,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for AsyncBeta {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::Pending(async move {
             std::future::ready(()).await;
-            cx.out.extend(b"async-beta")
+            cx.out.extend_str("async-beta")
         })
     }
 }
@@ -117,7 +117,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for LocalFuture {
         let local = Rc::new("local-future");
         RenderOutcome::Pending(async move {
             std::future::ready(()).await;
-            cx.out.extend(local.as_bytes())
+            cx.out.extend_str(&local)
         })
     }
 }

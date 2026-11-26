@@ -91,7 +91,7 @@ pub fn escape_md<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), WriteError
         }
 
         if chunk_start < index {
-            buf.extend(&bytes[chunk_start..index])?;
+            buf.extend_str(&value[chunk_start..index])?;
         }
 
         if is_break {
@@ -109,7 +109,7 @@ pub fn escape_md<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), WriteError
     }
 
     if chunk_start < bytes.len() {
-        buf.extend(&bytes[chunk_start..])?;
+        buf.extend_str(&value[chunk_start..])?;
     }
     Ok(())
 }
@@ -210,7 +210,7 @@ fn write_code_span_content<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), 
         }
 
         if chunk_start < index {
-            buf.extend(&bytes[chunk_start..index])?;
+            buf.extend_str(&value[chunk_start..index])?;
         }
         buf.push(b' ')?;
         if byte == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
@@ -221,7 +221,7 @@ fn write_code_span_content<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), 
     }
 
     if chunk_start < bytes.len() {
-        buf.extend(&bytes[chunk_start..])?;
+        buf.extend_str(&value[chunk_start..])?;
     }
     Ok(())
 }
@@ -237,7 +237,7 @@ pub fn write_inline_code<B: WriteBuf>(buf: &mut B, value: &str) -> Result<(), Wr
     // delimiter run rather than an opening/closing pair. A fixed trusted HTML
     // code element is the only lossless, inert representation of empty code.
     if value.is_empty() {
-        return buf.extend_static(b"<code></code>");
+        return buf.extend_static_str("<code></code>");
     }
     let analysis = analyze_code_span(value);
     write_backticks(buf, analysis.delimiter_len)?;
@@ -279,14 +279,23 @@ fn fence_info_encoding(ch: char) -> CharacterEncoding {
 }
 
 #[inline(always)]
-fn destination_encoding(ch: char) -> CharacterEncoding {
-    if ch.is_control() || ch.is_whitespace() {
+fn destination_encoding(ch: char, following: &[u8]) -> CharacterEncoding {
+    if ch.is_control() || ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '`') {
         CharacterEncoding::PercentEncode
-    } else if matches!(ch, '\\' | '(' | ')') {
+    } else if matches!(ch, '\\' | '(' | ')') || (ch == '&' && looks_like_entity(following)) {
         CharacterEncoding::BackslashEscape
     } else {
         CharacterEncoding::Copy
     }
+}
+
+/// Whether the bytes after an ampersand have the shape of a CommonMark entity.
+pub(super) fn looks_like_entity(following: &[u8]) -> bool {
+    let len = following
+        .iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'#')
+        .count();
+    len > 0 && following.get(len) == Some(&b';')
 }
 
 fn measured_char_len(ch: char, encoding: CharacterEncoding) -> Option<usize> {
@@ -301,10 +310,10 @@ fn measured_char_len(ch: char, encoding: CharacterEncoding) -> Option<usize> {
 fn write_fence_info<B: WriteBuf>(buf: &mut B, info: &str) -> Result<(), WriteError> {
     for ch in info.chars() {
         let mut encoded = [0u8; 4];
-        let bytes = ch.encode_utf8(&mut encoded).as_bytes();
+        let text: &str = ch.encode_utf8(&mut encoded);
         match fence_info_encoding(ch) {
-            CharacterEncoding::Copy => buf.extend(bytes)?,
-            CharacterEncoding::PercentEncode => write_percent_encoded(buf, bytes)?,
+            CharacterEncoding::Copy => buf.extend_str(text)?,
+            CharacterEncoding::PercentEncode => write_percent_encoded(buf, text.as_bytes())?,
             CharacterEncoding::BackslashEscape => unreachable!(),
         }
     }
@@ -333,12 +342,12 @@ pub fn write_fenced_code<B: WriteBuf>(
     write_backticks(buf, fence_len)?;
     write_fence_info(buf, info)?;
     buf.push(b'\n')?;
-    buf.extend(value.as_bytes())?;
+    buf.extend_str(value)?;
     if !matches!(value.as_bytes().last(), Some(b'\r' | b'\n')) {
         buf.push(b'\n')?;
     }
     write_backticks(buf, fence_len)?;
-    buf.extend(b"\n\n")
+    buf.extend_str("\n\n")
 }
 
 /// Exact encoded length of [`write_fenced_code`].
@@ -375,8 +384,10 @@ fn write_percent_encoded<B: WriteBuf>(buf: &mut B, bytes: &[u8]) -> Result<(), W
 /// Write a sanitized CommonMark link destination without `(` / `)` wrappers.
 ///
 /// Dangerous schemes, including executable `data:` URLs, emit an empty
-/// destination. Controls and whitespace are percent-encoded, while backslash
-/// and parentheses are CommonMark-backslash-escaped. Other UTF-8 is preserved.
+/// destination. Controls, whitespace, angle brackets, double quotes, and
+/// backticks are percent-encoded. Backslash, parentheses, and the ampersand
+/// of an entity-shaped reference are backslash-escaped. Query separators
+/// stay literal.
 /// The returned boolean reports whether a non-empty destination was emitted.
 pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<bool, WriteError> {
     if value.is_empty() || has_dangerous_url_scheme(value) {
@@ -387,19 +398,19 @@ pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<b
     let mut chunk_start = 0usize;
     for (index, ch) in value.char_indices() {
         let char_len = ch.len_utf8();
-        let encoding = destination_encoding(ch);
+        let encoding = destination_encoding(ch, &bytes[index + char_len..]);
         if matches!(encoding, CharacterEncoding::Copy) {
             continue;
         }
 
         if chunk_start < index {
-            buf.extend(&bytes[chunk_start..index])?;
+            buf.extend_str(&value[chunk_start..index])?;
         }
         match encoding {
             CharacterEncoding::Copy => unreachable!(),
             CharacterEncoding::BackslashEscape => {
                 buf.push(b'\\')?;
-                buf.extend(&bytes[index..index + char_len])?;
+                buf.extend_str(&value[index..index + char_len])?;
             }
             CharacterEncoding::PercentEncode => {
                 write_percent_encoded(buf, &bytes[index..index + char_len])?;
@@ -409,7 +420,7 @@ pub fn write_link_destination<B: WriteBuf>(buf: &mut B, value: &str) -> Result<b
     }
 
     if chunk_start < bytes.len() {
-        buf.extend(&bytes[chunk_start..])?;
+        buf.extend_str(&value[chunk_start..])?;
     }
     Ok(true)
 }
@@ -421,8 +432,9 @@ pub fn link_destination_len(value: &str) -> Option<usize> {
     if value.is_empty() || has_dangerous_url_scheme(value) {
         return Some(0);
     }
-    value.chars().try_fold(0usize, |len, ch| {
-        len.checked_add(measured_char_len(ch, destination_encoding(ch))?)
+    value.char_indices().try_fold(0usize, |len, (index, ch)| {
+        let encoding = destination_encoding(ch, &value.as_bytes()[index + ch.len_utf8()..]);
+        len.checked_add(measured_char_len(ch, encoding)?)
     })
 }
 
@@ -538,6 +550,37 @@ mod tests {
         );
         assert_eq!(destination("/café/東京"), "/café/東京");
         assert_eq!(destination("/a\r\n\tb"), "/a%0D%0A%09b");
+        assert_eq!(
+            destination("/ok<script>alert`1`</script>\"x\""),
+            "/ok%3Cscript%3Ealert%601%60%3C/script%3E%22x%22"
+        );
+        let link = format!("[Open]({})", destination("/ok<script>alert`1`</script>"));
+        let mut rendered_html = String::new();
+        html::push_html(&mut rendered_html, Parser::new(&link));
+        assert!(!rendered_html.contains("<script>"), "{rendered_html}");
+        assert!(rendered_html.contains("<a href="), "{rendered_html}");
+
+        let bracketed = format!("[Open](<{}>)", destination("/ok><script>alert(1)</script>"));
+        let mut bracketed_html = String::new();
+        html::push_html(&mut bracketed_html, Parser::new(&bracketed));
+        assert!(!bracketed_html.contains("<script>"), "{bracketed_html}");
+        assert!(bracketed_html.contains("<a href="), "{bracketed_html}");
+    }
+
+    #[test]
+    fn commonmark_preserves_literal_entities_and_query_separators_in_urls() {
+        let url = "/docs&colon;index?q=one&sort=two&copy;&#35;";
+        let encoded = destination(url);
+        assert_eq!(encoded, r"/docs\&colon;index?q=one&sort=two\&copy;\&#35;");
+        assert_eq!(link_destination_len(url), Some(encoded.len()));
+        let source = format!("[Guide]({encoded})");
+        let parsed = Parser::new(&source).find_map(|event| match event {
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) => {
+                Some(dest_url)
+            }
+            _ => None,
+        });
+        assert_eq!(parsed.as_deref(), Some(url));
     }
 
     #[test]

@@ -9,11 +9,11 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use proa_core::{
+use proa::{
     ComponentRole, DataLoader, MdRenderSync, RenderOutcome, WebContext, WebRender, WriteBuf,
     WriteError,
 };
-use proa_macros::html;
+use proa::html;
 
 use crate::components::agent_surface::{AgentSurface, AgentSurfaceMd};
 use crate::components::dossier::{
@@ -26,11 +26,11 @@ use crate::components::live_wire::{LiveWire, LiveWireMd};
 use crate::components::receipt::{Receipt, ReceiptFallback, ReceiptMd};
 use crate::components::site_header::SiteHeader;
 use crate::model::{normalize_query, Dossier};
-use proa_stream::Suspense;
+use proa::stream::Suspense;
 
 pub struct AtlasPage {
     pub query: String,
-    /// The request's Host header when known (goldens render without one).
+    /// The request's Host header when known.
     pub host: Option<String>,
 }
 
@@ -52,14 +52,14 @@ impl AtlasPage {
 /// Render the dossier markdown document to a string (for the overlay).
 // proa-perf-ok(scope): one owned document per request.
 pub fn markdown_string(query: &str, dossier: Option<Arc<Dossier>>) -> String {
-    markdown_string_with_base_path(query, dossier, &proa_core::BasePath::default())
+    markdown_string_with_base_path(query, dossier, &proa::BasePath::default())
 }
 
 // proa-perf-ok(scope): one owned overlay document per request.
 pub fn markdown_string_with_base_path(
     query: &str,
     dossier: Option<Arc<Dossier>>,
-    base_path: &proa_core::BasePath,
+    base_path: &proa::BasePath,
 ) -> String {
     let mut out = Vec::new();
     {
@@ -94,7 +94,7 @@ impl<L: DataLoader + 'static> WebRender<L> for AtlasPage {
                     class="min-h-screen bg-bg text-ink font-mono text-[12px] font-light tracking-[-0.01em]"
                 >
                     {SiteHeader { query: query.clone() }}
-                    {proa_core::to_async(Hero { query: query.clone(), active_host })}
+                    {proa::to_async(Hero { query: query.clone(), active_host })}
                     {Suspense::new(TraceStrip { query: query.clone() }, PaneFallback { label: "Resolving the trace" })}
                     {Suspense::new(SummaryBar { query: query.clone() }, PaneFallback { label: "Loading" })}
                     <div>
@@ -109,9 +109,9 @@ impl<L: DataLoader + 'static> WebRender<L> for AtlasPage {
                             {Suspense::new(PathsPane { query: query.clone() }, PaneFallback { label: "Loading observed routes" })}
                         </div>
                     </div>
-                    {proa_core::to_async(LiveWire)}
-                    {proa_core::to_async(AgentSurface { query: query.clone(), host: self.host.clone() })}
-                    {proa_core::to_async(FloodLab)}
+                    {proa::to_async(LiveWire)}
+                    {proa::to_async(AgentSurface { query: query.clone(), host: self.host.clone() })}
+                    {proa::to_async(FloodLab)}
                     {Suspense::new(Receipt { query: query.clone() }, ReceiptFallback)}
                 </div>
             }
@@ -127,10 +127,10 @@ struct PaneFallback {
     label: &'static str,
 }
 
-impl<L: DataLoader> proa_core::WebRenderSync<L> for PaneFallback {
+impl<L: DataLoader> proa::WebRenderSync<L> for PaneFallback {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        proa_core::WebRenderSync::render(
-            proa_macros::html_sync! {
+        proa::WebRenderSync::render(
+            proa::html_sync! {
                 <div
                     data-pane-loading
                     class="py-[26px] px-[22px] border-b border-line text-[10px] tracking-[0.16em] text-ink4 uppercase animate-[org-pulse_1.6s_ease-in-out_infinite]"
@@ -152,7 +152,7 @@ pub struct AtlasMd {
     pub dossier: Option<Arc<Dossier>>,
 }
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for AtlasMd {
+impl<Loader: ::proa::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for AtlasMd {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {
         crate::components::site_header::SiteHeaderMd.render_md(cx)?;
         HeroMd.render_md(cx)?;

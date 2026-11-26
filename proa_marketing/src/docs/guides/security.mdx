@@ -3,9 +3,23 @@ title: Security
 description: What Proa hardens by default, the CVE classes its design answers, and what stays your job.
 ---
 
-Proa's security work splits three ways: what the template engine does automatically, what the framework hardens by default, and what remains application logic.
+Proa escapes dynamic values automatically, rejects executable URL schemes at compile time, and hardens HTTP defaults in `FrameworkBuilder`:
 
-Knowing which bucket a concern falls into is most of the job.
+```rust filename="src/app.rs"
+// 1. Dynamic values escape automatically: <p>&lt;script&gt;...&lt;/script&gt;</p>
+html_sync! { <p>{user_input}</p> }
+
+// 2. Dangerous static URLs fail compilation (and dynamic ones neutralize at render time)
+// html_sync! { <a href="javascript:alert(1)">"Bad"</a> } // compile error
+
+// 3. FrameworkBuilder applies headers, CSRF protection, 1 MiB cap, and 30s timeout by default
+let app = FrameworkBuilder::new()
+    .with_strict_csp() // opt-in per-request nonce CSP
+    .with_dynamic_routes(routes)
+    .try_build()?;
+```
+
+Knowing what Proa handles versus what stays application middleware is most of the job:
 
 | Concern | Who handles it |
 |---|---|
@@ -91,7 +105,7 @@ Attribute values are always double-quoted. There is no code path that emits an u
 
 This is defense in depth, not permission. The compile-time warning still fires. The masking exists so a value that slips through a suppressed warning cannot escape the element.
 
-**Island hydration payloads are masked too.** RSJS and React islands serialize props into `<script type="application/json">`. That content is raw text and `textContent` does not decode entities, so HTML-escaping it would corrupt the JSON. Instead `</` becomes `<\/` (a valid JSON escape for `/`) so the HTML parser cannot match a closing tag inside the payload, and U+2028 / U+2029 become their six-character escapes, since before ES2019 those acted as line terminators inside inline scripts and allowed breakout from a JSON string literal.
+**Island hydration payloads are masked too.** RSJS islands serialize props into `<script type="application/json">`. That content is raw text and `textContent` does not decode entities, so HTML-escaping it would corrupt the JSON. Instead `</` becomes `<\/` (a valid JSON escape for `/`) so the HTML parser cannot match a closing tag inside the payload, and U+2028 / U+2029 become their six-character escapes, since before ES2019 those acted as line terminators inside inline scripts and allowed breakout from a JSON string literal.
 
 ### In the browser
 
@@ -137,7 +151,7 @@ policy globally to make a new advisory pass.
 
 ## What the framework hardens
 
-`FrameworkBuilder::build()` applies the same outer hardening to pages and endpoints:
+`FrameworkBuilder::try_build()` applies the same outer hardening to pages and endpoints:
 
 | Default | Effect |
 |---------|--------|

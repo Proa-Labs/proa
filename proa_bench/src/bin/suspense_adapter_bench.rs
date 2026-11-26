@@ -8,7 +8,6 @@
 //! response-ready, first-byte, and completion latency so executor and bridge
 //! changes can be compared against a durable pre-change baseline.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,7 +23,6 @@ use proa_core::{
     render_child, render_send_child, NoLoader, RenderBuffer, RenderOutcome, SendWebContext,
     SyncToAsync, WebContext, WebRender, WebRenderSend, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{
     router_from_spec, LocalStreamExecutorConfig, Route, RouteContextLayer, RouteResponse,
 };
@@ -133,7 +131,7 @@ struct TinyChild;
 // proa-perf-ok(scope): benchmark fixture intentionally writes fixed protocol bytes directly
 impl<L: proa_core::DataLoader, B: WriteBuf> WebRenderSync<L, B> for TinyChild {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        WriteBuf::extend_static(&mut cx.out, b"<span>x</span>")
+        WriteBuf::extend_static_str(&mut cx.out, "<span>x</span>")
     }
 }
 
@@ -154,10 +152,9 @@ impl<L: proa_core::DataLoader, B: WriteBuf + Send> WebRenderSend<L, B> for SendT
         self,
         cx: &mut SendWebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
-        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(WriteBuf::extend_static(
-            &mut cx.out,
-            b"<span>x</span>",
-        ))
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+            WriteBuf::extend_static_str(&mut cx.out, "<span>x</span>"),
+        )
     }
 }
 
@@ -182,11 +179,11 @@ impl WebRender<NoLoader, RenderBuffer> for BenchmarkPage {
         cx: &mut WebContext<NoLoader, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            WriteBuf::extend_static(&mut cx.out, b"<!DOCTYPE html><main>")?;
+            WriteBuf::extend_static_str(&mut cx.out, "<!DOCTYPE html><main>")?;
             for _ in 0..self.boundaries {
                 render_child(cx, Suspense::new(SyncToAsync(TinyChild), EmptyFallback)).await?;
             }
-            WriteBuf::extend_static(&mut cx.out, b"</main>")
+            WriteBuf::extend_static_str(&mut cx.out, "</main>")
         })
     }
 }
@@ -197,11 +194,11 @@ impl WebRenderSend<NoLoader, RenderBuffer> for BenchmarkPage {
         cx: &mut SendWebContext<NoLoader, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
-            WriteBuf::extend_static(&mut cx.out, b"<!DOCTYPE html><main>")?;
+            WriteBuf::extend_static_str(&mut cx.out, "<!DOCTYPE html><main>")?;
             for _ in 0..self.boundaries {
                 render_send_child(cx, Suspense::new(SendTinyChild, SendEmptyFallback)).await?;
             }
-            WriteBuf::extend_static(&mut cx.out, b"</main>")
+            WriteBuf::extend_static_str(&mut cx.out, "</main>")
         })
     }
 }
@@ -395,15 +392,9 @@ fn build_app(local_stream_workers: usize) -> axum::Router {
         send_stream_route("/send-stream/32", 32),
         send_stream_route("/send-stream/128", 128),
     ];
-    let manifest = Arc::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: Default::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    });
     let (router, metadata) = router_from_spec(routes);
     router.layer(
-        RouteContextLayer::new(manifest, metadata).with_local_stream_executor_config(
+        RouteContextLayer::new(metadata).with_local_stream_executor_config(
             LocalStreamExecutorConfig {
                 worker_threads: local_stream_workers,
                 ..LocalStreamExecutorConfig::default()

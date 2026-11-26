@@ -11,17 +11,17 @@ It enables you to create extremely fast, scalable applications and services in
 Rust by bringing compiled components, streaming, data
 loading, and fine-grained interactive islands into one framework.
 
-[![Axum adapter](https://img.shields.io/badge/proa__framework__axum-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_framework/proa_framework_axum/README.md)
-[![Core](https://img.shields.io/badge/proa__core-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_core)
-[![Macros](https://img.shields.io/badge/proa__macros-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_macros/README.md)
-[![RSJS](https://img.shields.io/badge/rsjs-0.2.0-DD7627?style=flat-square&logo=rust&logoColor=white)](rsjs/README.md)
+[![Axum adapter](https://img.shields.io/badge/proa__framework__axum-0.4.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_framework/proa_framework_axum/README.md)
+[![Core](https://img.shields.io/badge/proa__core-0.4.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_core)
+[![Macros](https://img.shields.io/badge/proa__macros-0.4.0-DD7627?style=flat-square&logo=rust&logoColor=white)](proa_macros/README.md)
+[![RSJS](https://img.shields.io/badge/rsjs-0.3.0-DD7627?style=flat-square&logo=rust&logoColor=white)](rsjs/README.md)
 [![License](https://img.shields.io/badge/license-Apache--2.0-DD7627?style=flat-square)](LICENSE)
 [![X](https://img.shields.io/badge/X-DD7627?style=flat-square&logo=x&logoColor=white)](https://x.com/drewhariri)
 [![Reddit](https://img.shields.io/badge/Reddit-DD7627?style=flat-square&logo=reddit&logoColor=white)](https://www.reddit.com/r/proa_rs/)
 
 [**Get started**](https://proa.so/docs) ·
 [**Explore apps**](https://proa.so/ecosystem/apps#reference-showcases) ·
-[See the benchmarks](https://github.com/Proa-Labs/proa-benchmarks)
+[See the benchmarks](https://github.com/Proa-Labs/framework-benchmarks)
 
 </div>
 
@@ -54,11 +54,21 @@ create a site, edit its first route, and run Proa's checks.
 
 ## Your first page is a typed Rust component
 
+Add the Proa 0.4 application dependency to `Cargo.toml`. It requires Rust 1.98 or newer.
+
+```toml
+[dependencies]
+proa = "0.4"
+```
+
+Markdown, streaming, the portable framework API, and RSJS are enabled by default.
+Use `default-features = false` to select a smaller feature set.
+
 Use `WebRenderSync` and `html_sync!` for the normal fast path:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 struct Greeting {
     name: String,
@@ -91,9 +101,9 @@ handlers, and Proa emits the server-rendered HTML plus the JavaScript required
 for that island:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
-use rsjs::{rsjs, signal};
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
+use proa::rsjs::{rsjs, signal};
 
 struct Counter {
     initial: i32,
@@ -129,8 +139,8 @@ A component can expose both an HTML page and a Markdown document from the
 same data. Give the `Greeting` component above a Markdown implementation:
 
 ```rust
-use proa_core::{DataLoader, WebContext, MdRenderSync};
-use proa_macros::md_sync;
+use proa::{DataLoader, WebContext, MdRenderSync};
+use proa::md_sync;
 
 impl<L: DataLoader> MdRenderSync<L> for Greeting {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -152,7 +162,7 @@ use the same component data and define their own output.
 
 For an existing synchronous HTML component, enable the core crate's
 `html-to-markdown` feature and delegate with
-`proa_core::to_markdown(self).render_md(cx)`. The adapter captures its HTML and
+`proa::to_markdown(self).render_md(cx)`. The adapter captures its HTML and
 converts semantic elements to Markdown. It allocates during conversion;
 handwritten Markdown remains the fast path and controls custom representations.
 See the [HTML-to-Markdown example](proa_core/examples/html_to_markdown.rs).
@@ -175,27 +185,60 @@ client code as work that must justify itself. For more, see [Addy Osmani's "The 
 
 ## Benchmarks
 
-For more benchmarks, see
-[Proa-Labs/proa-benchmarks](https://github.com/Proa-Labs/proa-benchmarks).
+Explore the interactive results at [frameworks.run](https://frameworks.run).
+The [benchmark repository](https://github.com/Proa-Labs/framework-benchmarks)
+contains the protocol, parity checks, source revisions, and raw captures.
 
-[![Sustained responses per second, CPU per response, and peak memory for Proa, React, Marko, and Go html/template serving three pages over HTTP on one core](assets/benchmarks/21-canonical-pages-http.svg)](assets/benchmarks/21-canonical-pages-http.svg)
+**Proa refreshed November 11, 2026 at `bbbc968`.** The render-only, HTTP, and
+cold-start comparisons use an Apple M4 Max. Only Proa was rerun; peer rows retain
+their October 21 captures on the same machine. These are dated measurements of
+specific workloads, rather than a simultaneous rerun or a claim about every app.
 
-[![Seventeen renderers across three workloads on a logarithmic axis of render time relative to Proa](assets/benchmarks/01-canonical-scoreboard.svg)](assets/benchmarks/01-canonical-scoreboard.svg)
+### Rendering
 
+Proa's P50 was **0.875 µs** for the 32-card component page, **189.375 µs** for
+the 1,000-row table, and **10.500 µs** for the 96-card product grid. This lane
+includes allocation of a fresh owned `RenderBuffer` and excludes copying it to a
+`String`. Routing, data loading, and HTTP are outside this render-only boundary.
 
-[![Responses completed per second, latency distribution, and peak memory for Proa, Marko, and React streaming the product grid through Suspense over HTTP on one core](assets/benchmarks/20-suspense-load.svg)](assets/benchmarks/20-suspense-load.svg)
+[![P50 render latency for seventeen renderers and three workloads; Proa refreshed November 11 on Apple M4 Max, peers retained from October 21](assets/benchmarks/01-canonical-scoreboard.svg)](assets/benchmarks/01-canonical-scoreboard.svg)
 
-**How fast does a fresh process answer?** Spawn to first complete response, the
-cost of every autoscaling event and cold instance: Proa answered in 8.63 ms
-holding 4.5 MiB, against 69.0 ms and 75.9 MiB for React, 57.0 ms and 63.0 MiB
-for Marko, and 15.2 ms and 12.5 MiB for Go.
+[Full renderer measurements and output contracts](https://github.com/Proa-Labs/framework-benchmarks/blob/main/scoreboard.md).
 
-[![Median, P95, and slowest time from process spawn to first complete product-grid response, with memory after that response](assets/benchmarks/22-cold-start.svg)](assets/benchmarks/22-cold-start.svg)
+### Serving pages over HTTP
 
-The parity gate, the one-core rule, the load generator's self-checks, what is
-deliberately left outside each measurement, every raw JSON capture, and the
-commands to reproduce all of it on your own hardware are documented in
-[Proa-Labs/proa-benchmarks](https://github.com/Proa-Labs/proa-benchmarks).
+The product-grid capture measured **20,863 complete responses/s** and **9.6 MiB
+peak RSS** for Proa. HTTP parsing, rendering, response serialization, allocation,
+and transfer over loopback are included; compression is disabled.
+
+[![Sustained responses per second, CPU per response, and peak memory for Proa, React, Marko, Go html/template, and SvelteKit serving three pages](assets/benchmarks/21-canonical-pages-http.svg)](assets/benchmarks/21-canonical-pages-http.svg)
+
+[HTTP methodology and complete tables](https://github.com/Proa-Labs/framework-benchmarks/blob/main/http-capacity.md#canonical-pages-over-http-one-core-each).
+
+### Streaming under load
+
+This panel uses the Apple M4 Max Proa/SvelteKit captures: Proa from November 11
+and SvelteKit from October 21, with one worker thread or process per server.
+**Their HTTP completion boundaries differ:** SvelteKit delivers promised data
+for the browser to render, while Proa delivers resolved HTML. Response-end
+throughput and latency therefore do not measure the same completed browser work.
+
+[![Proa and SvelteKit HTTP streaming throughput, memory, latency, and failures on Apple M4 Max; response end has different meanings for the two frameworks](assets/benchmarks/20-suspense-load.svg)](assets/benchmarks/20-suspense-load.svg)
+
+[Streaming methodology and browser-completion measurements](https://github.com/Proa-Labs/framework-benchmarks/blob/main/sveltekit.md#browser-completion).
+
+### Cold start to first response
+
+The dated capture measured Proa at **5.11 ms P50** with **4.6 MiB RSS** after the
+first complete product-grid response. Each engine used 15 fresh processes after
+two filesystem-cache warmups. This includes process startup and the first render;
+it excludes installation and build time. Other work was active on the shared
+host, so rerun on an idle machine before using the absolute times for planning.
+
+[![P50, P95, and slowest time from process spawn to a complete product-grid response for five production servers, with RSS after the response](assets/benchmarks/22-cold-start.svg)](assets/benchmarks/22-cold-start.svg)
+
+[Cold-start method and capture conditions](https://github.com/Proa-Labs/framework-benchmarks/blob/main/http-capacity.md#cold-start-to-first-response).
+[Chart provenance and refresh instructions](docs/asset-provenance.md#benchmark-charts).
 
 ## Proa in production
 
@@ -207,7 +250,7 @@ commands to reproduce all of it on your own hardware are documented in
 | If you want to… | Start here |
 |---|---|
 | Build your first Proa site | [Getting started](https://proa.so/docs) |
-| Understand the benchmark claims | [Benchmarks](#benchmarks) and the [full evidence repository](https://github.com/Proa-Labs/proa-benchmarks) |
+| Understand the benchmark claims | [Benchmarks](#benchmarks) and the [full evidence repository](https://github.com/Proa-Labs/framework-benchmarks) |
 | Author server-rendered components | [`proa_core`](proa_core) and [`proa_macros`](proa_macros/README.md) |
 | Build interactive islands | [RSJS](rsjs/README.md) |
 | Load data and stream independent boundaries | [`proa_stream`](proa_stream) and the [data-loading guide](https://proa.so/docs/framework/data-loading) |
@@ -222,7 +265,7 @@ commands to reproduce all of it on your own hardware are documented in
 
 Prerequisites:
 
-- Rust 1.93.0 or newer
+- Rust 1.98.0 or newer
 - Python 3 for repository lint scripts
 - Node.js 22 or newer for browser conformance tests and JavaScript comparison
   engines

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub fn badge_rs() -> &'static str {
-    r#"use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+    r#"use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use super::recipe::badge_classes;
 
@@ -32,7 +32,7 @@ impl<L: DataLoader> WebRenderSync<L> for Badge {
 }
 
 pub fn badge_recipe_rs() -> &'static str {
-    r#"use proa_core::ClassList;
+    r#"use proa::ClassList;
 
 pub const BADGE_BASE: &str = "inline-flex items-center border border-current px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em]";
 
@@ -43,13 +43,13 @@ pub fn badge_classes() -> ClassList<1> {
 }
 
 pub fn badge_md_rs() -> &'static str {
-    r#"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
+    r#"use proa::{WebContext, MdRenderSync, WriteBuf, WriteError};
 
 use super::Badge;
 
-impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Badge {
+impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Badge {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        proa_core::MdRenderSync::render_md(self.label, cx)
+        proa::MdRenderSync::render_md(self.label, cx)
     }
 }
 "#
@@ -60,8 +60,8 @@ pub fn badge_mod_rs() -> &'static str {
 }
 
 pub fn button_rs() -> &'static str {
-    r#"use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+    r#"use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use super::recipe::button_classes;
 
@@ -93,7 +93,7 @@ impl<L: DataLoader> WebRenderSync<L> for Button {
 }
 
 pub fn button_recipe_rs() -> &'static str {
-    r#"use proa_core::ClassList;
+    r#"use proa::ClassList;
 
 pub const BUTTON_BASE: &str = "inline-flex items-center justify-center border border-[#3de1e8] bg-[#3de1e8] px-5 py-3 font-mono text-xs font-bold uppercase tracking-[0.16em] text-[#0b0b0c] transition hover:bg-transparent hover:text-[#3de1e8]";
 
@@ -104,18 +104,18 @@ pub fn button_classes() -> ClassList<1> {
 }
 
 pub fn button_md_rs() -> &'static str {
-    r#"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
-use proa_macros::md_sync;
+    r#"use proa::{WebContext, MdRenderSync, WriteBuf, WriteError};
+use proa::md_sync;
 
 use super::Button;
 
-impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Button {
+impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Button {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if self.href.is_some() {
             let href = cx.url(self.href.unwrap_or_default());
             md_sync! { "[{self.label}]({href})" }.render_md(cx)
         } else {
-            proa_core::MdRenderSync::render_md(self.label, cx)
+            proa::MdRenderSync::render_md(self.label, cx)
         }
     }
 }
@@ -127,8 +127,8 @@ pub fn button_mod_rs() -> &'static str {
 }
 
 pub fn card_rs() -> &'static str {
-    r#"use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+    r#"use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use super::recipe::card_classes;
 
@@ -157,7 +157,7 @@ impl<L: DataLoader> WebRenderSync<L> for Card {
 }
 
 pub fn card_recipe_rs() -> &'static str {
-    r#"use proa_core::ClassList;
+    r#"use proa::ClassList;
 
 pub const CARD_BASE: &str = "border border-white/20 bg-white/[0.035] p-6";
 
@@ -168,12 +168,12 @@ pub fn card_classes() -> ClassList<1> {
 }
 
 pub fn card_md_rs() -> &'static str {
-    r####"use proa_core::{WebContext, MdRenderSync, WriteBuf, WriteError};
-use proa_macros::md_sync;
+    r####"use proa::{WebContext, MdRenderSync, WriteBuf, WriteError};
+use proa::md_sync;
 
 use super::Card;
 
-impl<L: proa_core::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Card {
+impl<L: proa::DataLoader, B: WriteBuf> MdRenderSync<L, B> for Card {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         md_sync! { r###"
             {self.eyebrow}

@@ -219,6 +219,9 @@ impl PageCacheLayer {
             // Separate an absent header from a present empty value.
             hash.update(u64::MAX.to_le_bytes());
         }
+        if let Some(assets) = request.extensions().get::<crate::PublicAssets>() {
+            hash_field(&mut hash, assets.cache_key().as_bytes());
+        }
         hash.finalize().into()
     }
 
@@ -311,7 +314,7 @@ where
                         .try_lock_owned()
                     {
                         // Tokio task locals do not propagate through spawn.
-                        // Retain the manifest, route params and metadata for
+                        // Retain the route params and metadata for
                         // RouteResponse finalization in the refresh task.
                         let context = ROUTE_CONTEXT.try_with(|cx| cx.borrow().clone()).ok();
                         tokio::spawn(async move {

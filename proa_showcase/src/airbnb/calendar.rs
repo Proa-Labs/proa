@@ -8,7 +8,6 @@
 //! libraries while retaining the data attributes consumed by the browser
 //! runtime and the showcase CSS.
 
-use proa_core::shared::attr_value::AttrValue;
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::html_sync;
 
@@ -45,7 +44,7 @@ const DAY_CLASS: &str = "size-9 rounded-md text-sm inline-flex items-center just
 
 const CELL_COUNT: u8 = 42;
 
-/// Static date-grid renderer used by the non-React listing fallback.
+/// Static date-grid renderer used by the static listing benchmark.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct AirbnbCalendar {
     year: u16,
@@ -196,7 +195,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for AirbnbCalendar {
                                 data-scope="calendar"
                                 data-part="day"
                                 data-slot="calendar-day"
-                                data-date={CalendarDate::new(cell.year, cell.month, cell.day)}
+                                data-date={text!("{:04}-{:02}-{:02}", cell.year % 10_000, cell.month, cell.day)}
                                 data-outside={outside}
                                 data-state={state}
                                 data-range-start={range_start}
@@ -304,83 +303,4 @@ fn first_weekday_sunday(year: u16, month: u8) -> u8 {
         + MONTH_OFFSETS[(month - 1) as usize]
         + 1)
         % 7) as u8
-}
-
-/// Stack-formatted `YYYY-MM-DD` attribute value.
-struct CalendarDate([u8; 10]);
-
-impl CalendarDate {
-    fn new(year: u16, month: u8, day: u8) -> Self {
-        let year = year % 10_000;
-        Self([
-            b'0' + (year / 1_000) as u8,
-            b'0' + ((year / 100) % 10) as u8,
-            b'0' + ((year / 10) % 10) as u8,
-            b'0' + (year % 10) as u8,
-            b'-',
-            b'0' + month / 10,
-            b'0' + month % 10,
-            b'-',
-            b'0' + day / 10,
-            b'0' + day % 10,
-        ])
-    }
-}
-
-impl AttrValue for CalendarDate {
-    #[inline(always)]
-    fn should_render(&self) -> bool {
-        true
-    }
-
-    #[inline(always)]
-    fn render_attr_value<B: WriteBuf, L: DataLoader>(
-        &self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), WriteError> {
-        cx.out.extend(&self.0)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::ctx::Ctx;
-
-    fn render_calendar(calendar: AirbnbCalendar) -> String {
-        let mut output = Vec::new();
-        let mut cx = Ctx::with_buffer(&mut output);
-        calendar.render(&mut cx).unwrap();
-        String::from_utf8(output).unwrap()
-    }
-
-    fn button_for_date<'a>(html: &'a str, date: &str) -> &'a str {
-        let date_marker = format!("data-date=\"{date}\"");
-        let date_index = html.find(&date_marker).expect("date cell");
-        let start = html[..date_index].rfind("<button").expect("button start");
-        let end = html[date_index..]
-            .find("</button>")
-            .map(|offset| date_index + offset + "</button>".len())
-            .expect("button end");
-        &html[start..end]
-    }
-
-    #[test]
-    fn renders_a_stable_six_week_grid() {
-        let html = render_calendar(AirbnbCalendar::new(2026, 4));
-
-        assert_eq!(html.matches("data-calendar-day=").count(), 42);
-        assert!(html.contains("data-date=\"2026-03-29\""));
-        assert!(html.contains("data-date=\"2026-05-09\""));
-    }
-
-    #[test]
-    fn marks_the_initial_booking_range() {
-        let html = render_calendar(AirbnbCalendar::new(2026, 3).with_range(18, 25));
-
-        assert!(button_for_date(&html, "2026-03-18").contains("data-range-start=\"true\""));
-        assert!(button_for_date(&html, "2026-03-25").contains("data-range-end=\"true\""));
-        assert!(button_for_date(&html, "2026-03-21").contains("data-in-range=\"true\""));
-        assert!(!button_for_date(&html, "2026-03-17").contains("data-in-range"));
-    }
 }

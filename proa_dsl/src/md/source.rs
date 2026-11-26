@@ -6,7 +6,7 @@
 use super::{ExprLocation, TplNode};
 use proc_macro2::Span;
 use std::ops::Range;
-use std::sync::Arc;
+use std::rc::Rc;
 use syn::LitStr;
 
 /// Decoded-byte to authored-token mapping for one template literal.
@@ -115,11 +115,15 @@ impl MappedLiteral {
         Self { text, ranges }
     }
 
-    pub fn map_nodes(&self, nodes: &mut [TplNode], span: Span) {
-        let literal = Arc::new(LiteralMap {
+    pub fn literal_map(&self, span: Span) -> LiteralMap {
+        LiteralMap {
             span,
             ranges: self.ranges.clone(),
-        });
+        }
+    }
+
+    pub fn map_nodes(&self, nodes: &mut [TplNode], span: Span) {
+        let literal = Rc::new(self.literal_map(span));
         for node in nodes {
             if let TplNode::Expr(expr) = node {
                 if let ExprLocation::Decoded(range) = &expr.location {
@@ -266,7 +270,7 @@ mod tests {
     fn control_slots_keep_their_whole_authored_range() {
         let input = r####"r###"
     {if self.ready {
-        md_sync! { "- " {item.title} }
+        md_sync! { "- {item.title}" }
     }}
     "###"####;
         let template: MdTemplateInput = syn::parse_str(input).unwrap();

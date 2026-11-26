@@ -1,11 +1,12 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use proa_core::{
     ctx::Ctx, el, text, Attr, AttrKey, DataLoader, Tag, WebContext, WebRenderSync, WriteBuf,
     WriteError,
 };
+use std::hint::black_box;
 
 /// A typical page component for realistic testing
 #[derive(Clone, Copy)]

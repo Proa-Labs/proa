@@ -63,6 +63,8 @@
 
 extern crate proc_macro;
 
+mod runtime_paths;
+
 mod js_sentinel;
 
 use proc_macro::TokenStream;
@@ -239,7 +241,7 @@ fn is_text_intrinsic_path(path: &syn::Path) -> bool {
                 && matches!(text.arguments, syn::PathArguments::None)
         }
         (Some(crate_name), Some(text), None) => {
-            crate_name.ident == "proa_macros"
+            proa_dsl::paths::is_macro_namespace(&crate_name.ident)
                 && matches!(crate_name.arguments, syn::PathArguments::None)
                 && text.ident == "text"
                 && matches!(text.arguments, syn::PathArguments::None)
@@ -319,7 +321,7 @@ pub fn rsjs(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr2: TokenStream2 = attr.into();
     let item2: TokenStream2 = item.into();
     match expand_rsjs(attr2, item2) {
-        Ok(ts) => ts.into(),
+        Ok(ts) => runtime_paths::resolve(ts).into(),
         Err(e) => e.to_compile_error().into(),
     }
 }
@@ -2930,7 +2932,6 @@ fn component_abi_impl_generics(
         .map(|mut param| {
             match &mut param {
                 syn::GenericParam::Type(param) => {
-                    param.eq_token = None;
                     param.default = None;
                     param.bounds = param
                         .bounds
@@ -2952,7 +2953,6 @@ fn component_abi_impl_generics(
                         .collect();
                 }
                 syn::GenericParam::Const(param) => {
-                    param.eq_token = None;
                     param.default = None;
                 }
             }
@@ -3104,9 +3104,10 @@ fn macro_ident_is_invoked(tokens: &[proc_macro2::TokenTree], ident_index: usize)
 }
 
 fn html_macro_ide_hint_for_path(path: &syn::Path) -> TokenStream2 {
+    let proa_macros = proa_dsl::paths::runtime("proa_macros");
     if path.segments.len() == 1 {
         let ident = &path.segments[0].ident;
-        quote! { let _ = ::proa_macros::#ident! { "" }; }
+        quote! { let _ = #proa_macros::#ident! { "" }; }
     } else {
         quote! { let _ = #path! { "" }; }
     }
@@ -4878,7 +4879,13 @@ mod tests {
 
     #[test]
     fn text_intrinsic_path_recognition_is_narrow() {
-        for accepted in ["text", "proa_macros::text", "::proa_macros::text"] {
+        for accepted in [
+            "text",
+            "proa_macros::text",
+            "::proa_macros::text",
+            "proa::text",
+            "::proa::text",
+        ] {
             let path: syn::Path = syn::parse_str(accepted).expect("accepted path should parse");
             assert!(
                 is_text_intrinsic_path(&path),
@@ -8963,14 +8970,14 @@ fn write_component_descriptor_asset(asset_id: &str, json: &str) {
 /// `rsjs_macros::client_props_derive` for the implementation.
 #[proc_macro_derive(ClientProps)]
 pub fn derive_client_props(input: TokenStream) -> TokenStream {
-    client_props_derive::derive_client_props(input.into()).into()
+    runtime_paths::resolve(client_props_derive::derive_client_props(input.into())).into()
 }
 
 /// `#[derive(rsjs::SharedState)]`: generate the rsjs client codec, stable
 /// protocol metadata, and the typed handle used by `rsjs::shared::<T>()`.
 #[proc_macro_derive(SharedState, attributes(rsjs))]
 pub fn derive_shared_state(input: TokenStream) -> TokenStream {
-    shared_state_derive::derive_shared_state(input.into()).into()
+    runtime_paths::resolve(shared_state_derive::derive_shared_state(input.into())).into()
 }
 
 /// `#[rsjs::client]` — mark a free function as a reusable client-side
@@ -9017,7 +9024,7 @@ pub fn derive_shared_state(input: TokenStream) -> TokenStream {
 /// prototype/`this` semantics part of Client IR.
 #[proc_macro_attribute]
 pub fn client(attr: TokenStream, item: TokenStream) -> TokenStream {
-    client_attr::expand(attr.into(), item.into()).into()
+    runtime_paths::resolve(client_attr::expand(attr.into(), item.into())).into()
 }
 
 /// `#[rsjs::client_module]` — group `#[rsjs::client]` helpers into a
@@ -9042,5 +9049,5 @@ pub fn client(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// `docs/agent/rsjs-islands.md` for the public helper visibility contract.
 #[proc_macro_attribute]
 pub fn client_module(attr: TokenStream, item: TokenStream) -> TokenStream {
-    client_module_attr::expand(attr.into(), item.into()).into()
+    runtime_paths::resolve(client_module_attr::expand(attr.into(), item.into())).into()
 }

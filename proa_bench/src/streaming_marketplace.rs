@@ -10,7 +10,7 @@
 //! - some sections are lower-value late content (reviews, recommendations)
 //!
 //! Unlike the initial prototype, section delays now flow through
-//! `cx.load(...)` so `ChunkedInOrder` can pre-start them before the render
+//! `cx.load_json(...)` so `ChunkedInOrder` can pre-start them before the render
 //! blocks on each boundary.
 
 use std::future::Future;

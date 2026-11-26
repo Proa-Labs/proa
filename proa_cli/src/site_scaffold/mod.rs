@@ -23,6 +23,10 @@ use crate::{
 
 pub use plan::{PlannedFile, SitePlan};
 
+pub(crate) fn deployment_dockerfile(has_database: bool) -> String {
+    templates::current_deployment_dockerfile(has_database)
+}
+
 #[derive(Debug, Clone)]
 pub struct NewSiteOptions {
     pub path: PathBuf,
@@ -73,6 +77,34 @@ struct OperationResult<'a> {
     next: String,
 }
 
+pub(crate) fn scaffold_version(package: &str) -> String {
+    let versions: std::collections::BTreeMap<String, String> = toml::from_str(include_str!(
+        concat!(env!("OUT_DIR"), "/scaffold-versions.toml")
+    ))
+    .expect("bundled scaffold versions are valid TOML");
+    let version = versions
+        .get(package)
+        .expect("scaffold dependency is listed");
+    if package == "proa" {
+        return proa_scaffold_requirement(version);
+    }
+    version.clone()
+}
+
+fn proa_scaffold_requirement(requirement: &str) -> String {
+    // Cargo treats `0.4` and `0.4.0` alike, but `0.0` admits more than `0.0.0`.
+    if let Ok(version) = semver::Version::parse(requirement) {
+        if version.patch == 0
+            && version.pre.is_empty()
+            && version.build.is_empty()
+            && (version.major != 0 || version.minor != 0)
+        {
+            return format!("{}.{}", version.major, version.minor);
+        }
+    }
+    requirement.to_owned()
+}
+
 pub fn new_site(options: NewSiteOptions) -> Result<()> {
     let template = SiteTemplate::parse_compat(&options.template)?;
     let selection = CapabilitySelection::resolve(template, options.overrides)?;
@@ -118,7 +150,7 @@ pub fn new_site(options: NewSiteOptions) -> Result<()> {
     }
     if options.start || options.open {
         let root_arg = root.to_string_lossy().into_owned();
-        let mut args = vec!["dev", "--root", root_arg.as_str()];
+        let mut args = vec!["run", "--root", root_arg.as_str(), "dev"];
         if options.open {
             args.push("--open");
         }
@@ -268,7 +300,7 @@ fn print_success(
         }
     );
     println!("  Health      /healthz · /readyz");
-    println!("\nNext:\n  cd {} && proa dev --open", root.display());
+    println!("\nNext:\n  cd {} && proa run dev --open", root.display());
     Ok(())
 }
 
@@ -301,7 +333,7 @@ fn operation_report<'a>(
             title,
             selection,
             files: plan.files.len(),
-            next: format!("cd {} && proa dev --open", plan.destination.display()),
+            next: format!("cd {} && proa run dev --open", plan.destination.display()),
         },
     }
 }
@@ -323,6 +355,21 @@ fn run_child(root: &Path, args: &[&str]) -> Result<()> {
 mod tests {
     use super::*;
     use crate::capabilities::{DatabaseChoice, StylingChoice, UiChoice};
+
+    #[test]
+    fn proa_requirement_shortens_only_equivalent_versions() {
+        for (declared, expected) in [
+            ("0.4.0", "0.4"),
+            ("0.5.0", "0.5"),
+            ("1.0.0", "1.0"),
+            ("0.4.1", "0.4.1"),
+            ("0.0.0", "0.0.0"),
+            ("0.5.0-rc.1", "0.5.0-rc.1"),
+            ("=0.4.0", "=0.4.0"),
+        ] {
+            assert_eq!(proa_scaffold_requirement(declared), expected);
+        }
+    }
 
     fn options(path: PathBuf) -> NewSiteOptions {
         NewSiteOptions {
@@ -363,6 +410,17 @@ mod tests {
         }
         // Tailwind owns the generated public output; its input must include
         // the starter design so the first asset build retains that design.
+        let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+        assert!(!config.contains("build: proa::config::BuildConfig"));
+        assert!(!config.contains("paths: proa::config::ProjectPaths"));
+        let config = crate::config::load_project_config(&root).unwrap();
+        assert_eq!(config.paths.public.as_deref(), Some(Path::new("public")));
+        let [asset] = config.build.assets() else {
+            panic!("expected one inferred Tailwind asset");
+        };
+        assert_eq!(asset.kind, "tailwind");
+        assert_eq!(asset.input, Path::new("styles/input.css"));
+        assert_eq!(asset.output, Path::new("public/styles.css"));
         let input = std::fs::read_to_string(root.join("styles/input.css")).unwrap();
         assert!(input.contains("@import \"./starter.css\" layer(components);"));
         let starter = std::fs::read_to_string(root.join("styles/starter.css")).unwrap();
@@ -372,10 +430,29 @@ mod tests {
         );
         assert!(!root.join("scripts").exists());
         assert!(!root.join("src/islands").exists());
+        assert!(!root.join("rust-toolchain.toml").exists());
+        let cargo_toml = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(cargo_toml.contains("rust-version = \"1.98\""));
         let home = std::fs::read_to_string(root.join("src/pages/home.rs")).unwrap();
-        syn::parse_file(&home).unwrap();
+        let parsed_home = syn::parse_file(&home).unwrap();
+        let mut saw_non_use_item = false;
+        for item in &parsed_home.items {
+            if matches!(item, syn::Item::Use(_)) {
+                assert!(
+                    !saw_non_use_item,
+                    "src/pages/home.rs should keep all `use` imports at the top of the file"
+                );
+            } else {
+                saw_non_use_item = true;
+            }
+        }
         assert!(home.contains("DataResolver::request_scope"));
         assert!(home.contains("MdRender<L> for HomePage"));
+        assert!(home.contains("# {HEADLINE}"));
+        assert!(!home.contains("Rust\\."));
+        assert!(!home.contains("multi\\-target"));
+        let routes = std::fs::read_to_string(root.join("src/routes.rs")).unwrap();
+        assert!(routes.contains("PublicAssets::configured()"));
     }
 
     #[test]
@@ -386,16 +463,13 @@ mod tests {
             let mut value = options(root.clone());
             value.template = template.to_string();
             new_site(value).unwrap();
-            for path in crate::source::find_rust_files(&[root.join("src")]).unwrap() {
-                let source = std::fs::read_to_string(&path).unwrap();
-                assert!(
-                    !source.contains("content_part!"),
-                    "{template}: {}",
-                    path.display()
-                );
-            }
+            assert!(!root.join(".cargo/config.toml").exists(), "{template}");
+            assert!(!root.join("rust-toolchain.toml").exists(), "{template}");
+            let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+            assert!(!config.contains("template:"), "{template}");
             let formatting =
-                crate::fmt::format_paths_with_options(&[root.clone()], true, true).unwrap();
+                crate::fmt::format_paths_with_options(std::slice::from_ref(&root), true, true)
+                    .unwrap();
             assert!(
                 formatting.changed.is_empty() && formatting.diagnostics.is_empty(),
                 "{template}: {:?}",
@@ -411,8 +485,15 @@ mod tests {
                         < crate::diagnostic::Severity::Warning.rank()),
                 "{template}: {diagnostics:?}"
             );
-            let report = crate::scaffold::site_check(Some(root)).unwrap();
+            let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
             assert!(report.errors.is_empty(), "{template}: {:?}", report.errors);
+            let routes = crate::scaffold::site_routes(Some(root)).unwrap();
+            let markdown = routes.iter().find(|route| route.path == "/index.md");
+            match template {
+                "minimal" => assert!(markdown.is_none()),
+                "origin" => assert_eq!(markdown.unwrap().file, Path::new("src/lib.rs")),
+                _ => assert_eq!(markdown.unwrap().file, Path::new("src/pages/home.rs")),
+            }
         }
     }
 
@@ -465,6 +546,8 @@ mod tests {
         value.overrides.styling = Some(StylingChoice::Css);
         value.vscode = false;
         new_site(value).unwrap();
+        let config = std::fs::read_to_string(root.join(crate::config::CONFIG_FILE)).unwrap();
+        assert!(config.contains("assets: Some(vec![])"));
         assert!(!root.join("src/db.rs").exists());
         assert!(!root.join("src/components/badge").exists());
         assert!(!root.join("styles").exists());

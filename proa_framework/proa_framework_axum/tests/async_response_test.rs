@@ -30,7 +30,6 @@ use proa_core::{
     await_component, render_to_string_async, to_async, DataLoader, LoadError, LoadKey, LoadRequest,
     LoadValue, RenderBuffer, WebContext, WebRender, WriteBuf, WriteError,
 };
-use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{router_from_spec, Route, RouteContextLayer, RouteResponse};
 use proa_macros::{html, html_sync};
 use tower::ServiceExt;
@@ -51,10 +50,10 @@ impl<L: ::proa_core::DataLoader> WebRender<L, RenderBuffer> for AsyncGreeting {
         RenderOutcome::Pending(async move {
             // Disambiguate: Vec<u8> has both std's Extend (infallible) and
             // our WriteBuf::extend (fallible). Call the trait form explicitly.
-            WriteBuf::extend(&mut cx.out, b"<p>hello ")?;
+            WriteBuf::extend_str(&mut cx.out, "<p>hello ")?;
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            WriteBuf::extend(&mut cx.out, self.name.as_bytes())?;
-            WriteBuf::extend(&mut cx.out, b"</p>")?;
+            WriteBuf::extend_str(&mut cx.out, self.name)?;
+            WriteBuf::extend_str(&mut cx.out, "</p>")?;
             Ok(())
         })
     }
@@ -206,15 +205,6 @@ impl<L: ::proa_core::DataLoader> WebRender<L, RenderBuffer> for LoadedHtmlLeaf {
     }
 }
 
-fn empty_manifest() -> Arc<IslandManifest> {
-    Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    })
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ssr_async_renders_async_component() {
     let routes = vec![Route::endpoint(
@@ -222,9 +212,8 @@ async fn ssr_async_renders_async_component() {
         get(|| async { RouteResponse::ssr_async(AsyncGreeting { name: "world" }) }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -250,9 +239,8 @@ async fn ssr_async_sets_default_security_headers() {
         get(|| async { RouteResponse::ssr_async(AsyncGreeting { name: "security" }) }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -282,9 +270,8 @@ async fn route_render_installs_request_location_on_context() {
         get(|| async { RouteResponse::ssr(LocationEcho) }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -307,13 +294,12 @@ async fn route_render_installs_request_location_on_context() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn route_render_installs_route_params_on_context() {
     let routes = vec![Route::endpoint(
-        "/products/:id",
+        "/products/{id}",
         get(|| async { RouteResponse::ssr(RouteParamEcho) }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -340,9 +326,8 @@ async fn route_render_installs_request_headers_on_context() {
         get(|| async { RouteResponse::ssr(RequestEcho) }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -371,9 +356,8 @@ async fn route_render_applies_staged_response_context() {
         get(|| async { RouteResponse::ssr(ResponseContextEcho) }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -426,9 +410,9 @@ struct SyncGreeting {
 
 impl<L: ::proa_core::DataLoader, B: WriteBuf> proa_core::WebRenderSync<L, B> for SyncGreeting {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        cx.out.extend(b"<p>sync ")?;
-        cx.out.extend(self.name.as_bytes())?;
-        cx.out.extend(b"</p>")?;
+        cx.out.extend_str("<p>sync ")?;
+        cx.out.extend_str(self.name)?;
+        cx.out.extend_str("</p>")?;
         Ok(())
     }
 }
@@ -440,9 +424,8 @@ async fn ssr_async_accepts_sync_component_via_adapter() {
         get(|| async { RouteResponse::ssr_async(to_async(SyncGreeting { name: "adapter" })) }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(Request::builder().uri("/sync").body(Body::empty()).unwrap())
@@ -466,7 +449,7 @@ async fn ssr_async_dedupes_duplicate_loader_keys_within_request() {
                 async move {
                     // Wrap the typed loader in a typed `DataResolver<L>` so
                     // dedupe still works without going through the dyn
-                    // `DynLoaderHandle` path. `cx.load(...)` calls inside the
+                    // `DynLoaderHandle` path. `cx.load_json(...)` calls inside the
                     // page monomorphize on `DataResolver<CountingLoader>`,
                     // not on `DynLoaderHandle`.
                     let typed_loader =
@@ -491,9 +474,8 @@ async fn ssr_async_dedupes_duplicate_loader_keys_within_request() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(

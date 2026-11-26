@@ -1669,7 +1669,7 @@ fn lower_helper_with_options(
             "standalone helper signatures have a fixed, hashed parameter list; dropping a C variadic tail would change both the Rust ABI and the browser call contract",
         ));
     }
-    if let Some(unsafety) = &sig.unsafety {
+    if let syn::Safety::Unsafe(unsafety) = &sig.safety {
         return Err(Diagnostic::new(
             unsafety.span(),
             "`#[rsjs::client]` helpers cannot be `unsafe`",
@@ -2896,9 +2896,7 @@ impl<'a> BodyLowerer<'a> {
             }
             BodyNodeKind::Unary { expr, .. }
             | BodyNodeKind::Conditional {
-                then_expr: expr,
-                else_expr: _,
-                ..
+                then_expr: expr, ..
             } => {
                 let first = self.node_has_integer_anchor(expr);
                 if let BodyNodeKind::Conditional { else_expr, .. } = &node.kind {
@@ -3070,10 +3068,11 @@ impl<'a> BodyLowerer<'a> {
         let mut conditional_arms = Vec::new();
         let mut fallback: Option<BodyBlock> = None;
         for (idx, arm) in match_expr.arms.iter().enumerate() {
-            if matches!(arm.pat, syn::Pat::Wild(_)) {
-                if let Some((if_token, _)) = &arm.guard {
+            let (pat, guard) = crate::parse::match_arm_parts(arm);
+            if matches!(pat, syn::Pat::Wild(_)) {
+                if let Some(guard) = guard {
                     return Err(Diagnostic::new(
-                        if_token.span,
+                        guard.if_token.span,
                         "`#[rsjs::client]` tail `match` fallback `_` must be unguarded",
                         "move the guard onto an earlier literal/range arm, or make `_` the unconditional final fallback",
                         "generated JavaScript needs an explicit final unmatched-case branch",
@@ -3081,7 +3080,7 @@ impl<'a> BodyLowerer<'a> {
                 }
                 if idx + 1 != match_expr.arms.len() {
                     return Err(Diagnostic::new(
-                        arm.pat.span(),
+                        pat.span(),
                         "`#[rsjs::client]` tail `match` fallback `_` must be the final arm",
                         "move the `_` arm to the end of the match",
                         "arms after an unconditional fallback would be unreachable in the generated Client IR",
@@ -3097,8 +3096,9 @@ impl<'a> BodyLowerer<'a> {
             }
 
             let mut condition =
-                self.lower_match_pattern_condition(match_local, &match_name, &arm.pat)?;
-            if let Some((_, guard_expr)) = &arm.guard {
+                self.lower_match_pattern_condition(match_local, &match_name, pat)?;
+            if let Some(guard) = guard {
+                let guard_expr = &guard.guard;
                 let guard = self.lower(guard_expr)?;
                 self.require_bool(&guard, guard_expr.span())?;
                 condition = BodyNode::binary(arm.span(), "And", condition, guard);
@@ -5034,10 +5034,8 @@ fn parse_checked_helper_binary_op(op: &str) -> Option<(CheckedIntegerOp, Integer
         (IntegerDomain::U32, suffix)
     } else if let Some(suffix) = op.strip_prefix("CheckedI64") {
         (IntegerDomain::I64, suffix)
-    } else if let Some(suffix) = op.strip_prefix("CheckedU64") {
-        (IntegerDomain::U64, suffix)
     } else {
-        return None;
+        (IntegerDomain::U64, op.strip_prefix("CheckedU64")?)
     };
     let operation = match suffix {
         "Add" => CheckedIntegerOp::Add,

@@ -4,13 +4,13 @@
 use std::future::Future;
 use std::sync::OnceLock;
 
-use proa_core::{
+use proa::{
     ClassList, ComponentRole, DataLoader, HeadMetadata, RenderOutcome, StaticRaw, WebContext,
     WebRender, WebRenderSync, WriteError,
 };
 use proa_fonts::Font;
 use proa_fonts_macros::google_font;
-use proa_macros::html;
+use proa::html;
 
 static SANS: Font = google_font!(
     "Instrument Sans",
@@ -34,10 +34,7 @@ impl<L: DataLoader> WebRenderSync<L> for FontsHead {
     }
 }
 
-/// Cache-busted asset URLs: ServeDir sends no Cache-Control, so browsers
-/// apply heuristic freshness and can keep serving a stale copy after a
-/// deploy. Keying the query string to the compiled-in byte length makes any
-/// content change a new URL.
+/// Cache keys for direct launches that use the legacy static mount.
 // proa-perf-ok(scope): one URL built once per process behind OnceLock.
 fn js_src() -> &'static str {
     static CACHE: OnceLock<String> = OnceLock::new();
@@ -97,11 +94,29 @@ where
                 .add(SANS.class_name())
                 .add(MONO.class_name())
                 .add("dark");
-            let favicon = cx.url("/static/favicon.svg");
-            let stylesheet = cx.url(css_href());
-            let ui_stylesheet = cx.url("/static/proa/proa-ui/proa-free.css");
-            let ui_script = cx.url("/static/proa/proa-ui/proa-free.js");
-            let script = cx.url(js_src());
+            let (favicon, stylesheet, ui_stylesheet, ui_script, script) =
+                if cx.request().has_public_assets() {
+                    (
+                        "public/favicon.svg",
+                        "public/styles.css",
+                        "public/proa/proa-ui/proa-free.css",
+                        "public/proa/proa-ui/proa-free.js",
+                        "public/origin.js",
+                    )
+                } else {
+                    (
+                        "/static/favicon.svg",
+                        css_href(),
+                        "/static/proa/proa-ui/proa-free.css",
+                        "/static/proa/proa-ui/proa-free.js",
+                        js_src(),
+                    )
+                };
+            let favicon = cx.url(favicon);
+            let stylesheet = cx.url(stylesheet);
+            let ui_stylesheet = cx.url(ui_stylesheet);
+            let ui_script = cx.url(ui_script);
+            let script = cx.url(script);
             html! {
                 <!DOCTYPE html>
                 <html lang="en" class={font_classes}>
@@ -114,7 +129,7 @@ where
                         <link rel="preconnect" href="https://ris-live.ripe.net" />
                         <link rel="icon" href={favicon} />
                         {StaticRaw(THEME_BOOTSTRAP)}
-                        {proa_core::to_async(FontsHead)}
+                        {proa::to_async(FontsHead)}
                         <link rel="stylesheet" href={stylesheet} />
                         <link rel="stylesheet" href={ui_stylesheet} />
                         <script type="module" src={ui_script}></script>

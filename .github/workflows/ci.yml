@@ -118,9 +118,9 @@ jobs:
       - name: Test marketing with its linked island manifest
         run: |
           cargo run --locked -p proa-cli --bin proa -- \
-            test --root . --locked -p proa_marketing --bin proa_marketing
+            test --root proa_marketing --locked -p proa_marketing --bin proa_marketing
       - name: Test browser documentation tools
-        run: node --test proa_marketing/tests-js/agent-tools.test.mjs
+        run: node --test proa_marketing/tests-js/*.test.mjs
       - name: Test search-engine notification boundaries
         run: python3 -m unittest discover -s deploy/marketing -p 'test_indexnow.py'
       - name: Test JavaScript documentation SDK and CLI
@@ -193,16 +193,20 @@ jobs:
 
   rust:
     name: Rust lint and tests
+    permissions:
+      contents: read
+      pull-requests: read
     # Pull-request code can execute arbitrary build.rs logic. Keep it off the
     # GCP runner identity that can write the cache consumed by trusted main
     # deployment jobs; only main/workflow_dispatch uses the private runner.
+    # The PR pool's own identity can only read that cache (gcs-ro below).
     # Fail closed: untrusted PR code must never fall through to CI_RUNNER when
     # a repository variable is absent or misspelled.
     runs-on: ${{ github.event_name == 'pull_request' && 'gcp-pr-ci' || vars.CI_RUNNER }}
     timeout-minutes: 45
     env:
-      # Incremental artifacts are not reusable through sccache. CI starts from
-      # an empty target directory and benefits more from cacheable codegen.
+      # Cargo artifacts persist across runs; disable rustc incremental output
+      # so missing artifacts can still use the shared compiler cache.
       CARGO_INCREMENTAL: "0"
       # Debug info made the proa-cli test/wrapper executables disproportionately
       # large and expensive to link, snapshot, and fingerprint in CI.
@@ -219,7 +223,7 @@ jobs:
       - name: Run Rust validation
         uses: ./.github/actions/rust-ci
         with:
-          cache-backend: ${{ github.event_name == 'pull_request' && 'gha' || startsWith(vars.CI_RUNNER, 'gcp') && 'gcs' || 'gha' }}
+          cache-backend: ${{ github.event_name == 'pull_request' && 'gcs-ro' || startsWith(vars.CI_RUNNER, 'gcp') && 'gcs' || 'gha' }}
 
   windows-cross-check:
     name: Windows build-engine cross-check

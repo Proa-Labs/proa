@@ -42,7 +42,7 @@ pub const FINAL_WRAPPER_POLICY_VERSION: u16 = 8;
 /// This is deliberately independent of sidecar schema: bump it whenever a
 /// previous target may contain wrapper/proc-macro artifacts that must never
 /// participate in current build identity.
-pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 7;
+pub const DESCRIPTOR_TARGET_POLICY_VERSION: u16 = 8;
 /// Explicit host-local staging directory for descriptor objects and sidecars.
 pub const DESCRIPTOR_STAGING_DIR_ENV: &str = "PROA_RSJS_DESCRIPTOR_STAGING_DIR";
 /// Exact runner-owned Cargo target directory for descriptor compilation.
@@ -934,14 +934,20 @@ fn identity_rustc_environment(
     Ok(identity)
 }
 
-fn build_script_rustc_env_names(out_dir: &Path) -> io::Result<BTreeSet<String>> {
-    let parent = out_dir.parent().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Cargo OUT_DIR has no build-script output directory",
-        )
+/// Cargo 1.100 keeps build-script stdout under the unit's run directory.
+fn build_script_stdout_path(out_dir: &Path) -> io::Result<PathBuf> {
+    let unit = out_dir.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "Cargo OUT_DIR has no parent")
     })?;
-    let output_path = parent.join("output");
+    Ok(if unit.join("run").try_exists()? {
+        unit.join("run/stdout")
+    } else {
+        unit.join("output")
+    })
+}
+
+fn build_script_rustc_env_names(out_dir: &Path) -> io::Result<BTreeSet<String>> {
+    let output_path = build_script_stdout_path(out_dir)?;
     let output = fs::read_to_string(&output_path)?;
     let mut names = BTreeSet::new();
     for line in output.lines() {
@@ -1680,7 +1686,9 @@ fn descriptor_rustc_args_with_carrier(
     descriptor_object: &Path,
     carrier: &DescriptorCarrierMode,
 ) -> Result<Vec<OsString>, WrapperError> {
-    let mut result = Vec::with_capacity(rustc_args.len() + 6);
+    let mut result = Vec::with_capacity(rustc_args.len() + 7);
+    let mut effective_opt_level: Option<&str> = None;
+    let mut explicit_debug_assertions = false;
     let mut index = 0;
     while index < rustc_args.len() {
         let argument = rustc_args[index]
@@ -1692,14 +1700,28 @@ fn descriptor_rustc_args_with_carrier(
                 .get(index + 1)
                 .and_then(|value| value.to_str())
                 .ok_or(WrapperError::MissingRustcOptionValue("-C"))?;
-            if descriptor_override_option(split_key_value(value).0, carrier) {
+            let (key, option_value) = split_key_value(value);
+            if matches!(key, "opt-level" | "opt_level") {
+                effective_opt_level = Some(option_value);
+            } else if matches!(key, "debug-assertions" | "debug_assertions") {
+                explicit_debug_assertions = true;
+            }
+            if descriptor_override_option(key, carrier) {
                 index += 2;
                 continue;
             }
         } else if let Some(value) = argument.strip_prefix("-C") {
-            if !value.is_empty() && descriptor_override_option(split_key_value(value).0, carrier) {
-                index += 1;
-                continue;
+            if !value.is_empty() {
+                let (key, option_value) = split_key_value(value);
+                if matches!(key, "opt-level" | "opt_level") {
+                    effective_opt_level = Some(option_value);
+                } else if matches!(key, "debug-assertions" | "debug_assertions") {
+                    explicit_debug_assertions = true;
+                }
+                if descriptor_override_option(key, carrier) {
+                    index += 1;
+                    continue;
+                }
             }
         }
 
@@ -1730,11 +1752,20 @@ fn descriptor_rustc_args_with_carrier(
         OsString::from("-Clink-dead-code=yes"),
         OsString::from("-Clto=off"),
         OsString::from("-Cstrip=none"),
-        // Descriptor extraction needs symbols and relocations, not DWARF.
-        // Keep the original Cargo debug setting in normalized final-profile
-        // identity; only this intermediate rustc invocation overrides it.
+        // Descriptor extraction needs symbols and relocations, not DWARF or
+        // release LLVM optimization passes. Keep the original Cargo profile
+        // settings in normalized final-profile identity; only this intermediate
+        // rustc invocation overrides them.
         OsString::from("-Cdebuginfo=0"),
+        OsString::from("-Copt-level=0"),
     ]);
+    // rustc implies `cfg(debug_assertions)` when opt-level is 0 and disables it
+    // when opt-level is non-zero. Preserve the original implicit setting so
+    // `#[cfg(debug_assertions)]` items and observed source files match the
+    // final compilation identically.
+    if !explicit_debug_assertions && matches!(effective_opt_level, Some(level) if level != "0") {
+        result.push(OsString::from("-Cdebug-assertions=off"));
+    }
     match carrier {
         DescriptorCarrierMode::Single => result.extend([
             OsString::from("-Ccodegen-units=1"),
@@ -1760,7 +1791,13 @@ fn descriptor_rustc_args_with_carrier(
 fn descriptor_override_option(key: &str, carrier: &DescriptorCarrierMode) -> bool {
     matches!(
         key,
-        "link-dead-code" | "linker-plugin-lto" | "lto" | "strip" | "debuginfo"
+        "link-dead-code"
+            | "linker-plugin-lto"
+            | "lto"
+            | "strip"
+            | "debuginfo"
+            | "opt-level"
+            | "opt_level"
     ) || (key == "codegen-units" && matches!(carrier, DescriptorCarrierMode::Single))
 }
 
@@ -1787,8 +1824,9 @@ fn emit_without_object(value: &str) -> Option<String> {
 /// false invalidations in exchange for never guessing which package-local
 /// files rustc may observe.
 ///
-/// Symlinks, special files, and non-UTF-8 relative paths fail closed because
-/// following or encoding them would make the identity host-dependent. Files
+/// A package-root LICENSE can link directly to the checkout's regular LICENSE.
+/// Its relative target and bytes are both hashed. Other symlinks, special
+/// files, and non-UTF-8 relative paths fail closed. Files
 /// outside `CARGO_MANIFEST_DIR` are not discoverable from rustc's
 /// pre-compilation argv. The wrapper separately audits rustc-declared
 /// `OUT_DIR` source dependencies from the successful compile's exact dep-info;
@@ -1846,17 +1884,20 @@ fn collect_package_source_files(
             collect_package_source_files(package_root, &entry.path(), excluded_subtree, files)?;
             continue;
         }
-        if !file_type.is_file() {
+        let path = entry.path();
+        let digest = if file_type.is_file() {
+            hash_file(&path, PACKAGE_SOURCE_FILE_HASH_DOMAIN)?
+        } else if file_type.is_symlink() && directory == package_root && name == "LICENSE" {
+            shared_checkout_license_hash(package_root, &path)?
+        } else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "package source closure contains unsupported symlink or special file `{}`",
-                    entry.path().display()
+                    path.display()
                 ),
             ));
-        }
-
-        let path = entry.path();
+        };
         let relative = path.strip_prefix(package_root).map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -1878,7 +1919,6 @@ fn collect_package_source_files(
                 format!("package source path is ambiguous in rustc dep-info: `{relative}`"),
             ));
         }
-        let digest = hash_file(&path, PACKAGE_SOURCE_FILE_HASH_DOMAIN)?;
         if files.insert(relative.clone(), digest).is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -1887,6 +1927,45 @@ fn collect_package_source_files(
         }
     }
     Ok(())
+}
+
+/// Cargo git dependencies sometimes share the repository license across crates.
+fn shared_checkout_license_hash(package_root: &Path, link: &Path) -> io::Result<[u8; 32]> {
+    let invalid = || {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "expected a relative link to the checkout's regular LICENSE at {}",
+                link.display()
+            ),
+        )
+    };
+    let root = package_root
+        .ancestors()
+        .find(|ancestor| {
+            fs::symlink_metadata(ancestor.join(".git")).is_ok_and(|m| m.is_dir() || m.is_file())
+        })
+        .ok_or_else(invalid)?;
+    let depth = package_root
+        .strip_prefix(root)
+        .expect("ancestor of package")
+        .components()
+        .count();
+    let expected: PathBuf = std::iter::repeat_n("..", depth)
+        .chain(["LICENSE"])
+        .collect();
+    let target = root.join("LICENSE");
+    if depth == 0 || fs::read_link(link)? != expected || !fs::symlink_metadata(&target)?.is_file() {
+        return Err(invalid());
+    }
+    let contents = hash_file(&target, PACKAGE_SOURCE_FILE_HASH_DOMAIN)?;
+    Ok(hash_canonical(
+        b"proa.rsjs.shared-checkout-license.v1",
+        |hash| {
+            hash.field("parent-count", &(depth as u64).to_le_bytes());
+            hash.field("contents", &contents);
+        },
+    ))
 }
 
 fn package_source_root_vcs_entry_is_excluded(
@@ -2994,6 +3073,31 @@ fn validate_portable_relative_path(path: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Parsed source and environment dependencies recorded by `rustc --emit=dep-info`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustcDependencies {
+    pub source_paths: Vec<PathBuf>,
+    pub environment: Vec<(String, Option<String>)>,
+}
+
+/// Parse source file and compile-time environment dependencies recorded by `rustc --emit=dep-info`.
+pub fn rustc_dependencies(dep_info: &[u8]) -> Result<RustcDependencies, String> {
+    let parsed = parse_rustc_dep_info(dep_info)?;
+    Ok(RustcDependencies {
+        source_paths: parsed.source_paths,
+        environment: parsed
+            .environment
+            .into_iter()
+            .map(|entry| (entry.name, entry.value))
+            .collect(),
+    })
+}
+
+/// Parse source file dependencies recorded by `rustc --emit=dep-info`.
+pub fn rustc_source_dependencies(dep_info: &[u8]) -> Result<Vec<PathBuf>, String> {
+    Ok(parse_rustc_dep_info(dep_info)?.source_paths)
 }
 
 fn parse_rustc_dep_info(bytes: &[u8]) -> Result<ParsedDepInfo, String> {
@@ -5098,6 +5202,7 @@ struct RawCargoTarget {
 pub struct CargoArtifactCollector {
     artifacts: Vec<CargoCompilerArtifact>,
     seen_artifacts: BTreeSet<Vec<u8>>,
+    local_script_runs: BTreeMap<String, BTreeSet<PathBuf>>,
     build_finished: Option<bool>,
     line: usize,
 }
@@ -5124,6 +5229,21 @@ impl CargoArtifactCollector {
             .ok_or(CargoMessageError::MissingReason { line: self.line })?;
 
         match reason {
+            "build-started" => {
+                // Cargo emits this optional header when collecting build timings.
+                if self.line != 1 {
+                    return Err(CargoMessageError::MalformedAuxiliaryMessage {
+                        line: self.line,
+                        reason: reason.to_owned(),
+                    });
+                }
+                validate_auxiliary_message(
+                    &value,
+                    self.line,
+                    reason,
+                    &[("run_id", JsonFieldKind::NonemptyString)],
+                )?;
+            }
             "compiler-artifact" => {
                 let raw: RawCargoArtifact = serde_json::from_value(value).map_err(|source| {
                     CargoMessageError::MalformedCompilerArtifact {
@@ -5212,6 +5332,16 @@ impl CargoArtifactCollector {
                         ("out_dir", JsonFieldKind::NonemptyString),
                     ],
                 )?;
+                if let (Some(package), Some(out_dir)) =
+                    (value["package_id"].as_str(), value["out_dir"].as_str())
+                {
+                    if package.starts_with("path+file://") {
+                        self.local_script_runs
+                            .entry(package.to_owned())
+                            .or_default()
+                            .insert(PathBuf::from(out_dir));
+                    }
+                }
             }
             "future-incompat-report" => {
                 validate_auxiliary_message(
@@ -5229,6 +5359,32 @@ impl CargoArtifactCollector {
             }
         }
         Ok(())
+    }
+
+    /// An untracked local build script makes Cargo's final dep-info incomplete.
+    pub(crate) fn local_build_scripts_declare_inputs(&self) -> bool {
+        self.artifacts
+            .iter()
+            .filter(|artifact| {
+                artifact.package_id.starts_with("path+file://")
+                    && artifact.target.kind.contains("custom-build")
+            })
+            .all(|artifact| {
+                self.local_script_runs
+                    .get(&artifact.package_id)
+                    .is_some_and(|runs| {
+                        runs.iter().all(|out_dir| {
+                            build_script_stdout_path(out_dir)
+                                .and_then(fs::read_to_string)
+                                .is_ok_and(|output| {
+                                    output.lines().any(|line| {
+                                        line.starts_with("cargo:rerun-if-changed=")
+                                            || line.starts_with("cargo::rerun-if-changed=")
+                                    })
+                                })
+                        })
+                    })
+            })
     }
 
     /// Consume a complete Cargo JSON stream.
@@ -5659,7 +5815,10 @@ fn run_descriptor_cargo_with_empty_policy(
         .arg("--target-dir")
         .arg(&request.target_directory)
         .arg("--message-format=json-render-diagnostics")
-        .envs(&request.environment);
+        .envs(&request.environment)
+        // `cargo run` can pass the orchestrator's build-script output directory.
+        // Let this Cargo invocation assign OUT_DIR for each of its own units.
+        .env_remove("OUT_DIR");
     scrub_wrapper_control_environment(&mut command);
     command
         .env("RUSTC_WRAPPER", &request.wrapper)

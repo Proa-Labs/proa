@@ -3,10 +3,8 @@
 
 //! Curated network dossiers for the ORIGIN atlas.
 //!
-//! The page is a guided demo of four networks. Every value here is part of the
-//! design's copy, ported verbatim from the ORIGIN v2 prototype, so the
-//! server-rendered document stays deterministic and the golden test can pin it
-//! byte for byte.
+//! The page is a guided demo of four networks, with copy ported from the
+//! ORIGIN v2 prototype.
 
 /// One six-tile summary metric.
 #[derive(Debug, Clone, Copy)]

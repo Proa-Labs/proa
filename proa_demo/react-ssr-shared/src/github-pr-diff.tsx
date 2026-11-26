@@ -1983,8 +1983,7 @@ function tableRows(p: ResolvedProps, fileIdx: number, lines: number): React.Reac
   const fixture = p.linesPerFile === DEFAULT_LINES_PER_FILE ? fixtureLines(fileIdx) : null;
 
   if (customLines && customLines.length > 0) {
-    // Explicit prop lines (this also covers the fixture fast path in Rust,
-    // whose pre-rendered rows are byte-identical to rendering the lines).
+    // Explicit prop lines; both renderers highlight and render rows each time.
     return customLines.map((line, lineIdx) => (
       <RenderedDiffLine
         key={lineIdx}

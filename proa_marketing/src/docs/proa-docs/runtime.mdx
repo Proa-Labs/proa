@@ -156,16 +156,16 @@ pub fn docs_response(path: &str) -> Response {
 Inside the page view, render the generated article HTML with `BasePathHtml`. The compiler already produced trusted HTML from local Markdown files:
 
 ```rust filename="src/routes/docs_page.rs"
-use proa_core::{BasePathHtml, WebContext, WebRenderSync, WriteError};
+use proa::{BasePathHtml, WebContext, WebRenderSync, WriteError};
 use proa_docs::{DocPage, Docs, DocsNav, DocsPager, DocsSectionMenu, DocsToc};
-use proa_macros::html_sync;
+use proa::html_sync;
 
 struct DocsPageView {
     docs: &'static Docs,
     page: &'static DocPage,
 }
 
-impl<L: proa_core::DataLoader> WebRenderSync<L> for DocsPageView {
+impl<L: proa::DataLoader> WebRenderSync<L> for DocsPageView {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         html_sync! {
             <main class="docs-layout">

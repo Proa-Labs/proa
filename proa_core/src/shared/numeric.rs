@@ -3,12 +3,12 @@
 
 //! First-class rendering support for all primitive numeric types.
 //!
-//! Implements [`crate::WebRenderSync`], [`AttrValue`], [`crate::MdRenderSync`],
-//! and [`crate::MdRender`] for all 14 Rust primitive numeric types using
-//! [`itoa_lut`] (integers) and [`zmij`] (floats) for zero-allocation,
-//! zero-escape formatting. Literal `text!` integer format plans additionally
-//! cover width, alignment/fill, signs, radix prefixes, and scientific notation
-//! without routing primitive values through `core::fmt`.
+//! Implements [`crate::WebRenderSync`], [`crate::WebRender`], [`AttrValue`],
+//! [`crate::MdRenderSync`], and [`crate::MdRender`] for all 14 Rust primitive
+//! numeric types using [`itoa_lut`] (integers) and [`zmij`] (floats) for
+//! zero-allocation, zero-escape formatting. Literal `text!` integer format
+//! plans additionally cover width, alignment/fill, signs, radix prefixes, and
+//! scientific notation without routing primitive values through `core::fmt`.
 //!
 //! Integer rendering bypasses the `itoa_lut::Buffer` API entirely, writing
 //! digits directly into a sized stack array and extending the output buffer
@@ -16,10 +16,14 @@
 //!
 //! Digits, minus signs, decimal points, and `e` are all HTML-safe, so no
 //! escaping pass is needed.
+// Numeric formatters write generated ASCII straight into spare capacity
+// through the unsafe in-place writer. Each use states why it is ASCII.
+#![allow(unsafe_code)]
+
 use core::fmt;
 
 use crate::render::DataLoader;
-use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRenderSync};
+use crate::render::{MdRender, MdRenderSync, RenderOutcome, WebRender, WebRenderSync};
 use crate::shared::attr_value::AttrValue;
 use crate::shared::write_buf::{WriteBuf, WriteError};
 use crate::web::WebContext;
@@ -36,13 +40,16 @@ fn write_shortest<B: WriteBuf>(out: &mut B, formatted: &str) -> Result<(), Write
     let bytes = formatted.as_bytes();
     if let Some(plus) = memchr::memchr(b'+', bytes) {
         debug_assert!(plus > 0 && bytes[plus - 1] == b'e');
-        out.extend_with(bytes.len() - 1, |dest| {
-            dest[..plus].copy_from_slice(&bytes[..plus]);
-            dest[plus..bytes.len() - 1].copy_from_slice(&bytes[plus + 1..]);
-            bytes.len() - 1
-        })
+        // SAFETY: copies an ASCII float spelling minus its ASCII `+`.
+        unsafe {
+            out.extend_with(bytes.len() - 1, |dest| {
+                dest[..plus].copy_from_slice(&bytes[..plus]);
+                dest[plus..bytes.len() - 1].copy_from_slice(&bytes[plus + 1..]);
+                bytes.len() - 1
+            })
+        }
     } else {
-        out.extend(bytes)
+        out.extend_str(formatted)
     }
 }
 
@@ -72,9 +79,23 @@ macro_rules! impl_integer_render {
                 cx: &mut WebContext<L, B>,
             ) -> Result<(), crate::shared::write_buf::WriteError> {
                 let v = self;
-                cx.out.extend_with($max_len, |buf| {
-                    itoa_lut::$write_fn(v, buf.try_into().unwrap())
-                })
+                // SAFETY: itoa writes ASCII digits and an optional ASCII sign.
+                unsafe {
+                    cx.out.extend_with($max_len, |buf| {
+                        itoa_lut::$write_fn(v, buf.try_into().unwrap())
+                    })
+                }
+            }
+        }
+        impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for $unsigned {
+            #[inline(always)]
+            fn render(
+                self,
+                cx: &mut WebContext<L, B>,
+            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+                RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+                    WebRenderSync::render(self, cx),
+                )
             }
         }
         impl AttrValue for $unsigned {
@@ -88,9 +109,12 @@ macro_rules! impl_integer_render {
                 cx: &mut WebContext<L, B>,
             ) -> Result<(), crate::shared::write_buf::WriteError> {
                 let v = *self;
-                cx.out.extend_with($max_len, |buf| {
-                    itoa_lut::$write_fn(v, buf.try_into().unwrap())
-                })
+                // SAFETY: itoa writes ASCII digits and an optional ASCII sign.
+                unsafe {
+                    cx.out.extend_with($max_len, |buf| {
+                        itoa_lut::$write_fn(v, buf.try_into().unwrap())
+                    })
+                }
             }
         }
         impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for $unsigned {
@@ -123,9 +147,23 @@ macro_rules! impl_signed_render {
                 cx: &mut WebContext<L, B>,
             ) -> Result<(), crate::shared::write_buf::WriteError> {
                 let v = self;
-                cx.out.extend_with($max_len, |buf| {
-                    itoa_lut::$write_fn(v, buf.try_into().unwrap())
-                })
+                // SAFETY: itoa writes ASCII digits and an optional ASCII sign.
+                unsafe {
+                    cx.out.extend_with($max_len, |buf| {
+                        itoa_lut::$write_fn(v, buf.try_into().unwrap())
+                    })
+                }
+            }
+        }
+        impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for $signed {
+            #[inline(always)]
+            fn render(
+                self,
+                cx: &mut WebContext<L, B>,
+            ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+                RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+                    WebRenderSync::render(self, cx),
+                )
             }
         }
         impl AttrValue for $signed {
@@ -139,9 +177,12 @@ macro_rules! impl_signed_render {
                 cx: &mut WebContext<L, B>,
             ) -> Result<(), crate::shared::write_buf::WriteError> {
                 let v = *self;
-                cx.out.extend_with($max_len, |buf| {
-                    itoa_lut::$write_fn(v, buf.try_into().unwrap())
-                })
+                // SAFETY: itoa writes ASCII digits and an optional ASCII sign.
+                unsafe {
+                    cx.out.extend_with($max_len, |buf| {
+                        itoa_lut::$write_fn(v, buf.try_into().unwrap())
+                    })
+                }
             }
         }
         impl<Loader: ::proa_core::DataLoader, B: WriteBuf> MdRenderSync<Loader, B> for $signed {
@@ -181,6 +222,17 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for usize {
         <u64 as WebRenderSync<L, B>>::render(self as u64, cx)
     }
 }
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for usize {
+    #[inline(always)]
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(WebRenderSync::render(
+            self, cx,
+        ))
+    }
+}
 impl AttrValue for usize {
     #[inline(always)]
     fn should_render(&self) -> bool {
@@ -214,6 +266,17 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for isize {
     #[inline(always)]
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), crate::shared::write_buf::WriteError> {
         <i64 as WebRenderSync<L, B>>::render(self as i64, cx)
+    }
+}
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for isize {
+    #[inline(always)]
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(WebRenderSync::render(
+            self, cx,
+        ))
     }
 }
 impl AttrValue for isize {
@@ -256,6 +319,17 @@ macro_rules! impl_float_render {
                 ) -> Result<(), crate::shared::write_buf::WriteError> {
                     let mut buf = zmij::Buffer::new();
                     write_shortest(&mut cx.out, buf.format(self))
+                }
+            }
+            impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for $ty {
+                #[inline(always)]
+                fn render(
+                    self,
+                    cx: &mut WebContext<L, B>,
+                ) -> RenderOutcome<impl core::future::Future<Output = Result<(), WriteError>>> {
+                    RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
+                        WebRenderSync::render(self, cx),
+                    )
                 }
             }
             impl AttrValue for $ty {
@@ -428,7 +502,7 @@ struct NumericFmtWriter<'a, B: WriteBuf> {
 impl<B: WriteBuf> fmt::Write for NumericFmtWriter<'_, B> {
     #[inline]
     fn write_str(&mut self, value: &str) -> fmt::Result {
-        match self.output.extend(value.as_bytes()) {
+        match self.output.extend_str(value) {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.error = Some(error);
@@ -465,7 +539,8 @@ fn render_fixed_f64<B: WriteBuf>(
     if let Some(fixed) = fixed_decimal(value, precision) {
         let mut buffer = [0u8; FIXED_FORMAT_BUFFER_LEN];
         let len = write_fixed_decimal(fixed, &mut buffer);
-        output.extend(&buffer[..len])
+        // SAFETY: `write_fixed_decimal` writes ASCII digits, sign, and point.
+        output.extend_str(unsafe { core::str::from_utf8_unchecked(&buffer[..len]) })
     } else {
         render_std_fixed(value, precision, output)
     }
@@ -480,7 +555,8 @@ fn render_fixed_f32<B: WriteBuf>(
     if let Some(fixed) = fixed_decimal(value as f64, precision) {
         let mut buffer = [0u8; FIXED_FORMAT_BUFFER_LEN];
         let len = write_fixed_decimal(fixed, &mut buffer);
-        output.extend(&buffer[..len])
+        // SAFETY: `write_fixed_decimal` writes ASCII digits, sign, and point.
+        output.extend_str(unsafe { core::str::from_utf8_unchecked(&buffer[..len]) })
     } else {
         render_std_fixed(value, precision, output)
     }
@@ -622,7 +698,7 @@ impl<T: fmt::Display, const PRECISION: usize> __ProaFixedFormatValue<PRECISION>
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
         crate::shared::attr_value::__proa_render_fmt_attr(
-            format_args!("{:.*}", PRECISION, &self.0),
+            format_args!("{:.*}", PRECISION, self.0),
             cx,
         )
     }

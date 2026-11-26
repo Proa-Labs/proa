@@ -5,14 +5,14 @@
 //!
 //! The crate is organized in four layers:
 //!
-//! - [`commands`]: one module per `proa` subcommand (clap argument types and
-//!   the subcommand entry points), dispatched from [`cli`].
+//! - `commands`: one module per `proa` subcommand (clap argument types and
+//!   the subcommand entry points), dispatched from `cli`.
 //! - Reusable domain engines in `proa_source_tools` and `proa_build`,
 //!   exposed here through the existing module paths: [`fmt`], [`lint`], [`chunks`],
 //!   [`config`], [`font`], [`lifecycle`], [`scaffold`], [`source`], [`ui`],
 //!   and the linked RSJS build pipeline under [`rsjs`].
-//! - [`output`]: diagnostic presentation (terminal, JSON, GitHub annotations).
-//! - [`util`]: small helpers shared across the command layer.
+//! - `output`: diagnostic presentation (terminal, JSON, GitHub annotations).
+//! - `util`: small helpers shared across the command layer.
 
 pub mod capabilities;
 mod cli;

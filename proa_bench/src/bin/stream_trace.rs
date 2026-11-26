@@ -26,7 +26,6 @@ use proa_bench::streaming_marketplace::{
     marketplace_loader, marketplace_preload_keys, MarketplaceBufferedPage, MarketplacePanelSpec,
     MarketplaceStreamPage, MARKETPLACE_PANEL_SPECS, MARKETPLACE_SHELL_MARKER,
 };
-use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{router_from_spec, Route, RouteContextLayer, RouteResponse};
 use serde_json::json;
 use tower::ServiceExt;
@@ -58,15 +57,6 @@ struct StatSummary {
     p95_ms: f64,
     min_ms: f64,
     max_ms: f64,
-}
-
-fn empty_manifest() -> std::sync::Arc<IslandManifest> {
-    std::sync::Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    })
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -105,9 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     ];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     println!("Streaming trace: marketplace PDP");
     println!("Warmup iterations: {}", DEFAULT_WARMUP);

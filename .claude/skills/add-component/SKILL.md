@@ -44,7 +44,7 @@ resort for a verified, documented RSJS gap; follow the [RSJS-first policy](../..
    justify the split.
 3. Implement `WebRenderSync<L>` explicitly and use `html_sync!` by default.
    Add `WebRenderSync` bounds only to generic values rendered as children.
-   Use `proa_core::to_async(...)` when a sync child must compose inside
+   Use `proa::to_async(...)` when a sync child must compose inside
    `html!`. Implement the real `WebRender<L>` signature only when rendering
    awaits.
    `WebContext<L>` owns the default `RenderBuffer`; reserve `B: WriteBuf` for
@@ -78,10 +78,10 @@ behavior.
 ## Minimal component
 
 ```rust
-use proa_core::{
+use proa::{
     ClassList, DataLoader, WebContext, WebRenderSync, WriteError,
 };
-use proa_macros::html_sync;
+use proa::html_sync;
 
 pub struct Notice<C = ()> {
     pub class: Option<&'static str>,

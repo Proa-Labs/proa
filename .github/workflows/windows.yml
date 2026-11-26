@@ -47,8 +47,8 @@ jobs:
         run: cargo test --locked -p proa_build --lib
       - name: Test Windows COFF transport
         run: cargo test --locked -p rsjs_transport --lib windows_
-      - name: Check CLI including Windows code and test targets
-        run: cargo check --locked -p proa-cli --all-targets
+      - name: Lint CLI including Windows code and test targets
+        run: cargo clippy --locked -p proa-cli --all-targets --all-features -- -D warnings
       - name: Test Cargo subcommand argument handling
         run: cargo test --locked -p proa-cli --lib cli::tests
       - name: Test artifact replacement

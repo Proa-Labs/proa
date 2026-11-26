@@ -40,13 +40,6 @@ Compatibility keys are sourced from
 [MDN browser-compat-data](https://github.com/mdn/browser-compat-data), which is
 made available under CC0 1.0 Universal.
 
-## Marko
-
-The checked-in lean-page hydration bundle includes portions of the Marko
-browser runtime, distributed under the MIT License. The required copyright and
-license notice is included in
-[`proa_demo/bench/lean-page/marko-server/UPSTREAM_LICENSE.md`](proa_demo/bench/lean-page/marko-server/UPSTREAM_LICENSE.md).
-
 ## Octicons
 
 The GitHub pull-request comparison demos include icons from
@@ -87,8 +80,6 @@ by `proa_fonts_build`. Both families are distributed under the SIL Open Font
 License, Version 1.1. Each family's license text, including its copyright
 notice, sits beside the font files it covers:
 
-- [`examples/origin-routing-atlas/public/fonts/OFL-InstrumentSans.txt`](examples/origin-routing-atlas/public/fonts/OFL-InstrumentSans.txt)
-- [`examples/origin-routing-atlas/public/fonts/OFL-AzeretMono.txt`](examples/origin-routing-atlas/public/fonts/OFL-AzeretMono.txt)
 - [`proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-InstrumentSans.txt`](proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-InstrumentSans.txt)
 - [`proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-AzeretMono.txt`](proa_cli/src/site_scaffold/templates/origin/public/fonts/OFL-AzeretMono.txt)
 

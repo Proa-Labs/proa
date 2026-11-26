@@ -25,7 +25,7 @@ const maxResponseBytes = 16 * 1024 * 1024
 
 // Options configures a client. Zero values select production, a 15-second
 // per-request timeout, and the default HTTP transport. A base URL can include
-// a path prefix, for example https://proa.so/sandbox.
+// a path prefix, for example https://example.com/docs-service.
 type Options struct {
 	BaseURL    string
 	Timeout    time.Duration

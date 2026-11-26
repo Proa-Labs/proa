@@ -6,6 +6,7 @@ use super::*;
 
 pub(super) fn request_config_expr(
     expr: &Expr,
+    context_ident: &syn::Ident,
     default_method: &str,
     message: &str,
 ) -> syn::Result<FrontendExpr> {
@@ -18,6 +19,48 @@ pub(super) fn request_config_expr(
     }
     if let Expr::Struct(s) = expr {
         return fetch_request_struct_expr(s, default_method);
+    }
+    if let Expr::MethodCall(call) = expr {
+        if call.method == "url"
+            && matches!(call.receiver.as_ref(), Expr::Path(path) if path.path.is_ident(context_ident))
+        {
+            if call.args.len() != 1 {
+                return Err(syn::Error::new(
+                    call.span(),
+                    "`cx.url(...)` request URL requires one string literal path",
+                ));
+            }
+            let url = parse_static_string_field(
+                &call.args[0],
+                "`cx.url(...)` request URL must be a string literal",
+            )?;
+            if url.starts_with("public/") {
+                // Only the server holds the public asset catalog. The browser
+                // would request this path relative to the current page.
+                return Err(syn::Error::new(
+                    call.args[0].span(),
+                    format!(
+                        "`{context_ident}.url(\"{url}\")` names a managed public asset, but this \
+                         request URL is resolved in the browser, which cannot read the server's \
+                         asset catalog and would fetch `{url}` relative to the current page\n\
+                         help: resolve the URL during SSR and pass it through a signal: \
+                         `let url = signal({context_ident}.url(\"{url}\").try_to_string()?);`, \
+                         then request `url.get()` and include `url.get()` in the query key"
+                    ),
+                ));
+            }
+            let descriptor = json!({ "url": url, "apply_base_path": true });
+            let encoded = rsjs_transport::canonical_json_bytes(&descriptor).map_err(|err| {
+                syn::Error::new(
+                    call.span(),
+                    format!("failed to encode `cx.url(...)`: {err}"),
+                )
+            })?;
+            return Ok(FrontendExpr::Literal(Value::String(
+                String::from_utf8(encoded)
+                    .expect("canonical JSON serialization always produces valid UTF-8"),
+            )));
+        }
     }
     Err(syn::Error::new(expr.span(), message))
 }
@@ -44,6 +87,7 @@ pub(super) fn request_config_response_is_text(expr: &FrontendExpr) -> bool {
 #[derive(Default)]
 pub(super) struct FetchRequestDescriptor {
     pub(super) url: Option<String>,
+    pub(super) apply_base_path: bool,
     pub(super) method: Option<String>,
     pub(super) credentials: Option<String>,
     pub(super) response: Option<String>,
@@ -99,6 +143,15 @@ pub(super) fn fetch_request_struct_expr(
                     &field.expr,
                     "`rsjs::FetchRequest.url` must be a string literal",
                 )?);
+            }
+            "apply_base_path" => {
+                descriptor.apply_base_path = parse_bool_literal(&field.expr).map_err(|_| {
+                    syn::Error::new(
+                        field.expr.span(),
+                        "`rsjs::FetchRequest.apply_base_path` must be a boolean literal \
+                         (`true` or `false`)",
+                    )
+                })?;
             }
             "method" => {
                 descriptor.method = parse_optional_enum_variant(
@@ -168,6 +221,9 @@ pub(super) fn fetch_request_struct_expr(
 
     let mut object = JsonMap::new();
     object.insert("url".to_string(), JsonValue::String(url));
+    if descriptor.apply_base_path {
+        object.insert("apply_base_path".to_string(), JsonValue::Bool(true));
+    }
     if let Some(method) = descriptor.method {
         object.insert("method".to_string(), JsonValue::String(method));
     }
@@ -689,5 +745,110 @@ pub(super) fn parse_invalidation_strategy(expr: &Expr) -> syn::Result<Invalidati
             "`on_success_invalidate_strategy` must be `rsjs::InvalidationStrategy::Refetch` \
              or `rsjs::InvalidationStrategy::Reset`",
         )),
+    }
+}
+
+#[cfg(test)]
+mod request_base_path_tests {
+    use super::*;
+
+    fn descriptor(expr: Expr) -> JsonValue {
+        let FrontendExpr::Literal(Value::String(json)) =
+            request_config_expr(&expr, &syn::parse_quote!(cx), "GET", "invalid request").unwrap()
+        else {
+            panic!("FetchRequest should lower to a JSON descriptor");
+        };
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn fetch_request_only_encodes_explicit_base_path_opt_in() {
+        let default = descriptor(syn::parse_quote! {
+            rsjs::FetchRequest { url: "/api/items", ..Default::default() }
+        });
+        assert_eq!(default["url"], "/api/items");
+        assert!(default.get("apply_base_path").is_none());
+
+        let opted_in = descriptor(syn::parse_quote! {
+            rsjs::FetchRequest {
+                url: "/api/items",
+                apply_base_path: true,
+                ..Default::default()
+            }
+        });
+        assert_eq!(opted_in["apply_base_path"], true);
+
+        let opted_out = descriptor(syn::parse_quote! {
+            rsjs::FetchRequest {
+                url: "/api/items",
+                apply_base_path: false,
+                ..Default::default()
+            }
+        });
+        assert!(opted_out.get("apply_base_path").is_none());
+
+        let dynamic: Expr = syn::parse_quote! {
+            rsjs::FetchRequest {
+                url: "/api/items",
+                apply_base_path: flag,
+                ..Default::default()
+            }
+        };
+        let message =
+            request_config_expr(&dynamic, &syn::parse_quote!(cx), "GET", "invalid request")
+                .unwrap_err()
+                .to_string();
+        assert!(message.contains("apply_base_path"), "{message}");
+    }
+
+    #[test]
+    fn cx_url_encodes_a_mounted_request_for_queries_and_mutations() {
+        let expr = syn::parse_quote! { cx.url("/api/items") };
+        let context_ident = syn::parse_quote!(cx);
+        let query = request_config_expr(&expr, &context_ident, "GET", "invalid request").unwrap();
+        let mutation =
+            request_config_expr(&expr, &context_ident, "POST", "invalid request").unwrap();
+        for request in [query, mutation] {
+            let FrontendExpr::Literal(Value::String(json)) = request else {
+                panic!("cx.url should lower to a JSON descriptor");
+            };
+            let descriptor: JsonValue = serde_json::from_str(&json).unwrap();
+            assert_eq!(descriptor["url"], "/api/items");
+            assert_eq!(descriptor["apply_base_path"], true);
+        }
+
+        let dynamic: Expr = syn::parse_quote! { cx.url(path) };
+        assert!(
+            request_config_expr(&dynamic, &context_ident, "GET", "invalid request")
+                .unwrap_err()
+                .to_string()
+                .contains("must be a string literal")
+        );
+
+        let renamed = syn::parse_quote! { render_ctx.url("/api/items") };
+        let descriptor = request_config_expr(
+            &renamed,
+            &syn::parse_quote!(render_ctx),
+            "GET",
+            "invalid request",
+        )
+        .unwrap();
+        assert!(matches!(
+            descriptor,
+            FrontendExpr::Literal(Value::String(_))
+        ));
+    }
+
+    #[test]
+    fn cx_url_rejects_public_assets_in_browser_requests() {
+        let expr = syn::parse_quote! { cx.url("public/data.json") };
+        let message = request_config_expr(&expr, &syn::parse_quote!(cx), "GET", "invalid request")
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("managed public asset"), "{message}");
+        assert!(
+            message.contains("signal(cx.url(\"public/data.json\").try_to_string()?)"),
+            "{message}"
+        );
     }
 }

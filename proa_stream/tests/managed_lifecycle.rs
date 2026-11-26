@@ -70,7 +70,7 @@ impl WebRender for PageWithTitle {
             if self.wait {
                 std::future::pending::<()>().await;
             }
-            cx.output_mut().extend(b"PAGE_BODY")
+            cx.output_mut().extend_str("PAGE_BODY")
         })
     }
 }
@@ -126,7 +126,7 @@ fn page_before_outlet_is_valid_and_stored_handle_uses_final_values() {
     ))
     .unwrap();
     assert!(!d.is_published());
-    cx.output_mut().extend(b"<head>").unwrap();
+    cx.output_mut().extend_str("<head>").unwrap();
     WebRenderSync::render(head, &mut cx).unwrap();
     d.final_check().unwrap();
     assert_eq!(wire(&out), "PAGE_BODY<head><title>final</title>");
@@ -317,7 +317,7 @@ impl WebRenderSync for EmptyPage {
 #[test]
 fn page_without_hook_seals_and_publishes_in_sync_dispatch() {
     let (mut cx, d, _) = setup();
-    cx.output_mut().extend(b"<head>").unwrap();
+    cx.output_mut().extend_str("<head>").unwrap();
     WebRenderSync::render(d.outlet(), &mut cx).unwrap();
     head_dispatch::sync(EmptyPage, &mut cx).unwrap();
     d.final_check().unwrap();
@@ -340,7 +340,7 @@ fn retained_bytes_limit_fails_instead_of_waiting_for_itself() {
     let d = ManagedHead::new(3, Arc::new(|_, _| panic!("must not publish")));
     let mut cx = WebContext::new();
     cx.head_mut().manage(d.clone());
-    cx.output_mut().extend(b"four").unwrap();
+    cx.output_mut().extend_str("four").unwrap();
     assert_eq!(
         err(WebRenderSync::render(d.outlet(), &mut cx).unwrap_err()),
         HeadError::RetainedLimit
@@ -355,7 +355,7 @@ impl WebRender for BodyError {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.output_mut().extend(b"discard")?;
+            cx.output_mut().extend_str("discard")?;
             Err(WriteError::render("body error"))
         })
     }
@@ -408,10 +408,10 @@ fn recovery_cannot_rewind_over_a_reserved_head_outlet() {
     assert!(d.final_check().is_err());
 }
 #[test]
-fn chained_pages_are_transferred_and_invalid_utf8_is_rejected() {
+fn chained_pages_are_transferred_and_invalid_utf8_is_rejected_at_the_write() {
     let (mut cx, d, out) = setup();
     let content = "é".repeat(3000);
-    cx.output_mut().extend(content.as_bytes()).unwrap();
+    cx.output_mut().extend_str(&content).unwrap();
     let original = cx
         .output()
         .slices()
@@ -422,12 +422,14 @@ fn chained_pages_are_transferred_and_invalid_utf8_is_rejected() {
     head_dispatch::sync(EmptyPage, &mut cx).unwrap();
     assert_eq!(out.lock().unwrap()[0].as_ptr(), original);
     assert_eq!(wire(&out), content);
+    // Invalid bytes never reach the retained output: the raw write that
+    // carries them is rejected, so publication has nothing to scan.
     let (mut cx, d, out) = setup();
-    cx.output_mut().extend(&[255]).unwrap();
-    WebRenderSync::render(d.outlet(), &mut cx).unwrap();
     assert_eq!(
-        err(head_dispatch::sync(EmptyPage, &mut cx).unwrap_err()),
-        HeadError::InvalidOutput
+        cx.output_mut().extend(&[255]),
+        Err(proa_core::WriteError::InvalidUtf8)
     );
-    assert!(out.lock().unwrap().is_empty());
+    WebRenderSync::render(d.outlet(), &mut cx).unwrap();
+    head_dispatch::sync(EmptyPage, &mut cx).unwrap();
+    assert_eq!(wire(&out), "");
 }

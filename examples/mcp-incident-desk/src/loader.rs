@@ -5,8 +5,8 @@ use crate::{
     domain::{self, Activity, Issue, IssueProjection, Principal},
     error::{AppError, Result},
 };
-use proa_core::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
-use proa_stream::DataResolver;
+use proa::stream::DataResolver;
+use proa::{DataLoader, LoadError, LoadKey, LoadRequest, LoadValue};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,

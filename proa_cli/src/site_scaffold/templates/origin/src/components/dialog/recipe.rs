@@ -8,8 +8,8 @@
 //! variant. Every remaining public part reads one static named slot.
 
 use crate::tw_join;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::{AttrValue, SafeAttr};
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 pub(crate) const DIALOG_ROOT: &str = "group/dialog";
 
@@ -147,7 +147,7 @@ const DIALOG_SIZE_XL: &str = "max-w-4xl";
 const DIALOG_SIZE_FULL: &str = "max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)]";
 
 /// Dialog content size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "size", path = "crate::components::_proa::variant_spec")]
 pub enum DialogSize {
     Sm,
@@ -261,7 +261,7 @@ impl AttrValue for DialogRootStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.root.as_bytes())
+        SafeAttr(self.recipe.root).render_attr_value(cx)
     }
 }
 
@@ -290,9 +290,12 @@ impl AttrValue for DialogContentStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.content.as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.size.classes().as_bytes())
+        proa::text!(
+            "{} {}",
+            SafeAttr(self.recipe.content),
+            SafeAttr(self.size.classes()),
+        )
+        .render_attr_value(cx)
     }
 }
 

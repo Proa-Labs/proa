@@ -13,8 +13,6 @@ use proa_core::text::{text, StaticRaw};
 use proa_core::WriteError;
 use tower::ServiceExt;
 
-use crate::manifest::IslandManifest;
-
 use super::context::RouteContextLayer;
 use super::layout::Layout;
 use super::metadata::{
@@ -38,15 +36,8 @@ async fn endpoint_runs_under_metadata_layout() {
         )],
     )];
 
-    let manifest = Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    });
-
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -129,15 +120,8 @@ async fn metadata_is_composed() {
     )
     .with_metadata(&BaseMetadata)];
 
-    let manifest = Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    });
-
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -181,14 +165,7 @@ async fn page_owned_cache_survives_endpoint_replacement_and_router_merge() {
     let pages = axum::Router::new()
         .merge(cached.into_router())
         .merge(uncached.into_router());
-    let app = FrameworkBuilder::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: None,
-    })
-    .with_dynamic_routes(pages)
-    .build();
+    let app = FrameworkBuilder::new().with_dynamic_routes(pages).build();
 
     for expected in ["MISS", "HIT"] {
         let response = app
@@ -243,14 +220,9 @@ async fn nested_page_refresh_preserves_metadata_and_does_not_cache_siblings() {
     let parent = Route::layout("/group", &MetadataLayout, vec![child, sibling])
         .with_metadata(&BaseMetadata)
         .with_page_cache(PageCacheLayer::new("unused-layout-policy"));
-    let app = FrameworkBuilder::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: None,
-    })
-    .with_dynamic_routes(axum::Router::new().merge(parent.into_router()))
-    .build();
+    let app = FrameworkBuilder::new()
+        .with_dynamic_routes(axum::Router::new().merge(parent.into_router()))
+        .build();
     let fetch = || {
         app.clone().oneshot(
             Request::builder()

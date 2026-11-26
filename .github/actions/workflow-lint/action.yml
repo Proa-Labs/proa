@@ -27,8 +27,11 @@ runs:
         checksum=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
         directory="$(mktemp -d)"
         archive="$directory/actionlint.tar.gz"
+        # Release-asset downloads occasionally answer 504 from the runners;
+        # retry the fetch, the checksum below still gates what runs.
         curl --fail --silent --show-error --location \
           --proto '=https' --tlsv1.2 \
+          --retry 5 --retry-delay 5 --retry-all-errors \
           --output "$archive" \
           "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
         printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --status
@@ -44,12 +47,13 @@ runs:
       shell: bash
       run: |
         python3 scripts/test_cli_binary_distribution.py
-        python3 scripts/test_publish.py
         python3 scripts/test_release_plz.py
 
     - name: Test the linked-acceptance path classifier
       shell: bash
-      run: python3 scripts/test_linked_acceptance_paths.py
+      run: |
+        python3 scripts/test_linked_acceptance_paths.py
+        python3 scripts/test_rust_ci.py
 
     - name: Test linked-acceptance shard isolation
       shell: bash

@@ -697,8 +697,10 @@ fn base_identity_excludes_transport_and_out_dir_bytes_but_binds_build_script_env
         b"cargo::rustc-env=BUILD_MODE=stable\n",
     )
     .unwrap();
+    let second_run = second_out.parent().unwrap().join("run");
+    fs::create_dir(&second_run).unwrap();
     fs::write(
-        second_out.parent().unwrap().join("output"),
+        second_run.join("stdout"),
         b"cargo::rustc-env=BUILD_MODE=stable\n",
     )
     .unwrap();
@@ -871,6 +873,33 @@ fn package_source_closure_is_host_independent_and_tracks_nested_modules() {
         first_input.cargo_unit_id(),
         nested_module_changed.cargo_unit_id()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn shared_license_hash_tracks_the_regular_file_at_the_git_root() {
+    use std::os::unix::fs::symlink;
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("checkout");
+    let package = root.join("crates/sdk");
+    fs::create_dir_all(&package).unwrap();
+    fs::create_dir(root.join(".git")).unwrap();
+    let license = root.join("LICENSE");
+    fs::write(&license, b"license one").unwrap();
+    let link = package.join("LICENSE");
+    symlink("../../LICENSE", &link).unwrap();
+    let first = hash_package_source_closure(&package, None).unwrap();
+    fs::write(&license, b"license two").unwrap();
+    assert_ne!(first, hash_package_source_closure(&package, None).unwrap());
+
+    let outside = temp.path().join("LICENSE");
+    fs::write(&outside, b"outside").unwrap();
+    fs::remove_file(&license).unwrap();
+    symlink(&outside, &license).unwrap();
+    assert!(hash_package_source_closure(&package, None).is_err());
+    fs::remove_file(&link).unwrap();
+    symlink("../../../LICENSE", &link).unwrap();
+    assert!(hash_package_source_closure(&package, None).is_err());
 }
 
 #[test]
@@ -2217,6 +2246,21 @@ fn malformed_and_duplicate_cargo_messages_fail_closed() {
         collector.ingest_line(r#"{"reason":"compiler-message","package_id":"x"}"#),
         Err(CargoMessageError::MalformedAuxiliaryMessage { .. })
     ));
+    for header in [
+        r#"{"reason":"build-started"}"#,
+        r#"{"reason":"build-started","run_id":""}"#,
+    ] {
+        assert!(matches!(
+            CargoArtifactCollector::default().ingest_line(header),
+            Err(CargoMessageError::MalformedAuxiliaryMessage { .. })
+        ));
+    }
+    let mut collector = CargoArtifactCollector::default();
+    collector.ingest_line(&artifact).unwrap();
+    assert!(matches!(
+        collector.ingest_line(r#"{"reason":"build-started","run_id":"another-run"}"#),
+        Err(CargoMessageError::MalformedAuxiliaryMessage { .. })
+    ));
 }
 
 #[test]
@@ -2242,6 +2286,11 @@ fn collector_returns_only_cargo_enumerated_artifact_paths() {
     })
     .to_string();
     let mut collector = CargoArtifactCollector::default();
+    collector
+        .ingest_line(
+            r#"{"reason":"build-started","run_id":"20261124T022838673Z-b2c967fff3e276da"}"#,
+        )
+        .unwrap();
     collector.ingest_line(&artifact).unwrap();
     collector
         .ingest_line(r#"{"reason":"build-finished","success":true}"#)
@@ -2469,6 +2518,10 @@ fn descriptor_debug_override_preserves_the_original_final_profile() {
             rustc_codegen_value(&forwarded, "debuginfo").unwrap(),
             Some("0".into())
         );
+        assert_eq!(
+            rustc_codegen_value(&forwarded, "opt-level").unwrap(),
+            Some("0".into())
+        );
         assert!(!forwarded.contains(&OsString::from("debuginfo=1")));
         assert!(!forwarded.contains(&OsString::from("-Cdebuginfo=2")));
         assert!(forwarded.contains(&OsString::from("-Cdebug-assertions=yes")));
@@ -2476,6 +2529,65 @@ fn descriptor_debug_override_preserves_the_original_final_profile() {
         assert!(forwarded.contains(&OsString::from("-Cstrip=none")));
     }
     assert!(original.contains(&OsString::from("-Cdebuginfo=2")));
+}
+
+#[test]
+fn descriptor_opt_level_override_preserves_implicit_debug_assertions() {
+    let release_args: Vec<OsString> = vec![
+        "--emit=dep-info,metadata,link".into(),
+        "-C".into(),
+        "opt-level=3".into(),
+    ];
+    let forwarded_release = descriptor_rustc_args_with_carrier(
+        &release_args,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        rustc_codegen_value(&forwarded_release, "opt-level").unwrap(),
+        Some("0".into())
+    );
+    assert_eq!(
+        rustc_codegen_value(&forwarded_release, "debug-assertions").unwrap(),
+        Some("off".into())
+    );
+
+    let explicit_debug_release: Vec<OsString> = vec![
+        "--emit=dep-info,metadata,link".into(),
+        "-Copt-level=3".into(),
+        "-Cdebug-assertions=on".into(),
+    ];
+    let forwarded_explicit = descriptor_rustc_args_with_carrier(
+        &explicit_debug_release,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        rustc_codegen_value(&forwarded_explicit, "opt-level").unwrap(),
+        Some("0".into())
+    );
+    assert_eq!(
+        rustc_codegen_value(&forwarded_explicit, "debug-assertions").unwrap(),
+        Some("on".into())
+    );
+
+    let dev_args: Vec<OsString> = vec!["--emit=dep-info,metadata,link".into()];
+    let forwarded_dev = descriptor_rustc_args_with_carrier(
+        &dev_args,
+        Path::new("/staging/unit.o"),
+        &DescriptorCarrierMode::Rlib("/target/libunit.rlib".into()),
+    )
+    .unwrap();
+    assert_eq!(
+        rustc_codegen_value(&forwarded_dev, "opt-level").unwrap(),
+        Some("0".into())
+    );
+    assert_eq!(
+        rustc_codegen_value(&forwarded_dev, "debug-assertions").unwrap(),
+        None
+    );
 }
 
 #[test]

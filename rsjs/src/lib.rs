@@ -115,7 +115,7 @@
 //!   errors (best-effort).
 //! - `cx` is in scope inside the render method as it is in any Proa component;
 //!   async code can load values with a real `LoadKey`, such as
-//!   `cx.load::<User>(LoadKey::typed("user", id)).await`.
+//!   `cx.load_json::<User>(LoadKey::typed("user", id)).await`.
 //!
 //! # Status
 //!
@@ -136,6 +136,7 @@ pub mod web {
 }
 
 /// Embedded browser runtime sources for framework and asset-pipeline adapters.
+pub mod export;
 pub mod runtime_assets;
 
 /// `#[rsjs::client]` — mark a free function as a reusable client-side
@@ -1562,7 +1563,7 @@ pub use manifest::{
     write_manifest_json, CanonicalRsjsAssetUrls, ClientClassManifestEntry, ClientModuleAsset,
     ClientModuleManifestEntry, ComponentFragmentAsset, ComponentFragmentManifestEntry,
     DeferredIslandAsset, IslandHydrationStrategy, IslandManifestEntry, IslandModuleAsset, Manifest,
-    PageRuntimeEmissionState, PageRuntimePlan, PageRuntimePlanError, RsjsAssetRef,
+    PageRuntimeEmissionState, PageRuntimeHtml, PageRuntimePlan, PageRuntimePlanError, RsjsAssetRef,
     RsjsAssetUrlResolver, RuntimeAssetPlanError, RuntimeAssets, RuntimeFeatureSet,
     CLIENT_CLASS_REGISTRY, CLIENT_MODULE_REGISTRY, COMPONENT_FRAGMENT_REGISTRY, ISLAND_REGISTRY,
 };
@@ -2363,6 +2364,9 @@ pub enum RequestBody {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FetchRequest {
     pub url: &'static str,
+    /// Prefix root-relative URLs with the application's configured base path.
+    /// By default, URLs use normal browser resolution (`/api` stays at the origin root).
+    pub apply_base_path: bool,
     pub method: Option<HttpMethod>,
     pub credentials: Option<FetchCredentials>,
     pub response: Option<ResponseKind>,
@@ -2394,6 +2398,9 @@ impl QueryKey {
 /// that implements `serde::Serialize`. The component attribute records it in
 /// the page-level query seed table, while adjacent per-island query metadata only
 /// carries the effective key needed to find that seed.
+///
+/// Pass `cx.url("/api/items")` as `client_fetcher` for an endpoint mounted under
+/// the application's base path. A plain `"/api/items"` targets the origin root.
 pub fn query_with_initial<T>(
     _key: impl Sized,
     _initial: T,
@@ -2559,6 +2566,9 @@ impl Default for MutationOptions {
 
 /// Declare a fetch-backed mutation with the v0.1 authoring contract:
 /// `(key, client_runner, invalidates)`.
+///
+/// Pass `cx.url("/api/items")` as `client_runner` for an endpoint mounted under
+/// the application's base path.
 pub fn mutation<Args, Result>(
     _key: impl Sized,
     _client_runner: impl Sized,
@@ -2639,9 +2649,10 @@ impl<T> OptionalHandlerExt<T> for Option<Handler<T>> {
 ///
 /// The proc macro renders the wrapped value through the generated server
 /// `html_sync!` body and deliberately emits no client-side binding for it.
-/// Use this for static-per-render values such as recipe-computed class lists or
-/// ids. Do not wrap signal reads here: server-only attributes are not updated
-/// during hydration.
+/// Use ordinary server-rendered attributes such as
+/// `src={cx.url("public/images/logo.svg")}` directly. Reserve this helper for
+/// an intentional snapshot of an inbound value or server syntax the analyzer
+/// cannot classify. Signal reads belong in reactive attributes.
 pub fn server_attr<T>(value: T) -> T {
     value
 }

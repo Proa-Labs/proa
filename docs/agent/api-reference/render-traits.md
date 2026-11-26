@@ -26,8 +26,12 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 // either synchronously (`Done(r)`) or via a future (`Pending(fut)`).
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     const ROLE: ComponentRole = ComponentRole::COMPONENT;
-    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        Ok(())
+    // Override with `async fn render_head(..) -> Result<(), WriteError>`.
+    fn render_head(
+        &self,
+        _cx: &mut WebContext<L, B>,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        NoHead
     }
     fn render(
         self,
@@ -105,9 +109,9 @@ execution by itself.
 | Calls `query_with_initial(...)` with an already-available initial value | `WebRenderSync` |
 | Must `.await` to produce a query's initial value | `WebRender` |
 | Calls `mutation(...)` inside an analyzed component | `WebRender` (mutation declarations remain on the async surface) |
-| Composes a child that is async | `WebRender`, OR keep sync and use `proa_core::to_async(child)` if you can isolate the async leaf |
+| Composes a child that is async | `WebRender`, OR keep sync and use `proa::to_async(child)` if you can isolate the async leaf |
 | Complete async tree is `Send` and should stream directly through a multithreaded adapter | `WebRenderSend` + `html_send!` |
-| Send tree contains a send-safe synchronous child | `WebRenderSendSync`, then `proa_core::to_send(child)` |
+| Send tree contains a send-safe synchronous child | `WebRenderSendSync`, then `proa::to_send(child)` |
 
 ## Default: `WebRenderSync`
 
@@ -165,7 +169,7 @@ In an `html!` (async) tree, all children must be `WebRender`. To embed a
 `WebRenderSync` child:
 
 ```rust
-use proa_core::to_async;
+use proa::to_async;
 
 html! {
     <div>
@@ -182,7 +186,7 @@ For single-element components generated with `#[derive(ProaComponent)]`, add
 `async_render` to the component attribute:
 
 ```rust
-#[derive(proa_macros::ProaComponent)]
+#[derive(proa::ProaComponent)]
 #[component(tag = "aside", async_render)]
 struct Notice<C = ()> {
     #[component(children)]
@@ -245,7 +249,7 @@ branch truly needs to select between unrelated concrete component types, use
 the explicitly boxed escape hatches:
 
 ```rust
-use proa_core::{boxed_render, boxed_sync_render};
+use proa::{boxed_render, boxed_sync_render};
 
 let sync_child = if use_card {
     boxed_sync_render(CardView { /* ... */ })
@@ -328,7 +332,7 @@ impl<L: DataLoader> MdRender<L> for Article {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>>
     {
         RenderOutcome::Pending(async move {
-            proa_core::render_md_child(
+            proa::render_md_child(
                 cx,
                 md! { r###"
                     # {self.title}
@@ -343,12 +347,13 @@ impl<L: DataLoader> MdRender<L> for Article {
 }
 ```
 
-Primitive strings and numbers implement both Markdown traits. A custom
+Primitive strings, numbers, `bool`, and `char` implement both Markdown traits
+and both HTML traits. A custom
 sync-only child placed inside `md!` must be lifted explicitly:
 
 ```rust
 md! { r###"
-Result: {proa_core::to_md_async(sync_child)}
+Result: {proa::to_md_async(sync_child)}
 "###
 }
 ```
@@ -368,17 +373,26 @@ preserved. Braces inside fenced code blocks and inline code spans stay literal;
 outside code, double a literal brace as `{{` or `}}`. Increase the hash count
 only when the Markdown contains the exact closing sequence `"###`.
 
-The expression-visible token form remains supported for generated templates:
-`md_sync! { "# " { title } }`. In that form, a new top-level source line
-establishes a context-aware Markdown block boundary.
+The body is always one string literal. Token composition such as
+`md_sync! { "# " { title } }` is a compile error that points back to the string
+form. To render values in sequence without authoring Markdown, use a tuple:
+`(overview, impact).render_md(cx)`.
+
+Single-literal `md_sync!` and `md!` templates also scope their mode: a raw
+literal containing a physical source-line break is a block; ordinary strings
+and single-line raw literals are inline. Hash count does not select the mode.
+Blocks complete paragraph boundaries before their body and after success.
+Inline templates preserve explicit whitespace without adding boundaries.
+Scopes restore the immediately enclosing mode on errors, unwinding, and async
+cancellation, keeping partial output and boundary tracking. Blocks in inline
+scopes, link labels, headings, emphasis, and table cells are rejected rather
+than flattened. The macro body is one string literal; sequence children
+without authored Markdown through a tuple, which adds no boundaries. See
+[template modes](../document-rendering.md#template-modes).
 
 ### Convert existing HTML components to Markdown
 
-Enable the optional converter on the core dependency:
-
-```toml
-proa_core = { version = "0.3.0", features = ["html-to-markdown"] }
-```
+Enable the `html-to-markdown` feature on your existing `proa` dependency.
 
 A synchronous HTML component can delegate its Markdown implementation without
 maintaining a second template:
@@ -386,7 +400,7 @@ maintaining a second template:
 ```rust
 impl<L: DataLoader> MdRenderSync<L> for Article {
     fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        proa_core::to_markdown(self).render_md(cx)
+        proa::to_markdown(self).render_md(cx)
     }
 }
 ```
@@ -402,7 +416,7 @@ You can also wrap an HTML fragment directly, without defining a component:
 md_sync! { r###"
     # Overview
 
-    {proa_core::to_markdown(html_sync! {
+    {proa::to_markdown(html_sync! {
         <p>"Compiled templates with " <strong>"fast rendering"</strong> "."</p>
     })}
 
@@ -477,7 +491,9 @@ The impl-level rules stay quiet when the answer is not knowable from the source:
 
 ## Managed document head
 
-HTML components may provide an optional native async hook on `WebRender`:
+HTML components may provide an optional native async hook on `WebRender`. The
+trait declares `fn render_head(&self, cx) -> impl Future<Output = Result<(),
+WriteError>>`; implement it with `async fn`:
 
 ```rust
 async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -493,11 +509,35 @@ and skip head invocation entirely. Ancestor layouts declare `LAYOUT`; the select
 Page declares `PAGE`. Layouts and Pages invoke the hook, including the no-op default
 when omitted. Only the Page seals metadata before its body.
 
-Run `cargo proa lint <paths> --deny warnings`: `render/head-role-required` rejects
-an overridden hook with a missing role declaration or an explicit `COMPONENT`.
-Native futures do not expose override presence, so this is a source check rather
-than an async-trait compiler assertion. Forwarded/application role constants are
-accepted without evaluation; ensure they resolve to `LAYOUT` or `PAGE`.
+An overridden hook whose role is missing or an explicit `COMPONENT` fails code
+generation with `E0080: render_head requires an explicit role`, on every surface
+(sync, async, Send, `to_async`, `to_send`). The default async hook returns the
+zero-sized `NoHead` future, and every `async fn` future has a non-zero size, so
+dispatch tells an override from the default. The error names the component in its
+`evaluation of ... <YourType as WebRender>::render_head` note. It fires only when a
+built render path dispatches the component: run `cargo build`, since `cargo check`
+does not instantiate it. A forwarding wrapper with `const ROLE = T::ROLE` should
+return the inner future directly (`self.0.render_head(cx)`) rather than awaiting it
+in a new `async` block, so a hookless inner component stays hookless.
+
+Run `cargo proa lint <paths> --deny warnings` as well: `render/head-role-required`
+reports the same mistake without a build, including impls nothing renders yet.
+Forwarded/application role constants are accepted without evaluation; ensure they
+resolve to `LAYOUT` or `PAGE`. Three more lint errors catch placements that
+dispatch always rejects:
+
+| Code | Fires on | Runtime error it prevents |
+|---|---|---|
+| `render/head-mutation-in-body` | a checked `cx.head_mut()` setter in `render`, `render_send` or `render_send_sync` | `HeadError::OutsideHook` / `Closed` |
+| `render/head-role-in-suspense` | a `LAYOUT` or `PAGE` component passed to `Suspense::new` (child or fallback) | `HeadError::Excluded` |
+| `render/head-role-in-page` | a `LAYOUT` or `PAGE` component rendered from a `PAGE` body | `HeadError::Closed` |
+
+The placement lints follow the macro's rendered branches and loop bodies, and
+match a component only when its path resolves, in the module that writes it,
+to the module defining the package's only type of that name, whose render impls
+declare a literal `LAYOUT` or `PAGE`. Names from glob imports, re-exports,
+external crates, or function-local items stay quiet. The editor reports them too.
+Legacy setters (`set_title`, `push_meta`, ...) remain valid in manual documents.
 A Page using only inherited metadata still needs its role and a managed route test.
 A component declaring `LAYOUT` or `PAGE` renders only in a managed document,
 including when it inherits the default hook. Layouts belong above the selected
@@ -507,13 +547,13 @@ Sync, async, Send, `to_async` and `to_send` obey the same role contract. Plain
 `HeadError::ManualMode`. Ordinary visual wrappers keep `COMPONENT` for manual
 rendering or use inside a Page. `to_send_static` rejects both metadata roles.
 
-Sync hooks return `impl SyncHeadOperation`, retain their `NoHead` absence marker,
-and keep a code-generation role assertion (run `cargo build` too). Send hooks use
-`render_head_send`; their trait exposes `impl Future<Output = Result<(), WriteError>>
-+ Send`, and implementations may use `async fn` returning `Result`.
+Sync hooks return `impl SyncHeadOperation` and retain their `NoHead` absence
+marker. Send hooks use `render_head_send`; their trait exposes
+`impl Future<Output = Result<(), WriteError>> + Send`, and implementations may use
+`async fn` returning `Result`.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
-For several fields, pass `proa_core::HeadMetadata { title: value.into(),
+For several fields, pass `proa::HeadMetadata { title: value.into(),
 description: summary.into(), ..Default::default() }` to
 `cx.head_mut().metadata(...)`. This is an atomic patch: omitted fields inherit,
 and invalid fields leave the whole patch unapplied. `title_template`,
@@ -527,7 +567,9 @@ continues to configure the separate `/robots.txt` file.
 
 Place the owned `{cx.head()}` outlet inside the document's `<head>`. Select managed
 mode before rendering with `RouteResponse::with_head(HeadConfig)` or app-wide
-`FrameworkBuilder::with_head`. Head preparation ends before the Page body.
+`FrameworkBuilder::with_head`. Outside HTTP, `RouteResponse::render_to_bytes`
+finalizes the same managed document with no server or runtime. Head preparation
+ends before the Page body.
 Suspense, captures and fallbacks are body-only. Raw `.render(cx)` calls skip hooks;
 macro composition and framework helpers dispatch them.
 

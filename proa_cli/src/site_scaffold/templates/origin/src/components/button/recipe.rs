@@ -55,8 +55,8 @@
 //! });
 //! ```
 
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::{AttrValue, SafeAttr};
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles module - core button styling (shadcn style)
 mod base {
@@ -112,7 +112,7 @@ mod sizes {
     const BUTTON_SIZE_ICON_LG: &str = "size-10";
 
     /// Button size variants (shadcn style)
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
     #[variant(name = "size", path = "crate::components::_proa::variant_spec")]
     pub enum ButtonSize {
         Sm,
@@ -250,7 +250,7 @@ mod colors {
         tw_join!("text-destructive", "underline-offset-4", "hover:underline");
 
     /// Button color variants - semantic color choices
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
     #[variant(name = "color", path = "crate::components::_proa::variant_spec")]
     pub enum ButtonColor {
         #[default]
@@ -329,7 +329,7 @@ mod colors {
 /// Variant styles module - visual styling (solid, outline, ghost, link)
 mod variants {
     /// Button variant - visual style (independent of color)
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
     #[variant(name = "variant", path = "crate::components::_proa::variant_spec")]
     pub enum ButtonVariant {
         #[default]
@@ -365,7 +365,7 @@ mod radius {
     use crate::components::_proa::theme::rounded;
 
     /// Button radius variants
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
     #[variant(name = "radius", path = "crate::components::_proa::variant_spec")]
     pub enum ButtonRadius {
         None,
@@ -478,13 +478,14 @@ impl AttrValue for ButtonStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.base.as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.size.classes().as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.radius.classes().as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.appearance.as_bytes())
+        proa::text!(
+            "{} {} {} {}",
+            SafeAttr(self.base),
+            SafeAttr(self.size.classes()),
+            SafeAttr(self.radius.classes()),
+            SafeAttr(self.appearance),
+        )
+        .render_attr_value(cx)
     }
 }
 

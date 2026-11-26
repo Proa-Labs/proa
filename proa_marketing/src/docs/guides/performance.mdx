@@ -92,8 +92,8 @@ If a dynamic URL needs an owned string, construct it in the handler or view mode
 `SafeText<'a>` wraps a `&str` and skips HTML escape scanning. Use it when you know the string contains no HTML-unsafe characters (`<`, `>`, `&`, `"`, `'`).
 
 ```rust
-use proa_core::SafeText;
-use proa_macros::safe_text;
+use proa::SafeText;
+use proa::safe_text;
 
 // Compile-time verified literal
 safe_text!("Hello world")
@@ -102,7 +102,7 @@ safe_text!("Hello world")
 SafeText::from_trusted(validated_label)
 ```
 
-`SafeText` renders with a single `memcpy` into the output buffer. Regular `&str` rendering scans every byte with `memchr3` looking for unsafe characters. For strings with a proven safe character set, `SafeText` eliminates that scan. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.
+`SafeText` copies verified text directly into the output buffer. Regular `&str` rendering checks every byte for unsafe characters as it copies it. For strings with a proven safe character set, `SafeText` eliminates that check. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.
 
 **When NOT to use it:** Never wrap user input in `SafeText`. If the string could contain `<script>`, you've created an XSS vulnerability.
 
@@ -111,7 +111,7 @@ SafeText::from_trusted(validated_label)
 `ClassList<N>` composes CSS classes without string concatenation or allocation. All construction methods except `add_opt` are `const fn`.
 
 ```rust
-use proa_core::ClassList;
+use proa::ClassList;
 
 // Compile-time class composition
 const fn button_classes(primary: bool) -> ClassList<3> {
@@ -259,19 +259,19 @@ buf.render_into(component);  // Clears first, then recycles pages as it renders
 
 ## Attribute rendering
 
-Proa fuses attribute names and delimiters into single static byte slices at compile time.
+Proa fuses attribute names and delimiters into single static string slices at compile time.
 
 ```rust
 // The macro generates:
-cx.out.extend_static(b" class=\"")?;  // single pointer, not 3 separate writes
+cx.out.extend_static_str(" class=\"")?;  // single pointer, not 3 separate writes
 value.render_attr_value(cx)?;
-cx.out.extend_static(b"\"")?;
+cx.out.extend_static_str("\"")?;
 ```
 
 For attribute values you control, use `SafeAttr` to skip escape scanning:
 
 ```rust
-use proa_core::SafeAttr;
+use proa::SafeAttr;
 
 html! {
     <div data-page={SafeAttr("product-detail")} />
@@ -333,14 +333,11 @@ html! {
 The hint surfaces as a rustc warning anchored to the offending expression:
 
 ```
-warning: unused `_perf_format__inside_html_allocates_a_String_on_every_render_0` that must be used
-  --> src/pages/room.rs:24:17
+warning: use of deprecated function `_perf_format__inside_html_allocates_a_String_on_every_render_0`: perf: format!() inside html! allocates a String on every render. for text content, use inline segments: "$"{price}" / night" — for attributes, pre-compute the value before rendering (https://proa.so/docs/guides/performance). Wrap in perf_ok() to suppress if intentional
+  --> src/pages/room.rs:24:9
    |
-   = note: perf: format!() inside html! allocates a String on every render.
-           for text content, use inline segments: "$"{price}" / night" — for
-           attributes, pre-compute the value before rendering
-           (docs/guides/performance). Wrap in perf_ok() to suppress if
-           intentional
+24 |     <p>{format!("${} / night", price)}</p>
+   |         ^^^^^^
 ```
 
 ### Silencing a hint with `perf_ok()`
@@ -348,7 +345,7 @@ warning: unused `_perf_format__inside_html_allocates_a_String_on_every_render_0`
 When you intentionally allocate in the render path, wrap the expression in `perf_ok()` to suppress the warning:
 
 ```rust
-use proa_core::perf_ok;
+use proa::perf_ok;
 
 // Flagged:
 html! {
@@ -374,12 +371,7 @@ html! {
 
 ### Disabling all hints
 
-To disable performance hints project-wide (e.g., during early prototyping):
-
-```toml
-[dependencies]
-proa_macros = { version = "0.3.0", features = ["no-perf-hints"] }
-```
+Enable the `no-perf-hints` feature on your existing `proa` dependency to disable performance hints across the project.
 
 Remove the feature flag when you're ready to optimize.
 
@@ -393,3 +385,22 @@ Remove the feature flag when you're ready to optimize.
 6. **Maximize static runs** by keeping dynamic values at the leaves of your template.
 7. **Never allocate in a loop.** Each iteration should write directly to the output buffer.
 8. **Use `perf_ok()`** to silence hints on intentional allocations, not to ignore them.
+
+## Reading the benchmark results
+
+The [current benchmark evidence](https://github.com/Proa-Labs/framework-benchmarks)
+separates renderer-only time, complete HTTP responses, streaming, and cold start.
+The November 11, 2026 Proa refresh measured commit `bbbc968` on Apple M4 Max;
+peer render, HTTP, and cold-start rows retain their October 21 captures.
+
+The renderer-only Proa lane allocates a fresh owned `RenderBuffer` for each
+response and keeps that buffer. It does not include flattening it into a
+`String`. HTTP captures add the server's request and response path. Streaming
+response-end timings need another distinction: Proa sends resolved HTML, while
+SvelteKit sends promised data that the browser still has to render. Consult the
+[browser-completion results](https://github.com/Proa-Labs/framework-benchmarks/blob/main/sveltekit.md#browser-completion)
+when comparing that end-to-end work.
+
+Choose the boundary your application uses and measure it with your own data,
+output ownership, host, and request load. The published timings describe the
+recorded captures rather than every Proa application.

@@ -33,7 +33,7 @@ pub(crate) fn install_self(args: InstallSelfArgs) -> Result<()> {
         .parent()
         .context("installation directory needs a parent")?;
     fs::create_dir_all(parent)?;
-    let bin_dir = installation::external_path(&parent.canonicalize()?).join(
+    let bin_dir = crate::util::external_path(&parent.canonicalize()?).join(
         bin_dir
             .file_name()
             .context("invalid installation directory")?,
@@ -217,7 +217,7 @@ fn installed_bundle_is_complete(
     if !is_junction(&current).unwrap_or(false)
         || !is_junction(bin_dir).unwrap_or(false)
         || !fs::read_link(bin_dir)
-            .is_ok_and(|target| installation::external_path(&target) == current)
+            .is_ok_and(|target| crate::util::external_path(&target) == current)
     {
         return false;
     }
@@ -374,7 +374,7 @@ fn publish(
         // It must follow current before selection changes to the new bundle.
         if old_visible_target
             .as_ref()
-            .is_none_or(|target| installation::external_path(target) != current)
+            .is_none_or(|target| crate::util::external_path(target) != current)
         {
             set_junction(bin_dir, current)?;
         }

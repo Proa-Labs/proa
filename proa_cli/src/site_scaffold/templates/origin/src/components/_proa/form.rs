@@ -4,8 +4,8 @@
 //! Shared form-control state and deterministic accessibility identifiers.
 
 use crate::components::_proa::PartId;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::AttrValue;
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// State axes owned by a form-control root.
 ///
@@ -147,26 +147,13 @@ impl AttrValue for DescribedBy<'_> {
             return Ok(());
         };
 
-        if self.has_description {
-            write_part_id(cx, root, "description")?;
+        match (self.has_description, self.has_error) {
+            (true, true) => {
+                proa::text!("{}--description {}--error", root, root).render_attr_value(cx)
+            }
+            (true, false) => proa::text!("{}--description", root).render_attr_value(cx),
+            (false, true) => proa::text!("{}--error", root).render_attr_value(cx),
+            (false, false) => Ok(()),
         }
-        if self.has_description && self.has_error {
-            cx.out.extend_static(b" ")?;
-        }
-        if self.has_error {
-            write_part_id(cx, root, "error")?;
-        }
-        Ok(())
     }
-}
-
-fn write_part_id<B: WriteBuf, L: DataLoader>(
-    cx: &mut WebContext<L, B>,
-    root: &str,
-    part: &str,
-) -> Result<(), WriteError> {
-    let dialect = cx.__proa_current_escape_dialect();
-    proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, root, dialect)?;
-    cx.out.extend_static(b"--")?;
-    proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, part, dialect)
 }

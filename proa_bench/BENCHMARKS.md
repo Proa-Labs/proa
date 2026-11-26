@@ -4,7 +4,7 @@ This crate contains Proa-only regression guards and diagnostic fixtures that
 should evolve with the framework implementation. Cross-framework and
 cross-language comparisons, parity gates, external adapters, and historical
 results live in
-[`Proa-Labs/proa-benchmarks`](https://github.com/Proa-Labs/proa-benchmarks).
+[`Proa-Labs/framework-benchmarks`](https://github.com/Proa-Labs/framework-benchmarks).
 
 Keeping that boundary prevents ordinary Proa workspace Clippy and test jobs
 from compiling Leptos, Dioxus, Yew, Sailfish, Askama, Topcoat, and the
@@ -83,6 +83,6 @@ cargo run --locked --release -p proa_bench --bin suspense_adapter_bench -- \
   --concurrency 1,32,128
 ```
 
-Ordinary runs write ignored JSON under `proa_bench/results/`. Architecture
-changes may retain a named, commit-specific result under
-`proa_bench/baselines/` so the before/after comparison remains reviewable.
+Ordinary runs write ignored JSON under `proa_bench/results/`. Attach
+commit-specific results to the pull request or release so comparisons
+remain reviewable without adding historical dumps to the source tree.

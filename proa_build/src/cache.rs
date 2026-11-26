@@ -17,6 +17,16 @@
 //! other target outputs; the cache deliberately does not reread every emitted
 //! file.
 
+/// Print a cache-recovery note. These explain build times in the detailed
+/// log, so Cargo's own quiet switch silences them with the rest of its log.
+macro_rules! cache_note {
+    ($($argument:tt)*) => {
+        if std::env::var_os("CARGO_TERM_QUIET").is_none_or(|quiet| quiet != "true") {
+            eprintln!($($argument)*);
+        }
+    };
+}
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
@@ -132,7 +142,7 @@ pub(crate) fn run_descriptor_cargo_cached_leased(
     let mut active_request = request.clone();
     if let Some(staging) = &interrupted_staging {
         active_request.staging_directory = staging.clone();
-        eprintln!(
+        cache_note!(
             "recovering interrupted RSJS descriptor cache transaction from `{}` while preserving Cargo target `{}`",
             staging.display(),
             request.target_directory.display(),
@@ -153,7 +163,7 @@ pub(crate) fn run_descriptor_cargo_cached_leased(
                 || (interrupted_staging.is_some()
                     && recoverable_interrupted_generation_error(&error)) =>
         {
-            eprintln!(
+            cache_note!(
                 "RSJS descriptor cache recovery could not prove exact reuse ({error}); rebuilding its marker-owned Cargo target once"
             );
             reset_descriptor_request_owned_state(
@@ -486,14 +496,14 @@ fn retain_current_interrupted_units(
         }
     }
     if stale != 0 {
-        eprintln!(
+        cache_note!(
             "discarded {stale} stale descriptor recovery candidate{} after current-input validation",
             if stale == 1 { "" } else { "s" },
         );
     }
     let duplicate_count = candidate_count.saturating_sub(stale + retained.len());
     if duplicate_count != 0 {
-        eprintln!(
+        cache_note!(
             "deduplicated {duplicate_count} exact descriptor recovery candidate{}",
             if duplicate_count == 1 { "" } else { "s" },
         );
@@ -524,9 +534,13 @@ fn interrupted_unit_matches_current_inputs(
     }
     match join_descriptor_units_to_cargo_artifacts(std::slice::from_ref(unit), cargo_artifacts) {
         Ok(_) => Ok(true),
-        Err(UnitArtifactJoinError::MissingArtifact(_)) => Err(
-            DescriptorCacheError::InterruptedUnitMissingArtifact(unit.unit),
-        ),
+        // An interrupted build (for example, a normal compile error or another
+        // target sharing the descriptor target) can leave validated sidecars
+        // for units that are not part of the recovery build's Cargo artifact
+        // set. Discard those unreferenced candidates as stale; every artifact
+        // actually present in `cargo_artifacts` is still strictly verified
+        // below, so any missing current unit still fails closed.
+        Err(UnitArtifactJoinError::MissingArtifact(_)) => Ok(false),
         Err(error) => Err(DescriptorCacheError::ArtifactJoin(error)),
     }
 }

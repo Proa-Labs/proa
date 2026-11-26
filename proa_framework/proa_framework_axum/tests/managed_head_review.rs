@@ -63,11 +63,7 @@ mod tests {
     }
 
     fn layer() -> RouteContextLayer {
-        RouteContextLayer::new(
-            Arc::new(serde_json::from_str(r#"{"islands":{}}"#).unwrap()),
-            Arc::new(Default::default()),
-        )
-        .with_head(HeadConfig::default())
+        RouteContextLayer::new(Arc::new(Default::default())).with_head(HeadConfig::default())
     }
 
     fn policy_app(send: bool, policies: HeaderMap, middleware: HeaderMap) -> Router {

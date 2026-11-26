@@ -39,9 +39,9 @@ impl CspNonce {
     /// delimiters, so this path is allocation-free.
     #[inline(always)]
     pub fn write_html_attr<B: WriteBuf>(&self, out: &mut B) -> Result<(), WriteError> {
-        out.extend_static(b" nonce=\"")?;
-        out.extend(self.0.as_bytes())?;
-        out.extend_static(b"\"")
+        out.extend_static_str(" nonce=\"")?;
+        out.extend_str(&self.0)?;
+        out.extend_static_str("\"")
     }
 }
 
@@ -64,7 +64,7 @@ impl AttrValue for CspNonce {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend(self.0.as_bytes())
+        cx.out.extend_str(&self.0)
     }
 }
 
@@ -97,7 +97,7 @@ impl AttrValue for CspNonceAttr<'_> {
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
         if let Some(nonce) = self.0 {
-            cx.out.extend(nonce.0.as_bytes())?;
+            cx.out.extend_str(&nonce.0)?;
         }
         Ok(())
     }
@@ -178,12 +178,8 @@ mod tests {
 
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
-        present
-            .render_attr(b" nonce=\"", b" nonce", &mut cx)
-            .unwrap();
-        absent
-            .render_attr(b" nonce=\"", b" nonce", &mut cx)
-            .unwrap();
+        present.render_attr(" nonce=\"", " nonce", &mut cx).unwrap();
+        absent.render_attr(" nonce=\"", " nonce", &mut cx).unwrap();
         assert_eq!(out, br#" nonce="YWJjZA==""#);
     }
 }

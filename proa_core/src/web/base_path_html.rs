@@ -14,18 +14,18 @@ pub struct BasePathHtml(pub &'static str);
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BasePathHtml {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if cx.request().base_path().as_str().is_empty() {
-            return cx.output_mut().extend_static(self.0.as_bytes());
+            return cx.output_mut().extend_static_str(self.0);
         }
         // proa-perf-ok: share the immutable mount while writing trusted HTML segments.
         let base_path = cx.request().base_path().clone();
         let mut written = 0;
         for offset in HtmlUrlOffsets::new(self.0) {
             cx.output_mut()
-                .extend_static(self.0[written..offset].as_bytes())?;
+                .extend_static_str(&self.0[written..offset])?;
             base_path.as_str().render_attr_value(cx)?;
             written = offset;
         }
-        cx.output_mut().extend_static(self.0[written..].as_bytes())
+        cx.output_mut().extend_static_str(&self.0[written..])
     }
 }
 

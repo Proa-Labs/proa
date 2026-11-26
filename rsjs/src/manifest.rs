@@ -793,25 +793,43 @@ impl<'a> Default for CanonicalRsjsAssetUrls<'a> {
 
 impl RsjsAssetUrlResolver for CanonicalRsjsAssetUrls<'_> {
     fn resolve(&self, asset: RsjsAssetRef<'_>) -> String {
-        match asset {
-            RsjsAssetRef::Runtime => self.join("rsjs-runtime.js"),
-            RsjsAssetRef::QueryRuntime => self.join("rsjs-runtime-query.js"),
-            RsjsAssetRef::Island { asset_id } => self.join(&format!("rsjs/island/{asset_id}.js")),
-            RsjsAssetRef::ClientModule { module_path } => self.join(&format!(
-                "rsjs/island/{}",
-                client_module_filename(module_path)
-            )),
-            RsjsAssetRef::ClientClass { module_path } => self.join(&format!(
-                "rsjs/island/{}",
-                client_class_filename(module_path)
-            )),
-            RsjsAssetRef::ComponentFragment { asset_id } => self.join(&format!(
-                "rsjs/island/{}",
-                component_fragment_filename(asset_id)
-            )),
+        self.join(&asset.canonical_path())
+    }
+}
+
+impl RsjsAssetRef<'_> {
+    /// The asset's canonical path from the origin root, with no leading
+    /// slash: `rsjs-runtime.js`, `rsjs/island/<island-id>.js`. It is the name
+    /// generated modules import each other by, and the key a host that
+    /// publishes them under other names looks an asset up with.
+    pub fn canonical_path(self) -> String {
+        match self {
+            RsjsAssetRef::Runtime => RUNTIME_PATH.into(),
+            RsjsAssetRef::QueryRuntime => QUERY_RUNTIME_PATH.into(),
+            RsjsAssetRef::Island { asset_id } => format!("{MODULE_DIRECTORY}/{asset_id}.js"),
+            RsjsAssetRef::ClientModule { module_path } => {
+                format!("{MODULE_DIRECTORY}/{}", client_module_filename(module_path))
+            }
+            RsjsAssetRef::ClientClass { module_path } => {
+                format!("{MODULE_DIRECTORY}/{}", client_class_filename(module_path))
+            }
+            RsjsAssetRef::ComponentFragment { asset_id } => {
+                format!(
+                    "{MODULE_DIRECTORY}/{}",
+                    component_fragment_filename(asset_id)
+                )
+            }
         }
     }
 }
+
+/// Canonical path of the core runtime module.
+pub const RUNTIME_PATH: &str = "rsjs-runtime.js";
+/// Canonical path of the query and mutation runtime module.
+pub const QUERY_RUNTIME_PATH: &str = "rsjs-runtime-query.js";
+/// Canonical directory of every generated module. They import each other by
+/// relative path, so they share one directory.
+pub const MODULE_DIRECTORY: &str = "rsjs/island";
 
 /// Rewrite canonical runtime module specifiers in generated RSJS ESM source.
 ///
@@ -933,6 +951,30 @@ pub struct PageRuntimeEmissionState {
     emitted_preload_urls: BTreeSet<String>,
     emitted_eager_module_urls: BTreeSet<String>,
     emitted_deferred_islands: BTreeSet<DeferredIslandEmissionKey>,
+    emitted_page_config: bool,
+}
+
+/// How one response writes its runtime tags.
+///
+/// The plan is deterministic data. Everything here belongs to the request or
+/// the deployment, so it is supplied when the tags are written.
+#[derive(Clone, Copy, Default)]
+pub struct PageRuntimeHtml<'a> {
+    /// Request CSP nonce, written on every script and preload tag.
+    pub nonce: Option<&'a proa_core::CspNonce>,
+    /// The deployment's base path. When it is not empty the page carries it
+    /// in a JSON data block ahead of the first runtime tag, where the runtime
+    /// reads it. A host that serves one set of runtime files to every
+    /// deployment passes it here; a host that wrote the base path into its own
+    /// copy of the runtime leaves this empty.
+    pub base_path: &'a str,
+    /// Subresource Integrity value for a resolved module URL, when the host
+    /// knows the bytes that URL serves.
+    pub integrity: Option<&'a dyn Fn(&str) -> Option<&'a str>>,
+    /// The modules are served from another origin. Module scripts are always
+    /// fetched in CORS mode; this marks preloads to match, so the browser
+    /// reuses the preloaded response.
+    pub cross_origin: bool,
 }
 
 impl PageRuntimeEmissionState {
@@ -947,6 +989,7 @@ impl PageRuntimeEmissionState {
             && self.emitted_preload_urls.is_empty()
             && self.emitted_eager_module_urls.is_empty()
             && self.emitted_deferred_islands.is_empty()
+            && !self.emitted_page_config
     }
 }
 
@@ -1014,8 +1057,31 @@ impl PageRuntimePlan {
         state: &mut PageRuntimeEmissionState,
         nonce: Option<&proa_core::CspNonce>,
     ) -> Result<(), proa_core::WriteError> {
+        self.write_html_delta_with(
+            out,
+            state,
+            &PageRuntimeHtml {
+                nonce,
+                ..PageRuntimeHtml::default()
+            },
+        )
+    }
+
+    /// [`write_html_delta`](Self::write_html_delta) with the request and
+    /// deployment settings in `html`.
+    pub fn write_html_delta_with<B: proa_core::WriteBuf>(
+        &self,
+        out: &mut B,
+        state: &mut PageRuntimeEmissionState,
+        html: &PageRuntimeHtml<'_>,
+    ) -> Result<(), proa_core::WriteError> {
         if self.is_empty() {
             return Ok(());
+        }
+        let nonce = html.nonce;
+        if !html.base_path.is_empty() && !state.emitted_page_config {
+            write_page_config_tag(out, html.base_path)?;
+            state.emitted_page_config = true;
         }
 
         let runtime = self
@@ -1024,12 +1090,12 @@ impl PageRuntimePlan {
             .expect("non-empty PageRuntimePlan must carry runtime URLs");
         if !self.eager_islands.is_empty() {
             if !state.emitted_runtime_urls.contains(runtime.base.as_str()) {
-                write_module_script_tag(out, runtime.base.as_str(), nonce)?;
+                write_module_script_tag(out, runtime.base.as_str(), html)?;
                 state.emitted_runtime_urls.insert(runtime.base.clone());
             }
             if let Some(query) = runtime.query.as_deref() {
                 if !state.emitted_runtime_urls.contains(query) {
-                    write_module_script_tag(out, query, nonce)?;
+                    write_module_script_tag(out, query, html)?;
                     state.emitted_runtime_urls.insert(query.to_owned());
                 }
             }
@@ -1037,7 +1103,7 @@ impl PageRuntimePlan {
 
         for url in &self.module_preloads {
             if !state.emitted_preload_urls.contains(url) {
-                write_module_preload_tag(out, url)?;
+                write_module_preload_tag(out, url, html)?;
                 state.emitted_preload_urls.insert(url.clone());
             }
         }
@@ -1058,7 +1124,7 @@ impl PageRuntimePlan {
                     strategy: island.strategy,
                 });
             } else {
-                write_module_script_tag(out, island.module_url.as_str(), nonce)?;
+                write_module_script_tag(out, island.module_url.as_str(), html)?;
                 state
                     .emitted_eager_module_urls
                     .insert(island.module_url.clone());
@@ -1070,7 +1136,7 @@ impl PageRuntimePlan {
                 &pending_interaction_islands,
                 nonce,
             );
-            out.extend(tag.as_bytes())?;
+            out.extend_str(&tag)?;
             state
                 .emitted_eager_module_urls
                 .extend(pending_interaction_urls);
@@ -1102,7 +1168,7 @@ impl PageRuntimePlan {
                     &pending_islands,
                     nonce,
                 );
-                out.extend(tag.as_bytes())?;
+                out.extend_str(&tag)?;
                 state.emitted_deferred_islands.extend(pending_keys);
             }
         }
@@ -1113,24 +1179,62 @@ impl PageRuntimePlan {
 fn write_module_script_tag<B: proa_core::WriteBuf>(
     out: &mut B,
     url: &str,
-    nonce: Option<&proa_core::CspNonce>,
+    html: &PageRuntimeHtml<'_>,
 ) -> Result<(), proa_core::WriteError> {
-    out.extend_static(br#"<script type="module" src=""#)?;
+    out.extend_static_str(r#"<script type="module" src=""#)?;
     proa_core::shared::escape::escape_attr_value(out, url)?;
-    out.extend_static(b"\"")?;
-    if let Some(nonce) = nonce {
-        nonce.write_html_attr(out)?;
-    }
-    out.extend_static(b"></script>")
+    out.extend_static_str("\"")?;
+    write_fetch_attributes(out, url, html)?;
+    out.extend_static_str("></script>")
 }
 
 fn write_module_preload_tag<B: proa_core::WriteBuf>(
     out: &mut B,
     url: &str,
+    html: &PageRuntimeHtml<'_>,
 ) -> Result<(), proa_core::WriteError> {
-    out.extend_static(br#"<link rel="modulepreload" href=""#)?;
+    out.extend_static_str(r#"<link rel="modulepreload" href=""#)?;
     proa_core::shared::escape::escape_attr_value(out, url)?;
-    out.extend_static(b"\">")
+    out.extend_static_str("\"")?;
+    write_fetch_attributes(out, url, html)?;
+    out.extend_static_str(">")
+}
+
+/// Attributes that decide whether the browser may fetch and run `url`. A
+/// preload is a script fetch too: a nonce-based policy blocks one that does
+/// not carry the nonce.
+fn write_fetch_attributes<B: proa_core::WriteBuf>(
+    out: &mut B,
+    url: &str,
+    html: &PageRuntimeHtml<'_>,
+) -> Result<(), proa_core::WriteError> {
+    if let Some(integrity) = html.integrity.and_then(|integrity| integrity(url)) {
+        out.extend_static_str(r#" integrity=""#)?;
+        proa_core::shared::escape::escape_attr_value(out, integrity)?;
+        out.extend_static_str("\"")?;
+    }
+    if html.cross_origin {
+        out.extend_static_str(" crossorigin")?;
+    }
+    if let Some(nonce) = html.nonce {
+        nonce.write_html_attr(out)?;
+    }
+    Ok(())
+}
+
+/// The page-level settings the runtime reads. A JSON data block is inert, so
+/// no script policy applies to it and it is valid anywhere in a document.
+fn write_page_config_tag<B: proa_core::WriteBuf>(
+    out: &mut B,
+    base_path: &str,
+) -> Result<(), proa_core::WriteError> {
+    let mut json = String::from(r#"{"basePath":"#);
+    write_json_string(&mut json, base_path);
+    json.push('}');
+    out.extend_static_str(r#"<script type="application/json" id="__proa">"#)?;
+    // `write_json_string` escapes `<`, so the value cannot end the element.
+    out.extend_str(&json)?;
+    out.extend_static_str("</script>")
 }
 
 /// A rendered island id was not present in the linked rsjs manifest.
@@ -2865,10 +2969,10 @@ mod tests {
         let expected_in_order = [
             r#"<script type="module" src="/assets/runtime.core.js?build=7&amp;debug=0" nonce="cGFnZS1ub25jZQ=="></script>"#,
             r#"<script type="module" src="/assets/runtime.query.js" nonce="cGFnZS1ub25jZQ=="></script>"#,
-            r#"<link rel="modulepreload" href="/assets/clients/pricing.js">"#,
-            r#"<link rel="modulepreload" href="/assets/fragments/calendar_1234.mjs">"#,
-            r#"<link rel="modulepreload" href="/assets/islands/counter.mjs">"#,
-            r#"<link rel="modulepreload" href="/assets/islands/stockticker.mjs">"#,
+            r#"<link rel="modulepreload" href="/assets/clients/pricing.js" nonce="cGFnZS1ub25jZQ==">"#,
+            r#"<link rel="modulepreload" href="/assets/fragments/calendar_1234.mjs" nonce="cGFnZS1ub25jZQ==">"#,
+            r#"<link rel="modulepreload" href="/assets/islands/counter.mjs" nonce="cGFnZS1ub25jZQ==">"#,
+            r#"<link rel="modulepreload" href="/assets/islands/stockticker.mjs" nonce="cGFnZS1ub25jZQ==">"#,
             r#"<script type="module" src="/assets/islands/counter.mjs" nonce="cGFnZS1ub25jZQ=="></script>"#,
             r#"<script type="module" src="/assets/islands/stockticker.mjs" nonce="cGFnZS1ub25jZQ=="></script>"#,
             r#"<script type="module" nonce="cGFnZS1ub25jZQ==">"#,
@@ -2881,8 +2985,52 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing ordered fragment `{expected}` in {html}"));
             cursor += offset + expected.len();
         }
-        assert_eq!(html.matches(r#" nonce="cGFnZS1ub25jZQ==""#).count(), 5);
+        // Every tag that fetches a script carries the nonce, preloads included:
+        // a nonce-based policy blocks a preload without one.
+        assert_eq!(html.matches(r#" nonce="cGFnZS1ub25jZQ==""#).count(), 9);
         assert_eq!(html, plan.to_html(Some(&nonce)));
+    }
+
+    #[test]
+    fn deployment_settings_are_written_in_the_page_not_in_the_modules() {
+        let plan = page_runtime_fixture_manifest()
+            .page_runtime_plan_with_urls(["counter"], &FixtureAssetUrls)
+            .unwrap();
+        let integrity = |url: &str| url.ends_with("counter.mjs").then_some("sha384-abc");
+        let settings = PageRuntimeHtml {
+            nonce: None,
+            base_path: "/apps/<demo>",
+            integrity: Some(&integrity),
+            cross_origin: true,
+        };
+        let mut state = PageRuntimeEmissionState::new();
+        let mut out = Vec::new();
+        plan.write_html_delta_with(&mut out, &mut state, &settings)
+            .unwrap();
+        let html = String::from_utf8(out).unwrap();
+        // The base path comes first, as inert data, with `<` escaped.
+        assert!(
+            html.starts_with(
+                r#"<script type="application/json" id="__proa">{"basePath":"/apps/\u003cdemo\u003e"}</script><script type="module""#
+            ),
+            "{html}"
+        );
+        assert!(html.contains(
+            r#"<link rel="modulepreload" href="/assets/islands/counter.mjs" integrity="sha384-abc" crossorigin>"#
+        ));
+        assert!(html.contains(
+            r#"<script type="module" src="/assets/islands/counter.mjs" integrity="sha384-abc" crossorigin></script>"#
+        ));
+        // A file with no known digest gets no integrity attribute.
+        assert!(html.contains(r#"src="/assets/runtime.core.js?build=7&amp;debug=0" crossorigin>"#));
+
+        // Later chunks of the same response do not repeat the settings.
+        let mut again = Vec::new();
+        plan.write_html_delta_with(&mut again, &mut state, &settings)
+            .unwrap();
+        assert!(again.is_empty());
+        // A root deployment writes none.
+        assert!(!plan.to_html(None).contains("__proa"));
     }
 
     #[test]
@@ -2940,13 +3088,13 @@ mod tests {
         );
         assert_eq!(
             combined
-                .matches(r#"<link rel="modulepreload" href="/rsjs/island/counter.js">"#)
+                .matches(r#"<link rel="modulepreload" href="/rsjs/island/counter.js""#)
                 .count(),
             1
         );
         assert_eq!(
             combined
-                .matches(r#"<link rel="modulepreload" href="/rsjs/island/pricing.js">"#)
+                .matches(r#"<link rel="modulepreload" href="/rsjs/island/pricing.js""#)
                 .count(),
             1
         );

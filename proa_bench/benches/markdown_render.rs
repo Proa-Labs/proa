@@ -9,8 +9,9 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, Criterion};
+use criterion::{criterion_group, Criterion};
 use proa_core::{DataLoader, RenderBuffer, WebContext, WebRenderSync, WriteBuf, WriteError};
+use std::hint::black_box;
 
 struct CountingAllocator;
 thread_local! {
@@ -59,7 +60,7 @@ struct HtmlBridge;
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HtmlBridge {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         // proa-perf-ok: fixed trusted markup isolates the context bridge cost in this benchmark
-        cx.out.extend_static(b"<span>bridge</span>\n")
+        cx.out.extend_static_str("<span>bridge</span>\n")
     }
 }
 

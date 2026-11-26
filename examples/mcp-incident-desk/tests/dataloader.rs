@@ -25,10 +25,10 @@ async fn request_scopes_deduplicate_and_async_markdown_reuses_the_sync_tree() {
         assert_eq!(scope.inner.reads.load(Ordering::Relaxed), 2);
         let sync = markdown(&projection).unwrap();
         // Async composition is kept outside Send-bound MCP handlers: WebContext uses Rc.
-        let report = proa_core::to_md_async(IssueReport::new(&projection));
+        let report = proa::to_md_async(IssueReport::new(&projection));
         let mut bytes = Vec::new();
-        let mut context = proa_core::WebContext::with_buffer(&mut bytes);
-        use proa_core::MdRender;
+        let mut context = proa::WebContext::with_buffer(&mut bytes);
+        use proa::MdRender;
         MdRender::render_md(report, &mut context)
             .resolve()
             .await

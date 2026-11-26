@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::HashMap,
     convert::Infallible,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -18,9 +17,7 @@ use axum::{
     routing::get,
     Router,
 };
-use proa_framework_axum::{
-    FrameworkBuilder, IslandManifest, ManifestAssets, PageCacheLayer, RouteResponse,
-};
+use proa_framework_axum::{FrameworkBuilder, PageCacheLayer, RouteResponse};
 use tokio::sync::Notify;
 use tower::{service_fn, Layer, ServiceExt};
 
@@ -299,14 +296,7 @@ async fn isr_serves_stale_collapses_refreshes_and_retains_route_context() {
             }),
         )
         .route_layer(PageCacheLayer::new("build").revalidate(Duration::from_secs(3600)));
-    let app = FrameworkBuilder::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: ManifestAssets::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    })
-    .with_dynamic_routes(routes)
-    .build();
+    let app = FrameworkBuilder::new().with_dynamic_routes(routes).build();
 
     let first = app.clone().oneshot(request("/")).await.unwrap();
     assert_eq!(first.status(), StatusCode::OK);

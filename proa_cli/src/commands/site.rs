@@ -83,47 +83,36 @@ pub(crate) fn run(args: SiteArgs) -> Result<()> {
 
 fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
     let root = scaffold::resolve_root(root)?;
-    let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        root.join(crate::config::CONFIG_FILE),
-    )?)?;
-    let lock: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
-        root.join(crate::config::LOCK_FILE),
-    )?)?;
-    let package = config
-        .pointer("/application/package")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("Proa site");
-    let template = config
-        .pointer("/application/template")
-        .and_then(serde_json::Value::as_str)
+    let config = crate::config::load_project_config(&root)?;
+    let lock = crate::config::load_component_lock(&root)?;
+    let database_config = config.database.as_ref();
+    let package = crate::util::cargo_package_name(&root).unwrap_or_else(|| "Proa site".into());
+    let starter = lock
+        .scaffold_capabilities()
+        .find_map(|id| id.strip_prefix("starter:"))
         .unwrap_or("custom");
-    let starter = config
-        .pointer("/application/starter")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("custom");
-    let database = config
-        .pointer("/database/driver")
-        .and_then(serde_json::Value::as_str)
+    let database = database_config
+        .map(|db| db.driver.as_str())
         .unwrap_or("none");
-    let database_integration = config
-        .pointer("/database/integration")
-        .and_then(serde_json::Value::as_str)
+    let database_integration = database_config
+        .map(|db| db.integration.as_str())
+        .filter(|value| !value.is_empty())
         .unwrap_or("integrated");
-    let styling = config
-        .pointer("/styling/kind")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("css");
-    let markdown = config
-        .pointer("/representations/markdown/enabled")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
-    let components = lock
-        .get("components")
-        .and_then(serde_json::Value::as_object)
-        .map_or(0, serde_json::Map::len);
+    let styling = if config
+        .build
+        .assets()
+        .iter()
+        .any(|asset| asset.kind == "tailwind")
+    {
+        "tailwind"
+    } else {
+        "css"
+    };
+    let scaffold_markdown = lock.scaffold_markdown();
+    let markdown = scaffold_markdown.unwrap_or(false);
+    let components = lock.components.len();
     let value = serde_json::json!({
         "package": package,
-        "template": template,
         "starter": starter,
         "database": database,
         "databaseIntegration": database_integration,
@@ -135,21 +124,13 @@ fn print_status(root: Option<PathBuf>, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
         println!("{package}");
-        println!("  Template      {template} · {starter}");
+        println!("  Starter       {starter}");
         println!(
-            "  Routes        {}",
-            if markdown {
-                "1 page · 2 endpoints · 1 Markdown alias"
-            } else {
-                "1 page · 2 endpoints"
-            }
-        );
-        println!(
-            "  Representations {}",
-            if markdown {
-                "HTML + Markdown · Accept negotiation enabled"
-            } else {
-                "HTML"
+            "  Page scaffolding {}",
+            match scaffold_markdown {
+                Some(true) => "HTML + Markdown",
+                Some(false) => "HTML",
+                None => "Defined by the application",
             }
         );
         println!("  Database      {database}");

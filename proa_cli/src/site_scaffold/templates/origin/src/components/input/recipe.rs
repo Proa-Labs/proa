@@ -6,8 +6,8 @@
 //! Provides size variants and base styling for the Input component.
 
 use crate::tw_join;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{DataLoader, WebContext, WriteBuf, WriteError};
+use proa::shared::attr_value::{AttrValue, SafeAttr};
+use proa::{DataLoader, WebContext, WriteBuf, WriteError};
 
 /// Base styles for the input
 mod base {
@@ -52,7 +52,7 @@ mod base {
 }
 
 /// Size variants for the input
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "size", path = "crate::components::_proa::variant_spec")]
 pub enum InputSize {
     Sm,
@@ -181,9 +181,12 @@ impl AttrValue for InputStyle {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        cx.out.extend_static(self.recipe.base.as_bytes())?;
-        cx.out.extend_static(b" ")?;
-        cx.out.extend_static(self.size.classes().as_bytes())
+        proa::text!(
+            "{} {}",
+            SafeAttr(self.recipe.base),
+            SafeAttr(self.size.classes()),
+        )
+        .render_attr_value(cx)
     }
 }
 

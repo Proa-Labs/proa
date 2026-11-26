@@ -629,7 +629,7 @@ pub struct OutOfOrderBoundaryChunk {
     pub id: u64,
     /// Complete swap/timeout transport bytes for this boundary.
     ///
-    /// Any React bootstrap, query seed, SharedState seed, or runtime-plan
+    /// Any query seed, SharedState seed, or runtime-plan
     /// metadata derived from `artifacts` must be emitted before these bytes,
     /// never
     /// appended after them.
@@ -651,8 +651,7 @@ where
 ///
 /// The callback receives one structured chunk per successful, failed, or
 /// timed-out boundary. Only a successful rendered boundary carries non-empty
-/// `artifacts`. The callback must write the corresponding React bootstrap,
-/// query seed, SharedState seed, and runtime-plan metadata immediately before
+/// `artifacts`. The callback must write the corresponding query seed, SharedState seed, and runtime-plan metadata immediately before
 /// `chunk.bytes`; writing it after the swap frame is too late because that
 /// frame dispatches `proa:boundary-ready`.
 pub async fn drain_pending_boundaries_with_nonce_and_artifacts<F, Fut>(
@@ -721,46 +720,6 @@ pub async fn drain_pending_boundaries_with_nonce_and_artifacts<F, Fut>(
             return;
         }
     }
-}
-
-/// Drain pending boundaries and emit transport bytes only.
-///
-/// This compatibility helper discards every successful boundary's rendered
-/// island ids, query seeds, and SharedState seeds. It is incorrect for
-/// responses where deferred boundaries may render client work; use
-/// [`drain_pending_boundaries_with_artifacts`] instead.
-#[deprecated(
-    since = "0.3.0",
-    note = "drops committed RSJS island ids, query seeds, and SharedState seeds; use drain_pending_boundaries_with_artifacts"
-)]
-pub async fn drain_pending_boundaries<F, Fut>(stream: &StreamContext, mut emit: F)
-where
-    F: FnMut(Vec<u8>) -> Fut,
-    Fut: Future<Output = bool>,
-{
-    drain_pending_boundaries_with_artifacts(stream, |chunk| emit(chunk.bytes)).await;
-}
-
-/// Drain pending boundaries with a nonce and emit transport bytes only.
-///
-/// This compatibility helper applies the nonce but discards every successful
-/// boundary's rendered island ids, query seeds, and SharedState seeds. Use
-/// [`drain_pending_boundaries_with_nonce_and_artifacts`] for response
-/// finalization.
-#[deprecated(
-    since = "0.3.0",
-    note = "drops committed RSJS island ids, query seeds, and SharedState seeds; use drain_pending_boundaries_with_nonce_and_artifacts"
-)]
-pub async fn drain_pending_boundaries_with_nonce<F, Fut>(
-    stream: &StreamContext,
-    nonce: Option<&CspNonce>,
-    mut emit: F,
-) where
-    F: FnMut(Vec<u8>) -> Fut,
-    Fut: Future<Output = bool>,
-{
-    drain_pending_boundaries_with_nonce_and_artifacts(stream, nonce, |chunk| emit(chunk.bytes))
-        .await;
 }
 
 pub fn format_boundary_chunk(id: u64, html: &[u8]) -> Vec<u8> {
@@ -943,9 +902,9 @@ pub fn format_boundary_timeout_chunk(id: u64) -> Vec<u8> {
 pub fn append_boundary_timeout_chunk(out: &mut Vec<u8>, id: u64) {
     {
         let mut cx = WebContext::with_stateless_buffer(&mut *out);
-        let _ = WriteBuf::extend_static(&mut cx.out, b"<!--proa:timeout:");
+        let _ = WriteBuf::extend_static_str(&mut cx.out, "<!--proa:timeout:");
         let _ = WebRenderSync::render(id, &mut cx);
-        let _ = WriteBuf::extend_static(&mut cx.out, b"-->");
+        let _ = WriteBuf::extend_static_str(&mut cx.out, "-->");
     }
 }
 
@@ -1000,14 +959,13 @@ mod tests {
         let stream = StreamContext::new(RenderMode::ChunkedOutOfOrder);
         let artifacts = artifacts_with_island("deferred_counter_12345678");
         let mut boundary_html = RenderBuffer::new();
-        boundary_html.extend(b"<button>ready</button>").unwrap();
+        boundary_html.extend_str("<button>ready</button>").unwrap();
         stream.push_boundary(PendingBoundary::new(
             11,
             Box::pin(future::ready(Ok(RenderedBoundary::new(
                 boundary_html,
                 RenderArtifacts {
                     rsjs: artifacts.clone(),
-                    react_islands: vec!["DeferredChart".to_owned()],
                 },
             )))),
         ));
@@ -1023,7 +981,6 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].id, 11);
         assert_eq!(chunks[0].artifacts.rsjs, artifacts);
-        assert_eq!(chunks[0].artifacts.react_islands, ["DeferredChart"]);
         let island_id = chunks[0].artifacts.rsjs.rendered_islands().next().unwrap();
         let mut ordered_wire = format!("<!--rsjs-metadata:{island_id}-->").into_bytes();
         let metadata_end = ordered_wire.len();
@@ -1083,9 +1040,9 @@ mod tests {
     fn same_ready_templates_share_one_nonced_application_script() {
         let nonce = CspNonce::new("YmF0Y2gtbm9uY2U=").unwrap();
         let mut first = RenderBuffer::new();
-        first.extend(b"first").unwrap();
+        first.extend_str("first").unwrap();
         let mut second = RenderBuffer::new();
-        second.extend(b"second").unwrap();
+        second.extend_str("second").unwrap();
         let mut batch = Vec::new();
         append_boundary_buffer_template(&mut batch, 7, &first);
         append_boundary_buffer_template(&mut batch, 3, &second);
@@ -1098,8 +1055,9 @@ mod tests {
 
     #[test]
     fn paged_boundary_encoding_does_not_flatten_or_corrupt_page_edges() {
+        // Printable ASCII: raw byte writes must be valid UTF-8 on their own.
         let expected = (0..(proa_core::STANDARD_PAGE_SIZE * 3 + 17))
-            .map(|index| (index % 251) as u8)
+            .map(|index| b' ' + (index % 95) as u8)
             .collect::<Vec<_>>();
         let mut html = RenderBuffer::new();
         html.extend(&expected).unwrap();

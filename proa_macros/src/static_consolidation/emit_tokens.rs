@@ -95,17 +95,21 @@ impl TokenStreamSink {
     }
 
     fn flush_static(&mut self) {
+        let proa_core = proa_dsl::paths::runtime("proa_core");
         if self.pending_static.is_empty() {
             return;
         }
 
-        let html_bytes = proc_macro2::Literal::byte_string(self.pending_static.as_bytes());
         let statement = if self.hot {
+            // Hot reload swaps this slot for bytes read at run time, which the
+            // writer validates; the fallback stays a byte literal to match.
+            let html_bytes = proc_macro2::Literal::byte_string(self.pending_static.as_bytes());
             let slot = syn::Index::from(self.hot_slot);
             self.hot_slot += 1;
-            quote! { ::proa_core::dev_hot::write_slot(&mut cx.out, __proa_dev_static.as_ref(), #slot, #html_bytes)?; }
+            quote! { #proa_core::dev_hot::write_slot(&mut cx.out, __proa_dev_static.as_ref(), #slot, #html_bytes)?; }
         } else {
-            quote! { ::proa_core::WriteBuf::extend_static(&mut cx.out, #html_bytes)?; }
+            let html_text = proc_macro2::Literal::string(&self.pending_static);
+            quote! { #proa_core::WriteBuf::extend_static_str(&mut cx.out, #html_text)?; }
         };
         self.statements.push(statement);
         self.pending_static.clear();
@@ -188,12 +192,13 @@ fn generate_inline_text(
     attr_name_prefix: Option<proc_macro2::Literal>,
     mode: EmitMode,
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let args_ident = format_ident!("__proa_text_args", span = parsed.span);
     let args = text_macro::wrap_format_args(&parsed.segments, &parsed.args, parsed.span);
 
     let prefix = attr_name_prefix.map(|prefix| {
         quote! {
-            ::proa_core::WriteBuf::extend_static(&mut cx.out, #prefix)?;
+            #proa_core::WriteBuf::extend_static_str(&mut cx.out, #prefix)?;
         }
     });
 
@@ -214,10 +219,10 @@ fn generate_inline_text(
             let index = syn::Index::from(*index);
             match context {
                 InlineTextContext::Text => quote! {
-                    ::proa_core::head_dispatch::sync(#args_ident.#index, cx)?;
+                    #proa_core::head_dispatch::sync(#args_ident.#index, cx)?;
                 },
                 InlineTextContext::Attr => quote! {
-                    ::proa_core::shared::attr_value::AttrValue::render_attr_value(&#args_ident.#index, cx)?;
+                    #proa_core::shared::attr_value::AttrValue::render_attr_value(&#args_ident.#index, cx)?;
                 },
             }
         }
@@ -229,13 +234,13 @@ fn generate_inline_text(
             let index = syn::Index::from(*index);
             match context {
                 InlineTextContext::Text => quote! {
-                    ::proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_text(
+                    #proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_text(
                         #args_ident.#index,
                         cx,
                     )?;
                 },
                 InlineTextContext::Attr => quote! {
-                    ::proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_attr(
+                    #proa_core::shared::numeric::__ProaFixedFormatValue::<#precision>::__proa_render_fixed_attr(
                         &#args_ident.#index,
                         cx,
                     )?;
@@ -250,13 +255,13 @@ fn generate_inline_text(
             let index = syn::Index::from(*index);
             match context {
                 InlineTextContext::Text => quote! {
-                    ::proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_text(
+                    #proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_text(
                         #args_ident.#index,
                         cx,
                     )?;
                 },
                 InlineTextContext::Attr => quote! {
-                    ::proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_attr(
+                    #proa_core::shared::numeric::__ProaIntegerFormatValue::__proa_render_integer_attr(
                         &#args_ident.#index,
                         cx,
                     )?;
@@ -268,13 +273,13 @@ fn generate_inline_text(
             let format = syn::LitStr::new(format, parsed.span);
             match context {
                 InlineTextContext::Text => quote! {
-                    ::proa_core::shared::text::__proa_render_fmt_text(
+                    #proa_core::shared::text::__proa_render_fmt_text(
                         ::core::format_args!(#format, #args_ident.#index),
                         cx,
                     )?;
                 },
                 InlineTextContext::Attr => quote! {
-                    ::proa_core::shared::attr_value::__proa_render_fmt_attr(
+                    #proa_core::shared::attr_value::__proa_render_fmt_attr(
                         ::core::format_args!(#format, #args_ident.#index),
                         cx,
                     )?;
@@ -285,7 +290,7 @@ fn generate_inline_text(
 
     let suffix = matches!(context, InlineTextContext::Attr).then(|| {
         quote! {
-            ::proa_core::WriteBuf::extend_static(&mut cx.out, b"\"")?;
+            #proa_core::WriteBuf::extend_static_str(&mut cx.out, "\"")?;
         }
     });
 
@@ -302,7 +307,7 @@ fn generate_inline_text(
     };
     if mode == EmitMode::SendAsync {
         quote! {
-            cx.__proa_with_stateless_context(|cx| -> Result<(), ::proa_core::WriteError> {
+            cx.__proa_with_stateless_context(|cx| -> Result<(), #proa_core::WriteError> {
                 #body
                 Ok(())
             })?;
@@ -313,13 +318,14 @@ fn generate_inline_text(
 }
 
 fn static_write_statement(escaped: &str) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if escaped.is_empty() {
         return quote! {};
     }
 
-    let bytes = proc_macro2::Literal::byte_string(escaped.as_bytes());
+    let text = proc_macro2::Literal::string(escaped);
     quote! {
-        ::proa_core::WriteBuf::extend_static(&mut cx.out, #bytes)?;
+        #proa_core::WriteBuf::extend_static_str(&mut cx.out, #text)?;
     }
 }
 
@@ -362,6 +368,7 @@ impl ConsolidationSink for TokenStreamSink {
     }
 
     fn dynamic_attr(&mut self, attr: DynamicAttr<'_>) {
+        let proa_core = proa_dsl::paths::runtime("proa_core");
         if self.dialect == MarkupDialect::Html {
             if let Some(parsed) = text_macro::parse_expr(attr.value) {
                 let parsed = match parsed {
@@ -416,8 +423,7 @@ impl ConsolidationSink for TokenStreamSink {
                     );
                     self.pending_static.push('"');
                 } else {
-                    let name_prefix =
-                        proc_macro2::Literal::byte_string(attr.name_prefix.as_bytes());
+                    let name_prefix = proc_macro2::Literal::string(attr.name_prefix);
                     self.push_statement(generate_inline_text(
                         parsed,
                         InlineTextContext::Attr,
@@ -429,8 +435,8 @@ impl ConsolidationSink for TokenStreamSink {
             }
         }
 
-        let name_with_eq_lit = proc_macro2::Literal::byte_string(attr.name_prefix.as_bytes());
-        let name_bool_lit = proc_macro2::Literal::byte_string(attr.bool_form.as_bytes());
+        let name_with_eq_lit = proc_macro2::Literal::string(attr.name_prefix);
+        let name_bool_lit = proc_macro2::Literal::string(attr.bool_form);
         let value = attr.value;
 
         // URL-bearing attributes route through `render_url_attr`, which
@@ -448,15 +454,15 @@ impl ConsolidationSink for TokenStreamSink {
         // AttrValue impl optimizes.
         let statement = quote! {
             {
-                use ::proa_core::shared::attr_value::AttrValue;
-                static NAME_PREFIX: &[u8] = #name_with_eq_lit;
-                static NAME_BOOL: &[u8] = #name_bool_lit;
+                use #proa_core::shared::attr_value::AttrValue;
+                static NAME_PREFIX: &str = #name_with_eq_lit;
+                static NAME_BOOL: &str = #name_bool_lit;
                 AttrValue::#render_method(&(#value), NAME_PREFIX, NAME_BOOL, cx)?;
             }
         };
         if self.mode == EmitMode::SendAsync {
             self.push_statement(quote! {
-                cx.__proa_with_stateless_context(|cx| -> Result<(), ::proa_core::WriteError> {
+                cx.__proa_with_stateless_context(|cx| -> Result<(), #proa_core::WriteError> {
                     #statement
                     Ok(())
                 })?;
@@ -476,6 +482,7 @@ impl ConsolidationSink for TokenStreamSink {
     }
 
     fn end_raw_text(&mut self, kind: RawTextKind) {
+        let proa_core = proa_dsl::paths::runtime("proa_core");
         self.flush_static();
         let frame = self
             .raw_text_stack
@@ -488,11 +495,11 @@ impl ConsolidationSink for TokenStreamSink {
             RawTextKind::Script => quote! { Script },
             RawTextKind::Style => quote! { Style },
         };
-        let mode_path = quote! { ::proa_core::shared::mode::ContentMode::#variant };
+        let mode_path = quote! { #proa_core::shared::mode::ContentMode::#variant };
         match self.mode {
             EmitMode::Sync => self.push_statement(quote! {
                 let #guard = cx.__proa_enter_mode(#mode_path);
-                let #result: Result<(), ::proa_core::shared::write_buf::WriteError> = (|| {
+                let #result: Result<(), #proa_core::shared::write_buf::WriteError> = (|| {
                     #(#child_statements)*
                     Ok(())
                 })();
@@ -501,7 +508,7 @@ impl ConsolidationSink for TokenStreamSink {
             }),
             EmitMode::Async | EmitMode::SendAsync => self.push_statement(quote! {
                 let #guard = cx.__proa_enter_mode(#mode_path);
-                let #result: Result<(), ::proa_core::shared::write_buf::WriteError> = async {
+                let #result: Result<(), #proa_core::shared::write_buf::WriteError> = async {
                     #(#child_statements)*
                     Ok(())
                 }.await;
@@ -535,6 +542,7 @@ pub fn generate_optimized_hot(
     shape: &str,
     slots: usize,
 ) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let mut sink = TokenStreamSink::new(EmitMode::Sync, MarkupDialect::Html);
     sink.hot = true;
     consolidate_root(root, MarkupDialect::Html, &mut sink);
@@ -542,8 +550,8 @@ pub fn generate_optimized_hot(
         unreachable!()
     };
     quote! {
-        ::proa_core::shared::html_node::optimized_html_from_fn(|cx| -> Result<(), ::proa_core::WriteError> {
-            let __proa_dev_static = ::proa_core::dev_hot::load(#path, #id, #shape, #slots);
+        #proa_core::shared::html_node::optimized_html_from_fn(|cx| -> Result<(), #proa_core::WriteError> {
+            let __proa_dev_static = #proa_core::dev_hot::load(#path, #id, #shape, #slots);
             #(#statements)*
             Ok(())
         })
@@ -555,6 +563,7 @@ pub fn generate_optimized_xml(root: &HtmlRoot) -> TokenStream {
 }
 
 fn generate_optimized_with_dialect(root: &HtmlRoot, dialect: MarkupDialect) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if let Some(static_html) = fully_static_tokens(root, dialect) {
         return static_html;
     }
@@ -569,7 +578,7 @@ fn generate_optimized_with_dialect(root: &HtmlRoot, dialect: MarkupDialect) -> T
 
     if dialect == MarkupDialect::Html {
         return quote! {
-            ::proa_core::shared::html_node::optimized_html_from_fn(|cx| -> Result<(), ::proa_core::shared::write_buf::WriteError> {
+            #proa_core::shared::html_node::optimized_html_from_fn(|cx| -> Result<(), #proa_core::shared::write_buf::WriteError> {
                 #(#statements)*
                 Ok(())
             })
@@ -580,9 +589,9 @@ fn generate_optimized_with_dialect(root: &HtmlRoot, dialect: MarkupDialect) -> T
     let restore_dialect = dialect.runtime_restore_tokens();
 
     quote! {
-        ::proa_core::shared::html_node::optimized_html_from_fn(|cx| -> Result<(), ::proa_core::shared::write_buf::WriteError> {
+        #proa_core::shared::html_node::optimized_html_from_fn(|cx| -> Result<(), #proa_core::shared::write_buf::WriteError> {
             #enter_dialect
-            let __proa_render_result: Result<(), ::proa_core::shared::write_buf::WriteError> = (|| {
+            let __proa_render_result: Result<(), #proa_core::shared::write_buf::WriteError> = (|| {
                 #(#statements)*
                 Ok(())
             })();
@@ -608,6 +617,7 @@ pub fn generate_optimized_async_xml(root: &HtmlRoot) -> TokenStream {
 
 /// Generate a compiler-proved `Send` async HTML fragment.
 pub fn generate_optimized_send_async(root: &HtmlRoot) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if let Some(static_html) = fully_static_tokens(root, MarkupDialect::Html) {
         return static_html;
     }
@@ -620,7 +630,7 @@ pub fn generate_optimized_send_async(root: &HtmlRoot) -> TokenStream {
     };
 
     quote! {
-        ::proa_core::shared::html_node::send_async_html_from_fn(::std::boxed::Box::new(|cx| {
+        #proa_core::shared::html_node::send_async_html_from_fn(::std::boxed::Box::new(|cx| {
             ::std::boxed::Box::pin(async move {
                 #(#statements)*
                 Ok(())
@@ -630,6 +640,7 @@ pub fn generate_optimized_send_async(root: &HtmlRoot) -> TokenStream {
 }
 
 fn generate_optimized_async_with_dialect(root: &HtmlRoot, dialect: MarkupDialect) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     if let Some(static_html) = fully_static_tokens(root, dialect) {
         return static_html;
     }
@@ -647,7 +658,7 @@ fn generate_optimized_async_with_dialect(root: &HtmlRoot, dialect: MarkupDialect
 
     if dialect == MarkupDialect::Html {
         return quote! {
-            ::proa_core::shared::async_render::async_render(async move |cx| {
+            #proa_core::shared::async_render::async_render(async move |cx| {
                 #(#statements)*
                 Ok(())
             })
@@ -658,9 +669,9 @@ fn generate_optimized_async_with_dialect(root: &HtmlRoot, dialect: MarkupDialect
     let restore_dialect = dialect.runtime_restore_tokens();
 
     quote! {
-        ::proa_core::shared::async_render::async_render(async move |cx| {
+        #proa_core::shared::async_render::async_render(async move |cx| {
             #enter_dialect
-            let __proa_render_result: Result<(), ::proa_core::shared::write_buf::WriteError> = async {
+            let __proa_render_result: Result<(), #proa_core::shared::write_buf::WriteError> = async {
                 #(#statements)*
                 Ok(())
             }.await;
@@ -685,38 +696,42 @@ fn fully_static_tokens(root: &HtmlRoot, dialect: MarkupDialect) -> Option<TokenS
 }
 
 fn static_html_tokens(html: &str) -> TokenStream {
-    let html_bytes = proc_macro2::Literal::byte_string(html.as_bytes());
+    let proa_core = proa_dsl::paths::runtime("proa_core");
+    let html_text = proc_macro2::Literal::string(html);
     quote! {
-        ::proa_core::shared::html_node::static_html(#html_bytes)
+        #proa_core::shared::html_node::static_html(#html_text)
     }
 }
 
 // All formats and execution modes share one Rust slot/control-flow transform.
 fn generate_block_expr(expr: &Expr, statements: &mut Vec<TokenStream>) {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     statements.push(crate::render_control::lower(expr, &|expr| {
         quote! {
-            ::proa_core::head_dispatch::sync(#expr, cx)?;
+            #proa_core::head_dispatch::sync(#expr, cx)?;
         }
     }));
 }
 
 fn generate_block_expr_async(expr: &Expr, statements: &mut Vec<TokenStream>) {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     statements.push(crate::render_control::lower(expr, &|expr| {
         quote! {
-            match ::proa_core::head_dispatch::begin(#expr, cx) {
-                ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
-                ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+            match #proa_core::head_dispatch::begin(#expr, cx) {
+                #proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                #proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
             };
         }
     }));
 }
 
 fn generate_block_expr_send_async(expr: &Expr, statements: &mut Vec<TokenStream>) {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     statements.push(crate::render_control::lower(expr, &|expr| {
         quote! {
-            match ::proa_core::head_dispatch::send_begin(#expr, cx) {
-                ::proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
-                ::proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
+            match #proa_core::head_dispatch::send_begin(#expr, cx) {
+                #proa_core::RenderOutcome::Done(__proa_result) => __proa_result?,
+                #proa_core::RenderOutcome::Pending(__proa_future) => __proa_future.await?,
             };
         }
     }));

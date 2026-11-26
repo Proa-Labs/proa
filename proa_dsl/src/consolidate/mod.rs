@@ -28,7 +28,7 @@ use crate::parse::{Attribute, Element, HtmlRoot, MarkupName, Node};
 use proc_macro2::TokenStream;
 use quote::quote;
 use std::{cell::Cell, fmt::Write as _};
-use syn::Expr;
+use syn::{spanned::Spanned, Expr};
 
 pub mod sink;
 pub mod walk;
@@ -65,11 +65,12 @@ impl MarkupDialect {
     }
 
     pub fn runtime_escape_tokens(self) -> TokenStream {
+        let proa_core = crate::paths::runtime("proa_core");
         match self {
             MarkupDialect::Html => quote! {},
             MarkupDialect::Xml => quote! {
                 let __proa_prev_escape_dialect =
-                    cx.__proa_enter_escape_dialect(::proa_core::shared::escape::EscapeDialect::Xml);
+                    cx.__proa_enter_escape_dialect(#proa_core::shared::escape::EscapeDialect::Xml);
             },
         }
     }
@@ -85,13 +86,13 @@ impl MarkupDialect {
 }
 
 // ---------------------------------------------------------------------------
-// Compile-time warnings via #[must_use]
+// Compile-time warnings via #[deprecated]
 // ---------------------------------------------------------------------------
 
 /// A validation warning, carried as structured data so both consumers can
 /// materialize it their own way: the macro path lowers each warning to a
-/// `#[must_use]` struct (via [`Warning::into_tokens`]), while a
-/// runtime-template compiler can map it into a serializable diagnostic.
+/// `#[deprecated(note = "...")]` no-op helper call (via [`Warning::into_tokens`]),
+/// while a runtime-template compiler can map it into a serializable diagnostic.
 #[derive(Debug, Clone)]
 pub struct Warning {
     /// Span of the offending template node (line/column available via
@@ -118,12 +119,13 @@ fn emit_warning(span: proc_macro2::Span, title: &str, message: &str) -> Warning 
 }
 
 impl Warning {
-    /// Generate a `#[must_use = "message"]` struct at the warning's span.
-    /// This triggers rustc's `unused_must_use` lint, which displays the message with
-    /// proper file/line/column info — the best we can do on stable Rust.
+    /// Generate a `#[deprecated(note = "message")]` no-op helper call at the
+    /// warning's span. This triggers rustc's `deprecated` lint, which displays
+    /// the message with proper file/line/column info without emitting a bogus
+    /// `help: use let _ = ...` quick-fix inside HTML templates.
     ///
-    /// The `#[warn(unused_must_use)]` inside the block ensures the warning fires
-    /// even if the calling crate has `#![allow(unused_must_use)]`. Test targets
+    /// The `#[warn(deprecated)]` inside the block ensures the warning fires
+    /// even if the calling crate has `#![allow(deprecated)]`. Test targets
     /// suppress advisory diagnostics so warning-denied CI can exercise unsafe
     /// input handling without turning the expected warning into a hard error.
     ///
@@ -132,7 +134,7 @@ impl Warning {
     /// <https://github.com/rust-lang/rust/issues/54140>
     pub fn into_tokens(&self) -> TokenStream {
         let id = WARNING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        // Turn the title into a valid Rust identifier for the struct name.
+        // Turn the title into a valid Rust identifier for the helper name.
         // e.g. "a11y: prefer <a href> over <span role=\"link\">"
         //    → "a11y__prefer_a_href_over_span_role_link"
         let ident_str: String = self
@@ -149,16 +151,16 @@ impl Warning {
             .replace("__", "_")
             .trim_matches('_')
             .to_string();
-        let struct_name = syn::Ident::new(&format!("_{ident_str}_{id}"), self.span);
+        let fn_name = syn::Ident::new(&format!("_{ident_str}_{id}"), self.span);
         let msg = self.message.clone();
         quote! {
             {
-                #[allow(non_camel_case_types)]
-                #[must_use = #msg]
-                struct #struct_name;
-                #[cfg_attr(not(test), warn(unused_must_use))]
-                #[cfg_attr(test, allow(unused_must_use))]
-                #struct_name;
+                #[allow(non_snake_case, dead_code)]
+                #[deprecated(note = #msg)]
+                const fn #fn_name() {}
+                #[cfg_attr(not(test), warn(deprecated))]
+                #[cfg_attr(test, allow(deprecated))]
+                #fn_name();
             }
         }
     }
@@ -168,8 +170,8 @@ impl Warning {
 // Diagnostic formatting
 // ---------------------------------------------------------------------------
 
-/// Format a structured diagnostic message for `#[must_use]` warnings.
-/// Kept concise since rustc adds its own "note:" and "help:" lines around it.
+/// Format a structured diagnostic message for compile-time template warnings.
+/// Kept concise since rustc adds its own "note:" lines around it.
 fn diagnostic(title: &str, _note: &str, help: &str, spec: &str) -> String {
     format!("{title}. {help} ({spec})")
 }
@@ -332,7 +334,7 @@ fn is_foreign_content_root(tag: &str) -> bool {
 
 /// Validate security, a11y, and performance rules.
 /// Returns `Err(errors)` if hard errors are found (compilation fails).
-/// Returns `Ok(warnings)` with a TokenStream of `#[must_use]` warnings to be
+/// Returns `Ok(warnings)` with a TokenStream of compile-time warnings to be
 /// included in the macro output (compilation succeeds but shows warnings).
 pub fn validate_security(root: &HtmlRoot) -> Result<TokenStream, TokenStream> {
     let Validation { errors, warnings } = validate(root);
@@ -1063,7 +1065,7 @@ fn validate_element(
     // Performance hints (detect allocations in render path)
     // -----------------------------------------------------------------------
     #[cfg(not(feature = "no-perf-hints"))]
-    validate_perf_hints(el, span, warnings);
+    validate_perf_hints(el, warnings);
     if errors.exhausted() {
         return;
     }
@@ -2378,7 +2380,7 @@ fn is_perf_suppressed(expr: &Expr) -> bool {
     false
 }
 
-/// Emit a perf warning via `#[must_use]` struct at the given span.
+/// Emit a perf warning at the given expression span.
 #[cfg(not(feature = "no-perf-hints"))]
 fn perf_warn(
     warnings: &mut BoundedDiagnostics<'_, Warning>,
@@ -2391,7 +2393,7 @@ fn perf_warn(
         return;
     }
     let msg = format!(
-        "perf: {title}. {help} (docs/guides/performance). Wrap in perf_ok() to suppress if intentional"
+        "perf: {title}. {help} (https://proa.so/docs/guides/performance). Wrap in perf_ok() to suppress if intentional"
     );
     warnings.push(emit_warning(span, &format!("perf: {title}"), &msg));
 }
@@ -2512,11 +2514,7 @@ fn check_expr_perf(
 
 /// Validate performance hints for an element's children and attributes.
 #[cfg(not(feature = "no-perf-hints"))]
-fn validate_perf_hints(
-    el: &Element,
-    span: proc_macro2::Span,
-    warnings: &mut BoundedDiagnostics<'_, Warning>,
-) {
+fn validate_perf_hints(el: &Element, warnings: &mut BoundedDiagnostics<'_, Warning>) {
     if warnings.exhausted() {
         return;
     }
@@ -2526,7 +2524,7 @@ fn validate_perf_hints(
             return;
         }
         if let Node::Block(expr) = child {
-            check_expr_perf(expr, span, warnings);
+            check_expr_perf(expr, expr.span(), warnings);
         }
     }
 
@@ -2536,13 +2534,14 @@ fn validate_perf_hints(
             return;
         }
         if let Attribute::Dynamic { value, .. } = attr {
+            let value_span = value.span();
             // String literal in dynamic attribute: class={"value"} instead of class="value"
             if !is_perf_suppressed(value) {
                 if let Expr::Lit(lit) = value.as_ref() {
                     if matches!(lit.lit, syn::Lit::Str(_)) {
                         perf_warn(
                             warnings,
-                            span,
+                            value_span,
                             "dynamic attribute with a literal value breaks static consolidation",
                             "class={\"value\"} triggers a runtime attribute write, \
                              but class=\"value\" is compiled into the static byte run at zero cost",
@@ -2553,7 +2552,7 @@ fn validate_perf_hints(
             }
 
             // Also check for format!(), .to_string(), etc. in attribute values
-            check_expr_perf(value, span, warnings);
+            check_expr_perf(value, value_span, warnings);
         }
     }
 }
@@ -2909,5 +2908,35 @@ mod tests {
         assert!(zero.limit_reached);
         assert!(zero.validation.errors.is_empty());
         assert!(zero.validation.warnings.is_empty());
+    }
+
+    #[cfg(not(feature = "no-perf-hints"))]
+    #[test]
+    fn perf_hint_anchors_to_expression_span_and_avoids_must_use_quick_fix() {
+        let root: HtmlRoot =
+            syn::parse_str(r#"<p class="kicker">{format!("SERVER {}", 2026)}</p>"#).unwrap();
+
+        let validation = validate(&root);
+        assert!(validation.errors.is_empty());
+        assert_eq!(validation.warnings.len(), 1);
+        let warning = &validation.warnings[0];
+        assert!(
+            warning
+                .message
+                .contains("https://proa.so/docs/guides/performance"),
+            "{}",
+            warning.message
+        );
+        // The offending expression starts at `format!(...)` (0-based column 19), not `<p` (column 1).
+        assert_eq!(
+            warning.span.start().column,
+            19,
+            "expected warning anchored on format!() expression, got {:?}",
+            warning.span.start()
+        );
+
+        let tokens = warning.into_tokens().to_string();
+        assert!(tokens.contains("deprecated"), "{tokens}");
+        assert!(!tokens.contains("must_use"), "{tokens}");
     }
 }

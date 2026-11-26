@@ -12,7 +12,6 @@ extern crate self as proa_core;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Target-specific modules
-pub mod email;
 pub mod md;
 pub mod web;
 
@@ -66,26 +65,24 @@ pub mod text {
 #[cfg(feature = "html-to-markdown")]
 pub use md::{to_markdown, ToMarkdown};
 pub use md::{AsyncMd, AsyncMdFuture, MdCodeContent, OptimizedMd, TrustedMarkdown};
-#[allow(deprecated)]
 pub use render::{
     boxed_render, boxed_sync_render, drive_dyn_render, drive_dyn_send_render,
     render_in_send_context, render_send_child, AwaitComponent, AwaitMdComponent,
     AwaitSendComponent, BoxedWebRender, BoxedWebRenderSync, CacheDependency, CacheHint, CacheMode,
     CacheTrace, DataLoader, DynDataLoader, DynLoaderHandle, DynRenderOutcome, DynSendRenderOutcome,
     DynWebRender, DynWebRenderSend, DynWebRenderSync, ErrorBoundary, HeadContext, HeadEntry,
-    InOrderPagePool, InOrderSinkWriter, LoadError, LoadFuture, LoadHints, LoadKey, LoadKeyKind,
-    LoadRequest, LoadValue, Locals, MdRender, MdRenderAsyncExt, MdRenderSync, MdRenderSyncExt,
-    MdSyncToAsync, MemorySink, NoLoader, PagePool, PendingBoundary, Priority, RenderArtifacts,
-    RenderMode, RenderOutcome, RenderTelemetry, RenderedBoundary, RequestContext, RequestLocation,
-    ResponseContext, RouteParam, RouteParams, RsjsArtifactBranch, RsjsArtifactCheckpoint,
-    RsjsLinkedProviderOccurrenceKey, RsjsLinkedProviderTagGuard, RsjsQuerySeedArtifact,
-    RsjsRenderArtifacts, RsjsSharedStateScopeGuard, RsjsSharedStateSeedArtifact,
-    SendPendingBoundary, SendPendingBoundaryFuture, SendRenderedBoundary,
-    SendStreamBoundaryRecorder, SendStreamChunkFlusher, SendSyncToAsync, SinkCheckpoint, SinkPage,
-    SinkWriter, StandardDataLoader, StatelessSyncToSend, StreamBoundaryRecorder,
-    StreamChunkFlusher, StreamChunkView, SyncToAsync, TelemetryEvent, TwoSync, WebContext,
-    WebContextParts, WebRender, WebRenderSend, WebRenderSendSync, WebRenderSync,
-    IN_ORDER_SINK_PAGE_SIZE,
+    LoadError, LoadFuture, LoadHints, LoadKey, LoadKeyKind, LoadRequest, LoadValue, Locals,
+    MdRender, MdRenderAsyncExt, MdRenderSync, MdRenderSyncExt, MdSyncToAsync, NoLoader,
+    PendingBoundary, Priority, RenderArtifacts, RenderMode, RenderOutcome, RenderTelemetry,
+    RenderedBoundary, RequestContext, RequestLocation, ResponseContext, RouteParam, RouteParams,
+    RsjsArtifactBranch, RsjsArtifactCheckpoint, RsjsLinkedProviderOccurrenceKey,
+    RsjsLinkedProviderTagGuard, RsjsQuerySeedArtifact, RsjsRenderArtifacts,
+    RsjsSharedStateScopeGuard, RsjsSharedStateSeedArtifact, SendPendingBoundary,
+    SendPendingBoundaryFuture, SendRenderedBoundary, SendStreamBoundaryRecorder,
+    SendStreamChunkFlusher, SendSyncToAsync, StandardDataLoader, StatelessSyncToSend,
+    StreamBoundaryRecorder, StreamChunkFlusher, StreamChunkView, SyncToAsync, TelemetryEvent,
+    TwoSync, WebContext, WebContextParts, WebRender, WebRenderSend, WebRenderSendSync,
+    WebRenderSync,
 };
 pub use shared::attr::{Attr, AttrKey};
 pub use shared::attr_value::SafeAttr;
@@ -105,15 +102,16 @@ pub use shared::text::{
     foreign_content_ok, perf_ok, raw_text_ok, style_ok, text, SafeText, StaticRaw, Text, UnsafeRaw,
 };
 pub use shared::variant::Variant;
-#[allow(deprecated)]
-pub use shared::write_buf::DefaultChainedBumpWriter;
 pub use shared::write_buf::{
     render_growable, BumpWriter, ChainedBumpCheckpoint, ChainedBumpWriter, CheckpointWriteBuf,
     FlushMark, Part, RenderBuffer, SizeHint, SmallBuf, SmallBufCheckpoint, StagedBuf,
     StreamingChunk, StreamingChunkPart, StreamingZeroCopyBuf, WriteBuf, WriteError, ZeroCopyBuf,
     ZeroCopyCheckpoint, DEFAULT_CHAINED_BUMP_PAGE_SIZE,
 };
-pub use web::base_path::{AppUrl, BasePath, InvalidBasePath};
+pub use web::base_path::{
+    AppUrl, BasePath, FrameworkAsset, FrameworkAssets, InvalidBasePath, PublicAssetUrls,
+    TryIntoHeadUrl,
+};
 pub use web::base_path_html::BasePathHtml;
 pub use web::{csp_nonce_attr, CspNonce, CspNonceAttr, InvalidCspNonce};
 pub use web::{RsjsSharedStateSeedCheckpoint, StandardWebContext, STANDARD_PAGE_SIZE};
@@ -205,19 +203,13 @@ pub fn render_to_vec<R: Render>(root: R) -> Vec<u8> {
 
 /// Render to a UTF-8 `String`.
 ///
-/// # Panics
-///
-/// Panics if the rendered output contains invalid UTF-8, which should
-/// not happen unless `UnsafeRaw` is used with non-UTF-8 content.
+/// The output is not scanned: text writes are UTF-8 by type and raw byte
+/// writes are validated where they are written, so the buffer is always valid
+/// UTF-8.
 pub fn render_to_string<R: Render>(root: R) -> String {
-    let bytes = render_to_vec(root);
-    String::from_utf8(bytes).expect("render produced invalid UTF-8 — check UnsafeRaw usage")
-}
-
-/// Render to a UTF-8 `String`, returning an error on invalid UTF-8.
-pub fn try_render_to_string<R: Render>(root: R) -> Result<String, std::string::FromUtf8Error> {
-    let bytes = render_to_vec(root);
-    String::from_utf8(bytes)
+    let mut cx = WebContext::new();
+    root.render(&mut cx).unwrap();
+    cx.into_output().into_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -272,16 +264,14 @@ where
 
 /// Render a component asynchronously to a UTF-8 `String`.
 ///
-/// # Panics
-///
-/// Panics if the rendered output contains invalid UTF-8, which should
-/// not happen unless `UnsafeRaw` is used with non-UTF-8 content.
+/// The output is not scanned; see [`render_to_string`].
 pub async fn render_to_string_async<R>(root: R) -> String
 where
     R: WebRender,
 {
-    let bytes = render_to_vec_async(root).await;
-    String::from_utf8(bytes).expect("render produced invalid UTF-8 — check UnsafeRaw usage")
+    let mut cx = WebContext::new();
+    render_in_context_async(&mut cx, root).await.unwrap();
+    cx.into_output().into_string()
 }
 
 /// Render a component asynchronously into a caller-provided reusable buffer.
@@ -296,16 +286,6 @@ where
     render_in_context_async(reusable.context(), root)
         .await
         .unwrap();
-}
-
-/// Render a component asynchronously to a UTF-8 `String`, returning an
-/// error on invalid UTF-8 instead of panicking.
-pub async fn try_render_to_string_async<R>(root: R) -> Result<String, std::string::FromUtf8Error>
-where
-    R: WebRender,
-{
-    let bytes = render_to_vec_async(root).await;
-    String::from_utf8(bytes)
 }
 
 /// Explicitly adapt a sync component to the async-capable [`WebRender`] trait.
@@ -519,7 +499,7 @@ pub use head_dispatch::{ComponentRole, NoHead, SyncHeadOperation};
 pub use head_fields::HeadUrlPolicy;
 pub use managed_head::{HeadConfig, HeadDefaults, HeadError, HeadOutlet};
 
-pub use head_fields::{HeadMedia, OpenGraph};
+pub use head_fields::{HeadMedia, OpenGraph, TryIntoOgImage};
 pub use head_metadata::{
     ArticleMetadata, HeadAlternate, HeadAuthor, HeadIcon, HeadMetadata, HeadTitle, HeadValue,
     HeadVerification, IconKind, ImagePreview, ReferrerPolicy, Robots, Twitter, TwitterCard,

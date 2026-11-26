@@ -983,9 +983,10 @@ fn expression_mentions_known_client_local_with_shadowed(
         }
 
         fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-            self.with_pattern_scope(&arm.pat, |this| {
-                if let Some((_, guard)) = &arm.guard {
-                    this.visit_expr(guard);
+            let (pat, guard) = crate::parse::match_arm_parts(arm);
+            self.with_pattern_scope(pat, |this| {
+                if let Some(guard) = guard {
+                    this.visit_expr(&guard.guard);
                 }
                 this.visit_expr(&arm.body);
             });
@@ -2402,6 +2403,10 @@ impl Analyzer {
                     static_attrs.push((html_name, String::new()));
                 }
                 Attribute::Dynamic { value, .. } => {
+                    let html_name = raw_name.replace('_', "-");
+                    if is_dynamic_attr_rejected_for_safety(&html_name) {
+                        return Err(syn::Error::new(name_ident.span(), format!("dynamic `{html_name}` attributes are not supported inside `#[rsjs]` islands")));
+                    }
                     let Some((expr, tokens)) = keyed_list_item_expr(value, item_name) else {
                         return Err(syn::Error::new(
                             value.span(),
@@ -2414,7 +2419,6 @@ impl Analyzer {
                             ),
                         ));
                     };
-                    let html_name = raw_name.replace('_', "-");
                     self.builder.server_attr_with_source_anchor(
                         id,
                         &html_name,
@@ -3538,9 +3542,10 @@ impl<'ast> Visit<'ast> for OpaqueBoundaryReactiveCapture<'_> {
     }
 
     fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-        self.with_pattern_scope(&arm.pat, |this| {
-            if let Some((_, guard)) = &arm.guard {
-                this.visit_expr(guard);
+        let (pat, guard) = crate::parse::match_arm_parts(arm);
+        self.with_pattern_scope(pat, |this| {
+            if let Some(guard) = guard {
+                this.visit_expr(&guard.guard);
             }
             this.visit_expr(&arm.body);
         });

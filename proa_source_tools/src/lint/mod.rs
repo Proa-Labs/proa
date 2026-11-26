@@ -26,7 +26,9 @@ use crate::source::{
     display_path, file_line_column_for_body_span, find_macros, MacroDialect, MacroInvocation,
 };
 
+mod asset_urls;
 pub mod content;
+mod head_lifecycle;
 pub mod live;
 mod predicates;
 mod rsjs_strategy;
@@ -63,12 +65,30 @@ pub fn lint_file_with_options(path: &Path, source: &str, options: LintOptions) -
         options.include_tests,
         rsjs_strategy_cache.as_ref(),
     );
-    diagnostics.extend(content::lint_sources(
-        &[(path.to_owned(), source.to_owned())],
-        &std::collections::BTreeSet::from([content::absolute(path)]),
+    let sources = [(path.to_owned(), source.to_owned())];
+    let reporting = std::collections::BTreeSet::from([content::absolute(path)]);
+    let parsed = parse_sources(&sources);
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    diagnostics.extend(content::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
         options.include_tests,
         &options.content,
     ));
+    diagnostics.extend(asset_urls::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    diagnostics.extend(head_lifecycle::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    dedupe_diagnostics(&mut diagnostics);
     diagnostics
 }
 
@@ -263,12 +283,42 @@ pub fn lint_paths(paths: &[std::path::PathBuf], options: LintOptions) -> Result<
     for result in per_file {
         diagnostics.extend(result?);
     }
-    diagnostics.extend(content::lint_paths(
-        &files,
+    let sources = content::snapshot_sources(&files, &options.content)?;
+    let reporting: std::collections::BTreeSet<_> =
+        files.iter().map(|p| content::absolute(p)).collect();
+    let parsed = parse_sources(&sources);
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    diagnostics.extend(content::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
         options.include_tests,
         &options.content,
-    )?);
+    ));
+    diagnostics.extend(asset_urls::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    diagnostics.extend(head_lifecycle::lint_parsed(
+        &sources,
+        &parsed,
+        &reporting,
+        options.include_tests,
+    ));
+    dedupe_diagnostics(&mut diagnostics);
     Ok(diagnostics)
+}
+
+/// Parse cross-file lint sources once, on the calling thread. `syn` trees are
+/// not `Send`, and their spans resolve against the parsing thread's source
+/// map, so every pass that shares them must run on this thread.
+pub(super) fn parse_sources(sources: &[(PathBuf, String)]) -> Vec<Option<File>> {
+    sources
+        .iter()
+        .map(|(_, source)| syn::parse_file(source).ok())
+        .collect()
 }
 
 fn lint_format_canonicalization(
@@ -537,6 +587,12 @@ fn lint_render_impl_items(
         match item {
             Item::Impl(item_impl) => {
                 lint_head_role(path, item_impl, ignored_ranges, diagnostics);
+                head_lifecycle::lint_head_mutation_in_body(
+                    path,
+                    item_impl,
+                    ignored_ranges,
+                    diagnostics,
+                );
                 lint_render_impl(
                     path,
                     item_impl,
@@ -565,16 +621,16 @@ fn lint_render_impl_items(
     }
 }
 
-/// Native async hooks have the same Future contract as the default, so Rust
-/// cannot infer whether a hook was overridden. Reject forgotten roles in
-/// authored source before role-directed dispatch would skip the hook.
+/// Reject forgotten roles in authored source. Code generation also rejects
+/// them, but only for components that a built render path dispatches; this
+/// source check needs no build and covers impls nothing renders yet.
 fn lint_head_role(
     path: &Path,
     item_impl: &ItemImpl,
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     let Some(segment) = trait_path.segments.last() else {
@@ -612,7 +668,7 @@ fn lint_head_role(
             Severity::Error,
             "render/head-role-required",
             format!("`{hook_name}` requires an explicit layout or Page role"),
-        ).with_help("set `const ROLE: proa_core::ComponentRole = proa_core::ComponentRole::LAYOUT;` for an ancestor layout, or `ComponentRole::PAGE` for the selected Page; only the Page seals metadata before its body"));
+        ).with_help("set `const ROLE: proa::ComponentRole = proa::ComponentRole::LAYOUT;` for an ancestor layout, or `proa::ComponentRole::PAGE` for the selected Page; only the Page seals metadata before its body"));
     }
 }
 
@@ -643,7 +699,7 @@ fn lint_render_impl(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match &item_impl.trait_ {
-        Some((_, trait_path, _)) if is_render_trait(trait_path) => {}
+        Some((trait_path, _)) if is_render_trait(trait_path) => {}
         _ => return,
     }
 
@@ -682,7 +738,7 @@ fn lint_markdown_render_impl(
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if !is_markdown_render_trait(trait_path) {
@@ -727,7 +783,7 @@ fn check_markdown_render_api_perf(
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if path_last_ident(trait_path).as_deref() != Some("MdRender") {
@@ -780,19 +836,17 @@ fn check_async_md_static_body(
 
     impl<'ast> Visit<'ast> for Visitor<'_> {
         fn visit_expr_macro(&mut self, node: &'ast ExprMacro) {
-            if macro_path_ends(node, "md") {
-                if !md_tokens_have_async_work(&node.mac.tokens) {
-                    push_expr_diag(
-                        self.path,
-                        SpanOrigin::File,
-                        self.diagnostics,
-                        self.suppressions,
-                        node.mac.path.span(),
-                        "perf/async-md-static-subtree",
-                        "async md! template has no async interpolation",
-                        "use md_sync! here; wrap the result with proa_core::to_md_async(...) if it is composed into an async tree",
-                    );
-                }
+            if macro_path_ends(node, "md") && !md_tokens_have_async_work(&node.mac.tokens) {
+                push_expr_diag(
+                    self.path,
+                    SpanOrigin::File,
+                    self.diagnostics,
+                    self.suppressions,
+                    node.mac.path.span(),
+                    "perf/async-md-static-subtree",
+                    "async md! template has no async interpolation",
+                    "use md_sync! here; wrap the result with proa_core::to_md_async(...) if it is composed into an async tree",
+                );
             }
             visit::visit_expr_macro(self, node);
         }
@@ -817,9 +871,9 @@ fn md_tokens_have_async_work(tokens: &proc_macro2::TokenStream) -> bool {
 
 /// True when any slot of a `md!` template renders an opaque unit-struct child.
 fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> bool {
-    use proa_dsl::md::{MdNodeKind, MdRoot, MdTemplateInput, TplNode};
-    if let Ok(input) = syn::parse2::<MdTemplateInput>(tokens.clone()) {
-        return input.parse_nodes().is_ok_and(|nodes| {
+    use proa_dsl::md::{MdTemplateInput, TplNode};
+    syn::parse2::<MdTemplateInput>(tokens.clone()).is_ok_and(|input| {
+        input.parse_nodes().is_ok_and(|nodes| {
             input
                 .args
                 .iter()
@@ -828,11 +882,6 @@ fn md_tokens_have_possibly_async_child(tokens: &proc_macro2::TokenStream) -> boo
                     TplNode::Expr(value) => md_slot_has_possibly_async_child(&value.expr),
                     TplNode::Text(_) => false,
                 })
-        });
-    }
-    syn::parse2::<MdRoot>(tokens.clone()).is_ok_and(|root| {
-        root.nodes.iter().any(|node| {
-            matches!(&node.kind, MdNodeKind::Block(expr) if md_slot_has_possibly_async_child(expr))
         })
     })
 }
@@ -1044,7 +1093,12 @@ impl<'ast> Visit<'ast> for MarkdownRenderVisitor<'_> {
                 method.is_some_and(|method| {
                     matches!(
                         method.as_str(),
-                        "extend" | "extend_static" | "extend_shared" | "extend_with"
+                        "extend"
+                            | "extend_str"
+                            | "extend_static"
+                            | "extend_static_str"
+                            | "extend_shared"
+                            | "extend_with"
                     )
                 }) && node.args.first().is_some_and(expr_is_markdown_output)
             }
@@ -1069,7 +1123,12 @@ impl<'ast> Visit<'ast> for MarkdownRenderVisitor<'_> {
             && expr_is_markdown_context(&node.receiver));
         let is_raw_output_write = matches!(
             method.as_str(),
-            "extend" | "extend_static" | "extend_shared" | "extend_with"
+            "extend"
+                | "extend_str"
+                | "extend_static"
+                | "extend_static_str"
+                | "extend_shared"
+                | "extend_with"
         ) && expr_is_markdown_output(&node.receiver);
 
         if is_raw_context_write || is_raw_output_write {
@@ -1209,11 +1268,9 @@ fn call_is_render_to_buffer(call: &ExprCall) -> bool {
     let Some(seg) = call_last_segment(call) else {
         return false;
     };
-    matches!(
-        seg.as_str(),
-        "render_to_string" | "try_render_to_string" | "render_to_vec"
-    ) || (seg.starts_with("render")
-        && (seg.contains("to_string") || seg.contains("to_vec") || seg.contains("capturing")))
+    matches!(seg.as_str(), "render_to_string" | "render_to_vec")
+        || (seg.starts_with("render")
+            && (seg.contains("to_string") || seg.contains("to_vec") || seg.contains("capturing")))
 }
 
 fn call_last_segment(call: &ExprCall) -> Option<String> {
@@ -2878,7 +2935,7 @@ fn lint_attr_value_impl(
     ignored_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if !is_attr_value_trait(trait_path) {
@@ -3098,7 +3155,7 @@ impl<'ast> Visit<'ast> for ConstructorUseCounter {
 }
 
 fn attr_value_impl_self_name(item_impl: &ItemImpl) -> Option<String> {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return None;
     };
     if !is_attr_value_trait(trait_path) {
@@ -3265,7 +3322,7 @@ fn render_component_type_names(items: &[Item]) -> HashSet<String> {
 }
 
 fn render_impl_self_name(item_impl: &ItemImpl) -> Option<String> {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return None;
     };
     if !is_render_trait(trait_path) {
@@ -3387,7 +3444,7 @@ fn check_render_api_perf(
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some((_, trait_path, _)) = &item_impl.trait_ else {
+    let Some((trait_path, _)) = &item_impl.trait_ else {
         return;
     };
     if trait_path
@@ -4052,11 +4109,9 @@ pub fn parse_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<Html
 pub(crate) fn validate_markdown_invocation(source: &str, inv: &MacroInvocation) -> syn::Result<()> {
     let tokens = TokenStream::from_str(inv.body(source))
         .map_err(|err| syn::Error::new(proc_macro2::Span::call_site(), err.to_string()))?;
-    if let Ok(template) = syn::parse2::<proa_dsl::md::MdTemplateInput>(tokens.clone()) {
-        template.parse_nodes().map(|_| ())
-    } else {
-        syn::parse2::<proa_dsl::md::MdRoot>(tokens).map(|_| ())
-    }
+    proa_dsl::md::parse_template_input(&inv.name, tokens)?
+        .parse_nodes()
+        .map(|_| ())
 }
 
 /// Parse macro tokens into the markup tree shared by the HTML and XML dialects.
@@ -5625,7 +5680,10 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
             );
         }
         if self.html
-            && matches!(node.method.to_string().as_str(), "extend" | "extend_static")
+            && matches!(
+                node.method.to_string().as_str(),
+                "extend" | "extend_str" | "extend_static" | "extend_static_str"
+            )
             && node.args.iter().any(expr_is_html_literal)
         {
             push_expr_diag(

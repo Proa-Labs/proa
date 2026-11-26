@@ -45,6 +45,12 @@
 //! Increase the delimiter when the document contains the exact closing
 //! sequence `"###`.
 //!
+//! Physically multiline raw literals select block mode and complete paragraph
+//! boundaries before their body and after successful rendering. Ordinary strings
+//! and single-line raw literals select inline mode without adding boundaries.
+//! Scopes restore the enclosing mode on errors, unwinding, or async cancellation;
+//! blocks cannot render inside inline scopes.
+//!
 //! Physically multiline raw templates remove their common source indentation,
 //! preserving relative indentation without leaking the surrounding Rust block's
 //! alignment into the rendered Markdown:
@@ -59,28 +65,75 @@
 //! }
 //! ```
 //!
-//! # Token composition mode
+//! # Composition without authored Markdown
+//!
+//! The macro body is always one string template. To render values one after
+//! another without writing Markdown around them, compose them in Rust:
 //!
 //! ```rust,ignore
-//! md_sync! { "# " { data.title } }.render_md(cx);
+//! (overview, impact, activity).render_md(cx)
 //! ```
 //!
-//! This expression-visible form remains available for generated templates and
-//! tooling that needs Rust tokens outside a string literal.
-//!
-//! Raw templates keep Markdown inline with the Rust component. The token
-//! composition form above is also supported for expression-visible tooling.
+//! Token composition such as `md_sync! { "# " {title} }` is rejected with a
+//! pointer to the string form. The parser for it stays because the editor
+//! projection presents templates to rust-analyzer in that shape; see
+//! [`expand`].
 
-use proa_dsl::md::{bare_ident, text_value, MdNodeKind, MdTemplateArg, TplNode};
+use proa_dsl::md::{bare_ident, text_value, MdNodeKind, MdSlotContext, MdTemplateArg, TplNode};
 pub use proa_dsl::md::{MdRoot, MdTemplateInput};
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, quote_spanned};
+use std::collections::HashSet;
 use syn::{Expr, LitStr};
 
 #[derive(Clone, Copy)]
 pub enum EmitMode {
     Sync,
     Async,
+}
+
+impl EmitMode {
+    /// The macro an author wrote, for diagnostics.
+    pub fn macro_name(self) -> &'static str {
+        match self {
+            EmitMode::Sync => "md_sync",
+            EmitMode::Async => "md",
+        }
+    }
+}
+
+/// Expand a macro body.
+///
+/// The body is one string template; [`proa_dsl::md::template_shape_error`]
+/// explains anything else. Token composition such as `{a} "x" {b}` is still
+/// parsed, because the editor projection presents a template to rust-analyzer
+/// in exactly that shape: the Markdown is blanked and every `{slot}` keeps its
+/// authored position. Under `cfg(rust_analyzer)` that shape expands so the IDE
+/// keeps slot diagnostics and the template's result type; a real build sees
+/// the rejection as a `compile_error!` at the offending token instead.
+pub fn expand(input: TokenStream, mode: EmitMode) -> syn::Result<TokenStream> {
+    let rejection = match syn::parse2::<MdTemplateInput>(input.clone()) {
+        Ok(template) => return generate_template(&template, mode),
+        Err(parse_error) => {
+            proa_dsl::md::template_shape_error(mode.macro_name(), &input).unwrap_or(parse_error)
+        }
+    };
+    let Ok(root) = syn::parse2::<MdRoot>(input) else {
+        return Err(rejection);
+    };
+    let message = rejection.to_string();
+    let error = quote_spanned! {rejection.span()=> ::core::compile_error!(#message); };
+    let expansion = generate_tokens(&root, mode);
+    // Crates outside this workspace do not register `cfg(rust_analyzer)` with
+    // check-cfg, so the gate carries its own allow, as the IDE shadow does.
+    Ok(quote! {{
+        #[allow(unexpected_cfgs)]
+        {
+            #[cfg(not(rust_analyzer))]
+            #error
+        }
+        #expansion
+    }})
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -95,11 +148,11 @@ fn render_context() -> syn::Ident {
 fn flush(stmts: &mut Vec<TokenStream>, run: &mut String) {
     if !run.is_empty() {
         let cx = render_context();
-        let bytes = proc_macro2::Literal::byte_string(run.as_bytes());
+        let text = proc_macro2::Literal::string(run);
         stmts.push(quote! {
             {
-                static BYTES: &[u8] = #bytes;
-                #cx.write_md_prepared_static(BYTES)?;
+                static TEXT: &str = #text;
+                #cx.write_md_prepared_static_str(TEXT)?;
             }
         });
         run.clear();
@@ -124,20 +177,21 @@ fn emit_md_render(expr: &Expr, mode: EmitMode) -> TokenStream {
 
 /// Wrap generated body statements in the appropriate runtime fragment.
 fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let cx = render_context();
     match mode {
         EmitMode::Sync => quote! {
-            ::proa_core::OptimizedMd::new(
-                |#cx: &mut ::proa_core::WebContext<_, _>| {
-                    use ::proa_core::MdRenderSyncExt as _;
+            #proa_core::OptimizedMd::new(
+                |#cx: &mut #proa_core::WebContext<_, _>| {
+                    use #proa_core::MdRenderSyncExt as _;
                     #(#stmts)*
                     ::core::result::Result::Ok(())
                 }
             )
         },
         EmitMode::Async => quote! {
-            ::proa_core::md::async_md_from_closure(async move |#cx| {
-                use ::proa_core::MdRenderAsyncExt as _;
+            #proa_core::md::async_md_from_closure(async move |#cx| {
+                use #proa_core::MdRenderAsyncExt as _;
                 #(#stmts)*
                 ::core::result::Result::Ok(())
             })
@@ -145,13 +199,14 @@ fn wrap_render(stmts: &[TokenStream], mode: EmitMode) -> TokenStream {
     }
 }
 
-fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
+fn static_fragment(text: proc_macro2::Literal) -> TokenStream {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let cx = render_context();
     quote! {
-        ::proa_core::OptimizedMd::new(
-            |#cx: &mut ::proa_core::WebContext<_, _>| {
-                static BYTES: &[u8] = #bytes;
-                #cx.write_md_prepared_static(BYTES)?;
+        #proa_core::OptimizedMd::new(
+            |#cx: &mut #proa_core::WebContext<_, _>| {
+                static TEXT: &str = #text;
+                #cx.write_md_prepared_static_str(TEXT)?;
                 ::core::result::Result::Ok(())
             }
         )
@@ -163,10 +218,79 @@ fn static_fragment(bytes: proc_macro2::Literal) -> TokenStream {
 // ═══════════════════════════════════════════════════════════════
 
 pub fn generate_template(tpl: &MdTemplateInput, mode: EmitMode) -> Result<TokenStream, syn::Error> {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
     let lit = &tpl.lit;
     let nodes = tpl.parse_nodes()?;
+    let block = proa_dsl::md::is_multiline_raw_literal(lit);
+    // Classify every slot so both block and inline templates detect Markdown
+    // link/image destinations (`[label]({url})`, `![alt]({url})`) and block
+    // templates enforce inline-only restrictions on inline constructs.
+    let slot_ctxs = proa_dsl::md::slot_contexts(&nodes);
+    let mut slots = slot_ctxs.iter().copied();
+    for node in &nodes {
+        if let TplNode::Expr(expr) = node {
+            let slot_ctx = slots.next().expect("one context per expression");
+            if !block || slot_ctx.inline {
+                reject_direct_block_child(expr)?;
+            }
+        }
+    }
     let shadow = format_args_shadow(lit, &nodes, &tpl.args);
-    Ok(codegen_tpl(&nodes, shadow, tpl.argument_binding(), mode))
+    let body = codegen_tpl(
+        &nodes,
+        &slot_ctxs,
+        &tpl.args,
+        shadow,
+        tpl.argument_binding(),
+        mode,
+        block,
+    );
+    let template_mode = if block {
+        quote! { #proa_core::md::MD_TEMPLATE_BLOCK }
+    } else {
+        quote! { #proa_core::md::MD_TEMPLATE_INLINE }
+    };
+    Ok(quote! {
+        (#body).__proa_template_mode::<{ #template_mode }>()
+    })
+}
+
+/// Directly rendered block macros have a known mode. Opaque/typed children
+/// retain the runtime check, including when they are reached through helpers.
+fn reject_direct_block_child(expr: &Expr) -> syn::Result<()> {
+    let error = std::cell::RefCell::new(None);
+    crate::render_control::lower(expr, &|child| {
+        if let Expr::Macro(child) = child {
+            // Match the macro under its own name: the usual
+            // `use proa_macros::md_sync;`, qualified paths, and re-exports.
+            // A renamed import cannot be recognized and keeps the runtime
+            // check, as do children behind helpers. A user macro sharing the
+            // name is claimed only when its input is a single multiline raw
+            // literal, and that false positive is a compile error at the
+            // nested call, not a miscompile.
+            if child
+                .mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "md_sync" || segment.ident == "md")
+            {
+                if let Ok(template) = syn::parse2::<MdTemplateInput>(child.mac.tokens.clone()) {
+                    if proa_dsl::md::is_multiline_raw_literal(&template.lit) {
+                        *error.borrow_mut() = Some(syn::Error::new_spanned(
+                            child,
+                            "cannot render a block Markdown template inside an inline scope; use an ordinary-string inline template",
+                        ));
+                    }
+                }
+            }
+        }
+        TokenStream::new()
+    });
+    match error.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// Emit an IDE-only `format_args!` shadow of the template.
@@ -266,11 +390,69 @@ fn is_bare_ident(s: &str) -> bool {
 
 // -- template codegen --
 
+/// Returns true when a top-level slot expression is a simple `<ident>.url(<arg>)`
+/// call that can be safely evaluated right before the render closure.
+///
+/// `WebContext::url` borrows `&self` only for the call and returns an `AppUrl`
+/// independent of `&cx`. Hoisting it before the closure prevents `E0502` when
+/// calling `md_sync! { "![Alt]({cx.url(\"public/logo.svg\")})" }.render_md(cx)`
+/// while keeping the macro closure parameter hygienic.
+///
+/// The argument must be a literal or a place (see [`is_temporary_free_place`]).
+/// Any other argument stays inside the render closure, as it did before
+/// hoisting existed: a temporary such as `String::from(..).as_str()` would be
+/// dropped at the end of the hoisted `let` while the URL still borrows it, and
+/// `?`, `return`, or `.await` must keep returning from the render closure.
+fn is_hoistable_url_call(expr: &Expr, named_args: &HashSet<String>) -> bool {
+    let Expr::MethodCall(call) = expr else {
+        return false;
+    };
+    if call.method != "url" || call.args.len() != 1 || call.turbofish.is_some() {
+        return false;
+    }
+    let Some(receiver) = bare_ident(&call.receiver) else {
+        return false;
+    };
+    !named_args.contains(&receiver.to_string())
+        && is_temporary_free_place(&call.args[0], named_args)
+}
+
+/// A literal, path, or field/index/deref/reference projection of one, whose
+/// evaluation creates no temporary that a borrowed result could outlive and
+/// names no template argument (those are bound inside the render closure).
+fn is_temporary_free_place(expr: &Expr, named_args: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Lit(_) => true,
+        Expr::Path(path) => {
+            path.qself.is_none()
+                && path
+                    .path
+                    .get_ident()
+                    .is_none_or(|ident| !named_args.contains(&ident.to_string()))
+        }
+        Expr::Reference(reference) => is_temporary_free_place(&reference.expr, named_args),
+        Expr::Field(field) => is_temporary_free_place(&field.base, named_args),
+        Expr::Index(index) => {
+            is_temporary_free_place(&index.expr, named_args)
+                && is_temporary_free_place(&index.index, named_args)
+        }
+        Expr::Unary(unary) if matches!(unary.op, syn::UnOp::Deref(_)) => {
+            is_temporary_free_place(&unary.expr, named_args)
+        }
+        Expr::Paren(paren) => is_temporary_free_place(&paren.expr, named_args),
+        Expr::Group(group) => is_temporary_free_place(&group.expr, named_args),
+        _ => false,
+    }
+}
+
 fn codegen_tpl(
     nodes: &[TplNode],
+    slot_ctxs: &[MdSlotContext],
+    args: &[MdTemplateArg],
     shadow: Option<TokenStream>,
     binding: Option<syn::Local>,
     mode: EmitMode,
+    block: bool,
 ) -> TokenStream {
     // all-static fast path
     if binding.is_none() && nodes.iter().all(|n| matches!(n, TplNode::Text(_))) {
@@ -280,35 +462,130 @@ fn codegen_tpl(
                 s.push_str(t);
             }
         }
-        let bytes = proc_macro2::Literal::byte_string(s.as_bytes());
-        return static_fragment(bytes);
+        return static_fragment(proc_macro2::Literal::string(&s));
     }
 
+    let named_args: HashSet<String> = args.iter().map(|arg| arg.name.to_string()).collect();
+    let mut hoisted: Vec<(syn::Ident, &Expr)> = Vec::new();
     let mut stmts = Vec::new();
     // First so its borrows begin and end before any rendering statement.
     stmts.extend(shadow);
     stmts.extend(binding.map(|binding| quote! { #binding }));
     let mut run = String::new();
-    emit_tpl_nodes(nodes, &mut stmts, &mut run, mode);
+    emit_tpl_nodes(
+        nodes,
+        slot_ctxs,
+        &named_args,
+        &mut hoisted,
+        &mut stmts,
+        &mut run,
+        mode,
+        block,
+    );
     flush(&mut stmts, &mut run);
-    wrap_render(&stmts, mode)
+    let rendered = wrap_render(&stmts, mode);
+    if hoisted.is_empty() {
+        rendered
+    } else {
+        let lets = hoisted.iter().map(|(ident, expr)| {
+            quote! { let #ident = #expr; }
+        });
+        quote! {
+            {
+                #(#lets)*
+                #rendered
+            }
+        }
+    }
 }
 
-fn emit_tpl_nodes(
-    nodes: &[TplNode],
+#[allow(clippy::too_many_arguments)]
+fn emit_tpl_nodes<'a>(
+    nodes: &'a [TplNode],
+    slot_ctxs: &[MdSlotContext],
+    named_args: &HashSet<String>,
+    hoisted: &mut Vec<(syn::Ident, &'a Expr)>,
     stmts: &mut Vec<TokenStream>,
     run: &mut String,
     mode: EmitMode,
+    block: bool,
 ) {
+    let proa_core = proa_dsl::paths::runtime("proa_core");
+    let mut slots = slot_ctxs.iter().copied();
+    // In a block template, the line breaks that follow a block-position slot
+    // are layout rather than prose: a block child has already completed a
+    // blank line through its own epilogue, and a row template already ends
+    // in its line break. Emit them as boundaries, which write the authored
+    // break after inline text and nothing after a child that ended a line.
+    // Any further authored blank lines stay literal.
+    let mut after_block_slot = false;
     for node in nodes {
         match node {
-            TplNode::Text(t) => run.push_str(t),
+            TplNode::Text(t) => {
+                let mut text = t.as_str();
+                if after_block_slot {
+                    let breaks = text.bytes().take_while(|byte| *byte == b'\n').count();
+                    if breaks > 0 {
+                        let cx = render_context();
+                        flush(stmts, run);
+                        if breaks == 1 {
+                            stmts.push(quote! { #cx.md_line_boundary()?; });
+                        } else {
+                            stmts.push(quote! { #cx.md_block_boundary()?; });
+                        }
+                        text = &text[breaks.min(2)..];
+                    }
+                }
+                run.push_str(text);
+                after_block_slot = false;
+            }
             // Control flow and plain values share the token-mode lowering, so
             // both template forms render a branch's final expression the same
             // way.
             TplNode::Expr(expr) => {
                 flush(stmts, run);
-                gen_block_expr(&expr.expr, stmts, mode);
+                let slot_ctx = slots.next().expect("one context per expression");
+                after_block_slot = block && !slot_ctx.inline;
+                let hoisted_expr: Option<Expr> = if is_hoistable_url_call(&expr.expr, named_args) {
+                    let ident = syn::Ident::new(
+                        &format!("__proa_md_url_{}", hoisted.len()),
+                        proc_macro2::Span::mixed_site(),
+                    );
+                    hoisted.push((ident.clone(), &expr.expr));
+                    Some(syn::parse_quote!(#ident))
+                } else {
+                    None
+                };
+                let slot_expr = hoisted_expr.as_ref().unwrap_or(&expr.expr);
+                if slot_ctx.url_destination {
+                    let cx = render_context();
+                    let scope =
+                        syn::Ident::new("__proa_md_url_scope", proc_macro2::Span::mixed_site());
+                    let mut child = Vec::new();
+                    gen_block_expr(slot_expr, &mut child, mode);
+                    stmts.push(quote! {
+                        {
+                            let mut #scope = #proa_core::md::__MdTemplateScope::<_, _, { #proa_core::md::MD_TEMPLATE_URL_DESTINATION }>::enter(#cx)?;
+                            let #cx = #scope.context();
+                            #(#child)*
+                        }
+                    });
+                } else if block && slot_ctx.inline {
+                    let cx = render_context();
+                    let scope =
+                        syn::Ident::new("__proa_md_inline_scope", proc_macro2::Span::mixed_site());
+                    let mut child = Vec::new();
+                    gen_block_expr(slot_expr, &mut child, mode);
+                    stmts.push(quote! {
+                        {
+                            let mut #scope = #proa_core::md::__MdTemplateScope::<_, _, { #proa_core::md::MD_TEMPLATE_INLINE }>::enter(#cx)?;
+                            let #cx = #scope.context();
+                            #(#child)*
+                        }
+                    });
+                } else {
+                    gen_block_expr(slot_expr, stmts, mode);
+                }
             }
         }
     }
@@ -317,7 +594,8 @@ fn emit_tpl_nodes(
 // -- template parser --
 
 // ═══════════════════════════════════════════════════════════════
-//  Token composition mode: source lines are implicit Markdown block boundaries
+//  Token composition: the editor's view of a template, expanded only for
+//  rust-analyzer (see `expand`). Source lines are implicit block boundaries.
 // ═══════════════════════════════════════════════════════════════
 
 pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
@@ -332,8 +610,7 @@ pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
                 text.push_str(&text_value(value, *dedent));
             }
         }
-        let bytes = proc_macro2::Literal::byte_string(text.as_bytes());
-        return static_fragment(bytes);
+        return static_fragment(proc_macro2::Literal::string(&text));
     }
 
     let mut stmts = Vec::new();
@@ -356,7 +633,7 @@ pub fn generate_tokens(root: &MdRoot, mode: EmitMode) -> TokenStream {
     wrap_render(&stmts, mode)
 }
 
-// Raw and token templates share the same Rust control-flow lowering as HTML.
+// Templates share the same Rust control-flow lowering as HTML.
 fn gen_block_expr(expr: &Expr, stmts: &mut Vec<TokenStream>, mode: EmitMode) {
     stmts.push(crate::render_control::lower(expr, &|expr| {
         emit_md_render(expr, mode)
@@ -374,11 +651,77 @@ mod template_tests {
             .to_string()
     }
 
+    fn expand_body(input: proc_macro2::TokenStream, mode: EmitMode) -> Result<String, String> {
+        super::expand(input, mode)
+            .map(|tokens| tokens.to_string())
+            .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn non_template_bodies_fail_the_build_but_still_expand_for_rust_analyzer() {
+        let out = expand_body(quote::quote! { {overview}{impact} }, EmitMode::Sync).unwrap();
+        assert!(out.contains("compile_error !"), "{out}");
+        assert!(out.contains("cfg (not (rust_analyzer))"), "{out}");
+        assert!(out.contains("`md_sync!` takes a string template"), "{out}");
+        assert!(out.contains("use a tuple"), "{out}");
+        assert!(out.contains("OptimizedMd"), "{out}");
+
+        let out = expand_body(quote::quote! { "**" {child} "**" }, EmitMode::Sync).unwrap();
+        assert!(
+            out.contains("unexpected tokens after the template string"),
+            "{out}"
+        );
+
+        let out = expand_body(quote::quote! {}, EmitMode::Sync).unwrap();
+        assert!(out.contains("to render nothing"), "{out}");
+
+        let out = expand_body(quote::quote! { {section} }, EmitMode::Async).unwrap();
+        assert!(out.contains("`md!` takes a string template"), "{out}");
+        assert!(out.contains("render each value in turn"), "{out}");
+
+        // Bodies that are not even token composition surface the rejection
+        // directly, and a template with a malformed named argument keeps the
+        // ordinary parse error.
+        let err = expand_body(quote::quote! { foo bar }, EmitMode::Sync).unwrap_err();
+        assert!(err.contains("takes a string template"), "{err}");
+        let err = expand_body(quote::quote! { "a", b }, EmitMode::Sync).unwrap_err();
+        assert!(err.contains("expected `=`"), "{err}");
+
+        // String templates never carry the rejection.
+        let out = expand_body(quote::quote! { "**{child}**" }, EmitMode::Sync).unwrap();
+        assert!(!out.contains("compile_error"), "{out}");
+    }
+
     fn expand_err(input: proc_macro2::TokenStream) -> String {
         let tpl: MdTemplateInput = syn::parse2(input).expect("template input parses");
         generate_template(&tpl, EmitMode::Sync)
             .expect_err("template must fail")
             .to_string()
+    }
+
+    #[test]
+    fn literal_modes_are_independent_of_every_supported_raw_hash_count() {
+        for count in 0..=255 {
+            let hashes = "#".repeat(count);
+            for (body, expected) in [
+                ("\n## Heading\n", "MD_TEMPLATE_BLOCK"),
+                ("inline", "MD_TEMPLATE_INLINE"),
+            ] {
+                let source = format!("r{hashes}\"{body}\"{hashes}");
+                let template: MdTemplateInput = syn::parse_str(&source).unwrap();
+                for mode in [EmitMode::Sync, EmitMode::Async] {
+                    let output = generate_template(&template, mode).unwrap().to_string();
+                    assert!(output.contains(expected), "{count} hashes: {output}");
+                }
+            }
+        }
+        for source in ["\"one\\ntwo\"", "\"one\ntwo\""] {
+            let cooked: MdTemplateInput = syn::parse_str(source).unwrap();
+            assert!(generate_template(&cooked, EmitMode::Sync)
+                .unwrap()
+                .to_string()
+                .contains("MD_TEMPLATE_INLINE"));
+        }
     }
 
     #[test]
@@ -406,7 +749,7 @@ mod template_tests {
     #[test]
     fn shadow_skipped_for_control_flow() {
         let out = expand(quote! { r###"
-            {for item in &items { md_sync! { "- " {item} "\n" } }}
+            {for item in &items { md_sync! { "- {item}\n" } }}
             "### });
         assert!(!out.contains("format_args"), "unexpected shadow: {out}");
     }
@@ -466,6 +809,39 @@ mod template_tests {
             {value} {value}
             "###, value = 1, value = 2 });
         assert!(err.contains("duplicate"), "wrong error: {err}");
+    }
+
+    #[test]
+    fn nested_block_literals_are_rejected_however_the_macro_is_named() {
+        for path in [
+            "md_sync",
+            "md",
+            "proa_macros::md_sync",
+            "::proa_macros::md",
+            "crate::prelude::md_sync",
+        ] {
+            let value = format!("**{{{path}! {{ r#\"\n## Heading\n\"# }}}}**");
+            let lit = proc_macro2::Literal::string(&value);
+            let err = expand_err(quote! { #lit });
+            assert!(err.contains("inside an inline scope"), "{path}: {err}");
+        }
+        // Nested inline literals and block literals in block slots stay legal.
+        expand(quote! { r#"**{md_sync! { "inline" }}**"# });
+        expand(quote! { r###"
+            {md_sync! { r#"
+                ## Heading
+                "# }}
+            "### });
+    }
+
+    #[test]
+    fn inline_templates_do_not_open_per_slot_scopes() {
+        let out = expand(quote! { "**{value}** [{label}](/target)" });
+        assert!(!out.contains("__MdTemplateScope"), "redundant scope: {out}");
+        let out = expand(quote! { r###"
+            **{value}**
+            "### });
+        assert!(out.contains("__MdTemplateScope"), "missing scope: {out}");
     }
 
     #[test]

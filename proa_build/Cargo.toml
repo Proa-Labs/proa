@@ -3,7 +3,7 @@
 
 [package]
 name = "proa_build"
-version = "0.1.0"
+version = "0.2.0"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -17,6 +17,7 @@ object = { workspace = true }
 rayon = { workspace = true }
 rsjs_ir = { workspace = true }
 rsjs_transport = { workspace = true, features = ["extract"] }
+same-file = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

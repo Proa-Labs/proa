@@ -161,7 +161,7 @@ fn concat_of_numbers_adds_like_the_emitted_plus_chain() {
 #[test]
 fn concat_edge_arities() {
     // Zero parts -> "" and a single part passes through unchanged,
-    // matching FormCodegen's emission.
+    // matching JavaScript concatenation.
     assert_eq!(ok(&Expr::Concat { parts: vec![] }), Value::from(""));
     assert_eq!(
         ok(&Expr::Concat {
@@ -397,7 +397,7 @@ fn slice_supports_negative_indices() {
 
 #[test]
 fn replace_replaces_first_occurrence_only() {
-    // Pinned to FormCodegen's `.replace(from, to)`: JS replaces the FIRST
+    // Pinned to JavaScript's `.replace(from, to)`: JS replaces the FIRST
     // occurrence for string patterns.
     let e = Expr::Replace {
         string: boxed("aaa"),

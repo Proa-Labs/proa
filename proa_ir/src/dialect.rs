@@ -11,8 +11,7 @@
 //! variant name and a path into the expression tree, so authoring tools
 //! can point at the exact subexpression.
 //!
-//! `Stmt` is not reachable from `Expr` (expressions are pure), so no
-//! statement-level walk is needed for expression slots.
+//! Expressions are pure, so no statement-level walk is needed for expression slots.
 
 use crate::expr::Expr;
 use crate::types::IrStr;

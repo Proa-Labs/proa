@@ -128,7 +128,7 @@ pub(crate) fn write_element_open<B: WriteBuf, L: DataLoader>(
     tag: Tag,
     attrs: &[Attr<'_>],
 ) -> Result<(), WriteError> {
-    cx.out.extend_static(tag.open_bytes())?;
+    cx.out.extend_static_str(tag.open_str())?;
     let mut has_target_blank = false;
     let mut existing_rel: Option<&str> = None;
     let mut rel_has_noopener = false;
@@ -139,15 +139,14 @@ pub(crate) fn write_element_open<B: WriteBuf, L: DataLoader>(
                 Attr::Str {
                     k: AttrKey::Target,
                     v,
-                } if *v == "_blank" => {
+                } if v.eq_ignore_ascii_case("_blank") => {
                     has_target_blank = true;
                 }
                 Attr::Str { k: AttrKey::Rel, v } => {
                     existing_rel = Some(v);
                     rel_has_noopener = v
-                        .as_bytes()
-                        .windows(8)
-                        .any(|w| w.eq_ignore_ascii_case(b"noopener"));
+                        .split_ascii_whitespace()
+                        .any(|token| token.eq_ignore_ascii_case("noopener"));
                 }
                 _ => {}
             }
@@ -171,16 +170,17 @@ pub(crate) fn write_element_open<B: WriteBuf, L: DataLoader>(
     if needs_merge {
         match existing_rel {
             None => {
-                cx.out.extend_static(b" rel=\"noopener noreferrer\"")?;
+                cx.out.extend_static_str(" rel=\"noopener noreferrer\"")?;
             }
             Some(existing) => {
-                cx.out.extend_static(b" rel=\"")?;
-                cx.out.extend(existing.as_bytes())?;
-                cx.out.extend_static(b" noopener noreferrer\"")?;
+                cx.out.extend_static_str(" rel=\"")?;
+                let dialect = cx.__proa_current_escape_dialect();
+                escape_attr_value_for_dialect(&mut cx.out, existing, dialect)?;
+                cx.out.extend_static_str(" noopener noreferrer\"")?;
             }
         }
     }
-    cx.out.extend_static(b">")
+    cx.out.extend_static_str(">")
 }
 
 #[inline(always)]
@@ -189,7 +189,7 @@ pub(crate) fn write_element_close<B: WriteBuf, L: DataLoader>(
     tag: Tag,
 ) -> Result<(), WriteError> {
     debug_assert!(!tag.is_void(), "void tag should not emit a close element");
-    cx.out.extend_static(tag.close_bytes())
+    cx.out.extend_static_str(tag.close_str())
 }
 
 #[inline(always)]
@@ -210,28 +210,61 @@ fn write_attr<B: WriteBuf, L: DataLoader>(
                      Use a safe scheme (https:, /, #) or pass data via data-* attributes.",
                     k.as_str()
                 );
-                cx.out.extend_static(k.attr_open_bytes())?;
-                cx.out.extend_static(b"\"")?;
+                cx.out.extend_static_str(k.attr_open_str())?;
+                cx.out.extend_static_str("\"")?;
                 return Ok(());
             }
-            cx.out.extend_static(k.attr_open_bytes())?;
+            cx.out.extend_static_str(k.attr_open_str())?;
             let dialect = cx.__proa_current_escape_dialect();
             escape_attr_value_for_dialect(&mut cx.out, v, dialect)?;
-            cx.out.extend_static(b"\"")?;
+            cx.out.extend_static_str("\"")?;
         }
         Attr::Bool { k, present } => {
             if *present {
-                cx.out.extend_static(k.attr_bare_bytes())?;
+                cx.out.extend_static_str(k.attr_bare_str())?;
             }
         }
         Attr::Data { name, v } => {
-            cx.out.extend_static(b" ")?;
-            cx.out.extend(name.as_bytes())?;
-            cx.out.extend_static(b"=\"")?;
+            cx.out.extend_static_str(" ")?;
+            cx.out.extend_str(name)?;
+            cx.out.extend_static_str("=\"")?;
             let dialect = cx.__proa_current_escape_dialect();
             escape_attr_value_for_dialect(&mut cx.out, v, dialect)?;
-            cx.out.extend_static(b"\"")?;
+            cx.out.extend_static_str("\"")?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merged_rel_escapes_values_and_matches_complete_tokens() {
+        for (rel, expected) in [
+            (
+                "tag&note noopeners",
+                "tag&amp;note noopeners noopener noreferrer",
+            ),
+            ("tag NOOPENER", "tag NOOPENER"),
+        ] {
+            let mut cx = WebContext::<NoLoader>::new();
+            let attrs = [
+                Attr::Str {
+                    k: AttrKey::Target,
+                    v: "_BLANK",
+                },
+                Attr::Str {
+                    k: AttrKey::Rel,
+                    v: rel,
+                },
+            ];
+            write_element_open(&mut cx, Tag::A, &attrs).unwrap();
+            assert_eq!(
+                cx.into_output().into_string(),
+                format!(r#"<a target="_BLANK" rel="{expected}">"#)
+            );
+        }
+    }
 }

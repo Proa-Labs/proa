@@ -571,17 +571,17 @@ macro_rules! attr_static_bytes {
         impl AttrKey {
             /// Returns `b" attr=\""` — space + attr name + `="`.
             #[inline(always)]
-            pub fn attr_open_bytes(self) -> &'static [u8] {
+            pub fn attr_open_str(self) -> &'static str {
                 match self {
-                    $(AttrKey::$variant => concat!(" ", $name, "=\"").as_bytes(),)*
+                    $(AttrKey::$variant => concat!(" ", $name, "=\""),)*
                 }
             }
 
             /// Returns `b" attr"` — space + attr name (for boolean attrs).
             #[inline(always)]
-            pub fn attr_bare_bytes(self) -> &'static [u8] {
+            pub fn attr_bare_str(self) -> &'static str {
                 match self {
-                    $(AttrKey::$variant => concat!(" ", $name).as_bytes(),)*
+                    $(AttrKey::$variant => concat!(" ", $name),)*
                 }
             }
         }
@@ -803,7 +803,7 @@ impl<'a> Attr<'a> {
     pub(crate) fn validate(&self) -> Result<(), &'static str> {
         if let Attr::Data { name, .. } = self {
             if !is_valid_data_key(name) {
-                return Err("data-* attribute names must start with `data-` followed by at least one character, and must not contain ASCII uppercase letters");
+                return Err("invalid data-* attribute name");
             }
         }
         Ok(())
@@ -814,13 +814,33 @@ pub(crate) fn is_valid_data_key(name: &str) -> bool {
     if !name.starts_with("data-") || name.len() <= 5 {
         return false;
     }
-    // Spec only prohibits ASCII uppercase (A-Z) in data-* attribute names.
-    !name.as_bytes().iter().any(|c| c.is_ascii_uppercase())
+    !name.bytes().any(|byte| {
+        byte.is_ascii_uppercase()
+            || byte.is_ascii_control()
+            || matches!(byte, b' ' | b'"' | b'\'' | b'<' | b'>' | b'/' | b'=')
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_keys_keep_valid_names_and_reject_html_delimiters() {
+        assert!(is_valid_data_key("data-résumé_2.v1"));
+        for name in [
+            "data-",
+            "data-Name",
+            "data-item name",
+            "data-item/part",
+            "data-item=value",
+            "data-item\tname",
+            "data-a\"b",
+            "data-a>b",
+        ] {
+            assert!(!is_valid_data_key(name), "{name:?}");
+        }
+    }
 
     #[test]
     fn url_attr_classification() {

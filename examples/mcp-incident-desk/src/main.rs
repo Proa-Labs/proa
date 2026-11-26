@@ -4,6 +4,7 @@
 use mcp_incident_desk::{app::AppState, config::Config, routes};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let startup = proa::axum::DevServerStartup::from_env()?;
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -52,25 +53,27 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     });
+    let bind_tls = |port| {
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))?;
+        listener.set_nonblocking(true)?;
+        axum_server::from_tcp_rustls(listener, tls.clone())
+    };
+    let app = bind_tls(config.app_port)?.serve(routes::router(state.clone()).into_make_service());
+    let issuer = bind_tls(config.issuer_port)?.serve(routes::issuer(state).into_make_service());
+    startup.ready(&config.app_origin)?;
     tracing::info!(app=%config.app_origin,issuer=%config.issuer,"Incident Desk listening");
-    let app = axum_server::bind_rustls(
-        std::net::SocketAddr::from(([127, 0, 0, 1], config.app_port)),
-        tls.clone(),
-    )
-    .serve(routes::router(state.clone()).into_make_service());
-    let issuer = axum_server::bind_rustls(
-        std::net::SocketAddr::from(([127, 0, 0, 1], config.issuer_port)),
-        tls,
-    )
-    .serve(routes::issuer(state).into_make_service());
     tokio::try_join!(app, issuer)?;
     Ok(())
 }
 async fn cleanup_expired(s: &AppState) -> anyhow::Result<()> {
     let now = mcp_incident_desk::security::now();
     let mut tx = s.db.begin().await?;
-    for table in ["pending", "sessions", "codes"] {
-        sqlx::query(&format!("DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} WHERE expires<? LIMIT 500)")).bind(now).execute(&mut *tx).await?;
+    for statement in [
+        "DELETE FROM pending WHERE rowid IN (SELECT rowid FROM pending WHERE expires<? LIMIT 500)",
+        "DELETE FROM sessions WHERE rowid IN (SELECT rowid FROM sessions WHERE expires<? LIMIT 500)",
+        "DELETE FROM codes WHERE rowid IN (SELECT rowid FROM codes WHERE expires<? LIMIT 500)",
+    ] {
+        sqlx::query(statement).bind(now).execute(&mut *tx).await?;
     }
     sqlx::query("DELETE FROM refresh_tokens WHERE hash IN (SELECT r.hash FROM refresh_tokens r JOIN grants g ON g.id=r.grant_id WHERE g.expires<? LIMIT 500)").bind(now).execute(&mut *tx).await?;
     tx.commit().await?;

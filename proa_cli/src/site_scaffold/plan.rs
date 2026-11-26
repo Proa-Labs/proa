@@ -51,7 +51,7 @@ impl SitePlan {
         for required in [
             "Cargo.toml",
             "src/main.rs",
-            "proa.config.json",
+            crate::config::CONFIG_FILE,
             "proa.lock.json",
             "public/styles.css",
         ] {

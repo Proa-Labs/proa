@@ -121,18 +121,7 @@ Manual HTML is untouched. No metadata parser, tag deduplication, extra DOM pass,
 
 The initial configurable preparation limit is 1 MiB; serialized head 64 KiB; input value 16 KiB; resource/meta slots 128 including tombstones. Header commitment occurs at publication, not merely at sealing. Deferred mutations cannot change HTTP decisions. HEAD and bodyless statuses suppress output; transport owns framing headers. Deadline cancellation must stop both local and Send sources.
 
-## Completion criteria
-
-The implementation covers the framework/Axum drivers, typed fields/defaults, streaming and RSJS integration, response/cache decisions, MSRV and compile-fail checks. See [validation results and remaining limits](managed-head-validation.md) for measured evidence. Native-path microbenchmarks are not a universal zero-overhead guarantee.
-
-## Implementation notes from the production port
-
-The same release probe source against latest main and this branch reports identical
-allocation counts, returned-outcome sizes and poll counts for ready, pending,
-recovered and in-order cases. The inherited-head publication fix adds eight bytes
-to the existing native ErrorBoundary and local in-order Suspense allocations;
-static local and Send Suspense storage is unchanged. See the validation report
-for the exact counts and separate latency measurements.
+## Implementation notes
 
 ErrorBoundary reuses its existing transaction id to keep head revision checkpoints
 in managed document state. This adds no field to native futures. Active managed

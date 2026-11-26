@@ -20,10 +20,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SYNC_SCRIPT = REPOSITORY_ROOT / "scripts" / "sync_build_context.py"
 WATCH_SCRIPT = REPOSITORY_ROOT / "scripts" / "watch-marketing.sh"
 WATCH_LOCK_SCRIPT = REPOSITORY_ROOT / "scripts" / "watch-lock.sh"
-SCAFFOLD_WATCH_LOCK_TEMPLATE = (
-    REPOSITORY_ROOT / "proa_cli" / "templates" / "watch-lock.sh"
-)
-SCAFFOLD_DEV_TEMPLATE = REPOSITORY_ROOT / "proa_cli" / "templates" / "dev.sh"
 
 
 def write_file(path: Path, contents: str, mode: int = 0o644) -> None:
@@ -203,156 +199,6 @@ class BuildContextSyncTests(unittest.TestCase):
             self.assertIn("unsupported special file", result.stderr)
 
 
-class ScaffoldWatchScriptTests(unittest.TestCase):
-    def test_scaffold_uses_the_hardened_workspace_lock_helper(self) -> None:
-        self.assertEqual(
-            SCAFFOLD_WATCH_LOCK_TEMPLATE.read_bytes(),
-            WATCH_LOCK_SCRIPT.read_bytes(),
-        )
-
-    @staticmethod
-    def run_dev_wrapper(
-        root: Path, *arguments: str, settings: dict[str, str] | None = None
-    ) -> tuple[subprocess.CompletedProcess[str], list[str], Path]:
-        """Run the generated dev.sh against a fake `proa` and capture its argv."""
-        scripts = root / "scripts"
-        fake_bin = root / "fake-bin"
-        state = root / "state"
-        scripts.mkdir(parents=True)
-        state.mkdir()
-        shutil.copyfile(SCAFFOLD_DEV_TEMPLATE, scripts / "dev.sh")
-        shutil.copyfile(SCAFFOLD_WATCH_LOCK_TEMPLATE, scripts / "watch-lock.sh")
-        write_file(
-            fake_bin / "proa",
-            """#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\n' "$CARGO_TARGET_DIR" > "$PROA_TEST_STATE/target"
-printf '%s\n' "$@" > "$PROA_TEST_STATE/args"
-""",
-            mode=0o755,
-        )
-
-        environment = os.environ.copy()
-        environment.pop("CARGO_TARGET_DIR", None)
-        environment.pop("PROA_DEV_CARGO_TARGET_DIR", None)
-        for name in (
-            "PROA_DEV_RELOAD",
-            "PROA_DEV_RELOAD_PORT",
-            "PROA_DEV_CSS_HOT_SWAP",
-            "PROA_DEV_DEBOUNCE_MS",
-        ):
-            environment.pop(name, None)
-        environment.update(
-            {
-                "PATH": f"{fake_bin}{os.pathsep}{environment['PATH']}",
-                "PROA_TEST_STATE": str(state),
-                "PROA_WATCH_LOCK_ROOT": str(root / "locks"),
-            }
-        )
-        environment.update(settings or {})
-
-        result = subprocess.run(
-            ["bash", str(scripts / "dev.sh"), *arguments],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-            env=environment,
-        )
-        args_file = state / "args"
-        forwarded = (
-            args_file.read_text().splitlines() if args_file.exists() else []
-        )
-        return result, forwarded, state
-
-    def test_dev_wrapper_isolates_cargo_and_forwards_arguments(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory) / "site"
-            result, forwarded, state = self.run_dev_wrapper(root, "--port", "4321")
-
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                (state / "target").read_text().strip(),
-                str(root / "target" / "watch" / "dev"),
-            )
-            # The debounce window is always passed so the script, not the
-            # binary, is the one place its default is written down. Caller
-            # arguments still come last and therefore still win.
-            self.assertEqual(
-                forwarded,
-                ["dev", "--root", str(root), "--debounce-ms", "300", "--port", "4321"],
-            )
-            self.assertFalse((root / "locks" / "dev.lock").exists())
-
-    def test_dev_wrapper_maps_live_reload_settings_onto_flags(self) -> None:
-        cases = [
-            ({"PROA_DEV_RELOAD": "off"}, "--no-reload", True),
-            ({"PROA_DEV_RELOAD": "0"}, "--no-reload", True),
-            ({"PROA_DEV_RELOAD": "false"}, "--no-reload", True),
-            ({"PROA_DEV_RELOAD": "NO"}, "--no-reload", True),
-            ({"PROA_DEV_RELOAD": "on"}, "--no-reload", False),
-            ({"PROA_DEV_CSS_HOT_SWAP": "off"}, "--no-css-hot-swap", True),
-            ({"PROA_DEV_CSS_HOT_SWAP": "on"}, "--no-css-hot-swap", False),
-        ]
-        for settings, flag, expected in cases:
-            with self.subTest(settings=settings):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    root = Path(temporary_directory) / "site"
-                    result, forwarded, _ = self.run_dev_wrapper(root, settings=settings)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(flag in forwarded, expected, forwarded)
-
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory) / "site"
-            result, forwarded, _ = self.run_dev_wrapper(
-                root,
-                settings={
-                    "PROA_DEV_RELOAD_PORT": "4500",
-                    "PROA_DEV_DEBOUNCE_MS": "750",
-                },
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(
-                forwarded,
-                [
-                    "dev",
-                    "--root",
-                    str(root),
-                    "--reload-port",
-                    "4500",
-                    "--debounce-ms",
-                    "750",
-                ],
-            )
-
-    def test_dev_wrapper_reports_unusable_settings_instead_of_passing_them_on(
-        self,
-    ) -> None:
-        # A number that is not a number would otherwise reach clap and surface
-        # as a usage dump that never names the variable at fault.
-        for name in ("PROA_DEV_RELOAD_PORT", "PROA_DEV_DEBOUNCE_MS"):
-            with self.subTest(setting=name):
-                with tempfile.TemporaryDirectory() as temporary_directory:
-                    root = Path(temporary_directory) / "site"
-                    result, forwarded, _ = self.run_dev_wrapper(
-                        root, settings={name: "soon"}
-                    )
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn(name, result.stderr)
-                    self.assertEqual(forwarded, [], "the dev server should not start")
-
-        # An unrecognized on/off value keeps the documented default and says so,
-        # rather than silently reading as "off".
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory) / "site"
-            result, forwarded, _ = self.run_dev_wrapper(
-                root, settings={"PROA_DEV_RELOAD": "maybe"}
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("PROA_DEV_RELOAD", result.stderr)
-            self.assertNotIn("--no-reload", forwarded)
-
-
 class StableStylesheetTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -491,6 +337,62 @@ printf '%s\n' "$@" > "$FAKE_CARGO_ARGS"
 
 @unittest.skipUnless(hasattr(os, "killpg"), "process groups are unavailable")
 class WatchLockSignalTests(unittest.TestCase):
+    def test_lock_release_preserves_replacement_owners(self) -> None:
+        for owner, stopped_child in [("replacement", "12345"), ("", "")]:
+            with self.subTest(owner=owner), tempfile.TemporaryDirectory() as directory:
+                lock = Path(directory) / "test.lock"
+                lock.mkdir()
+                (lock / "pid").write_text(owner)
+                result = subprocess.run(
+                    [
+                        "bash", "-c",
+                        'source "$1"; _PROA_WATCH_LOCK_DIR="$2"; '
+                        '_PROA_WATCH_LOCK_OWNER_PID="$$"; proa_watch_lock_release "$3"',
+                        "release-test", str(WATCH_LOCK_SCRIPT), str(lock), stopped_child,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(lock.exists())
+                self.assertEqual((lock / "pid").read_text(), owner)
+
+    def test_sigint_during_lock_owner_publication_releases_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            supervisor = root / "watch-supervisor"
+            write_file(
+                supervisor,
+                r"""#!/usr/bin/env bash
+set -euo pipefail
+source "$1"
+export PROA_WATCH_LOCK_ROOT="$2/locks"
+proa_watch_lock_acquire test "$2"
+interrupt_publication() {
+  if [[ "$1" == '_PROA_WATCH_LOCK_OWNER_PID="$_PROA_WATCH_CHILD_PID"' ]]; then
+    trap - DEBUG
+    printf 'interrupted\n' > "$PROA_WATCH_LOCK_ROOT/interrupted"
+    kill -INT "$$"
+  fi
+}
+set -T
+trap 'interrupt_publication "$BASH_COMMAND"' DEBUG
+proa_watch_run sleep 30
+""",
+                mode=0o755,
+            )
+            result = subprocess.run(
+                ["bash", str(supervisor), str(WATCH_LOCK_SCRIPT), str(root)],
+                capture_output=True,
+                text=True,
+                start_new_session=True,
+                timeout=3,
+            )
+            self.assertEqual(result.returncode, 130, result.stderr)
+            self.assertTrue((root / "locks" / "interrupted").exists())
+            self.assertFalse((root / "locks" / "test.lock").exists())
+
     def test_sigint_stops_stubborn_watcher_group_and_releases_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

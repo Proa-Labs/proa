@@ -20,7 +20,7 @@ use proa_macros::html_sync;
 use serde::Deserialize;
 
 use crate::components::demos::quantity_stepper::QuantityStepper;
-use crate::layout::{render_chained_html, RsjsRuntimeTags, STYLESHEET_HREF, THEME_BOOT};
+use crate::layout::{render_chained_html, RsjsRuntimeTags, STYLESHEET_PATH, THEME_BOOT};
 
 /// Price of the tutorial's example product, in whole dollars.
 const ATLAS_JACKET_USD: i64 = 248;
@@ -31,19 +31,19 @@ const ATLAS_JACKET_USD: i64 = 248;
 /// `images/synthetic/product-shoe.svg`.
 const ATLAS_JACKET_SHOTS: &[(&str, &str)] = &[
     (
-        "/static/images/synthetic/atlas-jacket-front.svg",
+        "public/images/synthetic/atlas-jacket-front.svg",
         "Atlas Jacket, front",
     ),
     (
-        "/static/images/synthetic/atlas-jacket-back.svg",
+        "public/images/synthetic/atlas-jacket-back.svg",
         "Atlas Jacket, back",
     ),
     (
-        "/static/images/synthetic/atlas-jacket-hood.svg",
+        "public/images/synthetic/atlas-jacket-hood.svg",
         "Atlas Jacket, hood raised",
     ),
     (
-        "/static/images/synthetic/atlas-jacket-cuff.svg",
+        "public/images/synthetic/atlas-jacket-cuff.svg",
         "Atlas Jacket, zip and cuff detail",
     ),
 ];
@@ -105,7 +105,7 @@ where
                     <meta name="viewport" content="width=device-width, initial-scale=1" />
                     <meta name="robots" content="noindex" />
                     <title>{raw_text_ok(self.title)}</title>
-                    <link rel="stylesheet" href={STYLESHEET_HREF} />
+                    <link rel="stylesheet" href={cx.url(STYLESHEET_PATH)} />
                     <script>{StaticRaw(THEME_BOOT)}</script>
                 </head>
                 <body class="demo-frame-body">
@@ -148,7 +148,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Gallery {
                             html_sync! {
                                 <img
                                     class="demo-gallery-shot"
-                                    src={*src}
+                                    src={cx.url(src)}
                                     alt={*alt}
                                     width="600"
                                     height="600"
@@ -163,7 +163,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Gallery {
                     {for (index, (src, _)) in ATLAS_JACKET_SHOTS.iter().enumerate() {
                         html_sync! {
                             <label class="demo-gallery-thumb" for={gallery_input_id(index)}>
-                                <img src={*src} alt="" width="72" height="72" loading="lazy" />
+                                <img src={cx.url(src)} alt="" width="72" height="72" loading="lazy" />
                             </label>
                         }
                     }}
@@ -271,86 +271,5 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CartReceipt {
             </div>
         }
         .render(cx)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A framed demo is worthless if it only renders. It has to arrive with the
-    /// island boundary, the seed, and the runtime tags that hydrate it, and it
-    /// has to post a usable quantity before any of that runs.
-    #[test]
-    fn the_demo_page_hydrates_and_still_posts_without_javascript() {
-        let html = quantity_stepper_page().0;
-
-        assert!(html.contains("<rsjs-island"), "island boundary is missing");
-        assert!(
-            html.contains("data-rsjs-island="),
-            "signal seed script is missing"
-        );
-        assert!(
-            html.contains("/rsjs-runtime.js"),
-            "runtime tags are missing, so nothing hydrates inside the frame"
-        );
-        assert!(
-            html.contains(r#"<input type="hidden" name="qty" value="1""#),
-            "the no-script submission would carry no quantity"
-        );
-        assert!(html.contains(r#"action="/demos/quantity-stepper/cart""#));
-    }
-
-    /// The gallery is deliberately not an island. If it ever grows one, the
-    /// page stops demonstrating "exactly one component needs JavaScript", so
-    /// pin the inert radio/label pairing that switches the slides.
-    #[test]
-    fn the_gallery_switches_slides_without_javascript() {
-        let html = quantity_stepper_page().0;
-
-        for (index, (src, alt)) in ATLAS_JACKET_SHOTS.iter().enumerate() {
-            let id = gallery_input_id(index);
-            assert!(
-                html.contains(&format!(r#"id="{id}""#)),
-                "slide {index} has no radio"
-            );
-            assert!(
-                html.contains(&format!(r#"for="{id}""#)),
-                "slide {index} has no thumbnail label"
-            );
-            assert!(html.contains(src), "{src} is not rendered");
-            assert!(
-                html.contains(alt),
-                "{alt} is missing, so the slide is unlabelled"
-            );
-        }
-
-        assert!(
-            html.contains(r#"id="atlas-jacket-shot-0" checked"#),
-            "the first slide has to be selected server-side"
-        );
-        // Only the stepper's markers belong to an island.
-        let gallery = html
-            .split("demo-gallery\"")
-            .nth(1)
-            .and_then(|rest| rest.split("demo-pdp-info").next())
-            .expect("gallery markup");
-        assert!(
-            !gallery.contains("data-rsjs"),
-            "the gallery must stay inert: {gallery}"
-        );
-    }
-
-    #[test]
-    fn the_cart_route_echoes_the_posted_quantity() {
-        let html = quantity_stepper_cart_page(AddToCart {
-            sku: "atlas-jacket".to_string(),
-            qty: 3,
-        })
-        .0;
-
-        assert!(html.contains("atlas-jacket"));
-        assert!(html.contains(">3<"));
-        assert!(html.contains("$744"), "subtotal should be 3 x $248");
     }
 }

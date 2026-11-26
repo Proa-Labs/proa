@@ -7,6 +7,12 @@ use std::time::Instant;
 
 pub struct StageTimer(Option<Instant>);
 
+impl Default for StageTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StageTimer {
     pub fn new() -> Self {
         Self(std::env::var_os("PROA_BUILD_TIMINGS").map(|_| Instant::now()))

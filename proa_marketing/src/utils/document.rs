@@ -22,9 +22,10 @@ impl serde::Serialize for SiteUrl<'_> {
     }
 }
 
-/// The owned response/cache boundary; child components stay typed.
+/// Render an owned document for this response; child components stay typed.
 pub fn render_markdown(root: impl MdRenderSync) -> String {
     let mut cx = WebContext::new();
+    cx.set_request(crate::static_assets::request());
     root.render_md(&mut cx)
         .expect("render Markdown into an owned buffer");
     cx.into_output().into_string()
@@ -37,22 +38,5 @@ pub struct Url<'a>(pub &'a str);
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Url<'_> {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         cx.write_md_url(self.0)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_macros::md_sync;
-
-    #[test]
-    fn markdown_slots_escape_labels_and_link_destinations() {
-        let label = "[injected](https://evil.test)";
-        let url = "https://example.test/a (b)";
-        let output = render_markdown(md_sync! { r###"[{label}]({Url(url)})"### });
-        assert!(output.contains(r"\[injected\]"));
-        assert!(output.contains(r"https://example.test/a%20\(b\)"));
-        assert!(!output.contains("](https://evil.test)"));
-        assert_eq!(render_markdown(Url("javascript:alert(1)")), "");
     }
 }

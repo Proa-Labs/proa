@@ -1,14 +1,13 @@
 # Proa Actions
 
-Type-safe, compile-time action system for Proa render components with automatic
-TypeScript generation and collision detection.
+Type-safe, compile-time action system for Proa render components with
+TypeScript generation.
 
 ## Features
 
 - **Scoped Actions**: Namespace actions with `#[action(scope = "...")]` to prevent collisions
 - **TypeScript Codegen**: Auto-generate TypeScript contracts, runtime, and handler stubs
 - **Compile-Time Safety**: Action names and parameters are validated at compile time
-- **Collision Detection**: Build-time checks prevent duplicate action names
 - **Zero-Cost Abstractions**: Stack-allocated action data with no heap allocations
 - **Multi-Event Support**: onclick, onblur, onfocus, and more
 
@@ -49,8 +48,7 @@ const CLICK: ActionDataStatic = ActionDataStatic::new(ButtonAction::HANDLE_CLICK
 proa_actions/
 ├── dynamic.rs         - ActionData, ActionHandler trait, metadata types
 ├── static_data.rs     - ActionDataStatic (zero-cost, stack-allocated)
-├── codegen.rs         - TypeScript file generation
-└── collision_check.rs - Build-time collision detection
+└── codegen.rs         - TypeScript file generation
 ```
 
 ### Why Two Action Types?
@@ -77,28 +75,6 @@ pub enum HomeActions {
 ```
 
 **Generated names**: `home_page.HomeActions.ViewProfile`, `home_page.HomeActions.SendMessage`
-
-### Collision Detection
-
-Add this test to your project:
-
-```rust
-// tests/collision_check.rs
-#[test]
-fn test_no_action_collisions() {
-    proa_actions::check_action_collisions();
-}
-```
-
-**Error Example**:
-```
-❌ ACTION NAME COLLISION DETECTED!
-
-The following action names are defined multiple times:
-  • "demo.ButtonAction" appears 3 times
-
-To fix: Choose a different scope name or rename the enum.
-```
 
 ## TypeScript Integration
 

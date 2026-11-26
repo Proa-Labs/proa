@@ -52,7 +52,7 @@ Variant enums normally implement `Default`, `Copy`, `Eq`, and `Hash`.
 variant mapping:
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa_macros::ProaVariant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, proa::ProaVariant)]
 #[variant(name = "variant")]
 pub enum ButtonVariant {
     #[default]
@@ -205,15 +205,20 @@ provides incoming request metadata; construct outgoing URLs with `cx.url(...)`.
 Only clone `cx.request().base_path()` when a loop or closure needs independent
 access while rendering; explain that shared, allocation-free clone with a
 `proa-perf-ok` comment. In Axum handlers, compose redirects with
-`proa_framework_axum::app_url("/")`.
+`proa::axum::app_url("/")`.
 
 The prefix affects outgoing URLs, not incoming routing. `Font::head(cx)`,
 compiled docs article URL attributes, shell navigation, and search artifacts
 share it; pass the same context to fonts and use `response_with_base_path` in
 custom docs handlers. Linked query/mutation runtimes compose endpoint URLs
-automatically. Managed CSS/JS services compose recognized URL syntax, leaving
-ordinary strings unchanged; custom browser clients can import `app_url` from
-`/rsjs-runtime.js`. Use `BasePathHtml` for trusted compiled HTML whose URL
+when passed `cx.url("/api/items")` directly or when
+`FetchRequest.apply_base_path` is true. Application `/static` CSS/JS services
+compose recognized URL syntax, leaving ordinary strings unchanged. Files
+published from `public/` are served byte for byte under `/_proa/immutable/` and
+`/_proa/mutable/` and are never rewritten; hand-written public JS reads the
+base path from the page's `<script type="application/json" id="__proa">`
+element, which pages with islands carry when the base path is not empty.
+Use `BasePathHtml` for trusted compiled HTML whose URL
 attributes should follow the mount. See the
 [deployment coverage contract](../../../proa_marketing/src/docs/framework/deployment.mdx#coverage-and-limitations).
 

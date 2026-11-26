@@ -138,6 +138,8 @@ struct RecordingBuf {
     writes: Vec<Vec<u8>>,
 }
 
+#[allow(unsafe_code)]
+
 impl WriteBuf for RecordingBuf {
     fn capacity(&self) -> usize {
         usize::MAX
@@ -147,7 +149,8 @@ impl WriteBuf for RecordingBuf {
         self.bytes.len()
     }
 
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         self.writes.push(bytes.to_vec());
         self.bytes.extend_from_slice(bytes);
         Ok(())
@@ -218,6 +221,50 @@ fn derive_hides_buffer_and_loader_generics_for_generic_children() {
         String::from_utf8(out).unwrap(),
         r#"<section class="card featured" id="profile">Ada &amp; Lin</section>"#
     );
+}
+
+#[derive(ProaComponent)]
+#[component(tag = "a")]
+struct Link<'a> {
+    #[component(attr, attr_name = "href")]
+    href: Option<&'a str>,
+    #[component(class)]
+    class: Option<&'a str>,
+}
+
+impl Link<'_> {
+    fn classes(&self) -> ([&str; 1], usize) {
+        (["base&accent"], 1)
+    }
+}
+
+#[test]
+fn derived_attributes_use_the_same_escaping_and_url_policy_as_templates() {
+    let render = |href| {
+        let mut cx = WebContext::<proa_core::NoLoader>::new();
+        WebRenderSync::render(
+            Link {
+                href: Some(href),
+                class: Some("quiet&bold"),
+            },
+            &mut cx,
+        )
+        .unwrap();
+        cx.into_output().into_string()
+    };
+    assert_eq!(
+        render("/search?a=1&b=2"),
+        r#"<a class="base&amp;accent quiet&amp;bold" href="/search?a=1&amp;b=2"></a>"#
+    );
+    let blocked = std::panic::catch_unwind(|| render("data:text/html,"));
+    if cfg!(debug_assertions) {
+        assert!(blocked.is_err());
+    } else {
+        assert_eq!(
+            blocked.unwrap(),
+            r#"<a class="base&amp;accent quiet&amp;bold" href=""></a>"#
+        );
+    }
 }
 
 #[test]

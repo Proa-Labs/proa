@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
-use proa_macros::{content, content_part, html_sync, md_sync, omit};
+use proa_macros::{content, html_sync, md_sync, omit};
 use std::{cell::Cell, ops::Deref};
 
 struct Product {
@@ -13,7 +13,7 @@ struct Product {
 impl WebRenderSync for Product {
     fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
         html_sync! {
-            <h1>{content_part!("title", self.title)}</h1>
+            <h1>{self.title}</h1>
         }
         .render(cx)
     }
@@ -23,7 +23,7 @@ impl MdRenderSync for Product {
     #[content(skip, reason = "Independent Markdown representation")]
     fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
         omit!(self.title);
-        md_sync! { r###"# {content_part!("title", self.title)}"### }.render_md(cx)
+        md_sync! { r###"# {self.title}"### }.render_md(cx)
     }
 }
 
@@ -87,7 +87,7 @@ fn omission_type_checks_without_evaluating_field_access_or_moving_values() {
 }
 
 #[test]
-fn child_and_role_selectors_do_not_construct_or_evaluate_content() {
+fn child_and_literal_selectors_do_not_construct_content() {
     #[allow(dead_code)]
     struct Notice<'a, T> {
         label: &'a str,
@@ -96,13 +96,6 @@ fn child_and_role_selectors_do_not_construct_or_evaluate_content() {
     omit!(Notice<'_, String>);
     omit!(str);
     omit!("restock", "Intentionally omitted");
-    let calls = Cell::new(0);
-    let output = content_part!("title", {
-        calls.set(calls.get() + 1);
-        "value"
-    });
-    assert_eq!(calls.get(), 1);
-    assert_eq!(output, "value");
 }
 
 #[test]

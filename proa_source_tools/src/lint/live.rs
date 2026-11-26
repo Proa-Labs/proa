@@ -61,6 +61,13 @@ pub fn lint_snapshot(overlays: &[SourceOverlay]) -> Result<Vec<Diagnostic>> {
     for (overlay, path) in overlays.iter().zip(&paths) {
         sources.insert(path.clone(), overlay.source.clone());
     }
+    // Unsaved buffers decide which module files are test-only in this snapshot.
+    let _overrides = super::SourceOverrides::install(
+        overlays
+            .iter()
+            .zip(&paths)
+            .map(|(overlay, path)| (path.clone(), overlay.source.clone())),
+    );
 
     let mut diagnostics = Vec::new();
     let mut invalid_packages = BTreeSet::new();
@@ -94,22 +101,49 @@ pub fn lint_snapshot(overlays: &[SourceOverlay]) -> Result<Vec<Diagnostic>> {
             diagnostics.extend(lint_file_with_cache(path, source, false, None));
         }
     }
-    let valid_sources: Vec<_> = sources
+    // Parse once for both cross-file passes. Content checks skip packages with
+    // a Rust syntax error; the asset pass falls back to template scanning there.
+    let all_sources: Vec<_> = sources
         .iter()
-        .filter(|(path, _)| !invalid_packages.contains(&package(path)))
         .map(|(p, s)| (p.clone(), s.clone()))
         .collect();
-    diagnostics.extend(content::lint_sources(
+    let parsed = super::parse_sources(&all_sources);
+    let (valid_sources, valid_parsed): (Vec<_>, Vec<_>) = all_sources
+        .iter()
+        .zip(&parsed)
+        .filter(|((path, _), _)| !invalid_packages.contains(&package(path)))
+        .map(|(source, parsed)| (source.clone(), parsed.as_ref()))
+        .unzip();
+    diagnostics.extend(content::lint_parsed(
         &valid_sources,
+        &valid_parsed,
         &reporting,
         false,
         &content::ContentOptions::default(),
+    ));
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    diagnostics.extend(super::asset_urls::lint_parsed(
+        &all_sources,
+        &parsed,
+        &reporting,
+        false,
+    ));
+    // Skips any package with an unparsed file itself, since that file could
+    // define a same-named type.
+    diagnostics.extend(super::head_lifecycle::lint_parsed(
+        &all_sources,
+        &parsed,
+        &reporting,
+        false,
     ));
 
     // Keep exact snapshot evidence for UTF-16 conversion in the editor, even
     // for ordinary lints which normally only carry a line and scalar column.
     for diagnostic in &mut diagnostics {
         diagnostic.path = content::absolute(&diagnostic.path);
+        for label in &mut diagnostic.labels {
+            label.range.path = content::absolute(&label.range.path);
+        }
         if diagnostic.labels.is_empty() {
             if let Some(source) = sources.get(&diagnostic.path) {
                 let range = SourceRange {
@@ -215,5 +249,28 @@ mod tests {
         let diagnostics = lint_snapshot(&[overlay(root.path(), "src/md.rs", broken)]).unwrap();
         assert!(diagnostics.iter().any(|d| d.code == "syntax/rust"));
         assert!(coverage(&diagnostics).is_empty());
+    }
+
+    #[test]
+    fn head_role_placements_use_saved_counterparts_and_unsaved_buffers() {
+        let root = fixture();
+        std::fs::write(
+            root.path().join("src/layouts.rs"),
+            "pub struct Shell; impl WebRender for Shell { const ROLE: ComponentRole = ComponentRole::LAYOUT; fn render(self, cx: &mut Cx) -> Outcome { todo!() } }",
+        )
+        .unwrap();
+        let page = "use crate::layouts::Shell; pub struct Home; impl WebRender for Home { const ROLE: ComponentRole = ComponentRole::PAGE; fn render(self, cx: &mut Cx) -> Outcome { html! { {Shell} }.render(cx) } }";
+        let placements = |source: &str| {
+            lint_snapshot(&[overlay(root.path(), "src/home.rs", source)])
+                .unwrap()
+                .into_iter()
+                .filter(|d| d.code == "render/head-role-in-page")
+                .collect::<Vec<_>>()
+        };
+        let found = placements(page);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(found[0].labels[1].range.path.ends_with("src/layouts.rs"));
+        assert!(found[0].labels[1].range.path.is_absolute());
+        assert!(placements(&page.replace("{Shell}", "{\"body\"}")).is_empty());
     }
 }

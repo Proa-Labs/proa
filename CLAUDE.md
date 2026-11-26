@@ -1,6 +1,6 @@
 # Claude Code Instructions for the Proa workspace
 
-Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It renders 10-20x faster than traditional templating engines through static consolidation and zero-allocation patterns.
+Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It uses static consolidation and direct-buffer rendering; performance depends on the workload and output contract. See the dated measurements and methodology in [README.md](README.md#benchmarks).
 
 ## Agent reference
 
@@ -63,7 +63,7 @@ So `proa_framework_axum`'s sources are at `proa_framework/proa_framework_axum/sr
 `rsjs_*` crates are not yet grouped.
 
 Runnable reference applications live under `examples/` and are workspace
-members: `examples/origin-routing-atlas`, `examples/webmcp-pizza`, and
+members: `examples/webmcp-pizza` and
 `examples/mcp-incident-desk`. They are `publish = false` and exercise the
 public API the way an application would, so they are the best place to read a
 complete page, loader, and layout in context.
@@ -71,12 +71,10 @@ complete page, loader, and layout in context.
 | Crate | Purpose |
 |-------|---------|
 | `proa_core` | Rendering primitives: `WebRenderSync`, `WebRender`, `WriteBuf`, `ClassList`, HTML elements |
-| `proa_macros` | Proc macros: `html!`, `html_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]`, `#[island]` |
+| `proa_macros` | Proc macros: `html!`, `html_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]` |
 | `proa_framework_axum` | Axum/Tokio adapter with routing, static serving, and HTTP response integration |
 | `proa_ir` | Intermediate representation for reactive attrs, bindings, and lower-level client/runtime glue |
 | `proa_actions` | Action data structures for event handlers |
-| `proa_codegen` | TypeScript code generation from Rust components |
-| `proa_react` | React/JSX interop |
 | `proa_fonts` | Runtime for self-hosted, metric-matched web fonts: `Font`/`FontFace`, zero-alloc `Font::head` |
 | `proa_fonts_build` | Build-time font pipeline: parse metrics, compute fallbacks, content-hash, generate `proa_fonts::Font` modules (drives `cargo proa font`) |
 | `proa_bench` | Proa-only render and streaming regression benchmarks |
@@ -137,9 +135,14 @@ definition is:
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// Managed-head role: `COMPONENT` (default), `LAYOUT`, or `PAGE`.
     const ROLE: ComponentRole = ComponentRole::COMPONENT;
-    /// Native async metadata hook; ordinary COMPONENT values skip it entirely.
-    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        Ok(())
+    /// Async metadata hook; ordinary COMPONENT values skip it entirely.
+    /// Override it with `async fn render_head(..) -> Result<(), WriteError>`.
+    /// The default returns the zero-sized `NoHead` future.
+    fn render_head(
+        &self,
+        _cx: &mut WebContext<L, B>,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        NoHead
     }
     fn render(
         self,
@@ -160,7 +163,8 @@ Use `WebRenderSync` by default. Use `WebRender` when the body or head hook needs
 to `.await`. Async hooks need no attributes or handwritten async blocks. Run
 `cargo proa lint <changed-paths> --deny warnings` to reject missing roles and
 explicit `COMPONENT` roles on head overrides; forwarded constants must resolve
-to `LAYOUT` or `PAGE`. Sync hooks also keep their code-generation role assertion.
+to `LAYOUT` or `PAGE`. `cargo build` rejects the same mistakes for sync and
+async hooks with a code-generation role assertion (E0080).
 The `B` parameter is the advanced custom-writer escape hatch. Application
 components normally omit it and implement `WebRenderSync<L>` or `WebRender<L>`;
 that selects the default owned `RenderBuffer` and leaves only the loader
@@ -204,7 +208,7 @@ pub const BUTTON_BASE: &str = "inline-flex items-center rounded-md text-sm";
 
 Self-host web fonts instead of hitting Google at runtime: content-hashed files, a metric-matched fallback (no layout shift on swap), preload hints, zero JS. Fonts are declared in code with `google_font!` / `local_font!` from `proa_fonts_macros`, e.g. `static SANS: Font = google_font!("Geist", subsets = [latin], weights = [400, 700], variable = "--font-sans");`. Each declaration produces a `proa_fonts::Font` rendered in `<head>` with one allocation-free call `SANS.head(cx)?` (apply `class={SANS.class_name()}` on `<html>`, or reference `var(--font-...)`).
 
-A `build.rs` calling `proa_fonts_build::collect::run(&CollectOptions::from_build_env()?)` scans for the macros, vendors into `public/fonts`, records the result in `proa-fonts.lock`, and generates the consts into `OUT_DIR` (Google fetching is behind the default-on `fetch` feature). Needs one boilerplate line: `mod __proa_fonts_generated { include!(concat!(env!("OUT_DIR"), "/proa_fonts.rs")); }`. Vendoring is lock-gated: unchanged declarations with intact vendored files (sha256 + size verified) regenerate offline from disk; commit `proa-fonts.lock` and `public/fonts` so builds are offline and reproducible. `cargo proa font sync` runs the same collector outside a build; `--offline` is strictly verify-only for all sources (no writes, fails with "proa-fonts.lock is stale" on any lock or file drift; the CI gate), and plain `sync` under `CARGO_NET_OFFLINE=true` also verifies only. During a `cargo build` with `CARGO_NET_OFFLINE=true`, local fonts still vendor; only needed Google fetches fail actionably. `font add`/`font remove` and `proa-fonts.toml` no longer exist.
+A `build.rs` calling `proa_fonts_build::collect::run(&CollectOptions::from_build_env()?)` scans for the macros, vendors files named `<stem>.<16 hex>.woff2` into `public/fonts`, records the result in `proa-fonts.lock`, and generates the consts into `OUT_DIR` (Google fetching is behind the default-on `fetch` feature). Needs one boilerplate line: `mod __proa_fonts_generated { include!(concat!(env!("OUT_DIR"), "/proa_fonts.rs")); }`. Vendoring is lock-gated: unchanged declarations with intact vendored files (sha256 + size verified) regenerate offline from disk; commit `proa-fonts.lock` and `public/fonts` so builds are offline and reproducible. The files stay in `public/fonts`, so the public asset catalog publishes them under their existing names and serves them at `/_proa/immutable/fonts/` (the default URL prefix); the app does not mount a `/fonts` route. `cargo proa font sync` runs the same collector outside a build; `--offline` is strictly verify-only for all sources (no writes, fails with "proa-fonts.lock is stale" on any lock or file drift; the CI gate), and plain `sync` under `CARGO_NET_OFFLINE=true` also verifies only. During a `cargo build` with `CARGO_NET_OFFLINE=true`, local fonts still vendor; only needed Google fetches fail actionably. `font add`/`font remove` and `proa-fonts.toml` no longer exist.
 
 Never add a runtime `fonts.googleapis.com` `<link>` or a hand-written `@font-face`. See [`docs/framework/fonts`](proa_marketing/src/docs/framework/fonts.mdx).
 
@@ -217,7 +221,7 @@ file layout:
 components/<name>/
 ├── mod.rs          # Re-exports
 ├── recipe.rs       # Variant enums, class constants, recipe struct
-└── <name>.rs       # Component struct + WebRenderSync/WebRender impl + tests
+└── <name>.rs       # Component struct + WebRenderSync/WebRender impl
 ```
 
 ### recipe.rs pattern
@@ -310,22 +314,6 @@ where
         .render(cx)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::text::text;
-
-    #[test]
-    fn component_renders() {
-        let mut cx = WebContext::new();
-        Component { variant: ComponentVariant::Default, class: None, children: Some(text("Hi")) }
-            .render(&mut cx)
-            .unwrap();
-        let html = cx.into_output().into_string();
-        assert!(html.contains("data-component"));
-    }
-}
 ```
 
 For async components, use `WebRender` plus `html!`. Wrap sync children with `proa_core::to_async(...)` when they need to participate in async composition. Use `proa_core::await_component(...)` when a future resolves to a renderable child.
@@ -355,8 +343,8 @@ cargo check --workspace --all-targets
 # binary that links island rlibs from a *dependency* fail at link time
 # (same-crate lib tests are fine: the guard is cfg'd out under test). The
 # island demo crates are exercised through `cargo proa test` instead.
-cargo test --workspace --lib --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa-lean-server
-cargo test --workspace --tests --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa-lean-server --exclude proa_showcase
+cargo test --workspace --lib --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web
+cargo test --workspace --tests --exclude proa_demo --exclude proa_marketing --exclude proa_showcase_web --exclude proa_showcase
 
 # Perf lint changed Rust render paths (regex-based, fast)
 python3 scripts/proa_perf_lint.py
@@ -367,7 +355,7 @@ cargo proa lint --changed        # only files changed vs HEAD (also on fmt/check
 cargo proa fmt                   # canonical macro layout; render-preserving verify runs before every write
 cargo proa fmt --check           # no writes; prints a unified diff and exits non-zero on drift
 cargo proa check --source-only --allow-warnings # workspace CI gate; errors/drift fail. Without --source-only the linked RSJS Cargo check runs and needs one exact -p/--bin target
-cargo proa config validate       # proa.config.json: unknown keys, empty commands, bad asset kinds
+cargo proa config validate       # proa.config.rs: compile the typed config and check asset kinds
 cargo proa chunks proa_showcase/src # static-run / dynamic-slot report
 
 # Fonts: declared in code via google_font!/local_font!, vendored by build.rs (see docs/framework/fonts)

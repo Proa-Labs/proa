@@ -124,7 +124,6 @@ pub enum ContentKey {
         ty: String,
         inputs: BTreeSet<String>,
     },
-    Role(String),
     Literal(String),
 }
 impl ContentKey {
@@ -132,7 +131,6 @@ impl ContentKey {
         match self {
             Self::Value(v) => v.clone(),
             Self::Child { ty, .. } => ty.rsplit("::").next().unwrap_or(ty).into(),
-            Self::Role(v) => format!("content part {v:?}"),
             Self::Literal(v) => format!("text {v:?}"),
         }
     }
@@ -140,7 +138,7 @@ impl ContentKey {
         match self {
             Self::Value(v) => BTreeSet::from([v.clone()]),
             Self::Child { inputs, .. } => inputs.clone(),
-            Self::Role(_) | Self::Literal(_) => BTreeSet::new(),
+            Self::Literal(_) => BTreeSet::new(),
         }
     }
 }
@@ -174,7 +172,7 @@ pub enum OmissionKey {
     Contributions(Vec<ContentKey>),
     Values(BTreeSet<String>),
     Child(String),
-    Role(String),
+    Literal(String),
     Unknown(String),
 }
 
@@ -195,6 +193,83 @@ pub struct ViewSummary {
     pub bindings: BTreeMap<String, Vec<ContentKey>>,
     /// Complete Rust child type spellings that need no guessed type arguments.
     pub child_selectors: BTreeMap<String, String>,
+}
+
+fn covers(candidate: &ContentKey, required: &ContentKey) -> bool {
+    if candidate == required {
+        return true;
+    }
+    if let ContentKey::Value(value) = required {
+        return candidate.inputs().iter().any(|input| {
+            input == value
+                || value
+                    .strip_prefix(input)
+                    .is_some_and(|tail| tail.starts_with('.'))
+        });
+    }
+    false
+}
+
+fn matching_contributions<'a>(
+    required: &Contribution,
+    candidates: &'a [Contribution],
+    require_same_presence: bool,
+) -> Vec<&'a Contribution> {
+    let eligible = |candidate: &&Contribution| {
+        !require_same_presence || same_presence(&candidate.presence, &required.presence)
+    };
+    let direct: Vec<_> = candidates
+        .iter()
+        .filter(eligible)
+        .filter(|candidate| covers(&candidate.key, &required.key))
+        .collect();
+    if !direct.is_empty() {
+        return direct;
+    }
+    // Different helpers may re-express a child's inputs. Known child types
+    // remain distinct when both views render child components directly.
+    let ContentKey::Child { inputs, .. } = &required.key else {
+        return Vec::new();
+    };
+    let mut matched = Vec::new();
+    for input in inputs
+        .iter()
+        .filter(|input| !input.starts_with("@arg:") && !input.starts_with("@field:"))
+    {
+        let key = if let Some(literal) = input.strip_prefix("@literal:") {
+            let text = match syn::parse_str::<syn::LitStr>(literal) {
+                Ok(value) => {
+                    let text = value.value();
+                    // String punctuation alone is not emitted as a content contribution.
+                    if !text.chars().any(char::is_alphanumeric) {
+                        continue;
+                    }
+                    text
+                }
+                Err(_) => literal.to_owned(),
+            };
+            ContentKey::Literal(text.split_whitespace().collect::<Vec<_>>().join(" "))
+        } else {
+            ContentKey::Value(input.clone())
+        };
+        let found: Vec<_> = candidates
+            .iter()
+            .filter(eligible)
+            .filter(|candidate| {
+                matches!(candidate.key, ContentKey::Value(_) | ContentKey::Literal(_))
+                    && covers(&candidate.key, &key)
+            })
+            .collect();
+        if found.is_empty() {
+            return Vec::new();
+        }
+        matched.extend(found);
+    }
+    matched
+}
+
+fn covered(required: &Contribution, candidates: &[Contribution]) -> bool {
+    !matching_contributions(required, candidates, true).is_empty()
 }
 
 fn same_presence(a: &[Presence], b: &[Presence]) -> bool {
@@ -267,6 +342,39 @@ fn local_marker_range(view: &ViewSummary, name: &str) -> Option<SourceRange> {
     }
 }
 
+// Keep editable suggestions on the namespace used by the source.
+fn omission_macro_namespace(source: &str) -> &'static str {
+    fn facade_import(tree: &syn::UseTree) -> bool {
+        match tree {
+            syn::UseTree::Path(path) => path.ident == "proa",
+            syn::UseTree::Name(name) => name.ident == "proa",
+            syn::UseTree::Rename(rename) => rename.ident == "proa",
+            syn::UseTree::Group(group) => group.items.iter().any(facade_import),
+            _ => false,
+        }
+    }
+    #[derive(Default)]
+    struct FacadeUse(bool);
+    impl<'ast> syn::visit::Visit<'ast> for FacadeUse {
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            self.0 |= path.segments.first().is_some_and(|s| s.ident == "proa");
+            syn::visit::visit_path(self, path);
+        }
+        fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+            self.0 |= facade_import(&item.tree);
+        }
+    }
+    let mut usage = FacadeUse::default();
+    if let Ok(file) = syn::parse_file(source) {
+        syn::visit::Visit::visit_file(&mut usage, &file);
+    }
+    if usage.0 {
+        "proa"
+    } else {
+        "proa_macros"
+    }
+}
+
 /// Compare summaries without depending on their parsers. Absence is confirmed
 /// only inside the supported subset; any opaque output prevents that assertion.
 pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnostic> {
@@ -274,6 +382,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
         return Vec::new();
     }
     let mut diagnostics = Vec::new();
+    let mut omission_namespace = None;
     let mut waived = BTreeSet::new();
     for marker in &target.omissions {
         if marker
@@ -292,7 +401,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     message.clone(),
                     "this omission has no resolved selector",
                 )
-                .with_help("select an in-scope value, a resolvable child type, or a named part"),
+                .with_help("select an in-scope value, a resolvable child type, or literal text"),
             );
             continue;
         }
@@ -309,8 +418,8 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     OmissionKey::Child(ty) => {
                         matches!(&part.key, ContentKey::Child {ty: child, ..} if child == ty)
                     }
-                    OmissionKey::Role(role) => {
-                        matches!(&part.key, ContentKey::Role(r) | ContentKey::Literal(r) if r == role)
+                    OmissionKey::Literal(role) => {
+                        matches!(&part.key, ContentKey::Literal(r) if r == role)
                     }
                     OmissionKey::Unknown(_) => false,
                 };
@@ -347,7 +456,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                     distinct.len()
                 ),
                 format!(
-                    "select one child with `omit!(path::Child)` or one named part; candidates: {}",
+                    "select one child with `omit!(path::Child)` or a borrowed local; candidates: {}",
                     distinct
                         .iter()
                         .map(|(key, _)| key.label())
@@ -355,12 +464,10 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                         .join(", ")
                 ),
             )
-        } else if matches.iter().all(|(_, s)| {
-            target
-                .contributions
-                .iter()
-                .any(|t| t.key == s.key && same_presence(&t.presence, &s.presence))
-        }) {
+        } else if matches
+            .iter()
+            .all(|(_, s)| covered(s, &target.contributions))
+        {
             (
                 "render/content-omit-redundant",
                 "this content is already rendered under the required presence conditions".into(),
@@ -386,17 +493,10 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
         if waived.contains(&index) {
             continue;
         }
-        let matches: Vec<_> = target
-            .contributions
-            .iter()
-            .filter(|p| p.key == part.key)
-            .collect();
-        if matches
-            .iter()
-            .any(|p| same_presence(&p.presence, &part.presence))
-        {
+        if covered(part, &target.contributions) {
             continue;
         }
+        let matches = matching_contributions(part, &target.contributions, false);
         let guard_key = part
             .presence
             .iter()
@@ -483,6 +583,13 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             d = d.with_note("the checker has not established that these conditions select the same input states")
                 .with_help("decide presence once in shared preparation, or acknowledge this contribution with a targeted omission");
         } else if uncertain {
+            if target
+                .boundaries
+                .iter()
+                .any(|boundary| boundary.may_hide_content)
+            {
+                d.severity = Severity::Info;
+            }
             if changed_child.is_some() {
                 d.notes.push("the same child is rendered with different inputs; the checker has not established their correspondence".into());
             }
@@ -498,7 +605,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                 d.notes.push(b.message.clone());
             }
             d = d.with_note("a helper or unsupported path may already include this content; no omission is confirmed")
-                .with_help("expose the child in a supported render path, or name its contribution with `proa_macros::content_part!(\"role\", expression)` in both views");
+                .with_help("the checker follows rendered inputs but does not inspect arbitrary helper implementations");
         } else {
             if let Some((name, _)) = target
                 .bindings
@@ -520,17 +627,17 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                 .then(|| local_marker_range(target, name).map(|range| (name, range)))
                 .flatten()
         });
+        let macro_namespace =
+            *omission_namespace.get_or_insert_with(|| omission_macro_namespace(&target.source));
         let omit = if let Some((name, _)) = &local {
-            Some(format!("proa_macros::omit!(&{name});"))
+            Some(format!("{macro_namespace}::omit!(&{name});"))
         } else {
             match &part.key {
                 ContentKey::Child { ty, .. } => source
                     .child_selectors
                     .get(ty)
-                    .map(|ty| format!("proa_macros::omit!({ty});")),
-                ContentKey::Role(role) | ContentKey::Literal(role) => {
-                    Some(format!("proa_macros::omit!({role:?});"))
-                }
+                    .map(|ty| format!("{macro_namespace}::omit!({ty});")),
+                ContentKey::Literal(role) => Some(format!("{macro_namespace}::omit!({role:?});")),
                 ContentKey::Value(value)
                     if value.starts_with("self.")
                         && syn::parse_str::<proa_dsl::content::OmitContent>(value).is_ok()
@@ -539,7 +646,7 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                                 keys.iter().any(|key| key.inputs().contains(value))
                             })) =>
                 {
-                    Some(format!("proa_macros::omit!({value});"))
+                    Some(format!("{macro_namespace}::omit!({value});"))
                 }
                 _ => None,
             }
@@ -570,12 +677,25 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             .first()
             .or_else(|| target.boundaries.first())
         {
-            let view = if source.boundaries.first().is_some() {
+            let view = if !source.boundaries.is_empty() {
                 source
             } else {
                 target
             };
-            diagnostics.push(diag(view, boundary.range.clone(), "render/content-coverage-unchecked", format!("`{}`'s {} → {} content is only partially checked", target.component,source.target_label,target.target_label), "this output is outside the supported analysis").with_note(boundary.message.clone()).with_help("use matching `content_part!(\"role\", expression)` wrappers for semantic contributions hidden by this boundary"));
+            let mut diagnostic = diag(
+                view,
+                boundary.range.clone(),
+                "render/content-coverage-unchecked",
+                format!(
+                    "`{}`'s {} → {} content is only partially checked",
+                    target.component, source.target_label, target.target_label
+                ),
+                "this output is outside the supported analysis",
+            )
+            .with_note(boundary.message.clone())
+            .with_help("this is a best-effort source check; opaque output is informational");
+            diagnostic.severity = Severity::Info;
+            diagnostics.push(diagnostic);
         }
     }
     let mut grouped: Vec<Diagnostic> = Vec::new();
@@ -609,14 +729,31 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
     grouped
 }
 
+#[cfg(test)]
 pub(super) fn lint_sources(
     sources: &[(PathBuf, String)],
     reporting: &BTreeSet<PathBuf>,
     include_tests: bool,
     options: &ContentOptions,
 ) -> Vec<Diagnostic> {
-    discover::lint_sources(sources, reporting, include_tests, options)
+    let parsed = super::parse_sources(sources);
+    let parsed: Vec<_> = parsed.iter().map(Option::as_ref).collect();
+    lint_parsed(sources, &parsed, reporting, include_tests, options)
 }
+
+/// [`lint_sources`] over files already parsed on this thread, so the content
+/// and asset-URL passes share one parse.
+pub(super) fn lint_parsed(
+    sources: &[(PathBuf, String)],
+    parsed: &[Option<&syn::File>],
+    reporting: &BTreeSet<PathBuf>,
+    include_tests: bool,
+    options: &ContentOptions,
+) -> Vec<Diagnostic> {
+    discover::lint_parsed(sources, parsed, reporting, include_tests, options)
+}
+
+#[cfg(test)]
 pub(super) fn lint_paths(
     files: &[PathBuf],
     include_tests: bool,

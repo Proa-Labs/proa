@@ -37,7 +37,7 @@ use all 12 edits, rather than averaging block medians. These are observations on
 a shared workstation; unrelated compilation and indexing were present, so this
 is not an isolated-host experiment or a portable latency guarantee.
 
-[Samples, CLI hashes and historical-claim audit](evidence/rebase-verification-2026-10-17.json)
+[Samples, CLI hashes and historical-claim audit](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/compile-time/evidence/rebase-verification-2026-10-17.json)
 retain the exact revisions and every measured response time. Reproduce with
 the probe below, using `--samples 7`, discarding the first sample of each block,
 and repeating the main/PR/PR/main order separately for both edit types. All 773
@@ -129,7 +129,7 @@ the investigation checkout and is excluded from this PR.
 
 ![Pizza waterfall and incremental compiler work](diagrams/pizza-current-waterfall.png)
 
-[Compact measurements](evidence/pizza-measurements.json) retain all sample
+[Compact measurements](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/compile-time/evidence/pizza-measurements.json) retain all sample
 boundaries, current stage durations, CLI digest and source-record hashes.
 Intermediate experiment logs and duplicate figures are omitted from this PR.
 The original pipeline logs remain in Git revision `1f2ece6`; follow-up raw

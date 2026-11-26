@@ -54,7 +54,6 @@ proa_demo/marko-server/*.hydrate.input.mjs
 proa_demo/react-ssr/client.bundle.js
 proa_demo/react-ssr/espn-client.bundle.js
 proa_demo/react-ssr/sentry-otel-client.bundle.js
-proa_demo/bench/lean-page/react-server/client.bundle.js
 
 # Debug
 npm-debug.log*

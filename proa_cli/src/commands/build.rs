@@ -49,22 +49,28 @@ pub(crate) struct BuildArgs {
     /// Skip Proa format/lint/site checks.
     #[arg(long)]
     no_check: bool,
-    /// Skip configured asset builds.
+    /// Skip asset commands and public catalog publication.
     #[arg(long)]
     no_assets: bool,
     /// Copy the attested final executable to this path after a successful linked build.
+    /// Without it, a release build of an executable is copied to
+    /// `<target-dir>/release/<bin>` (`<target-dir>/<triple>/release/<bin>` with
+    /// `--target`), where `proa start` finds it.
+    /// With this flag the public asset catalog is written beside the executable as
+    /// `<PATH>.assets`, and the server loads it from there: the two together are the
+    /// deployable output.
     /// Relative paths are resolved from the Proa project root. For warm rebuilds, prefer
     /// the Cargo target directory or a path outside the selected package source tree.
     #[arg(long, value_name = "PATH")]
     artifact_out: Option<PathBuf>,
-    /// Override the configured Cargo build command. Custom non-Cargo commands are not supported.
+    /// Enter the linked build with an exact Cargo build command.
     /// Example: -- cargo build --release -p app --bin app.
     #[arg(last = true)]
     command: Vec<String>,
 }
 
 pub(crate) fn run(args: BuildArgs) -> Result<()> {
-    lifecycle::build(lifecycle::BuildOptions {
+    let options = lifecycle::BuildOptions {
         root: args.root,
         profile: args.profile,
         package: args.package,
@@ -80,7 +86,8 @@ pub(crate) fn run(args: BuildArgs) -> Result<()> {
         no_assets: args.no_assets,
         artifact_out: args.artifact_out,
         command: args.command,
-    })
+    };
+    lifecycle::build(options)
 }
 
 #[cfg(test)]

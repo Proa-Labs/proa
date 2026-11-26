@@ -46,7 +46,7 @@ fn start_prepared(load: BoxFuture<'static, Result<LoadValue, LoadError>>) -> Sha
     }
 }
 
-/// Loader wrapper that shares known `LoadKey`s across later `cx.load(...)`
+/// Loader wrapper that shares known `LoadKey`s across later `cx.load_json(...)`
 /// calls, deduplicating concurrent interest in the same key.
 ///
 /// With the `rt-tokio` feature (the default), prepared loads start eagerly

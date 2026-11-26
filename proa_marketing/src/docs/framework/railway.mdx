@@ -33,7 +33,7 @@ let port: u16 = std::env::var("PORT")
 // IPv6-only.
 let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
 let listener = tokio::net::TcpListener::bind(addr).await?;
-proa_framework_axum::serve(
+proa::axum::serve(
         listener, app, std::time::Duration::from_secs(30),
     ).await?;
 ```
@@ -73,7 +73,7 @@ checksum. Proa dependencies resolve from crates.io without credentials.
 Railway's cache mounts reuse downloaded crates and compiled dependencies:
 
 ```dockerfile filename="Dockerfile"
-FROM rust:1.93-bookworm AS build
+FROM rust:1.98-bookworm AS build
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git jq \
@@ -92,18 +92,17 @@ COPY . .
 
 RUN --mount=type=cache,id=s/<service-id>-/usr/local/cargo/registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=s/<service-id>-/app/target,target=/app/target \
-    proa build --locked --artifact-out /app/my-site
+    proa build --locked --artifact-out /out/my-site
 
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/my-site /usr/local/bin/my-site
-COPY --from=build /app/public ./public
+COPY --from=build /out/ /app/
 
 ENV PROA_HOST=::
 ENV RUST_LOG=info
 
-CMD ["my-site"]
+CMD ["/app/my-site"]
 ```
 
 The Railway-specific settings are:
@@ -112,7 +111,7 @@ The Railway-specific settings are:
 - **`PROA_HOST=::`** replaces `PROA_HOST=0.0.0.0`, so private networking works.
 - **No `ENV PORT`, no `EXPOSE`.** Railway sets `PORT` and routes to it.
 
-`--artifact-out /app/my-site` matters: cache mounts do not persist into the final layer, so the binary must land outside `/app/target`. The generated server serves `public/` relative to its working directory, so keep `WORKDIR /app` and copy `public/` beside the binary.
+`--artifact-out /out/my-site` matters: cache mounts do not persist into the final layer, so the output must land outside `/app/target`. `proa build` writes the binary there with its public asset catalog beside it (`/out/my-site.assets/`), and the single `COPY` brings both into the runtime stage. The server finds the catalog next to its own executable, so there is nothing else to copy or configure.
 
 Replace every `<service-id>` placeholder with the service ID shown by
 `railway status --json`.
@@ -175,7 +174,7 @@ async fn healthz() -> &'static str {
 }
 ```
 
-Checking your database here means a slow database fails your deploy. Put dependency checks on a separate `/readyz` route with `proa_framework_axum::Readiness`, which probes fresh on every request and recovers without a restart.
+Checking your database here means a slow database fails your deploy. Put dependency checks on a separate `/readyz` route with `proa::axum::Readiness`, which probes fresh on every request and recovers without a restart.
 
 Railway sends the `Host` header `healthcheck.railway.app`. If you add host filtering later, allowlist it.
 
@@ -187,7 +186,8 @@ Railway sends the `Host` header `healthcheck.railway.app`. If you add host filte
 docker build -t my-site .
 docker run --rm -p 127.0.0.1:3000:3000 -e PORT=3000 my-site
 curl -fsS http://127.0.0.1:3000/healthz
-curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
+curl -fsS http://127.0.0.1:3000/readyz
+curl -fsS http://127.0.0.1:3000/ -o /dev/null
 ```
 
 ## When it fails
@@ -196,7 +196,7 @@ curl -fsS http://127.0.0.1:3000/static/styles.css -o /dev/null
 |---|---|
 | Health check times out, logs look fine | App bound `127.0.0.1`, or ignored `PORT` |
 | Build succeeds, service unreachable | No domain generated under Networking |
-| Binary missing in runtime stage | `--artifact-out` pointed inside the cache-mounted `target/` |
+| Binary or assets missing in runtime stage | `--artifact-out` pointed inside the cache-mounted `target/`, or the runtime stage copied the binary without the `.assets` directory beside it |
 | Another service cannot reach this one in a legacy environment | `PROA_HOST=0.0.0.0`; legacy IPv6-only private networking needs `::` |
 | Every push rebuilds from scratch | Check the cache-mount IDs and paths, and exclude local `target/` output from the build context |
 

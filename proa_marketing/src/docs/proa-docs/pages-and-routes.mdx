@@ -3,7 +3,18 @@ title: Pages and routes
 description: How a file becomes a route, and what frontmatter controls.
 ---
 
-Every `.md` or `.mdx` file under your source root becomes a page. The path is the route; frontmatter is the metadata.
+Every `.md` or `.mdx` file under your source root becomes a page. The path is the route; frontmatter is the metadata:
+
+```markdown filename="src/docs/guides/handlers.mdx"
+---
+title: Route Handlers
+description: Build JSON endpoints, form handlers, webhooks, and health checks.
+sidebar_title: Handlers
+icon: Route
+---
+
+# Route Handlers
+```
 
 ## File routes
 
@@ -36,19 +47,6 @@ Supported page fields:
 | `keywords` | list of strings | Extra search terms the page canonically documents (identifiers, API names, synonyms). Emitted to the search documents so a client can boost them. |
 | `toc` | boolean | Stores a page-level table-of-contents preference for the app shell. |
 | `last_modified` | string | Optional date string for display, plugins, or generated metadata. |
-
-Example:
-
-```markdown
----
-title: Route Handlers
-description: Build JSON endpoints, form handlers, webhooks, and health checks.
-sidebar_title: Handlers
-icon: Route
----
-
-# Route Handlers
-```
 
 ## Laying out a source folder
 

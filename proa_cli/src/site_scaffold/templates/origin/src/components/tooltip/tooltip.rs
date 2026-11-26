@@ -8,8 +8,8 @@
 use super::recipe::{TooltipAlign, TooltipRecipeProps, TooltipSide, TOOLTIP_RECIPE};
 use super::TOOLTIP_ANATOMY;
 use crate::components::_proa::DisclosureState;
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
+use proa::html_sync;
 /// Delay preset for tooltip show delay
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TooltipDelay {
@@ -69,7 +69,7 @@ impl<Trigger, Content> Default for Tooltip<Trigger, Content> {
     }
 }
 impl<
-        L: ::proa_core::DataLoader,
+        L: ::proa::DataLoader,
         B: WriteBuf,
         Trigger: WebRenderSync<L, B>,
         Content: WebRenderSync<L, B>,
@@ -78,7 +78,7 @@ impl<
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = TOOLTIP_RECIPE.resolve(TooltipRecipeProps {
             side: Some(self.side),
             align: Some(self.align),
@@ -117,13 +117,13 @@ impl<C> Default for TooltipTrigger<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TooltipTrigger<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <button
                 type="button"
@@ -131,7 +131,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-scope={TOOLTIP_ANATOMY.scope()}
                 data-part="trigger"
                 data-slot="tooltip-trigger"
-                class={proa_macros::text!("{} {}", TOOLTIP_RECIPE.trigger, self.class)}
+                class={proa::text!("{} {}", TOOLTIP_RECIPE.trigger, self.class)}
             >
                 {self.children}
             </button>
@@ -152,13 +152,13 @@ impl<C> Default for TooltipContent<C> {
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for TooltipContent<C>
 {
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         html_sync! {
             <div
                 data-tooltip-content
@@ -166,7 +166,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-part="content"
                 data-slot="tooltip-content"
                 role="tooltip"
-                class={proa_macros::text!("{} {}", TOOLTIP_RECIPE.content, self.class)}
+                class={proa::text!("{} {}", TOOLTIP_RECIPE.content, self.class)}
                 style="display: var(--proa-overlay-display, none); position: absolute;"
             >
                 {self.children}

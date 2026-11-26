@@ -9,7 +9,7 @@
 //! - `site`: Proa's experimental overview of its machine-readable interfaces.
 //! - `server_card`: MCP clients discover the transport and server identity.
 //!
-//! The endpoint module caches these documents once per deployment. Typed Serde
+//! The endpoint module generates these documents per request. Typed Serde
 //! models escape preview origins correctly. REST/tool schemas come from the
 //! request/response types; HTML JSON-LD belongs to `layout::structured_data`.
 

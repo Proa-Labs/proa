@@ -1,10 +1,11 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use proa_core::{
     ctx::Ctx, el, text, Attr, AttrKey, Render, RenderBuffer, Tag, WriteBuf, WriteError,
 };
+use std::hint::black_box;
 
 // A simple page with nested elements
 #[derive(Clone, Copy)]

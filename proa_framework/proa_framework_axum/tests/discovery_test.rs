@@ -1,8 +1,6 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
-
 use axum::{
     body::{to_bytes, Body},
     http::{header, Method, Request, StatusCode},
@@ -10,18 +8,13 @@ use axum::{
     Router,
 };
 use proa_framework_axum::{
-    robots_txt, BasePath, ChangeFreq, DiscoveryError, FrameworkBuilder, IslandManifest,
-    ManifestAssets, RobotsTxt, SitemapFile, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
+    robots_txt, BasePath, ChangeFreq, DiscoveryError, FrameworkBuildError, FrameworkBuilder,
+    RobotsTxt, SitemapFile, SitemapPriority, SitemapUrl, MAX_ROBOTS_BYTES,
 };
 use tower::ServiceExt;
 
 fn builder() -> FrameworkBuilder {
-    FrameworkBuilder::new(IslandManifest {
-        islands: HashMap::new(),
-        assets: ManifestAssets::default(),
-        import_map: HashMap::new(),
-        ssr_bundle: None,
-    })
+    FrameworkBuilder::new()
 }
 
 fn entries(base: &str) -> Vec<SitemapUrl> {
@@ -62,7 +55,9 @@ async fn oversized_robots_are_rejected_before_http_serving() {
             .unwrap()
             .with_sitemap([SitemapUrl::new("/").unwrap()])
             .try_build(),
-        Err(DiscoveryError::RobotsTooLarge)
+        Err(FrameworkBuildError::Discovery(
+            DiscoveryError::RobotsTooLarge
+        ))
     ));
     let oversized = robots.with_base_path(BasePath::new("/app").unwrap());
     assert!(matches!(
@@ -70,7 +65,9 @@ async fn oversized_robots_are_rejected_before_http_serving() {
             .with_robots(oversized.clone())
             .with_base_path(BasePath::new("/app").unwrap())
             .try_build(),
-        Err(DiscoveryError::RobotsTooLarge)
+        Err(FrameworkBuildError::Discovery(
+            DiscoveryError::RobotsTooLarge
+        ))
     ));
     let response = robots_txt(&oversized);
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -134,7 +131,7 @@ fn builder_rejects_empty_sitemaps_at_startup() {
             .unwrap()
             .with_sitemap([])
             .try_build(),
-        Err(DiscoveryError::EmptySitemap)
+        Err(FrameworkBuildError::Discovery(DiscoveryError::EmptySitemap))
     ));
 }
 
@@ -317,17 +314,23 @@ async fn multiple_sitemaps_reject_invalid_startup_configuration() {
         builder()
             .with_sitemaps(generate_sitemaps().await.unwrap())
             .try_build(),
-        Err(DiscoveryError::MissingPublicOrigin)
+        Err(FrameworkBuildError::Discovery(
+            DiscoveryError::MissingPublicOrigin
+        ))
     ));
     let configured = || builder().with_public_origin("https://example.com").unwrap();
     assert!(matches!(
         configured().with_sitemaps([]).try_build(),
-        Err(DiscoveryError::EmptySitemapIndex)
+        Err(FrameworkBuildError::Discovery(
+            DiscoveryError::EmptySitemapIndex
+        ))
     ));
     let file = SitemapFile::new("pages", [SitemapUrl::new("/").unwrap()]).unwrap();
     assert!(matches!(
         configured().with_sitemaps([file.clone(), file]).try_build(),
-        Err(DiscoveryError::DuplicateSitemapId)
+        Err(FrameworkBuildError::Discovery(
+            DiscoveryError::DuplicateSitemapId
+        ))
     ));
     let foreign = SitemapFile::new(
         "foreign",
@@ -336,7 +339,7 @@ async fn multiple_sitemaps_reject_invalid_startup_configuration() {
     .unwrap();
     assert!(matches!(
         configured().with_sitemaps([foreign]).try_build(),
-        Err(DiscoveryError::CrossOrigin)
+        Err(FrameworkBuildError::Discovery(DiscoveryError::CrossOrigin))
     ));
 }
 
@@ -582,7 +585,9 @@ async fn discovery_supports_head_and_keeps_framework_security_headers() {
 fn builder_reports_missing_or_invalid_public_origin() {
     assert!(matches!(
         builder().with_sitemap(entries("")).try_build(),
-        Err(DiscoveryError::MissingPublicOrigin)
+        Err(FrameworkBuildError::Discovery(
+            DiscoveryError::MissingPublicOrigin
+        ))
     ));
     assert!(matches!(
         builder().with_public_origin("https://example.com/path"),
@@ -598,7 +603,7 @@ fn builder_rejects_entries_outside_the_final_origin_and_mount() {
             .with_public_origin("https://example.com")
             .unwrap()
             .try_build(),
-        Err(DiscoveryError::CrossOrigin)
+        Err(FrameworkBuildError::Discovery(DiscoveryError::CrossOrigin))
     ));
     for path in [
         "/other/page",
@@ -621,7 +626,9 @@ fn builder_rejects_entries_outside_the_final_origin_and_mount() {
                 matches!(
                     app.with_base_path(BasePath::new("/apps/demo").unwrap())
                         .try_build(),
-                    Err(DiscoveryError::OutsideBasePath)
+                    Err(FrameworkBuildError::Discovery(
+                        DiscoveryError::OutsideBasePath
+                    ))
                 ),
                 "{path}"
             );
@@ -639,7 +646,7 @@ fn builder_validates_composed_urls_before_serving() {
             .with_sitemap([SitemapUrl::new(long_path).unwrap()])
             .with_base_path(BasePath::new(&format!("/{}", "p".repeat(100))).unwrap())
             .try_build(),
-        Err(DiscoveryError::LocTooLong)
+        Err(FrameworkBuildError::Discovery(DiscoveryError::LocTooLong))
     ));
     // BasePath is a general routing type; discovery applies URI validation too.
     let base = BasePath::new("/app^name").unwrap();
@@ -650,6 +657,6 @@ fn builder_validates_composed_urls_before_serving() {
             .with_sitemap([SitemapUrl::new("/").unwrap()])
             .with_base_path(base)
             .try_build(),
-        Err(DiscoveryError::InvalidPath)
+        Err(FrameworkBuildError::Discovery(DiscoveryError::InvalidPath))
     ));
 }

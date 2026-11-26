@@ -9,25 +9,9 @@ import {
   emptyStarCount,
   repeatArray,
   formatSlug,
-  deriveSrpMeta,
-  TOPBAR_LEFT,
-  TOPBAR_RIGHT,
-  SEARCH_CATS,
-  NAV_CATS,
-  MEGANAV,
-  RAIL_CATS,
-  RELATED_SEARCHES,
-  FOOTER_COLS,
-  FOOTER_LEGAL,
-  SORT_OPTIONS,
-  PER_PAGE_OPTIONS,
 } from "./helpers_srp_real.mjs";
 
-// Fully dynamic eBay SRP document: chrome (header, search, mega-nav, refine
-// rail with counts derived from the listing data, controls, pagination,
-// related searches, footer) plus the interactive card list, all rendered per
-// request. Markup mirrors react-ssr/chrome.tsx and
-// proa_showcase/src/ebay/srp_chrome.rs element-for-element.
+// Captured eBay chrome and interactive cards, rendered per request.
 
 // GENERATED chrome below (scripts/gen_srp_chrome.py); river block is hand-maintained.
 <const/pages = 1/>

@@ -15,7 +15,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 
 pub async fn product(Path(id): Path<String>) -> Response {
     let Some(product) = load_product(&id).await else {
@@ -36,8 +36,8 @@ Render a full Proa document when the error state needs the site's layout, metada
 
 ```rust filename="src/pages/not_found.rs"
 use http::StatusCode;
-use proa_core::{ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 pub struct NotFoundPage;
 
@@ -122,7 +122,7 @@ When a handler may either redirect or render, return `Response`:
 
 ```rust filename="src/routes/account.rs"
 use axum::response::{IntoResponse, Redirect, Response};
-use proa_framework_axum::RouteResponse;
+use proa::axum::RouteResponse;
 
 pub async fn account() -> Response {
     if !is_signed_in().await {

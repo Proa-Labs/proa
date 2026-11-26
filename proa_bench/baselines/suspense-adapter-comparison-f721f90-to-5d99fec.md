@@ -1,8 +1,8 @@
 # Suspense adapter architecture comparison
 
 This report compares the durable pre-architecture result in
-`suspense-adapter-before-f721f90.json` with the post-architecture result in
-`suspense-adapter-after-5d99fec.json`.
+[suspense-adapter-before-f721f90.json](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/proa_bench/baselines/suspense-adapter-before-f721f90.json) with the post-architecture result in
+[suspense-adapter-after-5d99fec.json](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/proa_bench/baselines/suspense-adapter-after-5d99fec.json).
 
 Both runs used the same Apple M4 Max host, Rust 1.95.0, release profile,
 10,000 requests per repeat, 250 warmup requests, three repeats, Tokio worker

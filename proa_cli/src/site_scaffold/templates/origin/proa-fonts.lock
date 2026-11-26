@@ -7,8 +7,8 @@ css_variable = "--font-mono"
 family_stack = "'Azeret Mono','Azeret Mono Fallback',sans-serif"
 
 [[fonts.azeret_mono_618ba32b.files]]
-filename = "azeret-mono-latin-400-normal.d090ca8b.woff2"
-url = "/fonts/azeret-mono-latin-400-normal.d090ca8b.woff2"
+filename = "azeret-mono-latin-400-normal.d090ca8b9080094d.woff2"
+url = "/_proa/immutable/fonts/azeret-mono-latin-400-normal.d090ca8b9080094d.woff2"
 sha256 = "d090ca8b9080094d42b06c43f2987bfa8b36fd5565611fd59db84db53c5f74bb"
 bytes = 26164
 stem = "azeret-mono-latin-400-normal"
@@ -19,8 +19,8 @@ unicode_range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, 
 preload = true
 
 [[fonts.azeret_mono_618ba32b.files]]
-filename = "azeret-mono-latin-500-normal.d090ca8b.woff2"
-url = "/fonts/azeret-mono-latin-500-normal.d090ca8b.woff2"
+filename = "azeret-mono-latin-500-normal.d090ca8b9080094d.woff2"
+url = "/_proa/immutable/fonts/azeret-mono-latin-500-normal.d090ca8b9080094d.woff2"
 sha256 = "d090ca8b9080094d42b06c43f2987bfa8b36fd5565611fd59db84db53c5f74bb"
 bytes = 26164
 stem = "azeret-mono-latin-500-normal"
@@ -31,8 +31,8 @@ unicode_range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, 
 preload = false
 
 [[fonts.azeret_mono_618ba32b.files]]
-filename = "azeret-mono-latin-600-normal.d090ca8b.woff2"
-url = "/fonts/azeret-mono-latin-600-normal.d090ca8b.woff2"
+filename = "azeret-mono-latin-600-normal.d090ca8b9080094d.woff2"
+url = "/_proa/immutable/fonts/azeret-mono-latin-600-normal.d090ca8b9080094d.woff2"
 sha256 = "d090ca8b9080094d42b06c43f2987bfa8b36fd5565611fd59db84db53c5f74bb"
 bytes = 26164
 stem = "azeret-mono-latin-600-normal"
@@ -43,8 +43,8 @@ unicode_range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, 
 preload = false
 
 [[fonts.azeret_mono_618ba32b.files]]
-filename = "azeret-mono-latin-700-normal.d090ca8b.woff2"
-url = "/fonts/azeret-mono-latin-700-normal.d090ca8b.woff2"
+filename = "azeret-mono-latin-700-normal.d090ca8b9080094d.woff2"
+url = "/_proa/immutable/fonts/azeret-mono-latin-700-normal.d090ca8b9080094d.woff2"
 sha256 = "d090ca8b9080094d42b06c43f2987bfa8b36fd5565611fd59db84db53c5f74bb"
 bytes = 26164
 stem = "azeret-mono-latin-700-normal"
@@ -77,8 +77,8 @@ css_variable = "--font-sans"
 family_stack = "'Instrument Sans','Instrument Sans Fallback',sans-serif"
 
 [[fonts.instrument_sans_bdbfb53a.files]]
-filename = "instrument-sans-latin-400-normal.2ee17598.woff2"
-url = "/fonts/instrument-sans-latin-400-normal.2ee17598.woff2"
+filename = "instrument-sans-latin-400-normal.2ee17598a98d8a59.woff2"
+url = "/_proa/immutable/fonts/instrument-sans-latin-400-normal.2ee17598a98d8a59.woff2"
 sha256 = "2ee17598a98d8a59e4df8152d015bec9ab8e4d5672cc0ab42bef806b568e3971"
 bytes = 30092
 stem = "instrument-sans-latin-400-normal"
@@ -89,8 +89,8 @@ unicode_range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, 
 preload = true
 
 [[fonts.instrument_sans_bdbfb53a.files]]
-filename = "instrument-sans-latin-500-normal.2ee17598.woff2"
-url = "/fonts/instrument-sans-latin-500-normal.2ee17598.woff2"
+filename = "instrument-sans-latin-500-normal.2ee17598a98d8a59.woff2"
+url = "/_proa/immutable/fonts/instrument-sans-latin-500-normal.2ee17598a98d8a59.woff2"
 sha256 = "2ee17598a98d8a59e4df8152d015bec9ab8e4d5672cc0ab42bef806b568e3971"
 bytes = 30092
 stem = "instrument-sans-latin-500-normal"
@@ -101,8 +101,8 @@ unicode_range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, 
 preload = false
 
 [[fonts.instrument_sans_bdbfb53a.files]]
-filename = "instrument-sans-latin-600-normal.2ee17598.woff2"
-url = "/fonts/instrument-sans-latin-600-normal.2ee17598.woff2"
+filename = "instrument-sans-latin-600-normal.2ee17598a98d8a59.woff2"
+url = "/_proa/immutable/fonts/instrument-sans-latin-600-normal.2ee17598a98d8a59.woff2"
 sha256 = "2ee17598a98d8a59e4df8152d015bec9ab8e4d5672cc0ab42bef806b568e3971"
 bytes = 30092
 stem = "instrument-sans-latin-600-normal"
@@ -113,8 +113,8 @@ unicode_range = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, 
 preload = false
 
 [[fonts.instrument_sans_bdbfb53a.files]]
-filename = "instrument-sans-latin-700-normal.2ee17598.woff2"
-url = "/fonts/instrument-sans-latin-700-normal.2ee17598.woff2"
+filename = "instrument-sans-latin-700-normal.2ee17598a98d8a59.woff2"
+url = "/_proa/immutable/fonts/instrument-sans-latin-700-normal.2ee17598a98d8a59.woff2"
 sha256 = "2ee17598a98d8a59e4df8152d015bec9ab8e4d5672cc0ab42bef806b568e3971"
 bytes = 30092
 stem = "instrument-sans-latin-700-normal"

@@ -35,6 +35,7 @@ pub mod emit;
 pub mod md;
 pub mod md_layout;
 pub mod parse;
+pub mod paths;
 pub mod text;
 
 pub use parse::{Attribute, Element, HtmlRoot, Node};

@@ -586,9 +586,9 @@ impl HeadFields {
                         named(out, name, value)?;
                     } else if index == 0 {
                         if let Some(value) = &self.title {
-                            out.extend_static(b"<meta name=\"twitter:title\" content=\"")?;
+                            out.extend_static_str("<meta name=\"twitter:title\" content=\"")?;
                             self.write_title(out, value, true)?;
-                            out.extend_static(b"\">")?;
+                            out.extend_static_str("\">")?;
                         }
                     } else if let Some((_, Some(value))) = self
                         .meta
@@ -685,11 +685,11 @@ impl HeadFields {
     }
 }
 fn named<B: WriteBuf>(out: &mut B, name: &str, value: &str) -> Result<(), WriteError> {
-    out.extend_static(b"<meta name=\"")?;
+    out.extend_static_str("<meta name=\"")?;
     escape_attr_value(out, name)?;
-    out.extend_static(b"\" content=\"")?;
+    out.extend_static_str("\" content=\"")?;
     escape_attr_value(out, value)?;
-    out.extend_static(b"\">")
+    out.extend_static_str("\">")
 }
 fn link<B: WriteBuf>(
     out: &mut B,
@@ -697,21 +697,21 @@ fn link<B: WriteBuf>(
     url: &str,
     attributes: &[(&str, Option<&str>)],
 ) -> Result<(), WriteError> {
-    out.extend_static(b"<link rel=\"")?;
+    out.extend_static_str("<link rel=\"")?;
     escape_attr_value(out, rel)?;
-    out.extend_static(b"\" href=\"")?;
+    out.extend_static_str("\" href=\"")?;
     escape_attr_value(out, url)?;
-    out.extend_static(b"\"")?;
+    out.extend_static_str("\"")?;
     for (name, value) in attributes {
         if let Some(value) = value {
-            out.extend_static(b" ")?;
+            out.extend_static_str(" ")?;
             escape_attr_value(out, name)?;
-            out.extend_static(b"=\"")?;
+            out.extend_static_str("=\"")?;
             escape_attr_value(out, value)?;
-            out.extend_static(b"\"")?;
+            out.extend_static_str("\"")?;
         }
     }
-    out.extend_static(b">")
+    out.extend_static_str(">")
 }
 
 #[cfg(test)]

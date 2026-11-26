@@ -17,9 +17,19 @@ const RED = "var(--red, #FF3B30)";
 const AMBER = "var(--brand, #DD7627)";
 const BONE = "var(--ink, #E5E1D6)";
 const MID = "var(--ink3, #8C887E)";
-// This module is served at <mount>/static/origin.js. Resolve application
-// requests against that mount, including when the document is nested.
-const APP_ROOT = new URL("../", import.meta.url);
+// This file is served as written under every mount, so the app's base path
+// comes from the page, where the RSJS runtime reads it too.
+function basePath() {
+  try {
+    const config = document.getElementById("__proa");
+    if (config?.tagName !== "SCRIPT" || config.type !== "application/json") return "";
+    const base = JSON.parse(config.textContent || "{}").basePath;
+    return typeof base === "string" && base.startsWith("/") && !base.startsWith("//") ? base : "";
+  } catch {
+    return "";
+  }
+}
+const APP_ROOT = new URL(basePath() + "/", location.href);
 
 // Replay pool: every range is documentation space, every operator unnamed.
 const REPLAY_EVENTS = [

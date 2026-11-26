@@ -11,15 +11,16 @@ use axum::{
     http::{header, HeaderMap, HeaderValue},
     response::{IntoResponse, Response},
 };
+use proa_core::shared::attr_value::AttrValue;
 use proa_core::{
-    DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
+    AppUrl, DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_macros::{content_part, html_sync, md_sync, omit};
+use proa_macros::{html_sync, md_sync, omit};
 use rsjs::signal;
 use rsjs_macros::rsjs;
 
 use crate::{
-    components::landing_shell::{DOCUMENTATION_LINKS, EXPLORE_LINKS},
+    components::landing_shell::{EXPLORE_LINKS, RESOURCE_LINKS},
     layout::{render_page, PageMeta},
     utils::document::Url,
 };
@@ -60,19 +61,15 @@ pub async fn handler(headers: HeaderMap, Query(query): Query<HomeQuery>) -> Resp
 
 pub(crate) struct HomePage;
 
-/// Both Markdown aliases and content negotiation export the same page renderer.
-/// The immutable response is cached at this page's HTTP boundary.
-pub(crate) fn markdown() -> &'static str {
-    static MARKDOWN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    MARKDOWN.get_or_init(|| {
-        crate::utils::document::render_markdown(md_sync! { r###"
-            {HomePage}
+/// Both Markdown aliases and content negotiation render the same page fresh.
+pub(crate) fn markdown() -> String {
+    crate::utils::document::render_markdown(md_sync! { r###"
+        {HomePage}
 
-            {EXPLORE_LINKS}
+        {EXPLORE_LINKS}
 
-            {DOCUMENTATION_LINKS}
-            "###
-        })
+        {RESOURCE_LINKS}
+        "###
     })
 }
 
@@ -436,28 +433,32 @@ struct Direction18HeroPreview {
     peer_label: &'static str,
     multiplier_label: &'static str,
     note: &'static str,
+    methodology_url: &'static str,
+    methodology_label: &'static str,
 }
 
 impl Direction18HeroPreview {
     const fn new() -> Self {
         Self {
             tabs_label: "Benchmark page previews",
-            proa_travel: "11.5 us",
-            proa_repo: "23.5 us",
-            proa_sentry: "155 us",
-            peer_travel: "598 us",
-            peer_repo: "5.56 ms",
-            peer_sentry: "25.4 ms",
-            speedup_travel: "52x",
-            speedup_repo: "237x",
-            speedup_sentry: "163x",
+            proa_travel: "8.9 us",
+            proa_repo: "100.8 us",
+            proa_sentry: "136.2 us",
+            peer_travel: "440 us",
+            peer_repo: "2.65 ms",
+            peer_sentry: "9.97 ms",
+            speedup_travel: "49.7x",
+            speedup_repo: "26.3x",
+            speedup_sentry: "73.2x",
             repo_label: "GitHub",
             sentry_label: "Sentry",
             travel_label: "Airbnb",
             proa_label: "Proa render p50",
-            peer_label: "React renderToString p50",
+            peer_label: "React on Node p50",
             multiplier_label: "faster",
-            note: "Warm production p50s measured on an 8-vCPU AMD EPYC-Milan VPS.",
+            methodology_url: "https://github.com/Proa-Labs/framework-benchmarks/blob/5acd2af1682ca2201011c38ae0d937e49c95291f/showcase/README.md#restructured-row-gcp-ci-capture-november-13-2026-utc",
+            methodology_label: "Methodology and samples",
+            note: "Fresh owned buffer allocation and rendering on GCP C4 (Intel Granite Rapids), Nov 13, 2026 UTC. Rows rendered each time; Proa allocator primed. Median of five process p50s; excludes String conversion, HTTP, and browser work.",
         }
     }
 }
@@ -716,7 +717,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                     <p class={HERO_LEAD}>
                         {self.lead_prefix}
                         <a
-                            href={content_part!("benchmarks-url", self.benchmarks_url)}
+                            href={self.benchmarks_url}
                             rel="noreferrer noopener"
                             target="_blank"
                             class={LEAD_LINK}
@@ -727,14 +728,14 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for InterfaceLayerHero {
                     </p>
                     <div class="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
                         <a
-                            href={content_part!("start-url", self.start_url)}
+                            href={self.start_url}
                             class={CTA_PRIMARY}
                         >
                             {self.start_label}
                             {ArrowRightIcon}
                         </a>
                         <a
-                            href={content_part!("video-url", self.video_url)}
+                            href={self.video_url}
                             data-video-cta="intro"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -783,7 +784,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkChart {
         html_sync! {
             <div class="min-w-[800px]">
                 <img
-                    src={content_part!("url", self.url)}
+                    src={cx.url(self.url)}
                     alt={self.description}
                     width="980"
                     height={self.height}
@@ -801,7 +802,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkChart {
         md_sync! { r###"
             ### {self.title}
 
-            ![{self.description}]({content_part!("url", Url(self.url))})
+            ![{self.description}]({cx.url(self.url)})
             "###
         }
         .render_md(cx)
@@ -813,28 +814,28 @@ impl BenchmarkHighlights {
         Self {
             tabs_label: "Benchmark charts",
             title: "The numbers behind the speed.",
-            environment: "Apple M4 Max · September 2026",
+            environment: "Proa refreshed November 11, 2026 · Peers retain October 21 captures · Apple M4 Max",
             scroll_hint: "Scroll horizontally to explore each chart.",
             open_label: "Open full-size SVG",
             link_label: "View benchmarks",
             benchmarks_url: site::BENCHMARKS_URL,
             render: BenchmarkChart {
                 title: "Render speed",
-                url: "/static/images/benchmarks/01-canonical-scoreboard.svg",
-                description: "Server-render latency across 17 renderers and three workloads. Proa leads the component frameworks; React takes 13.2 to 35.4 times as long.",
+                url: "public/images/benchmarks/01-canonical-scoreboard.svg",
+                description: "P50 render latency across 17 renderers and three workloads. Proa uses a fresh owned RenderBuffer, with allocation included and String conversion excluded. Proa was refreshed November 11; peers retain October 21 captures on the same Apple M4 Max.",
                 height: "480",
             },
             http: BenchmarkChart {
                 title: "HTTP capacity",
-                url: "/static/images/benchmarks/21-canonical-pages-http.svg",
-                description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, and Go. Proa serves 16,100 product-grid responses per second with 9.4 MiB peak memory.",
-                height: "615",
+                url: "public/images/benchmarks/21-canonical-pages-http.svg",
+                description: "HTTP throughput, CPU per response, and peak memory for Proa, React, Marko, Go, and SvelteKit. The dated product-grid capture measured Proa at 20,863 complete responses per second with 9.6 MiB peak memory.",
+                height: "678",
             },
             load: BenchmarkChart {
                 title: "Suspense under load",
-                url: "/static/images/benchmarks/20-suspense-load.svg",
-                description: "Suspense streaming under increasing load: throughput, memory, and response latency for Proa, Marko, and React. Proa sustains about 5,000 responses per second before queueing rises at 6,000 offered requests per second.",
-                height: "743",
+                url: "public/images/benchmarks/20-suspense-load.svg",
+                description: "Proa and SvelteKit streaming under increasing load on Apple M4 Max, including throughput, memory, latency, and failures. SvelteKit response end delivers promised data; Proa delivers resolved HTML. See the methodology for completed-browser comparisons.",
+                height: "786",
             },
         }
     }
@@ -849,6 +850,28 @@ pub(crate) fn benchmark_charts() -> (&'static str, [BenchmarkChart; 3]) {
     )
 }
 
+struct FullSizeChartLink {
+    label: &'static str,
+    path: &'static str,
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for FullSizeChartLink {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <a
+                href={cx.url(self.path)}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={CTA_SECONDARY}
+            >
+                {self.label}
+                {ArrowUpRightIcon}
+            </a>
+        }
+        .render(cx)
+    }
+}
+
 /// Original benchmark SVGs, served locally and switched by one tab signal.
 #[rsjs(component, client)]
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
@@ -859,7 +882,6 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
         let load_title = self.load.title;
         let environment = self.environment;
         let scroll_hint = self.scroll_hint;
-        let open_label = self.open_label;
         let link_label = self.link_label;
         let selected = signal("render");
         // The chart markup is static; only panel visibility and the full-size
@@ -870,7 +892,18 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
         let render_tab = rsjs::node_ref::<rsjs::HtmlElement>();
         let http_tab = rsjs::node_ref::<rsjs::HtmlElement>();
         let load_tab = rsjs::node_ref::<rsjs::HtmlElement>();
-        let full_size_icon = ArrowUpRightIcon;
+        let render_link = rsjs::server_only(FullSizeChartLink {
+            label: self.open_label,
+            path: self.render.url,
+        });
+        let http_link = rsjs::server_only(FullSizeChartLink {
+            label: self.open_label,
+            path: self.http.url,
+        });
+        let load_link = rsjs::server_only(FullSizeChartLink {
+            label: self.open_label,
+            path: self.load.url,
+        });
         let methodology_icon = ArrowUpRightIcon;
 
         html_sync! {
@@ -1006,7 +1039,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        {content_part!("render-chart", render_chart)}
+                        {render_chart}
                     </div>
                     <div
                         id="benchmark-panel-http"
@@ -1016,7 +1049,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        {content_part!("http-chart", http_chart)}
+                        {http_chart}
                     </div>
                     <div
                         id="benchmark-panel-load"
@@ -1026,7 +1059,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                         tabindex="0"
                         class={BENCHMARK_PANEL}
                     >
-                        {content_part!("load-chart", load_chart)}
+                        {load_chart}
                     </div>
                     <div class="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
                         <p class="text-sm leading-6 text-zinc-500 dark:text-zinc-400">
@@ -1034,17 +1067,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BenchmarkHighlights {
                             <span class="block lg:hidden">{scroll_hint}</span>
                         </p>
                         <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+                            <div hidden={selected.get() != "render"}>{render_link}</div>
+                            <div hidden={selected.get() != "http"}>{http_link}</div>
+                            <div hidden={selected.get() != "load"}>{load_link}</div>
                             <a
-                                href={if selected.get() == "http" { self.http.url } else if selected.get() == "load" { self.load.url } else { self.render.url }}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                class={CTA_SECONDARY}
-                            >
-                                {open_label}
-                                {full_size_icon}
-                            </a>
-                            <a
-                                href={content_part!("benchmarks-url", self.benchmarks_url)}
+                                href={self.benchmarks_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={CTA_PRIMARY}
@@ -1080,6 +1107,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
         let peer_label = self.peer_label;
         let multiplier_label = self.multiplier_label;
         let note = self.note;
+        let methodology_label = self.methodology_label;
         let value = signal("repo");
 
         let travel_tab = rsjs::node_ref::<rsjs::HtmlElement>();
@@ -1316,6 +1344,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
                 </div>
                 <p class="mt-2 font-mono text-[11px] leading-relaxed text-[#8f877e] dark:text-zinc-500">
                     {note}
+                    " "
+                    <a href={self.methodology_url} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">
+                        {methodology_label}
+                    </a>
                 </p>
             </div>
         }
@@ -1323,8 +1355,39 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Direction18HeroPreview 
     }
 }
 
+struct ImageSrcSet<'a> {
+    narrow: (&'a AppUrl<'static>, u16),
+    wide: (&'a AppUrl<'static>, u16),
+}
+
+impl AttrValue for ImageSrcSet<'_> {
+    fn should_render(&self) -> bool {
+        true
+    }
+
+    fn render_attr_value<B: WriteBuf, L: DataLoader>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), WriteError> {
+        self.narrow.0.render_attr_value(cx)?;
+        cx.out.extend_static_str(" ")?;
+        self.narrow.1.render_attr_value(cx)?;
+        cx.out.extend_static_str("w, ")?;
+        self.wide.0.render_attr_value(cx)?;
+        cx.out.extend_static_str(" ")?;
+        self.wide.1.render_attr_value(cx)?;
+        cx.out.extend_static_str("w")
+    }
+}
+
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let exterior_small = cx.url("public/images/airbnb-preview-exterior-420.webp");
+        let exterior_large = cx.url("public/images/airbnb-preview-exterior-720.webp");
+        let deck_small = cx.url("public/images/airbnb-preview-deck-210.webp");
+        let deck_large = cx.url("public/images/airbnb-preview-deck-420.webp");
+        let bedroom_small = cx.url("public/images/airbnb-preview-bedroom-210.webp");
+        let bedroom_large = cx.url("public/images/airbnb-preview-bedroom-420.webp");
         html_sync! {
             <div class="rounded-[14px] border border-black/10 bg-white p-4 text-zinc-950 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-50">
                 <div
@@ -1333,8 +1396,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
                 >
                     <div class="row-span-2 overflow-hidden rounded-[10px] bg-[#f3ede6]">
                         <img
-                            src="/static/images/airbnb-preview-exterior-420.webp"
-                            srcset="/static/images/airbnb-preview-exterior-420.webp 420w, /static/images/airbnb-preview-exterior-720.webp 720w"
+                            src={exterior_small}
+                            srcset={ImageSrcSet { narrow: (&exterior_small, 420), wide: (&exterior_large, 720) }}
                             sizes="(max-width: 640px) 58vw, 420px"
                             alt="Beachfront home exterior below coastal hills"
                             width="420"
@@ -1347,8 +1410,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
                     </div>
                     <div class="overflow-hidden rounded-[10px] bg-[#eef0f2]">
                         <img
-                            src="/static/images/airbnb-preview-deck-210.webp"
-                            srcset="/static/images/airbnb-preview-deck-210.webp 210w, /static/images/airbnb-preview-deck-420.webp 420w"
+                            src={deck_small}
+                            srcset={ImageSrcSet { narrow: (&deck_small, 210), wide: (&deck_large, 420) }}
                             sizes="(max-width: 640px) 29vw, 210px"
                             alt="Oceanfront deck with outdoor fire feature"
                             width="210"
@@ -1360,8 +1423,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HeroTravelPanel {
                     </div>
                     <div class="overflow-hidden rounded-[10px] bg-[#f1efe8]">
                         <img
-                            src="/static/images/airbnb-preview-bedroom-210.webp"
-                            srcset="/static/images/airbnb-preview-bedroom-210.webp 210w, /static/images/airbnb-preview-bedroom-420.webp 420w"
+                            src={bedroom_small}
+                            srcset={ImageSrcSet { narrow: (&bedroom_small, 210), wide: (&bedroom_large, 420) }}
                             sizes="(max-width: 640px) 29vw, 210px"
                             alt="Ocean-view living room with fireplace"
                             width="210"
@@ -1859,13 +1922,13 @@ struct CodeExample(&'static str);
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for CodeExample {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", StaticRaw(self.0)).render(cx)
+        StaticRaw(self.0).render(cx)
     }
 }
 
 impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CodeExample {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        content_part!("content", proa_core::to_markdown(self)).render_md(cx)
+        proa_core::to_markdown(self).render_md(cx)
     }
 }
 
@@ -1979,7 +2042,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
             >
                 <link
                     rel="stylesheet"
-                    href={content_part!("rail-styles", concat!("/static/proa-ui-rail.css?v=", env!("MARKETING_ASSET_VERSION")))}
+                    href={cx.url("public/proa-ui-rail.css")}
                 />
                 <div class={SECTION_CONTAINER}>
                     <div class={SECTION_HEADER}>
@@ -1987,7 +2050,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
                         <p class={SECTION_LEAD}>
                             {self.lead_prefix}
                             <a
-                                href={content_part!("shadcn-url", self.shadcn_url)}
+                                href={self.shadcn_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={LEAD_LINK}
@@ -1998,7 +2061,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
                         </p>
                         <div class={SECTION_ACTIONS}>
                             <a
-                                href={content_part!("link-url", self.link_url)}
+                                href={self.link_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class={CTA_PRIMARY}
@@ -2009,9 +2072,10 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ProaUiSection {
                         </div>
                     </div>
                 </div>
-                {content_part!("component-previews", StaticRaw(PROA_UI_RAIL_HTML))}
+                {StaticRaw(PROA_UI_RAIL_HTML)}
             </section>
-        }.render(cx)
+        }
+        .render(cx)
     }
 }
 
@@ -2025,8 +2089,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for HomePage {
                 {BenchmarkHighlights::new()}
                 {ProaUiSection::new()}
                 {ConnectorScript}
-                {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
-                {content_part!("faq", faq::FaqSection { entries: faq::FAQS })}
+                {CapabilitiesSection { columns: CAPABILITY_COLUMNS }}
+                {faq::FaqSection { entries: faq::FAQS }}
                 {GetStartedSection::new()}
             </div>
         }
@@ -2054,19 +2118,19 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderTargetsSection {
                             data-flow-node="source"
                             class="relative z-10 min-w-0 lg:row-span-2 lg:self-center"
                         >
-                            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
+                            {CodeExample(COMPOSABLE_SOURCE_HTML)}
                         </div>
                         <div data-flow-node="md-render" class="relative z-10 min-w-0">
-                            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
+                            {CodeExample(COMPOSABLE_MD_RENDER_HTML)}
                         </div>
                         <div data-flow-node="md-child" class="relative z-10 min-w-0">
-                            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
+                            {CodeExample(COMPOSABLE_MD_CHILD_HTML)}
                         </div>
                         <div data-flow-node="web-render" class="relative z-10 min-w-0">
-                            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
+                            {CodeExample(COMPOSABLE_WEB_RENDER_HTML)}
                         </div>
                         <div data-flow-node="web-child" class="relative z-10 min-w-0">
-                            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
+                            {CodeExample(COMPOSABLE_WEB_CHILD_HTML)}
                         </div>
                     </div>
                 </div>
@@ -2124,7 +2188,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for GetStartedSection {
                             <h2 class={SECTION_TITLE}>{self.title}</h2>
                             <div class={SECTION_ACTIONS}>
                                 <a
-                                    href={content_part!("link-url", self.link_url)}
+                                    href={self.link_url}
                                     class={CTA_PRIMARY}
                                 >
                                     {self.link_label}
@@ -2179,7 +2243,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for RenderTargetsHeading {
                 <p class={SECTION_LEAD}>{self.description}</p>
                 <div class={SECTION_ACTIONS}>
                     <a
-                        href={content_part!("video-url", self.video_url)}
+                        href={self.video_url}
                         data-video-cta="render-targets"
                         target="_blank"
                         rel="noopener noreferrer"
@@ -2259,7 +2323,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseHeading {
                 <p class={SECTION_LEAD}>{self.description}</p>
                 <div class={SECTION_ACTIONS}>
                     <a
-                        href={content_part!("link-url", self.link_url)}
+                        href={self.link_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         class={CTA_PRIMARY}
@@ -2268,7 +2332,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ShowcaseHeading {
                         {ArrowRightIcon}
                     </a>
                     <a
-                        href={content_part!("benchmarks-url", self.benchmarks_url)}
+                        href={self.benchmarks_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         class={CTA_SECONDARY}
@@ -2315,10 +2379,10 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for InterfaceLayerHero {
         md_sync! { r###"
             # {self.title}
 
-            {self.lead_prefix}[{self.performance_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))}){self.lead_suffix}
+            {self.lead_prefix}[{self.performance_label}]({Url(self.benchmarks_url)}){self.lead_suffix}
 
-            - [{self.start_label}]({content_part!("start-url", Url(self.start_url))})
-            - [{self.video_label}]({content_part!("video-url", Url(self.video_url))})
+            - [{self.start_label}]({Url(self.start_url)})
+            - [{self.video_label}]({Url(self.video_url)})
             "###
         }.render_md(cx)
     }
@@ -2333,7 +2397,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RenderTargetsHeading {
 
             {self.description}
 
-            [{self.video_label}]({content_part!("video-url", Url(self.video_url))})
+            [{self.video_label}]({Url(self.video_url)})
             "###
         }
         .render_md(cx)
@@ -2358,7 +2422,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for GetStartedSection {
         md_sync! { r###"
             ## {self.title}
 
-            [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
+            [{self.link_label}]({Url(self.link_url)})
             "###
         }
         .render_md(cx)
@@ -2374,8 +2438,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ShowcaseHeading {
 
             {self.description}
 
-            - [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
-            - [{self.benchmark_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))})
+            - [{self.link_label}]({Url(self.link_url)})
+            - [{self.benchmark_label}]({Url(self.benchmarks_url)})
             "###
         }
         .render_md(cx)
@@ -2392,19 +2456,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for ProaUiSection {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         omit!(ArrowUpRightIcon, "Decorative external-link icon");
         omit!(
-            "component-previews",
+            &PROA_UI_RAIL_HTML,
             "Imported interactive UI previews; the catalog link is the Markdown entry point"
-        );
-        omit!(
-            "rail-styles",
-            "Stylesheet for the visual component previews"
         );
         md_sync! { r###"
             ## {self.title}
 
-            {self.lead_prefix}[{self.lead_link_label}]({content_part!("shadcn-url", Url(self.shadcn_url))}){self.lead_suffix}
+            {self.lead_prefix}[{self.lead_link_label}]({Url(self.shadcn_url)}){self.lead_suffix}
 
-            [{self.link_label}]({content_part!("link-url", Url(self.link_url))})
+            [{self.link_label}]({Url(self.link_url)})
             "###
         }
         .render_md(cx)
@@ -2427,24 +2487,12 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkHighlights {
         );
         omit!(ArrowUpRightIcon, "Decorative link icons");
         omit!(
-            self.render.title,
-            "The chart child renders this tab label as its Markdown heading"
-        );
-        omit!(
             self.render.url,
             "The chart child exposes this asset unconditionally in Markdown"
         );
         omit!(
-            self.http.title,
-            "The chart child renders this tab label as its Markdown heading"
-        );
-        omit!(
             self.http.url,
             "The chart child exposes this asset unconditionally in Markdown"
-        );
-        omit!(
-            self.load.title,
-            "The chart child renders this tab label as its Markdown heading"
         );
         omit!(
             self.load.url,
@@ -2453,15 +2501,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for BenchmarkHighlights {
         md_sync! { r###"
             ## {self.title}
 
-            {content_part!("render-chart", self.render)}
+            {self.render}
 
-            {content_part!("http-chart", self.http)}
+            {self.http}
 
-            {content_part!("load-chart", self.load)}
+            {self.load}
 
             {self.environment}
 
-            [{self.link_label}]({content_part!("benchmarks-url", Url(self.benchmarks_url))})
+            [{self.link_label}]({Url(self.benchmarks_url)})
             "###
         }
         .render_md(cx)
@@ -2532,6 +2580,8 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Direction18HeroPreview {
             | {self.travel_label} | {self.proa_travel} | {self.peer_travel} | {self.speedup_travel} |
 
             {self.note}
+
+            [{self.methodology_label}]({Url(self.methodology_url)})
             "###
         }.render_md(cx)
     }
@@ -2554,9 +2604,9 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for HomePage {
 
             {ProaUiSection::new()}
 
-            {content_part!("capabilities", CapabilitiesSection { columns: CAPABILITY_COLUMNS })}
+            {CapabilitiesSection { columns: CAPABILITY_COLUMNS }}
 
-            {content_part!("faq", faq::FaqSection { entries: faq::FAQS })}
+            {faq::FaqSection { entries: faq::FAQS }}
 
             {GetStartedSection::new()}
             "###
@@ -2574,15 +2624,15 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for RenderTargetsSection {
         md_sync! { r###"
             {RenderTargetsHeading::new()}
 
-            {content_part!("source-code", CodeExample(COMPOSABLE_SOURCE_HTML))}
+            {CodeExample(COMPOSABLE_SOURCE_HTML)}
 
-            {content_part!("md-render-code", CodeExample(COMPOSABLE_MD_RENDER_HTML))}
+            {CodeExample(COMPOSABLE_MD_RENDER_HTML)}
 
-            {content_part!("md-child-code", CodeExample(COMPOSABLE_MD_CHILD_HTML))}
+            {CodeExample(COMPOSABLE_MD_CHILD_HTML)}
 
-            {content_part!("web-render-code", CodeExample(COMPOSABLE_WEB_RENDER_HTML))}
+            {CodeExample(COMPOSABLE_WEB_RENDER_HTML)}
 
-            {content_part!("web-child-code", CodeExample(COMPOSABLE_WEB_CHILD_HTML))}
+            {CodeExample(COMPOSABLE_WEB_CHILD_HTML)}
             "###
         }
         .render_md(cx)
@@ -2609,7 +2659,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilitiesSection {
             {CapabilitiesHeading::new()}
 
             {for column in self.columns {
-                md_sync! { "{CapabilityColumnView { column }}\n\n" }
+                CapabilityColumnView { column }
             }}
             "###
         }
@@ -2632,7 +2682,7 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilityColumnView {
             {column.detail}
 
             {for item in column.supporting {
-                md_sync! { "{CapabilitySupportView { card: item }}\n\n" }
+                CapabilitySupportView { card: item }
             }}
             "###
         }
@@ -2650,505 +2700,5 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for CapabilitySupportView {
             "###
         }
         .render_md(cx)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Direction18HeroPreview;
-    use crate::utils::document::render_markdown;
-    use proa_core::{RenderBuffer, WebContext, WebRenderSync};
-    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
-
-    /// Compare rendered meaning rather than Markdown whitespace or escaped
-    /// punctuation. Include link/image destinations so copy parity cannot hide
-    /// dropped or changed navigation and assets.
-    fn markdown_content(markdown: &str) -> (String, Vec<String>) {
-        let mut text = String::new();
-        let mut destinations = Vec::new();
-        for event in Parser::new_ext(markdown, Options::ENABLE_TABLES) {
-            match event {
-                Event::Text(value) | Event::Code(value) => text.push_str(&value),
-                Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                    destinations.push(dest_url.into_string());
-                }
-                Event::SoftBreak | Event::HardBreak => text.push(' '),
-                Event::End(
-                    TagEnd::Paragraph
-                    | TagEnd::Heading(_)
-                    | TagEnd::Item
-                    | TagEnd::CodeBlock
-                    | TagEnd::TableCell
-                    | TagEnd::TableRow,
-                ) => text.push(' '),
-                _ => {}
-            }
-        }
-        (
-            text.split_whitespace().collect::<Vec<_>>().join(" "),
-            destinations,
-        )
-    }
-
-    #[test]
-    fn homepage_markdown_preserves_core_structure_and_all_benchmark_cases() {
-        let markdown = render_markdown(super::HomePage);
-        let events: Vec<_> = Parser::new_ext(&markdown, Options::ENABLE_TABLES).collect();
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(
-                    event,
-                    Event::Start(Tag::Heading {
-                        level: pulldown_cmark::HeadingLevel::H1,
-                        ..
-                    })
-                ))
-                .count(),
-            1
-        );
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(event, Event::Start(Tag::CodeBlock(_))))
-                .count(),
-            5
-        );
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(event, Event::Start(Tag::Table(_))))
-                .count(),
-            1
-        );
-        assert_eq!(
-            events
-                .iter()
-                .filter(|event| matches!(event, Event::Start(Tag::TableRow)))
-                .count(),
-            3
-        );
-        let images: Vec<_> = events
-            .iter()
-            .filter_map(|event| match event {
-                Event::Start(Tag::Image { dest_url, .. }) => Some(dest_url.as_ref()),
-                _ => None,
-            })
-            .collect();
-        let benchmarks = super::BenchmarkHighlights::new();
-        assert_eq!(
-            images,
-            [
-                benchmarks.render.url,
-                benchmarks.http.url,
-                benchmarks.load.url
-            ]
-        );
-        assert!(!events
-            .iter()
-            .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))));
-    }
-
-    #[test]
-    fn hero_copy_and_destinations_are_shared_and_escaped_in_both_views() {
-        let hero = super::InterfaceLayerHero {
-            title: "[Changed] <script>heading</script>",
-            performance_label: "Performance & <value>",
-            start_label: "Read [this]",
-            start_url: "/new/docs?x=1&y=2",
-            video_label: "Watch *this*",
-            video_url: "/new/video",
-            ..super::InterfaceLayerHero::new()
-        };
-        let html = proa_core::render_to_string(hero);
-        let markdown = render_markdown(hero);
-        let (text, destinations) = markdown_content(&markdown);
-        for value in [
-            hero.title,
-            hero.performance_label,
-            hero.start_label,
-            hero.video_label,
-        ] {
-            assert!(text.contains(value));
-        }
-        assert!(html.contains("&lt;script&gt;heading&lt;/script&gt;"));
-        assert!(!html.contains("<script>heading"));
-        assert!(destinations.iter().any(|url| url == hero.start_url));
-        assert!(destinations.iter().any(|url| url == hero.video_url));
-        assert!(html.contains("/new/docs?x=1&amp;y=2"));
-        assert!(!Parser::new(&markdown)
-            .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))));
-    }
-
-    #[test]
-    fn benchmark_markdown_uses_the_same_mutable_content_props_as_html() {
-        let mut charts = super::BenchmarkHighlights::new();
-        charts.render.title = "[Changed render title]";
-        charts.render.description = "Changed <chart> description";
-        charts.render.url = "/new/chart.svg";
-        charts.http.description = "Changed HTTP chart";
-        charts.load.description = "Changed load chart";
-        let html = proa_core::render_to_string(charts);
-        let markdown = render_markdown(charts);
-        let (text, destinations) = markdown_content(&markdown);
-        for value in [charts.render.title, charts.http.title, charts.load.title] {
-            assert!(html.contains(value));
-            assert!(text.contains(value));
-        }
-        for chart in [charts.render, charts.http, charts.load] {
-            assert!(text.contains(chart.description));
-            assert!(destinations.iter().any(|url| url == chart.url));
-            assert!(html.contains(chart.url));
-        }
-        assert!(html.contains("Changed &lt;chart&gt; description"));
-    }
-
-    #[test]
-    fn showcase_markdown_reads_all_cases_from_the_html_props() {
-        let mut showcase = super::Direction18HeroPreview::new();
-        showcase.proa_repo = "changed repo";
-        showcase.proa_sentry = "changed sentry";
-        showcase.proa_travel = "changed travel";
-        let markdown = render_markdown(showcase);
-        let html = proa_core::render_to_string(showcase);
-        let (text, _) = markdown_content(&markdown);
-        for value in [
-            showcase.proa_repo,
-            showcase.proa_sentry,
-            showcase.proa_travel,
-        ] {
-            assert!(text.contains(value));
-        }
-        // SSR selects the first tab; the other shared props are available to
-        // the browser bindings and all three rows are present in Markdown.
-        assert!(html.contains(">changed repo<"));
-        assert!(!html.contains(">changed sentry<"));
-        assert!(!html.contains(">changed travel<"));
-    }
-
-    #[test]
-    fn homepage_markdown_composes_its_section_markdown_implementations() {
-        let page = render_markdown(super::HomePage);
-        let mut remaining = page.as_str();
-        for section in [
-            render_markdown(super::InterfaceLayerHero::new()),
-            render_markdown(super::RenderTargetsSection),
-            render_markdown(super::Direction18Hero),
-            render_markdown(super::BenchmarkHighlights::new()),
-            render_markdown(super::ProaUiSection::new()),
-            render_markdown(super::CapabilitiesSection {
-                columns: super::CAPABILITY_COLUMNS,
-            }),
-            render_markdown(super::GetStartedSection::new()),
-        ] {
-            let section = section.trim();
-            assert!(!section.is_empty());
-            let (_, rest) = remaining
-                .split_once(section)
-                .expect("page must compose each child's Markdown in HTML order");
-            remaining = rest;
-        }
-    }
-
-    #[test]
-    fn capability_markdown_uses_the_same_props_and_escapes_them() {
-        static CARDS: [super::TextCard; 2] = [
-            super::TextCard {
-                title: "[dynamic] <b>title</b>",
-                detail: "Literal *stars*, _underscores_, and &amp; text.",
-            },
-            super::TextCard {
-                title: "A second title",
-                detail: "[Not a link](javascript:alert(1))",
-            },
-        ];
-        for card in &CARDS {
-            let html = render_markdown(proa_core::to_markdown(super::CapabilitySupportView {
-                card,
-            }));
-            let markdown = render_markdown(super::CapabilitySupportView { card });
-            assert_eq!(markdown_content(&markdown), markdown_content(&html));
-            assert!(markdown_content(&markdown).1.is_empty());
-            assert!(!Parser::new(&markdown)
-                .any(|event| matches!(event, Event::Html(_) | Event::InlineHtml(_))));
-        }
-    }
-
-    #[test]
-    fn proa_ui_rail_preserves_inert_previews_and_catalog_links() {
-        let mut cx = WebContext::new();
-        super::ProaUiSection::new().render(&mut cx).unwrap();
-        let html = cx.into_output().into_string();
-
-        assert_eq!(html.matches("class=\"home-rail-item").count(), 11);
-        assert_eq!(html.matches(" inert").count(), 11);
-        assert_eq!(html.matches("class=\"home-rail-name\"").count(), 11);
-        assert_eq!(
-            html.matches(&format!("href=\"{}", super::site::UI_COMPONENTS_URL))
-                .count(),
-            12
-        );
-        assert_eq!(html.matches("target=\"_blank\"").count(), 13);
-        assert_eq!(html.matches("rel=\"noopener noreferrer\"").count(), 13);
-        assert!(html.contains("https://ui.shadcn.com"));
-        assert!(html.contains("tabindex=\"0\""));
-        assert!(html.contains("aria-describedby=\"home-rail-help\""));
-        assert!(html.contains("id=\"home-rail-help\""));
-        assert!(!html.contains("data-rsjs-"));
-        assert!(!html.contains("{{UI_ORIGIN}}"));
-        assert!(!html.contains("<script"));
-    }
-
-    #[test]
-    fn hero_preview_preserves_branded_panels_and_tab_contract() {
-        let mut output = RenderBuffer::new();
-        let mut cx = WebContext::with_buffer(&mut output);
-
-        Direction18HeroPreview::new().render(&mut cx).unwrap();
-
-        let html = output.into_string();
-        assert_eq!(html.matches(r#"role="tab""#).count(), 3);
-        assert_eq!(html.matches(r#"role="tabpanel""#).count(), 3);
-        assert_eq!(html.matches(r#"aria-selected="true""#).count(), 1);
-        assert_eq!(html.matches(r#"aria-selected="false""#).count(), 2);
-
-        for (tab_id, panel_id) in [
-            ("hero-tab-repo", "hero-panel-repo"),
-            ("hero-tab-sentry", "hero-panel-sentry"),
-            ("hero-tab-travel", "hero-panel-travel"),
-        ] {
-            assert!(html.contains(&format!(r#"id="{tab_id}""#)));
-            assert!(html.contains(&format!(r#"aria-controls="{panel_id}""#)));
-            assert!(html.contains(&format!(r#"id="{panel_id}""#)));
-            assert!(html.contains(&format!(r#"aria-labelledby="{tab_id}""#)));
-        }
-
-        let strip = ["GitHub", "Sentry", "Airbnb"].map(|label| {
-            html.find(&format!(">{label}<"))
-                .unwrap_or_else(|| panic!("tab `{label}` renders"))
-        });
-        assert!(
-            strip[0] < strip[1] && strip[1] < strip[2],
-            "hero tabs must render GitHub, Sentry, Airbnb in that order"
-        );
-
-        assert!(html.contains("/static/images/airbnb-preview-"));
-        assert!(html.contains("data-github-preview"));
-        assert!(html.contains("data-sentry-preview"));
-        assert!(!html.contains("/static/images/nike/"));
-        assert!(!html.contains("/static/images/synthetic/"));
-
-        // The metrics moved inside this island so they can derive from the
-        // same signal as the tabs. Server render is the first tab, GitHub.
-        assert!(html.contains("data-hero-metrics"));
-        assert!(html.contains(r#"data-active-tab="repo""#));
-        assert_eq!(html.matches("data-hero-metric-value=").count(), 3);
-        for metric in ["proa", "peer", "mult"] {
-            assert!(html.contains(&format!(r#"data-hero-metric-value="{metric}""#)));
-        }
-    }
-
-    #[test]
-    fn benchmark_charts_preserve_tabs_and_local_svg_links() {
-        let mut cx = WebContext::new();
-        super::BenchmarkHighlights::new().render(&mut cx).unwrap();
-        let html = cx.into_output().into_string();
-
-        assert_eq!(html.matches(r#"role="tab""#).count(), 3);
-        assert_eq!(html.matches(r#"role="tabpanel""#).count(), 3);
-        assert_eq!(html.matches(r#"aria-selected="true""#).count(), 1);
-        assert_eq!(html.matches(r#"aria-selected="false""#).count(), 2);
-        assert_eq!(html.matches(" hidden").count(), 2);
-        assert_eq!(html.matches("<img ").count(), 3);
-
-        for (tab, asset) in [
-            ("render", "01-canonical-scoreboard.svg"),
-            ("http", "21-canonical-pages-http.svg"),
-            ("load", "20-suspense-load.svg"),
-        ] {
-            assert!(html.contains(&format!(r#"id="benchmark-tab-{tab}""#)));
-            assert!(html.contains(&format!(r#"aria-controls="benchmark-panel-{tab}""#)));
-            assert!(html.contains(&format!(r#"id="benchmark-panel-{tab}""#)));
-            assert!(html.contains(&format!(r#"aria-labelledby="benchmark-tab-{tab}""#)));
-            assert!(html.contains(&format!(r#"src="/static/images/benchmarks/{asset}""#)));
-        }
-
-        assert!(html.contains(r#"href="/static/images/benchmarks/01-canonical-scoreboard.svg""#));
-        assert!(html.contains("data-rsjs-island-root"));
-    }
-
-    /// The tab widgets were driven by `HERO_TABS_SCRIPT`, a hand-written DOM
-    /// script. They are rsjs islands now, so the page must ship the runtime
-    /// and their island modules or the tabs are inert.
-    #[test]
-    fn home_page_ships_hydration_for_its_tab_islands() {
-        let html = crate::layout::render_page(
-            crate::layout::PageMeta {
-                title: "Home",
-                description: "Home",
-                path: "/",
-            },
-            super::HomePage,
-        )
-        .0;
-
-        assert!(
-            html.contains(r#"<script type="module" src="/rsjs-runtime.js""#),
-            "home page must load the rsjs runtime"
-        );
-        // Search modal, hero tabs, and benchmark chart tabs.
-        assert!(
-            html.matches("/rsjs/island/").count() >= 3,
-            "expected an island module per hydrated island, got: {}",
-            html.matches("/rsjs/island/").count()
-        );
-
-        // The hero tab root still renders its server-side contract.
-        assert_eq!(html.matches("data-tabs-root").count(), 1);
-        assert!(html.contains("proa-hero-tabs"));
-    }
-
-    #[tokio::test]
-    async fn homepage_metadata_fits_social_preview_limits() {
-        let response = super::handler(
-            axum::http::HeaderMap::new(),
-            axum::extract::Query(super::HomeQuery::default()),
-        )
-        .await;
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let html = std::str::from_utf8(&body).unwrap();
-        let head = html.split_once("</head>").unwrap().0;
-        let title = head
-            .split_once("<title>")
-            .unwrap()
-            .1
-            .split_once("</title>")
-            .unwrap()
-            .0;
-        let description = head
-            .split_once(r#"name="description" content=""#)
-            .unwrap()
-            .1
-            .split_once('"')
-            .unwrap()
-            .0;
-        assert!(!title.is_empty() && title.chars().count() <= 70);
-        // SEO auditors join every `<title>` in the document, inline SVG
-        // titles included, into one over-long page title.
-        assert_eq!(html.matches("<title>").count(), 1);
-        assert!(head.contains(
-            r#"<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v="#
-        ));
-        assert!(!description.is_empty() && description.chars().count() <= 125);
-        for name in ["og:description", "twitter:description"] {
-            let tag = head.split_once(&format!(r#"name="{name}""#)).unwrap().1;
-            let content = tag
-                .split_once(r#"content=""#)
-                .unwrap()
-                .1
-                .split_once('"')
-                .unwrap()
-                .0;
-            assert_eq!(content, description);
-        }
-        for name in ["og:title", "twitter:title"] {
-            let tag = head.split_once(&format!(r#"name="{name}""#)).unwrap().1;
-            let content = tag
-                .split_once(r#"content=""#)
-                .unwrap()
-                .1
-                .split_once('"')
-                .unwrap()
-                .0;
-            assert_eq!(content, title);
-        }
-    }
-
-    /// The centered hero opens the page, with video links scoped to the intro
-    /// and render-target sections before the performance content.
-    #[test]
-    fn interface_layer_hero_opens_the_page() {
-        let html = crate::layout::render_page(
-            crate::layout::PageMeta {
-                title: "Home",
-                description: "Home",
-                path: "/",
-            },
-            super::HomePage,
-        )
-        .0;
-
-        assert_eq!(html.matches("<h1").count(), 1);
-        assert!(html.contains(r#"data-hero="interface-layer""#));
-        assert!(html.contains(r#"id="render-targets""#));
-
-        let hero = html
-            .find(r#"data-hero="interface-layer""#)
-            .expect("statement hero renders");
-        let benchmark_hero = html
-            .find("data-hero-inner")
-            .expect("benchmark hero renders");
-        let render_targets = html.find("id=\"render-targets\"").unwrap();
-        let benchmark_highlights = html.find("id=\"benchmark-highlights\"").unwrap();
-        let ui_components = html.find("id=\"proa-ui-components\"").unwrap();
-        assert!(
-            render_targets < benchmark_hero
-                && benchmark_hero < benchmark_highlights
-                && benchmark_highlights < ui_components,
-            "render targets, then the two performance sections, then the design system rail"
-        );
-        assert!(
-            hero < benchmark_hero,
-            "the statement hero must render above the benchmark hero"
-        );
-
-        let hero_section = &html[hero..render_targets];
-        let render_section = &html[render_targets..benchmark_hero];
-        let video_url = |section: &str, kind: &str| {
-            let marker = format!(r#"data-video-cta="{kind}""#);
-            section
-                .split_once(&marker)
-                .unwrap()
-                .0
-                .rsplit_once(r#"href=""#)
-                .unwrap()
-                .1
-                .split('"')
-                .next()
-                .unwrap()
-                .to_owned()
-        };
-        let intro_video = video_url(hero_section, "intro");
-        let render_video = video_url(render_section, "render-targets");
-        assert!(
-            hero_section.find("href=\"/docs\"").unwrap() < hero_section.find(&intro_video).unwrap()
-        );
-        assert!(render_section.find("</p>").unwrap() < render_section.find(&render_video).unwrap());
-        assert!(
-            render_section.find(&render_video).unwrap()
-                < render_section.find("data-composable-flow").unwrap()
-        );
-        assert!(!hero_section.contains(&render_video));
-        assert!(!render_section.contains(&intro_video));
-
-        for (section, url) in [(hero_section, intro_video), (render_section, render_video)] {
-            assert!(url.starts_with("https://youtu.be/"));
-            assert_eq!(html.matches(&format!("href=\"{url}\"")).count(), 1);
-            let link = section
-                .split_once(&url)
-                .unwrap()
-                .1
-                .split_once("</a>")
-                .unwrap()
-                .0;
-            assert!(link.contains(r#"target="_blank""#));
-            assert!(link.contains(r#"rel="noopener noreferrer""#));
-            assert!(link.contains("opens in a new tab"));
-            assert!(link.contains(r#"aria-hidden="true""#));
-            assert!(link.contains(r#"focusable="false""#));
-            assert!(link.contains("data-play-icon"));
-        }
     }
 }

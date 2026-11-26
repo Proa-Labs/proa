@@ -6,18 +6,64 @@
 //! Run inside the Docker container:
 //!   cargo test -p proa_og
 
-use proa_og::{OgRenderer, RenderOptions};
+use proa_og::{OgImageError, OgRenderer, RenderOptions};
+use std::net::{Ipv4Addr, TcpListener};
 
-#[test]
-fn render_simple_og_image() {
+// WebKit requires its native callbacks and process teardown on the main thread.
+fn main() {
     let renderer = match OgRenderer::new() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Skipping test: {e}");
-            return;
-        }
+        Ok(renderer) => renderer,
+        Err(OgImageError::PlatformNotAvailable | OgImageError::GtkInit) => return,
+        Err(error) => panic!("renderer initialization failed: {error}"),
     };
+    assert!(matches!(
+        renderer.render_html("before\0after", &RenderOptions::default()),
+        Err(OgImageError::LoadFailed(_))
+    ));
+    render_simple_og_image(&renderer);
+    render_with_flexbox_and_grid(&renderer);
+    let options = RenderOptions {
+        width: 640,
+        height: 360,
+        ..RenderOptions::default()
+    };
+    let image = renderer
+        .render_html("<div style='height: 1500px'></div>", &options)
+        .expect("render a page longer than the viewport");
+    assert_eq!((image.width, image.height), (options.width, options.height));
+    render_after_timeout(&renderer);
+}
 
+fn render_after_timeout(renderer: &OgRenderer) {
+    // A loopback image request stays pending until the renderer's own watchdog fires.
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let first = format!("<html style='background:navy'><img src='http://{address}/pixel'></html>");
+    let result = renderer.render_html(
+        &first,
+        &RenderOptions {
+            timeout_secs: 1,
+            ..RenderOptions::default()
+        },
+    );
+    assert!(matches!(result, Err(OgImageError::Timeout(1))));
+    let (pending, _) = listener.accept().expect("WebKit requested the image");
+    drop(pending);
+
+    let options = RenderOptions {
+        width: 96,
+        height: 64,
+        ..RenderOptions::default()
+    };
+    let image = renderer
+        .render_html("<html style='background:lime'></html>", &options)
+        .expect("reuse the renderer after timeout");
+    assert_eq!((image.width, image.height), (options.width, options.height));
+    assert_eq!(image.pixels[..4], 0xff00_ff00u32.to_ne_bytes());
+}
+
+fn render_simple_og_image(renderer: &OgRenderer) {
     let html = r#"
     <html>
     <head>
@@ -86,16 +132,7 @@ fn render_simple_og_image() {
     );
 }
 
-#[test]
-fn render_with_flexbox_and_grid() {
-    let renderer = match OgRenderer::new() {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Skipping test: {e}");
-            return;
-        }
-    };
-
+fn render_with_flexbox_and_grid(renderer: &OgRenderer) {
     let html = r#"
     <html>
     <head>

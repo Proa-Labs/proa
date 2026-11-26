@@ -5,8 +5,6 @@ use proa_core::ctx::Ctx;
 use proa_core::text::{text, UnsafeRaw};
 use proa_core::WebRenderSync;
 
-use crate::manifest::IslandManifest;
-
 pub type MetadataRef = &'static dyn Metadata;
 
 /// Represents how a metadata field should cascade from parent to child.
@@ -547,10 +545,6 @@ pub fn resolve_metadata_stack(metadata: &[MetadataRef]) -> Option<ResolvedMetada
     Some(resolved)
 }
 
-pub fn css_asset_path(manifest: &IslandManifest) -> Option<&str> {
-    manifest.assets.css.as_ref().map(|css| css.path.as_str())
-}
-
 /// Write a string as an HTML attribute value, escaping `& < > " '` for the
 /// active dialect.
 ///
@@ -564,14 +558,6 @@ pub fn css_asset_path(manifest: &IslandManifest) -> Option<&str> {
 fn write_attr_value(cx: &mut Ctx, value: &str) {
     let dialect = cx.__proa_current_escape_dialect();
     proa_core::shared::escape::escape_attr_value_for_dialect(&mut cx.out, value, dialect).unwrap();
-}
-
-pub fn render_css_link(cx: &mut Ctx, css_path: &str) {
-    UnsafeRaw("<link rel=\"stylesheet\" href=\"")
-        .render(cx)
-        .unwrap();
-    write_attr_value(cx, css_path);
-    UnsafeRaw("\"/>").render(cx).unwrap();
 }
 
 pub fn render_metadata_head(cx: &mut Ctx, metadata: &ResolvedMetadata) {

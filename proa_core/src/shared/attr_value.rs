@@ -48,17 +48,17 @@ pub trait AttrValue {
     #[inline(always)]
     fn render_attr<B: WriteBuf, L: DataLoader>(
         &self,
-        name_prefix: &'static [u8],
-        name_bool: &'static [u8],
+        name_prefix: &'static str,
+        name_bool: &'static str,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), crate::shared::write_buf::WriteError> {
         if self.should_render() {
             if self.is_boolean_attr() {
-                cx.out.extend_static(name_bool)?;
+                cx.out.extend_static_str(name_bool)?;
             } else {
-                cx.out.extend_static(name_prefix)?;
+                cx.out.extend_static_str(name_prefix)?;
                 self.render_attr_value(cx)?;
-                cx.out.extend(b"\"")?;
+                cx.out.extend_str("\"")?;
             }
         }
         Ok(())
@@ -79,8 +79,8 @@ pub trait AttrValue {
     #[inline(always)]
     fn render_url_attr<B: WriteBuf, L: DataLoader>(
         &self,
-        name_prefix: &'static [u8],
-        name_bool: &'static [u8],
+        name_prefix: &'static str,
+        name_bool: &'static str,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), crate::shared::write_buf::WriteError> {
         if let Some(url) = self.url_str() {
@@ -93,8 +93,8 @@ pub trait AttrValue {
                      route the value through a typed helper."
                 );
                 if self.should_render() {
-                    cx.out.extend_static(name_prefix)?;
-                    cx.out.extend_static(b"\"")?;
+                    cx.out.extend_static_str(name_prefix)?;
+                    cx.out.extend_static_str("\"")?;
                 }
                 return Ok(());
             }
@@ -123,6 +123,17 @@ impl AttrValue for &str {
         let dialect = cx.__proa_current_escape_dialect();
         crate::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self, dialect)
     }
+
+    #[inline(always)]
+    fn render_attr<B: WriteBuf, L: DataLoader>(
+        &self,
+        name_prefix: &'static str,
+        _name_bool: &'static str,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        let dialect = cx.__proa_current_escape_dialect();
+        crate::shared::escape::write_attr_for_dialect(&mut cx.out, name_prefix, self, dialect)
+    }
 }
 
 // Implementation for String - always renders, escapes the value.
@@ -144,6 +155,39 @@ impl AttrValue for String {
     ) -> Result<(), crate::shared::write_buf::WriteError> {
         let dialect = cx.__proa_current_escape_dialect();
         crate::shared::escape::escape_attr_value_for_dialect(&mut cx.out, self.as_str(), dialect)
+    }
+
+    #[inline(always)]
+    fn render_attr<B: WriteBuf, L: DataLoader>(
+        &self,
+        name_prefix: &'static str,
+        name_bool: &'static str,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        self.as_str().render_attr(name_prefix, name_bool, cx)
+    }
+}
+
+// Implementation for char - always renders, escapes the value. The UTF-8
+// encoding lives in a 4-byte stack buffer, so no allocation is needed.
+impl AttrValue for char {
+    #[inline(always)]
+    fn should_render(&self) -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn render_attr_value<B: WriteBuf, L: DataLoader>(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> Result<(), crate::shared::write_buf::WriteError> {
+        let mut buf = [0u8; 4];
+        let dialect = cx.__proa_current_escape_dialect();
+        crate::shared::escape::escape_attr_value_for_dialect(
+            &mut cx.out,
+            self.encode_utf8(&mut buf),
+            dialect,
+        )
     }
 }
 
@@ -224,7 +268,7 @@ impl AttrValue for SafeAttr {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), crate::shared::write_buf::WriteError> {
-        cx.out.extend_static(self.0.as_bytes())
+        cx.out.extend_static_str(self.0)
     }
 }
 
@@ -251,18 +295,18 @@ impl<T: fmt::Display> AttrValue for DisplayAttr<T> {
         &self,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
-        __proa_render_fmt_attr(format_args!("{}", &self.0), cx)
+        __proa_render_fmt_attr(format_args!("{}", self.0), cx)
     }
 
     #[inline(always)]
     fn render_url_attr<B: WriteBuf, L: DataLoader>(
         &self,
-        name_prefix: &'static [u8],
-        _name_bool: &'static [u8],
+        name_prefix: &'static str,
+        _name_bool: &'static str,
         cx: &mut WebContext<L, B>,
     ) -> Result<(), WriteError> {
         let mut rendered = heapless::String::<DISPLAY_URL_ATTR_PROBE_CAP>::new();
-        if fmt::write(&mut rendered, format_args!("{}", &self.0)).is_err() {
+        if fmt::write(&mut rendered, format_args!("{}", self.0)).is_err() {
             debug_assert!(
                 false,
                 "formatted URL attribute value exceeded the inline validation buffer"
@@ -281,24 +325,24 @@ impl<T: fmt::Display> AttrValue for DisplayAttr<T> {
             return render_empty_attr(name_prefix, cx);
         }
 
-        cx.out.extend_static(name_prefix)?;
+        cx.out.extend_static_str(name_prefix)?;
         let dialect = cx.__proa_current_escape_dialect();
         crate::shared::escape::escape_attr_value_for_dialect(
             &mut cx.out,
             rendered.as_str(),
             dialect,
         )?;
-        cx.out.extend(b"\"")
+        cx.out.extend_str("\"")
     }
 }
 
 #[inline(always)]
 fn render_empty_attr<B: WriteBuf, L: DataLoader>(
-    name_prefix: &'static [u8],
+    name_prefix: &'static str,
     cx: &mut WebContext<L, B>,
 ) -> Result<(), WriteError> {
-    cx.out.extend_static(name_prefix)?;
-    cx.out.extend_static(b"\"")
+    cx.out.extend_static_str(name_prefix)?;
+    cx.out.extend_static_str("\"")
 }
 
 #[doc(hidden)]
@@ -407,7 +451,7 @@ mod tests {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
         display_attr(false)
-            .render_attr(b" aria-expanded=\"", b" aria-expanded", &mut cx)
+            .render_attr(" aria-expanded=\"", " aria-expanded", &mut cx)
             .unwrap();
 
         assert_eq!(String::from_utf8(out).unwrap(), r#" aria-expanded="false""#);
@@ -418,7 +462,7 @@ mod tests {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
         display_attr("<panel \"open\">")
-            .render_attr(b" data-state=\"", b" data-state", &mut cx)
+            .render_attr(" data-state=\"", " data-state", &mut cx)
             .unwrap();
 
         assert_eq!(
@@ -432,7 +476,7 @@ mod tests {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
         display_attr("https://example.com/<path>?q=\"x\"")
-            .render_url_attr(b" href=\"", b" href", &mut cx)
+            .render_url_attr(" href=\"", " href", &mut cx)
             .unwrap();
 
         assert_eq!(
@@ -447,7 +491,7 @@ mod tests {
     fn display_attr_url_attr_blocks_javascript_scheme_in_debug() {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
-        let _ = display_attr("javascript:alert(1)").render_url_attr(b" href=\"", b" href", &mut cx);
+        let _ = display_attr("javascript:alert(1)").render_url_attr(" href=\"", " href", &mut cx);
     }
 
     #[cfg(not(debug_assertions))]
@@ -456,7 +500,7 @@ mod tests {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
         display_attr("javascript:alert(1)")
-            .render_url_attr(b" href=\"", b" href", &mut cx)
+            .render_url_attr(" href=\"", " href", &mut cx)
             .unwrap();
 
         assert_eq!(String::from_utf8(out).unwrap(), r#" href="""#);
@@ -491,7 +535,7 @@ mod tests {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
         "https://example.com/path?q=1"
-            .render_url_attr(b" href=\"", b" href", &mut cx)
+            .render_url_attr(" href=\"", " href", &mut cx)
             .unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
@@ -506,7 +550,7 @@ mod tests {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
         "data:image/png;base64,iVBORw0KGgo="
-            .render_url_attr(b" src=\"", b" src", &mut cx)
+            .render_url_attr(" src=\"", " src", &mut cx)
             .unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
@@ -523,7 +567,7 @@ mod tests {
     fn url_attr_blocks_javascript_scheme_in_debug() {
         let mut out = Vec::new();
         let mut cx = WebContext::with_buffer(&mut out);
-        let _ = "javascript:alert(document.cookie)".render_url_attr(b" href=\"", b" href", &mut cx);
+        let _ = "javascript:alert(document.cookie)".render_url_attr(" href=\"", " href", &mut cx);
     }
 
     #[cfg(not(debug_assertions))]
@@ -538,7 +582,7 @@ mod tests {
             let mut out = Vec::new();
             let mut cx = WebContext::with_buffer(&mut out);
             dangerous
-                .render_url_attr(b" href=\"", b" href", &mut cx)
+                .render_url_attr(" href=\"", " href", &mut cx)
                 .unwrap();
             let rendered = String::from_utf8(out).unwrap();
             assert_eq!(rendered, r#" href="""#, "input was {dangerous:?}");

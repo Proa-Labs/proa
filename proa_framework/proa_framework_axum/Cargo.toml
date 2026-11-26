@@ -3,7 +3,7 @@
 
 [package]
 name = "proa_framework_axum"
-version = "0.3.0"
+version = "0.4.1"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -12,25 +12,25 @@ license-file.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
-[features]
-route-export = []
-
 [dependencies]
 base16ct = { workspace = true }
 anyhow = { workspace = true }
 axum = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
-cssparser = "0.35"
-oxc_allocator = "0.75"
-oxc_ast = "0.75"
-oxc_ast_visit = "0.75"
-oxc_parser = "0.75"
-oxc_semantic = "0.75"
-oxc_span = "0.75"
+cssparser = "0.38.0"
+oxc_allocator = "0.160.0"
+oxc_ast = "0.160.0"
+oxc_ast_visit = "0.160.0"
+oxc_codegen = "0.160.0"
+oxc_minifier = "0.160.0"
+oxc_parser = "0.160.0"
+oxc_semantic = "0.160.0"
+oxc_span = "0.160.0"
 futures = { workspace = true }
 http = { workspace = true }
-hyper = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = [
     "http1",
     "http2",
@@ -41,17 +41,17 @@ hyper-util = { version = "0.1", features = [
 ] }
 include_dir = { version = "0.7" }
 mime = { version = "0.3" }
-parking_lot = { version = "0.12" }
+parking_lot = { version = "0.13.0" }
+percent-encoding = "2"
 pin-project = { version = "1.1" }
+proa_assets = { workspace = true }
 proa_core = { workspace = true }
 proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
-proa_react = { workspace = true }
 rsjs = { workspace = true }
 proa_stream = { workspace = true, features = ["rt-tokio"] }
 # CSP nonce generation: OS-seeded CSPRNG plus base64 encoding.
 rand = { workspace = true }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -67,6 +67,11 @@ tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+proa_assets = { workspace = true, features = ["build"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+tempfile = { workspace = true }
 async-stream = "0.3"
-http-body-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+
+[lints]
+workspace = true

@@ -11,10 +11,11 @@ use std::{
     time::Duration,
 };
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use proa_core::{to_markdown, MdRenderSync, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::{html_sync, md_sync};
 use pulldown_cmark::{html, Options, Parser};
+use std::hint::black_box;
 
 struct CountingAllocator;
 thread_local! {

@@ -13,8 +13,8 @@ render implementation for state that must keep changing after the server HTML
 reaches the browser.
 
 ```rust filename="src/components/counter.rs"
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 use rsjs::{event_handler, rsjs, signal};
 
 pub struct Counter;

@@ -25,6 +25,7 @@ mod new;
 mod registry;
 mod rsjs;
 mod run;
+pub(crate) mod script;
 mod selection;
 mod site;
 mod start;
@@ -32,6 +33,8 @@ pub(crate) mod task;
 mod test;
 mod ui;
 mod update;
+
+use std::ffi::OsString;
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -42,30 +45,28 @@ pub(crate) enum Command {
     Update(update::UpdateArgs),
     #[command(name = "install-self", hide = true)]
     InstallSelf(update::InstallSelfArgs),
-    /// Initialize proa.config.json and proa.lock.json in an existing project.
+    /// Initialize proa.config.rs and proa.lock.json in an existing project.
     Init(init::InitArgs),
-    /// Inspect and validate proa.config.json.
+    /// Inspect and validate proa.config.rs.
     Config(config::ConfigArgs),
     /// Add an application capability to an existing Proa project.
     Add(add::AddArgs),
     /// Create a new Proa project.
     New(new::NewArgs),
-    /// Build one exact linked server and restart it from persistent caches when files change.
+    /// Watch the project and restart its linked development server.
     Dev(dev::DevArgs),
     /// Deploy through transparent provider-native workflows.
     Deploy(deploy::DeployArgs),
-    /// Build assets and compile one exact Proa binary through the linked RSJS pipeline.
+    /// Run the built-in build for one linked binary and its assets.
     Build(build::BuildArgs),
     /// Create, migrate, inspect, reset, or remove the configured database.
     Db(db::DbArgs),
-    /// Compile and run one exact Proa binary through the linked RSJS pipeline.
+    /// Run a project script, or compile and run an application binary with no script name.
     Run(run::RunArgs),
     /// Start an already-built release without compiling or watching.
     Start(start::StartArgs),
     /// Run application tests with linked compilation and isolated database state.
     Test(test::TestArgs),
-    /// Run a structured application-specific task from proa.config.json.
-    Task(task::TaskArgs),
     /// Generate files inside an existing Proa project.
     Generate(generate::GenerateArgs),
     /// Inspect configured component registries.
@@ -91,7 +92,7 @@ pub(crate) enum Command {
     Font(font::FontArgs),
 }
 
-pub(crate) fn dispatch(command: Command) -> Result<()> {
+pub(crate) fn dispatch(command: Command, arguments: &[OsString]) -> Result<()> {
     match command {
         Command::Update(args) => update::run(args),
         Command::InstallSelf(args) => update::install_self(args),
@@ -103,10 +104,9 @@ pub(crate) fn dispatch(command: Command) -> Result<()> {
         Command::Deploy(args) => deploy::run(args),
         Command::Build(args) => build::run(args),
         Command::Db(args) => db::run(args),
-        Command::Run(args) => run::run(args),
+        Command::Run(args) => run::run(args, arguments),
         Command::Start(args) => start::run(args),
         Command::Test(args) => test::run(args),
-        Command::Task(args) => task::run(args),
         Command::Generate(args) => generate::run(args),
         Command::Registry(args) => registry::run(args),
         Command::Ui(args) => ui::run(args),

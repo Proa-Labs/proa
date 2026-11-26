@@ -225,6 +225,9 @@ pub fn final_identity(_input: TokenStream) -> TokenStream {
 use fixture_macro::final_identity;
 
 #[cfg(not(rsjs_final))]
+use fixture_macro as _;
+
+#[cfg(not(rsjs_final))]
 fn main() {}
 
 #[cfg(rsjs_final)]
@@ -291,7 +294,6 @@ fn main() {
     let first = run_linked_cargo(&request).unwrap();
     assert_eq!(first.final_cargo.plan_id, first.semantic.plan_id);
     assert_ne!(first.final_cargo.target_directory, descriptor_target);
-    let invocation_directory = request.invocation.to_string();
     let expected_final_target = if cfg!(windows) {
         request
             .final_target_root
@@ -302,14 +304,7 @@ fn main() {
             .join("rsjs-final")
             .join(format!("wrapper-v{FINAL_WRAPPER_POLICY_VERSION}"))
     };
-    assert_eq!(
-        first.final_cargo.target_directory,
-        expected_final_target.join(&invocation_directory)
-    );
-    assert_eq!(
-        first.final_cargo.target_directory.file_name(),
-        Some(std::ffi::OsStr::new(&invocation_directory))
-    );
+    assert_eq!(first.final_cargo.target_directory, expected_final_target);
     assert!(first.final_cargo.unit_map_path.is_file());
     assert_eq!(first.final_cargo.unit_map_hash.len(), 64);
 

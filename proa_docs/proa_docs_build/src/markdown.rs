@@ -641,7 +641,7 @@ mod tests {
             "    ## Features\n",
             "\n",
             "    {for feature in features.iter() {\n",
-            "        md_sync! { \"- \" {feature} \"\\n\" }\n",
+            "        md_sync! { \"- {feature}\\n\" }\n",
             "    }}\n",
             "    {if in_stock { \"In stock\" } else { \"Backordered\" }}\n",
             "    \"###\n",

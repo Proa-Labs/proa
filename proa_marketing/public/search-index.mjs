@@ -6,14 +6,7 @@
 // small post-processing helpers below; keep it that way so a tuning run can
 // override the config without touching the UI.
 //
-// Orama is loaded through a dynamic import so the `?v=` cache-busting version
-// on this module's own URL propagates to the vendored bundle (static assets are
-// served with a one-year immutable cache).
-
-const VERSION = new URL(import.meta.url).searchParams.get('v');
-const oramaUrl = new URL('./vendor/orama.mjs', import.meta.url);
-if (VERSION) oramaUrl.searchParams.set('v', VERSION);
-const orama = await import(oramaUrl.href);
+import * as orama from './vendor/orama.mjs';
 
 export const DEFAULT_CONFIG = {
   // Fields searched, in the order Orama walks them.
@@ -90,24 +83,29 @@ export async function buildIndex(documents, config = DEFAULT_CONFIG) {
 }
 
 /**
- * Search the index. Returns `{ hits, count, pass }` where `pass` names which
- * fallback produced the hits: `prefix` (every term matched as a prefix),
- * `typo` (edit distance allowed), `any` (at least one term matched), or
- * `none`.
+ * Search the index. Returns `{ hits, count, pass, query }`.
+ *
+ * `pass` names the pass that produced the hits: `exact` (every term matched a
+ * whole token), `prefix` (every term matched as a prefix), `typo` (edit
+ * distance allowed), `any` (at least one term matched), or `none`. `hits` is
+ * capped at `config.limit`; `count` is the number of matching pages and is
+ * never smaller than `hits.length`. `query` is the trimmed text as typed, for
+ * display; ranking uses `normalizeQuery(query)`.
  */
 export async function searchIndex(db, term, config = DEFAULT_CONFIG) {
   const query = String(term ?? '').trim();
-  if (query.length < config.minQueryLength) {
+  const searchQuery = normalizeQuery(query);
+  if (searchQuery.length < config.minQueryLength) {
     return { hits: [], count: 0, pass: 'none', query };
   }
   const base = {
-    term: query,
+    term: searchQuery,
     properties: config.properties,
     boost: config.boost,
     relevance: config.relevance,
     limit: config.limit,
   };
-  const terms = queryTerms(query);
+  const terms = queryTerms(searchQuery);
   const run = (pass) =>
     orama.search(db, {
       ...base,
@@ -165,7 +163,39 @@ export async function searchIndex(db, term, config = DEFAULT_CONFIG) {
     .sort((a, b) => b.score - a.score)
     .slice(0, config.limit)
     .map(({ hit, score }) => decorate(hit, score, terms, config));
+  // Each pass reports its own total, and the whole-token and prefix passes do
+  // not always agree on which pages hold every term, so the pooled set can be
+  // larger than either. Never report fewer results than are shown.
+  count = Math.max(count, merged.size);
   return { hits, count, pass, query };
+}
+
+// The characters Orama's English tokenizer splits on (the same class and the
+// same case-insensitive flag as its split rule), anchored to either end of one
+// whitespace-separated piece of the query.
+const EDGE_SEPARATORS = /^[^A-Za-zàèéìòóù0-9_'-]+|[^A-Za-zàèéìòóù0-9_'-]+$/gi;
+
+/**
+ * The term handed to Orama for a typed query.
+ *
+ * Orama's whole-token pass keeps a page only when every whitespace-separated
+ * piece of the term matches `\bpiece\b` in one of its text fields. A piece
+ * that starts or ends with punctuation can never satisfy `\b` on that side,
+ * so `cx.url()`, `cx.url(`, `html!`, and `#[rsjs]` all missed the whole-token
+ * bonus that `cx.url`, `html`, and `rsjs` receive, and the ranking shifted
+ * with every keystroke of a call. Trimming separator characters from the
+ * edges of each piece changes none of the tokens (the tokenizer drops them
+ * anyway) and lets that pass see the identifier. Punctuation inside a piece
+ * is kept, so a pasted `cx.url("public/og.png")` or `cx.head_mut().title`
+ * still has to appear verbatim to count as a whole match, and hyphens and
+ * apostrophes stay because the tokenizer keeps them (`--port`, `'static`).
+ */
+export function normalizeQuery(query) {
+  return String(query ?? '')
+    .split(/\s+/)
+    .map((piece) => piece.replace(EDGE_SEPARATORS, ''))
+    .filter(Boolean)
+    .join(' ');
 }
 
 /** Edit distance for the typo pass: one per four characters of the longest term, capped. */

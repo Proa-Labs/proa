@@ -186,9 +186,6 @@ Or point the installer at another host that serves the same file names:
 curl -fsSL https://proa.so/install.sh | PROA_DOWNLOAD_BASE=https://mirror.example/downloads/cli sh
 ```
 
-`PROA_REPO` does not help here. It selects the repository the source build
-compiles from, not the host archives come from.
-
 The installer log records the request and what came back. Its path is printed
 as the installer exits.
 
@@ -197,9 +194,9 @@ as the installer exits.
 `https://proa.so/downloads/cli/latest.json` answers `404` when no `proa-cli`
 release exists. The installer reads that as "there is no version to install"
 rather than an archive-download failure, and attempts a Cargo build from
-crates.io instead. That requires a published `proa-cli` crate. For unreleased
-development work, explicitly select an unversioned source build to compile
-Git HEAD. The installer log identifies which source it selected.
+crates.io instead. That requires a published `proa-cli` crate. An unversioned
+source build installs the latest published crate; `PROA_VERSION` selects an
+exact published version.
 
 The source build puts `proa` and `cargo-proa` in `~/.cargo/bin`, not
 `~/.proa/bin`, so look there when the shell cannot find the binary afterwards.
@@ -243,31 +240,34 @@ curl -fsSL https://proa.so/install.sh | PROA_BUILD_FROM_SOURCE=1 sh
 
 ## No Prebuilt Binary For This Platform
 
-For now, Proa publishes one native release binary:
-`x86_64-unknown-linux-gnu`, built on Ubuntu 24.04. It supports 64-bit Ubuntu
-24.04+ and other glibc 2.39+ Linux systems. On anything else, including older
-Ubuntu releases, ARM Linux, Alpine and other musl distributions, macOS,
-Windows, FreeBSD, and 32-bit hosts, the installer reports that it found no
-matching asset and compiles the CLI with Cargo instead. For an official released
-version, this fallback builds from crates.io without GitHub credentials:
+Proa publishes prebuilt release binaries for Linux x86_64 and arm64
+(`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`, built on Ubuntu
+24.04 for glibc 2.39+ systems), Intel and Apple silicon macOS
+(`x86_64-apple-darwin` and `aarch64-apple-darwin`), and Windows x86_64
+and arm64 (`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`). On
+Alpine and other musl distributions, FreeBSD, and 32-bit hosts, the installer
+reports that it found no matching asset and compiles the CLI with Cargo instead.
+On Linux with a glibc
+older than 2.39, the downloaded binary cannot start, so the installer stops
+without changing anything; rerun it with `--build-from-source`. For an official
+released version, the source build uses crates.io without GitHub credentials:
 
 ```bash
 cargo install proa-cli --locked
 ```
 
-Use `--version "=<published-version>"` to pin a release. Main snapshots pin a
-full Git commit; a custom repository or an explicit unversioned
-`--build-from-source` installation uses Git instead. Git builds honor your
-credential helper and proxy settings through `CARGO_NET_GIT_FETCH_WITH_CLI`.
+Use `--version "=<published-version>"` to pin a release. Main snapshots require
+a prebuilt archive. If the snapshot archive is unavailable for your platform,
+select a published version instead.
 
-That build takes several minutes and needs Rust 1.93.0 or newer plus a C
+That build takes several minutes and needs Rust 1.98.0 or newer plus a C
 toolchain. On Alpine, install the toolchain first:
 
 ```bash
 apk add build-base
 ```
 
-Alpine's packaged Rust lags the 1.93.0 minimum on some releases. Run
+Alpine's packaged Rust lags the 1.98.0 minimum on some releases. Run
 `rustc --version`, and install the toolchain with
 [rustup](https://rustup.rs) when the packaged one is older. The installer
 does not install Rust for you: it stops and prints the rustup command
@@ -337,7 +337,7 @@ implementation generic over the data loader; the output defaults to the owned
 `RenderBuffer`:
 
 ```rust
-use proa_core::{DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
 
 impl<L: DataLoader> WebRenderSync<L> for MyComponent {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -347,7 +347,7 @@ impl<L: DataLoader> WebRenderSync<L> for MyComponent {
 }
 ```
 
-If you place a sync component inside an async `html!` tree, wrap it with `proa_core::to_async(...)`. If the component awaits data or uses async loaders, implement `WebRender` and render with `html!`. See [Render traits](/docs/core/html-rendering).
+If you place a sync component inside an async `html!` tree, wrap it with `proa::to_async(...)`. If the component awaits data or uses async loaders, implement `WebRender` and render with `html!`. See [Render traits](/docs/core/html-rendering).
 
 ## Classes Disappear Or `ClassList` Fails
 
@@ -371,8 +371,7 @@ Then confirm:
 
 - The island has a matching server-rendered placeholder.
 - The route serves static assets from the same origin during development.
-- Event handlers live inside the `#[island]` or
-  `#[rsjs(component, client)]` boundary.
+- Event handlers live inside the `#[rsjs(component, client)]` boundary.
 - Async query helpers use an async `WebRender` component, not a sync render implementation.
 
 See [RSJS](/docs/guides/islands).

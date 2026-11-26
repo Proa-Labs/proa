@@ -681,9 +681,11 @@ impl Analyzer {
         let server_initial = FrontendExpr::Literal(Value::Null);
         let client_fetcher = match request_config_expr(
             &call.args[2],
+            &self.context_ident,
             "GET",
             "`query_with_initial(...)` client_fetcher must be a literal URL string, \
-                 signal-backed URL expression, or `rsjs::FetchRequest { ... }`",
+                 `cx.url(\"/...\")`, signal-backed URL expression, or \
+                 `rsjs::FetchRequest { ... }`",
         ) {
             Ok(expr) => expr,
             Err(static_err) => self
@@ -784,9 +786,11 @@ impl Analyzer {
         let server_runner = FrontendExpr::Literal(Value::Null);
         let client_runner = match request_config_expr(
             &call.args[1],
+            &self.context_ident,
             "POST",
-            "`mutation(...)` client_runner must be a literal URL string, signal-backed URL \
-                 expression, JSON runner config, or `rsjs::FetchRequest { ... }`",
+            "`mutation(...)` client_runner must be a literal URL string, \
+                 `cx.url(\"/...\")`, signal-backed URL expression, JSON runner config, \
+                 or `rsjs::FetchRequest { ... }`",
         ) {
             Ok(expr) => expr,
             Err(static_err) => self
@@ -1364,9 +1368,10 @@ impl<'ast> Visit<'ast> for OpaqueServerStatementValidator<'_> {
     }
 
     fn visit_arm(&mut self, arm: &'ast syn::Arm) {
-        self.with_pattern_scope(&arm.pat, |this| {
-            if let Some((_, guard)) = &arm.guard {
-                this.visit_expr(guard);
+        let (pat, guard) = crate::parse::match_arm_parts(arm);
+        self.with_pattern_scope(pat, |this| {
+            if let Some(guard) = guard {
+                this.visit_expr(&guard.guard);
             }
             this.visit_expr(&arm.body);
         });
@@ -1465,7 +1470,7 @@ pub(super) fn collect_condition_pattern_bindings(expr: &Expr, names: &mut Vec<St
 /// bindings into "the analyser already lowered this into the IR"
 /// (signal declarations) and "needs to be replayed verbatim into the
 /// generated render body" (everything else, e.g.
-/// `let user = cx.load(...).await?;`). See round-3 review #1 for the
+/// `let user = cx.load_json(...).await?;`). See round-3 review #1 for the
 /// motivation.
 pub(crate) fn is_signal_local(local: &Local) -> bool {
     let init = match &local.init {
@@ -2570,7 +2575,7 @@ pub(super) fn handler_payload_param_name(
 /// Parse one prelude `let` binding as a `signal(...)` declaration.
 ///
 /// Returns `Ok(None)` when the local is not a signal declaration
-/// (e.g. `memo(...)`, `cx.load(...).await?`); only signal
+/// (e.g. `memo(...)`, `cx.load_json(...).await?`); only signal
 /// declarations contribute entries.
 pub(super) fn signal_local_decl(local: &Local) -> syn::Result<Option<SignalLocal>> {
     // Pattern: must be a plain ident (no destructuring).
@@ -2589,7 +2594,7 @@ pub(super) fn signal_local_decl(local: &Local) -> syn::Result<Option<SignalLocal
     };
 
     // Recognise `signal(...)`. Anything else (e.g.
-    // `cx.load(...).await?`) is left alone; only signal
+    // `cx.load_json(...).await?`) is left alone; only signal
     // declarations contribute IR.
     let call = match init.expr.as_ref() {
         Expr::Call(c) => c,

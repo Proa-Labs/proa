@@ -3,7 +3,7 @@
 
 [package]
 name = "proa_stream"
-version = "0.3.0"
+version = "0.4.1"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -31,3 +31,6 @@ tracing = { workspace = true }
 proa_macros = { path = "../proa_macros" }
 http = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

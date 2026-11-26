@@ -1,6 +1,6 @@
 # Codex Instructions for the Proa workspace
 
-Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It renders 10-20x faster than traditional templating engines through static consolidation and zero-allocation patterns.
+Proa is a Rust SSR template engine that compiles HTML templates into optimized byte sequences at compile time. It uses static consolidation and direct-buffer rendering; performance depends on the workload and output contract. See the dated measurements and methodology in [README.md](README.md#benchmarks).
 
 ## Agent reference
 
@@ -11,6 +11,7 @@ component-library and catalog changes belong in its owning repository.
 
 | Task | Doc |
 |---|---|
+| Prepare or publish a crate/CLI release | [Release skill](.agents/skills/proa-release/SKILL.md) |
 | Add a local render component | [`docs/agent/components.md`](docs/agent/components.md) |
 | Render HTML, Markdown, XML, text, or JSON | [`docs/agent/document-rendering.md`](docs/agent/document-rendering.md) |
 | Add an analyzed `#[rsjs(component...)]` component | [`docs/agent/rsjs-islands.md`](docs/agent/rsjs-islands.md) |
@@ -57,13 +58,11 @@ For example, the `proa_framework_axum` package sources are under
 | `proa_build` | Linked RSJS compiler orchestration, descriptor caches, and semantic linking |
 | `proa_source_tools` | Source discovery, linting, formatting, and artifact inspection |
 | `proa_core` | Rendering primitives: `WebRenderSync`, `WebRender`, `WriteBuf`, `ClassList`, HTML elements |
-| `proa_macros` | Proc macros: `html!`, `html_sync!`, `md!`, `md_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]`, `#[island]` |
+| `proa_macros` | Proc macros: `html!`, `html_sync!`, `md!`, `md_sync!`, `#[derive(ProaRecipe)]`, `#[derive(ProaVariant)]`, `#[derive(ProaComponent)]`, `#[derive(Action)]` |
 | `proa_stream` | Streaming SSR substrate: loaders, stream handles, `Suspense`, out-of-order driver |
 | `proa_framework_axum` | Axum/Tokio adapter with routing, static serving, and HTTP response integration |
 | `proa_ir` | Intermediate representation for reactive attrs, bindings, and lower-level client/runtime glue |
 | `proa_actions` | Action data structures for event handlers |
-| `proa_codegen` | TypeScript code generation from Rust components |
-| `proa_react` | React/JSX interop |
 | `proa_framework_core` | Server/runtime-agnostic framework core: manifest, bootstrap, portable response/body finalizers |
 | `proa_bench` | Proa-only render and streaming regression benchmarks |
 | `rsjs_web` | Generated zero-cost DOM markers, capabilities, and event-interface witnesses for RSJS JavaScript lowering |
@@ -166,6 +165,19 @@ ordinary blocks. `{expression}` composes a typed child. Braces inside fenced
 code blocks and inline code spans stay literal. Increase the raw-string hash
 count only if the Markdown itself contains the exact closing sequence `"###`.
 Outside code spans and fences, write `{{` or `}}` for a literal brace.
+Single-literal templates select their mode at render time: physically multiline
+raw literals are block scopes, while ordinary strings and single-line raw
+literals are inline scopes. Hash count has no effect. Scopes restore the
+enclosing mode on errors, unwinding, and async cancellation; block boundaries
+are completed only before the body and after success. Authored whitespace and
+partial output remain, except that the line breaks after a slot at block
+position are boundaries, so a block child on its own line gains no extra blank
+line. Block templates cannot appear inside inline scopes,
+link labels, headings, emphasis, or table cells. Use `.render_md(cx)?` directly,
+without manual inline-mode restoration. Do not restore whole `MdState`
+snapshots solely for formatting cleanup, since that also replaces suffix
+tracking while partial output remains. Audit scaffold
+copies and fixtures when migrating these patterns.
 Text outside slots is always Markdown; each `{ ... }` slot is Rust. Use
 ordinary Rust `if`, `for`, and `match` there, and re-enter Markdown through a
 nested macro. Prefer ordinary one-line strings for short fragments, such as
@@ -174,8 +186,9 @@ row-ending `\n`. Use raw templates for substantial multiline fragments, with
 fewer hashes inside an outer raw literal. Never remove the explicit slot boundary around control flow.
 See [the Markdown skill](.agents/skills/proa-markdown/SKILL.md) for a complete
 loop/branch example and the exceptions for code fences and exact separators.
-The token composition form (`md_sync! { "# " { title } }`) remains supported
-for generated code and cases that need the expressions visible as Rust tokens.
+The body is always one string literal; token composition such as
+`md_sync! { "# " { title } }` is a compile error. To render values in sequence
+without authoring Markdown, use a tuple: `(overview, impact).render_md(cx)`.
 Run `proa fmt` to normalize raw-template indentation and keep the closing macro
 brace aligned with the invocation; `proa lint` enforces the same layout.
 
@@ -207,7 +220,7 @@ file layout:
 components/<name>/
 ├── mod.rs          # Re-exports
 ├── recipe.rs       # Variant enums, class constants, recipe struct
-└── <name>.rs       # Component struct + WebRenderSync/WebRender impl + tests
+└── <name>.rs       # Component struct + WebRenderSync/WebRender impl
 ```
 
 ### recipe.rs pattern
@@ -300,22 +313,6 @@ where
         .render(cx)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use proa_core::text::text;
-
-    #[test]
-    fn component_renders() {
-        let mut cx = WebContext::new();
-        Component { variant: ComponentVariant::Default, class: None, children: Some(text("Hi")) }
-            .render(&mut cx)
-            .unwrap();
-        let html = cx.into_output().into_string();
-        assert!(html.contains("data-component"));
-    }
-}
 ```
 
 For async components, use `WebRender` plus `html!`. Wrap sync children with `proa_core::to_async(...)` when they need to participate in async composition. Use `proa_core::await_component(...)` when a future resolves to a renderable child.
@@ -328,6 +325,13 @@ For async components, use `WebRender` plus `html!`. Wrap sync children with `pro
 
 The downstream component library has its own registration and catalog workflow.
 Follow the instructions in its owning repository when changing it.
+
+## Releases
+
+Use the [Proa release skill](.agents/skills/proa-release/SKILL.md) and shared
+release-plz wrapper for version preparation and publication. Do not hand-bump
+package versions or scaffold dependency pins; `proa new site` derives its versions
+from the CLI Cargo declarations updated by release-plz.
 
 ## Building
 

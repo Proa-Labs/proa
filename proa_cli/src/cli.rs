@@ -40,8 +40,8 @@ pub fn run() -> Result<()> {
     }
 
     let args = normalize_cargo_subcommand_args(std::env::args_os());
-    let cli = Cli::parse_from(args);
-    commands::dispatch(cli.command)
+    let cli = Cli::parse_from(&args);
+    commands::dispatch(cli.command, &args[2..])
 }
 
 fn normalize_cargo_subcommand_args<I>(args: I) -> Vec<std::ffi::OsString>

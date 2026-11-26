@@ -119,7 +119,7 @@ then passed a **695-test** library/cache/pipeline recheck. Workspace all-target
 checking, CI's workspace Clippy flags, strict `-D warnings` Clippy for every
 changed crate, Rust formatting, render allocation lint, source checks (allowing
 existing low-level warnings), shell syntax and CI partition validation passed.
-[Exact commands and outcomes](evidence/pre-pr-review-validation.json) preserve
+[Exact commands and outcomes](https://github.com/Proa-Labs/proa/blob/de131f79d7a4357f5001219726c2a2b522bd1fae/docs/compile-time/evidence/pre-pr-review-validation.json) preserve
 this distinction. Stricter *whole-workspace* Clippy encounters an unchanged
 `manual_async_fn` warning in the Axum adapter's tests; no unrelated code was
 changed to silence it. Performance was not remeasured after these test/CI/style
@@ -194,7 +194,7 @@ manifest matches the reference hasher. The proposed source memoization was
 discarded after a randomized A/B trial failed to establish an end-to-end gain.
 
 Reviewed the other agent's fixes together with the existing slot safeguards:
-hot-static edits run `dev.before` and asset builds before reload; syntax scan
+hot-static edits run `scripts.before.dev` and asset builds before reload; syntax scan
 errors reach Cargo/rustc; native carriers replace stale files before exclusive
 creation. The exact combined production build passes 683 CLI library tests,
 24 wrapper/cache/projection integration tests, strict CLI-library Clippy,

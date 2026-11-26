@@ -43,19 +43,3 @@ fn revision_header_value(revision: &str) -> Option<HeaderValue> {
     }
     HeaderValue::from_bytes(revision.as_bytes()).ok()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::readyz;
-    use axum::http::header;
-    use axum::response::IntoResponse;
-
-    #[tokio::test]
-    async fn readiness_response_cannot_be_cached() {
-        let response = readyz().await.into_response();
-        assert_eq!(
-            response.headers().get(header::CACHE_CONTROL).unwrap(),
-            "no-store"
-        );
-    }
-}

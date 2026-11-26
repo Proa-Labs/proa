@@ -4,8 +4,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use proa_core::{DataLoader, RenderOutcome, WebContext, WebRenderSync, WriteError};
-use proa_macros::html_sync;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
 
 use crate::components::{Tooltip, TooltipContent, TooltipDelay, TooltipTrigger};
 use crate::loader::dossier_key;
@@ -77,7 +77,7 @@ pub struct TraceStrip {
     pub query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for TraceStrip {
+impl<L: DataLoader> proa::WebRender<L> for TraceStrip {
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(
@@ -240,7 +240,7 @@ pub struct SummaryBar {
     pub query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for SummaryBar {
+impl<L: DataLoader> proa::WebRender<L> for SummaryBar {
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(
@@ -312,7 +312,7 @@ pub struct DossierMetrics {
     pub query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for DossierMetrics {
+impl<L: DataLoader> proa::WebRender<L> for DossierMetrics {
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(
@@ -460,11 +460,11 @@ impl<L: DataLoader> WebRenderSync<L> for Tiles<'_> {
                 <div class="pt-[18px] px-[20px] pb-[20px] border-r border-line">
                     <div class="text-[9px] tracking-[0.16em] text-ink4 uppercase">
                         {match metric_tip(&tile.label) {
-                            Some(tip) => proa_macros::html_sync! {
+                            Some(tip) => proa::html_sync! {
                                 {Tooltip {
                                     delay: TooltipDelay::Short,
                                     trigger: Some(TooltipTrigger {
-                                        children: Some(proa_macros::html_sync! {
+                                        children: Some(proa::html_sync! {
                                             <span class="cursor-help underline decoration-dotted decoration-line-strong underline-offset-[3px]">
                                                 {tile.label.as_str()}
                                             </span>
@@ -478,7 +478,7 @@ impl<L: DataLoader> WebRenderSync<L> for Tiles<'_> {
                                     ..Default::default()
                                 }}
                             },
-                            None => proa_macros::html_sync! {
+                            None => proa::html_sync! {
                                 <span>{tile.label.as_str()}</span>
                             },
                         }}
@@ -524,7 +524,7 @@ pub struct NeighbourhoodGraph {
     pub query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for NeighbourhoodGraph {
+impl<L: DataLoader> proa::WebRender<L> for NeighbourhoodGraph {
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(
@@ -776,7 +776,7 @@ impl<L: DataLoader> WebRenderSync<L> for Graph<'_> {
                     stroke-width="1.2"
                     stroke-opacity="0.55"
                     stroke-dasharray="3 6"
-                    style={proa_core::style_ok(style)}
+                    style={proa::style_ok(style)}
                 />
             }
             .render(cx)?;
@@ -794,7 +794,7 @@ impl<L: DataLoader> WebRenderSync<L> for Graph<'_> {
                 "fill: var(--cyan, #3DE1E8);"
             };
             html_sync! {
-                <circle cx={node.x} cy={node.y} r="5" style={proa_core::style_ok(fill)} />
+                <circle cx={node.x} cy={node.y} r="5" style={proa::style_ok(fill)} />
             }
             .render(cx)?;
         }
@@ -903,7 +903,7 @@ pub struct RangesPane {
     pub query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for RangesPane {
+impl<L: DataLoader> proa::WebRender<L> for RangesPane {
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(
@@ -1041,7 +1041,7 @@ pub struct CarriersPane {
     pub query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for CarriersPane {
+impl<L: DataLoader> proa::WebRender<L> for CarriersPane {
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(
@@ -1180,7 +1180,7 @@ pub struct PathsPane {
     pub query: String,
 }
 
-impl<L: DataLoader> proa_core::WebRender<L> for PathsPane {
+impl<L: DataLoader> proa::WebRender<L> for PathsPane {
     // proa-perf-ok(scope): guided demo page; the per-request view model and
     // its owned strings are intentional and sized to one lookup.
     fn render(

@@ -595,6 +595,9 @@ export function bind_input<T>(
     preserve_dirty?: boolean,
 ): Disposer;
 
+/** Normalize a string-valued URL attribute for a DOM write. */
+export function safe_url_attr_value(value: unknown): string;
+
 /**
  * One-way binding between a reactive expression and an HTML attribute.
  *

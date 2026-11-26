@@ -230,7 +230,16 @@ fn compute_metadata(
 fn split_route_segments(path: &str) -> Vec<String> {
     path.split('/')
         .filter(|segment| !segment.is_empty())
-        .map(|segment| segment.to_string())
+        .map(|segment| {
+            // Accept route specifications written before the Axum 0.8 migration.
+            if let Some(name) = segment.strip_prefix(':') {
+                format!("{{{name}}}")
+            } else if segment.starts_with('*') {
+                format!("{{{segment}}}")
+            } else {
+                segment.to_owned()
+            }
+        })
         .collect()
 }
 

@@ -3,8 +3,12 @@
 
 use std::{future::Future, rc::Rc, sync::LazyLock};
 
-use htmd::{options::BulletListMarker, options::Options, HtmlToMarkdown};
-use markup5ever_rcdom::NodeData;
+use htmd::{
+    element_handler::Context, node::Node, options::BulletListMarker, options::Options,
+    HtmlToMarkdown,
+};
+use html5ever::tendril::TendrilSink;
+use markup5ever_rcdom::{Handle, Node as DomNode, NodeData, RcDom};
 
 mod list;
 mod table;
@@ -79,32 +83,20 @@ where
     T: WebRenderSync<L>,
 {
     fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        let output = cx.capture_html_for_markdown(self.0)?;
-        let html = String::from_utf8(output.into_vec())
-            .map_err(|_| WriteError::render("HTML-to-Markdown input is not valid UTF-8"))?;
-        let converter = &*CONVERTER;
-        let tree = converter
-            .html_to_tree(&html)
+        let html = cx.capture_html_for_markdown(self.0)?.into_string();
+        let dom = html5ever::parse_document(RcDom::default(), Default::default()).one(html);
+        prepare_dom(&dom.document, false);
+        let markdown = CONVERTER
+            .convert(&dom.document)
             .map_err(|error| WriteError::render(error.to_string()))?;
-        prepare_dom(&tree, false);
-        let markdown = converter.tree_to_markdown(&tree);
         cx.write_md_trusted(&markdown)
     }
 }
 
-// proa-perf-ok(scope): DOM preparation preserves literal text during opt-in conversion
-fn prepare_dom(node: &Rc<htmd::Node>, in_code: bool) {
-    let in_code = match &node.data {
-        NodeData::Element { name, .. } => in_code || matches!(name.local.as_ref(), "pre" | "code"),
-        NodeData::Text { contents } if !in_code => {
-            let mut text = contents.borrow_mut();
-            if let Some(escaped) = escape_literal_entities(&text, true) {
-                *text = escaped.into();
-            }
-            in_code
-        }
-        _ => in_code,
-    };
+fn prepare_dom(node: &Handle, in_code: bool) {
+    let in_code = in_code
+        || matches!(&node.data, NodeData::Element { name, .. }
+        if matches!(name.local.as_ref(), "pre" | "code"));
     let mut children = node.children.borrow_mut();
     children.retain(|child| match &child.data {
         NodeData::Element { name, attrs, .. } => {
@@ -121,74 +113,61 @@ fn prepare_dom(node: &Rc<htmd::Node>, in_code: bool) {
                     | "template"
                     | "svg"
             ) && !attrs.borrow().iter().any(|attr| {
-                attr.name.local.as_ref() == "hidden"
-                    || (attr.name.local.as_ref() == "aria-hidden"
+                &*attr.name.local == "hidden"
+                    || (&*attr.name.local == "aria-hidden"
                         && attr.value.eq_ignore_ascii_case("true"))
             })
         }
+        // The pure Markdown converter omits HTML comments.
+        NodeData::Comment { .. } => false,
         _ => true,
     });
     for child in children.iter() {
         prepare_dom(child, in_code);
     }
+    if in_code {
+        return;
+    }
+
+    // A preceding inline node can end in digits. htmd cannot recognize the
+    // ordered-list delimiter when the two occur in separate text nodes.
+    let starts_with_delimiter = |child: &Handle| matches!(&child.data, NodeData::Text { contents } if contents.borrow().starts_with(['.', ')']));
+    if let Some(first) = children.iter().position(starts_with_delimiter) {
+        let tail = children.split_off(first);
+        for child in tail {
+            if let NodeData::Text { contents } = &child.data {
+                let mut text = contents.borrow_mut();
+                if text.starts_with(['.', ')']) {
+                    let literal = DomNode::new(NodeData::Comment {
+                        contents: text.subtendril(0, 1),
+                    });
+                    text.pop_front(1);
+                    literal.parent.set(Some(Rc::downgrade(node)));
+                    children.push(literal);
+                }
+            }
+            children.push(child);
+        }
+    }
 }
 
-// proa-perf-ok(scope): literal entity preservation allocates only for affected DOM text/attributes
-fn escape_literal_entities(text: &str, adjacent_text: bool) -> Option<String> {
-    // html5ever already decoded entities. htmd leaves ampersands untouched,
-    // so Markdown would decode entity-shaped literal values a second time.
-    // Escape possible prefixes, preserving ordinary ampersands and code.
-    let is_entity = |index: usize| {
-        let following = &text.as_bytes()[index + 1..];
-        if adjacent_text {
-            // Adjacent inline nodes can complete a prefix from this text node.
-            return following
-                .first()
-                .is_none_or(|byte| byte.is_ascii_alphanumeric() || *byte == b'#');
-        }
-        let len = following
-            .iter()
-            .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'#')
-            .count();
-        len > 0 && following.get(len) == Some(&b';')
-    };
-    // htmd escapes block markers within one node, but inline HTML can
-    // split a marker from its following space. Entities stay literal until
-    // after Markdown block parsing, including across styled inline nodes.
-    let is_marker = |index: usize, ch: char| {
-        adjacent_text
-            && (matches!(ch, '~' | '|')
-                || (matches!(ch, '#' | '+' | '-' | '.' | ')' | '!')
-                    && text[..index]
-                        .bytes()
-                        .all(|byte| byte.is_ascii_whitespace() || byte.is_ascii_digit())))
-    };
-    if !text
-        .char_indices()
-        .any(|(index, ch)| (ch == '&' && is_entity(index)) || is_marker(index, ch))
-    {
-        return None;
-    }
+// proa-perf-ok(scope): Markdown link attributes allocate only when escaping an entity
+fn escape_attribute_entities(text: &str) -> Option<String> {
+    // The custom link handler writes attributes directly into Markdown. Preserve
+    // entity-shaped literals that the HTML parser has already decoded once.
+    let mut matches = text
+        .match_indices('&')
+        .filter(|(index, _)| crate::md::escape::looks_like_entity(&text.as_bytes()[index + 1..]))
+        .peekable();
+    matches.peek()?;
     let mut escaped = String::with_capacity(text.len());
-    for (index, ch) in text.char_indices() {
-        if ch == '&' && is_entity(index) {
-            escaped.push_str("&amp;");
-        } else if is_marker(index, ch) {
-            escaped.push_str(match ch {
-                '#' => "&#35;",
-                '+' => "&#43;",
-                '-' => "&#45;",
-                '.' => "&#46;",
-                ')' => "&#41;",
-                '!' => "&#33;",
-                '~' => "&#126;",
-                '|' => "&#124;",
-                _ => unreachable!(),
-            });
-        } else {
-            escaped.push(ch);
-        }
+    let mut start = 0;
+    for (index, _) in matches {
+        escaped.push_str(&text[start..index]);
+        escaped.push_str("&amp;");
+        start = index + 1;
     }
+    escaped.push_str(&text[start..]);
     Some(escaped)
 }
 
@@ -218,6 +197,17 @@ static CONVERTER: LazyLock<HtmlToMarkdown> = LazyLock::new(|| {
             ol_number_spacing: 1,
             ..Options::default()
         })
+        // prepare_dom removed authored comments. These nodes carry a single
+        // literal delimiter which must survive Markdown block parsing.
+        .comment_handler(
+            |_: &dyn htmd::element_handler::Handlers, node: &Node<'_>, _: Context| match node
+                .comment()?
+            {
+                "." => Some("&#46;".into()),
+                ")" => Some("&#41;".into()),
+                _ => None,
+            },
+        )
         .add_handler(vec!["pre"], preformatted)
         .add_handler(vec!["code"], inline_code)
         .add_handler(vec!["a", "img"], link_or_image)
@@ -229,20 +219,17 @@ static CONVERTER: LazyLock<HtmlToMarkdown> = LazyLock::new(|| {
 // proa-perf-ok(scope): preformatted HTML needs a buffered adaptive Markdown code fence
 fn preformatted(
     _: &dyn htmd::element_handler::Handlers,
-    element: htmd::Element<'_>,
+    element: &htmd::Element<'_>,
 ) -> Option<htmd::element_handler::HandlerResult> {
     // Collect raw DOM text instead of walking inline handlers, which trim
     // boundary newlines from highlighted spans. Core fences also sanitize
     // language labels and cannot be closed by literal source content.
     let language = element
         .node
-        .children
-        .borrow()
+        .children()
         .iter()
-        .find_map(|child| match &child.data {
-            NodeData::Element { name, .. } if name.local.as_ref() == "code" => code_language(child),
-            _ => None,
-        })
+        .filter(|child| child.tag_name() == Some("code"))
+        .find_map(|child| code_language(&child))
         .or_else(|| code_language(element.node));
     let mut content = String::new();
     append_pre_text(element.node, &mut content);
@@ -258,21 +245,21 @@ fn preformatted(
 }
 
 // proa-perf-ok(scope): preformatted DOM text is collected for the buffered code-block conversion
-fn append_pre_text(node: &htmd::Node, output: &mut String) {
-    match &node.data {
-        NodeData::Text { contents } => output.push_str(&contents.borrow()),
-        NodeData::Element { name, .. } if name.local.as_ref() == "br" => output.push('\n'),
-        _ => {}
+fn append_pre_text(node: &Node<'_>, output: &mut String) {
+    if let Some(text) = node.text() {
+        output.push_str(&text);
+    } else if node.tag_name() == Some("br") {
+        output.push('\n');
     }
-    for child in node.children.borrow().iter() {
-        append_pre_text(child, output);
+    for child in node.children().iter() {
+        append_pre_text(&child, output);
     }
 }
 
 // proa-perf-ok(scope): opt-in inline code captures literal DOM text before adaptive escaping
 fn inline_code(
     _: &dyn htmd::element_handler::Handlers,
-    element: htmd::Element<'_>,
+    element: &htmd::Element<'_>,
 ) -> Option<htmd::element_handler::HandlerResult> {
     let mut content = String::new();
     append_pre_text(element.node, &mut content);
@@ -289,15 +276,8 @@ fn inline_code(
 }
 
 // proa-perf-ok(scope): code language metadata is owned during buffered conversion
-fn code_language(node: &htmd::Node) -> Option<String> {
-    let NodeData::Element { attrs, .. } = &node.data else {
-        return None;
-    };
-    attrs
-        .borrow()
-        .iter()
-        .find(|attr| attr.name.local.as_ref() == "class")?
-        .value
+fn code_language(node: &Node<'_>) -> Option<String> {
+    node.attr("class")?
         .split_ascii_whitespace()
         .find_map(|class| class.strip_prefix("language-"))
         .map(str::to_owned)
@@ -306,20 +286,15 @@ fn code_language(node: &htmd::Node) -> Option<String> {
 // proa-perf-ok(scope): opt-in links and images use the core destination escaper
 fn link_or_image(
     handlers: &dyn htmd::element_handler::Handlers,
-    element: htmd::Element<'_>,
+    element: &htmd::Element<'_>,
 ) -> Option<htmd::element_handler::HandlerResult> {
     let image = element.tag == "img";
-    let attribute = |name: &str| {
-        element
-            .attrs
-            .iter()
-            .find(|attr| attr.name.local.as_ref() == name)
-            .map(|attr| attr.value.as_ref())
-    };
-    let Some(destination) = attribute(if image { "src" } else { "href" }) else {
+    let attribute = |name: &str| element.node.attr(name);
+    let destination = attribute(if image { "src" } else { "href" });
+    let Some(destination) = destination.as_deref() else {
         return if image {
             let mut output = Vec::new();
-            crate::md::escape::escape_md(&mut output, attribute("alt").unwrap_or(""))
+            crate::md::escape::escape_md(&mut output, attribute("alt").as_deref().unwrap_or(""))
                 .expect("growable Markdown buffer");
             Some(
                 String::from_utf8(output)
@@ -327,16 +302,18 @@ fn link_or_image(
                     .into(),
             )
         } else {
-            Some(handlers.walk_children(element.node))
+            Some(handlers.walk_children(element.node, Context::INLINE))
         };
     };
     let mut output = Vec::new();
     let content = if image {
-        crate::md::escape::escape_md(&mut output, attribute("alt").unwrap_or(""))
+        crate::md::escape::escape_md(&mut output, attribute("alt").as_deref().unwrap_or(""))
             .expect("growable Markdown buffer");
         String::from_utf8(std::mem::take(&mut output)).expect("UTF-8 Markdown escaping")
     } else {
-        handlers.walk_children(element.node).content
+        handlers
+            .walk_children(element.node, Context::INLINE)
+            .content
     };
     // Keep spaces outside the brackets so adjacent words do not concatenate.
     let label = if image {
@@ -356,25 +333,11 @@ fn link_or_image(
     output.push(b'[');
     output.extend_from_slice(label.as_bytes());
     output.extend_from_slice(b"](");
-    let escaped_destination = escape_literal_entities(destination, false);
-    let mut url = Vec::new();
-    crate::md::escape::write_link_destination(
-        &mut url,
-        escaped_destination.as_deref().unwrap_or(destination),
-    )
-    .expect("growable Markdown buffer");
-    // A leading '<' selects CommonMark's angle-delimited destination form.
-    // Encode both angle brackets so a literal HTML URL keeps its target.
-    for byte in url {
-        match byte {
-            b'<' => output.extend_from_slice(b"%3C"),
-            b'>' => output.extend_from_slice(b"%3E"),
-            _ => output.push(byte),
-        }
-    }
-    if let Some(title) = attribute("title") {
+    crate::md::escape::write_link_destination(&mut output, destination)
+        .expect("growable Markdown buffer");
+    if let Some(title) = attribute("title").as_deref() {
         output.extend_from_slice(b" \"");
-        let title = escape_literal_entities(title, false).unwrap_or_else(|| title.to_owned());
+        let title = escape_attribute_entities(title).unwrap_or_else(|| title.to_owned());
         for ch in title.chars() {
             if matches!(ch, '\r' | '\n' | '\t') {
                 output.push(b' ');

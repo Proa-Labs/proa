@@ -11,7 +11,6 @@
 extern crate self as proa_demo;
 
 pub mod ebay_srp;
-pub mod ebay_srp_chrome;
 pub mod ebay_srp_chrome_real;
 pub mod ebay_srp_filter_runtime;
 pub mod ebay_srp_islands;
@@ -21,7 +20,6 @@ pub mod ops_dashboard;
 #[cfg(feature = "server")]
 #[allow(dead_code)]
 pub mod playground;
-pub mod rsjs_query_ide_probe;
 pub mod settings_console;
 pub mod showcase_index;
 pub mod streaming_airbnb_home;
@@ -92,7 +90,7 @@ pub unsafe extern "C" fn render_airbnb_listing_json(
 
     let mut buf = Vec::new();
     let mut cx = WebContext::with_buffer(&mut buf);
-    let _ = airbnb::listing::render_into(&mut cx, &data, None);
+    let _ = airbnb::listing::render_into(&mut cx, &data);
     let html = String::from_utf8(buf).unwrap_or_default();
 
     unsafe { render_into_out(html, out_ptr, out_len) }

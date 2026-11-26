@@ -47,6 +47,8 @@ impl CountingBuf {
     }
 }
 
+#[allow(unsafe_code)]
+
 impl WriteBuf for CountingBuf {
     fn capacity(&self) -> usize {
         self.inner.capacity()
@@ -59,7 +61,8 @@ impl WriteBuf for CountingBuf {
         Ok(())
     }
     #[inline(always)]
-    fn extend(&mut self, bytes: &[u8]) -> Result<(), WriteError> {
+    fn extend_str(&mut self, text: &str) -> Result<(), WriteError> {
+        let bytes = text.as_bytes();
         self.extend_calls += 1;
         self.bytes_written += bytes.len();
         self.size_histogram[Self::bucket(bytes.len())] += 1;
@@ -67,7 +70,7 @@ impl WriteBuf for CountingBuf {
         Ok(())
     }
     #[inline(always)]
-    fn push(&mut self, byte: u8) -> Result<(), WriteError> {
+    unsafe fn push_unchecked(&mut self, byte: u8) -> Result<(), WriteError> {
         self.extend_calls += 1;
         self.bytes_written += 1;
         self.size_histogram[0] += 1;

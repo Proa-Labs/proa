@@ -33,8 +33,6 @@ EXCLUSIONS = {
         "*/components/_proa/*", "*/public/proa/proa-ui/*",
         "proa_marketing/public/vendor/*",
         # Older catalog copies not recorded in this example's install lock.
-        "examples/origin-routing-atlas/src/components/dialog/*",
-        "examples/origin-routing-atlas/src/components/theme_toggle/*",
         "proa_cli/src/site_scaffold/templates/origin/src/components/dialog/*",
         "proa_cli/src/site_scaffold/templates/origin/src/components/theme_toggle/*",
     ),

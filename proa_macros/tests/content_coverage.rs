@@ -72,5 +72,5 @@ fn each_view_includes_dynamic_restock_information_and_escapes_for_its_target() {
     .render_md(&mut markdown)
     .unwrap();
     let markdown = markdown.into_output().into_string();
-    assert_eq!(markdown, "# Next product\n\n2030\\-03\\-04\n");
+    assert_eq!(markdown, "# Next product\n\n2030\\-03\\-04\n\n");
 }

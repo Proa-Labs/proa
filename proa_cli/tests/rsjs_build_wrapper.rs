@@ -125,6 +125,8 @@ fn hidden_wrapper_emits_one_exact_object_and_atomic_unit_sidecar() {
         .env(DESCRIPTOR_TARGET_DIR_ENV, &target)
         .env(SOURCE_EXCLUSION_DIR_ENV, &target)
         .env("CARGO_MANIFEST_DIR", temp.path())
+        // This direct-rustc fixture has no build script of its own.
+        .env_remove("OUT_DIR")
         .env("PROA_WRAPPER_SECRET", "do-not-persist-this-value")
         .args([
             rustc_program(),
@@ -744,6 +746,7 @@ fn incremental_archive_carriers_retain_unused_witnesses_across_partial_edits() {
                 .env(DESCRIPTOR_TARGET_DIR_ENV, &target)
                 .env(SOURCE_EXCLUSION_DIR_ENV, &target)
                 .env("CARGO_MANIFEST_DIR", temp.path())
+                .env_remove("OUT_DIR")
                 .args([
                     rustc_program(),
                     "--crate-name=partition_fixture".into(),

@@ -18,7 +18,6 @@ use proa_core::{
     LoadRequest, LoadValue, NoLoader, Priority, RenderBuffer, RenderMode, RenderOutcome,
     SendWebContext, WebContext, WebRender, WebRenderSend, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_framework_axum::manifest::IslandManifest;
 use proa_framework_axum::{
     router_from_spec, CspNonce, LocalStreamExecutorConfig, Route, RouteContextLayer, RouteResponse,
 };
@@ -51,15 +50,6 @@ fn decoded_boundary_payloads(document: &str) -> Vec<String> {
         document = &template[payload_at + payload_end + TEMPLATE_CLOSE.len()..];
     }
     payloads
-}
-
-fn empty_manifest() -> Arc<IslandManifest> {
-    Arc::new(IslandManifest {
-        islands: Default::default(),
-        assets: Default::default(),
-        import_map: Default::default(),
-        ssr_bundle: Default::default(),
-    })
 }
 
 struct DelayedSection {
@@ -113,7 +103,7 @@ impl WebRenderSend for SendDelayedSection {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
             tokio::task::yield_now().await;
-            cx.out.extend_static(b"<section>send ready</section>")
+            cx.out.extend_static_str("<section>send ready</section>")
         })
     }
 }
@@ -143,7 +133,8 @@ impl WebRenderSend for SendNestedReady {
         cx: &mut SendWebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::<std::future::Ready<Result<(), WriteError>>>::Done(
-            cx.out.extend_static(b"<strong>nested send ready</strong>"),
+            cx.out
+                .extend_static_str("<strong>nested send ready</strong>"),
         )
     }
 }
@@ -224,7 +215,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf> WebRender<L, B> for FailingSection
         cx: &mut WebContext<L, B>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            WriteBuf::extend(&mut cx.out, b"<section class=\"partial\">partial</section>")?;
+            WriteBuf::extend_str(&mut cx.out, "<section class=\"partial\">partial</section>")?;
             Err(WriteError::render("section failed"))
         })
     }
@@ -387,9 +378,8 @@ async fn ssr_stream_flushes_shell_and_resolved_boundaries() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -444,11 +434,12 @@ async fn send_stream_bypasses_an_unavailable_local_executor() {
         get(|| async { RouteResponse::ssr_stream_send(SendStreamingPage) }),
     )];
     let (router, computed_metadata) = router_from_spec(routes);
-    let layer = RouteContextLayer::new(empty_manifest(), computed_metadata)
-        .with_local_stream_executor_config(LocalStreamExecutorConfig {
+    let layer = RouteContextLayer::new(computed_metadata).with_local_stream_executor_config(
+        LocalStreamExecutorConfig {
             worker_threads: 0,
             ..LocalStreamExecutorConfig::default()
-        });
+        },
+    );
 
     let response = router
         .layer(layer)
@@ -487,7 +478,7 @@ async fn nested_local_boundaries_are_admitted_only_after_the_parent_is_published
         }),
     )];
     let (router, metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(empty_manifest(), metadata));
+    let app = router.layer(RouteContextLayer::new(metadata));
     let response = app
         .oneshot(
             Request::builder()
@@ -532,7 +523,7 @@ async fn nested_send_boundaries_preserve_parent_before_child_wire_order() {
         }),
     )];
     let (router, metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(empty_manifest(), metadata));
+    let app = router.layer(RouteContextLayer::new(metadata));
     let response = app
         .oneshot(
             Request::builder()
@@ -588,9 +579,8 @@ async fn ssr_stream_priority_orders_boundaries_ready_in_the_same_turn() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
     let response = app
         .oneshot(
             Request::builder()
@@ -634,9 +624,8 @@ async fn ssr_stream_timeout_cancels_a_never_resolving_boundary() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
     let response = app
         .oneshot(
             Request::builder()
@@ -694,7 +683,7 @@ async fn local_boundary_timeout_progresses_while_client_output_is_backpressured(
     )];
     let (router, metadata) = router_from_spec(routes);
     let app = router.layer(
-        RouteContextLayer::new(empty_manifest(), metadata).with_local_stream_executor_config(
+        RouteContextLayer::new(metadata).with_local_stream_executor_config(
             LocalStreamExecutorConfig {
                 worker_threads: 1,
                 max_in_flight: 4,
@@ -751,9 +740,8 @@ async fn in_order_stream_documents_priority_and_timeout_as_source_order_no_ops()
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
     let response = app
         .oneshot(
             Request::builder()
@@ -787,9 +775,8 @@ async fn ssr_stream_without_pending_boundaries_skips_runtime_script() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -831,10 +818,9 @@ async fn strict_csp_nonce_covers_stream_runtime_and_boundary_swaps() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
     let app = router
-        .layer(RouteContextLayer::new(manifest, computed_metadata))
+        .layer(RouteContextLayer::new(computed_metadata))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(POLICY),
@@ -890,9 +876,8 @@ async fn ssr_stream_marks_response_context_committed_before_render() {
         ),
     ];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     for path in [
         "/stream-response-context",
@@ -945,9 +930,8 @@ async fn ssr_stream_in_order_emits_pure_html_chunks() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -1002,16 +986,15 @@ async fn ssr_stream_out_of_order_error_boundary_replaces_failed_boundary() {
                             FailingSection,
                             html_sync! { <p class="fallback">"loading failed section"</p> },
                         ),
-                        static_html(b"<section class=\"error\">error fallback</section>"),
+                        static_html("<section class=\"error\">error fallback</section>"),
                     )}
                 </main>
             })
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -1048,7 +1031,7 @@ async fn ssr_stream_in_order_error_boundary_emits_fallback_and_continues() {
                             FailingSection,
                             html_sync! { <p class="fallback">"loading failed section"</p> },
                         ),
-                        static_html(b"<section class=\"error\">error fallback</section>"),
+                        static_html("<section class=\"error\">error fallback</section>"),
                     )}
                     <p>"after"</p>
                 </main>
@@ -1057,9 +1040,8 @@ async fn ssr_stream_in_order_error_boundary_emits_fallback_and_continues() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -1098,9 +1080,8 @@ async fn ssr_stream_out_of_order_without_error_boundary_blanks_failed_boundary()
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -1140,9 +1121,8 @@ async fn ssr_stream_in_order_without_error_boundary_returns_clean_500() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -1209,9 +1189,8 @@ async fn ssr_stream_in_order_preloads_known_loader_keys() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -1280,9 +1259,8 @@ async fn ssr_stream_out_of_order_dedupes_duplicate_loader_keys() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(
@@ -1349,9 +1327,8 @@ async fn ssr_stream_in_order_preload_and_render_share_one_loader_call() {
         }),
     )];
 
-    let manifest = empty_manifest();
     let (router, computed_metadata) = router_from_spec(routes);
-    let app = router.layer(RouteContextLayer::new(manifest, computed_metadata));
+    let app = router.layer(RouteContextLayer::new(computed_metadata));
 
     let response = app
         .oneshot(

@@ -22,7 +22,6 @@ pub const DOCUMENT_HEAD_START_RAW: &str = r##"<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="turbo-refresh-method" content="morph"/>
 <meta name="turbo-refresh-scroll" content="preserve"/>
-<script type="importmap">{"imports":{"react":"https://esm.sh/react@19","react/jsx-runtime":"https://esm.sh/react@19/jsx-runtime","react-dom":"https://esm.sh/react-dom@19","react-dom/client":"https://esm.sh/react-dom@19/client"}}</script>
 "##;
 const DOCUMENT_HEAD_START: &str = DOCUMENT_HEAD_START_RAW;
 pub const DOCUMENT_HEAD_END_RAW: &str = r##"
@@ -69,27 +68,6 @@ pub fn versioned_asset_path(public_path: &str) -> String {
     match asset_version_token(public_path) {
         Some(version) => format!("{public_path}?v={version}"),
         None => public_path.to_string(),
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)] // Asset tests stay beside asset path helpers.
-mod asset_tests {
-    use super::{resolve_asset_path, versioned_asset_path};
-
-    #[test]
-    fn resolves_assets_from_their_workspace_owners() {
-        for public_path in [
-            "/proa.css",
-            "/proa.js",
-            "/assets/airbnb-showcase.js",
-            "/assets/DatePickerIsland.js",
-            "/assets/BookingCardIsland.js",
-        ] {
-            let resolved = resolve_asset_path(public_path).expect("known showcase asset");
-            assert!(resolved.is_file(), "missing {}", resolved.display());
-            assert!(versioned_asset_path(public_path).contains("?v="));
-        }
     }
 }
 

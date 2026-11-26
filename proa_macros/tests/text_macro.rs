@@ -163,7 +163,7 @@ fn text_macro_bare_placeholder_uses_attr_value_rendering() {
             &self,
             cx: &mut WebContext<L, B>,
         ) -> Result<(), WriteError> {
-            cx.out.extend_static(b"attr-only")
+            cx.out.extend_static_str("attr-only")
         }
     }
 

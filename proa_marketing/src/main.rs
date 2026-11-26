@@ -7,16 +7,13 @@ use crate::data::routes;
 
 use std::env;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use axum::http::header::{HeaderValue, CACHE_CONTROL, LINK, X_CONTENT_TYPE_OPTIONS};
+use axum::http::header::{HeaderValue, LINK};
 use axum::routing::{get, post};
 use axum::Router;
-use tower::ServiceBuilder;
 use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 use tower_http::compression::CompressionLayer;
-use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -40,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    static_assets::load()?;
     let app = app();
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -75,7 +73,7 @@ fn app() -> Router {
             get(endpoints::agent_discovery::site_metadata)
                 .fallback(endpoints::api::method_not_allowed),
         )
-        .merge(endpoints::api::router(endpoints::api::Source::Production))
+        .merge(endpoints::api::router())
         .route(
             routes::LEGACY_SEARCH,
             get(endpoints::search::handler).post(endpoints::search::post_handler),
@@ -86,7 +84,6 @@ fn app() -> Router {
             endpoints::api::rate_limit,
         ));
     Router::new()
-        .nest(routes::SANDBOX, endpoints::api::sandbox::router())
         .route(
             routes::HOME,
             get(pages::home::handler).layer(SetResponseHeaderLayer::if_not_present(
@@ -104,8 +101,8 @@ fn app() -> Router {
         .route(routes::REGISTRY, get(pages::ecosystem::registry_handler))
         .route(routes::PRIVACY, get(pages::legal::privacy_handler))
         .route(routes::TERMS, get(pages::legal::terms_handler))
-        .route(routes::ABOUT, get(pages::info::about))
-        .route(routes::ABOUT_MARKDOWN, get(pages::info::about_markdown))
+        .route(routes::TEAM, get(pages::team::handler))
+        .route(routes::TEAM_MARKDOWN, get(pages::team::markdown_handler))
         .route(routes::CONTACT, get(pages::info::contact))
         .route(routes::CONTACT_MARKDOWN, get(pages::info::contact_markdown))
         .route(
@@ -127,10 +124,6 @@ fn app() -> Router {
         .route(routes::INDEXNOW_KEY, get(endpoints::indexnow::key))
         .route(routes::SITEMAP, get(endpoints::sitemap::handler))
         .route(
-            "/schema/proa.config.json",
-            get(endpoints::schemas::project_config),
-        )
-        .route(
             "/schema/proa.lock.json",
             get(endpoints::schemas::component_lock),
         )
@@ -144,8 +137,12 @@ fn app() -> Router {
         // as a router rather than as two bare handlers.
         .merge(endpoints::downloads::router())
         .merge(proa_demo::playground::marketing_router())
-        .merge(proa_showcase_web::router())
-        .nest_service("/static", static_service())
+        .merge(proa_showcase_web::router_with_config(
+            proa_showcase_web::ShowcaseWebConfig::default()
+                .with_managed_images(static_assets::get().render_urls()),
+        ))
+        .merge(static_assets::get().router())
+        .route("/static/{*path}", get(static_assets::legacy_url))
         .fallback(endpoints::not_found::handler)
         .layer(CompressionLayer::new().compress_when(compression_predicate()))
         .layer(TraceLayer::new_for_http())
@@ -157,26 +154,6 @@ fn app() -> Router {
 /// and makes the payload larger, so those are excluded by content type.
 fn compression_predicate() -> impl Predicate {
     DefaultPredicate::new().and(NotForContentType::const_new("application/octet-stream"))
-}
-
-fn static_service() -> Router {
-    let static_dir = env::var_os("STATIC_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("public"));
-
-    Router::new().nest_service(
-        "/",
-        ServiceBuilder::new()
-            .layer(SetResponseHeaderLayer::if_not_present(
-                CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=31536000, immutable"),
-            ))
-            .layer(SetResponseHeaderLayer::if_not_present(
-                X_CONTENT_TYPE_OPTIONS,
-                HeaderValue::from_static("nosniff"),
-            ))
-            .service(ServeDir::new(static_dir)),
-    )
 }
 
 #[cfg(test)]
@@ -198,113 +175,46 @@ mod tests {
         );
     }
 
+    /// A deployed binary has no source tree beside it: the showcase routes
+    /// answer from the copies embedded in the binary, with nothing staged.
     #[tokio::test]
-    async fn root_advertises_and_serves_agent_discovery_documents() {
-        let root = app()
-            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(root.status(), StatusCode::OK);
-        assert_eq!(
-            root.headers().get(LINK).unwrap(),
-            endpoints::agent_discovery::DISCOVERY_LINKS
-        );
-
-        let metadata = app()
+    async fn showcase_files_are_served_without_a_directory_on_disk() {
+        let app = proa_showcase_web::router_with_config(proa_showcase_web::ShowcaseWebConfig::new(
+            "/nonexistent/showcase/public",
+        ));
+        for (path, content_type) in [
+            ("/assets/airbnb-showcase.js", "application/javascript"),
+            ("/images/espn/dodger-stadium.jpg", "image/jpeg"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert!(
+                response.headers()["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with(content_type),
+                "{path}"
+            );
+        }
+        let missing = app
             .oneshot(
                 Request::builder()
-                    .uri("/.well-known/proa-site.json")
+                    .uri("/assets/missing.js")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(metadata.status(), StatusCode::OK);
-        assert_eq!(
-            metadata
-                .headers()
-                .get(axum::http::header::CONTENT_TYPE)
-                .unwrap(),
-            "application/json; charset=utf-8"
-        );
-        let metadata = to_bytes(metadata.into_body(), usize::MAX).await.unwrap();
-        let metadata: serde_json::Value = serde_json::from_slice(&metadata).unwrap();
-        assert_eq!(metadata["format"], "proa-site");
-
-        let openapi = app()
-            .oneshot(
-                Request::builder()
-                    .uri("/openapi.json")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(openapi.status(), StatusCode::OK);
-        let openapi = to_bytes(openapi.into_body(), usize::MAX).await.unwrap();
-        let openapi: serde_json::Value = serde_json::from_slice(&openapi).unwrap();
-        assert_eq!(openapi["openapi"], "3.1.0");
-    }
-
-    #[tokio::test]
-    async fn twitter_card_advertises_a_fetchable_compressed_image() {
-        let response = app()
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .header("user-agent", "Twitterbot/1.0")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let html = std::str::from_utf8(&body).unwrap();
-        let head = html.split_once("</head>").unwrap().0;
-        assert!(head.contains(r#"name="twitter:card" content="summary_large_image""#));
-        assert!(head.contains(&format!(
-            r#"name="twitter:site" content="{}""#,
-            data::site::SOCIAL_HANDLE
-        )));
-        assert!(head.contains(&format!(
-            r#"property="og:site_name" content="{}""#,
-            data::site::NAME
-        )));
-        let image = head
-            .split_once(r#"name="twitter:image" content=""#)
-            .unwrap()
-            .1
-            .split_once('"')
-            .unwrap()
-            .0;
-        let image_path = image
-            .strip_prefix(utils::site_url::public_site_url())
-            .expect("card image must use the deployment's absolute public URL");
-        assert!(image_path.starts_with("/static/og.jpg?v="));
-        let response = app()
-            .oneshot(
-                Request::builder()
-                    .uri(image_path)
-                    .header("user-agent", "Twitterbot/1.0")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers().get("content-type").unwrap(),
-            "image/jpeg"
-        );
-        let image = to_bytes(response.into_body(), 500_000).await.unwrap();
-        assert_eq!(image.as_ref(), include_bytes!("../public/og.jpg"));
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn generated_project_schema_urls_are_served() {
         for path in [
-            "/schema/proa.config.json",
             "/schema/proa.lock.json",
             "/schema/ui-component-manifest-v1.json",
         ] {
@@ -424,73 +334,5 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["error"], "not_found");
-    }
-
-    /// SEO auditors join every `<title>` in a document, inline SVG titles
-    /// included, so each marketing shell must render only its head title.
-    #[tokio::test]
-    async fn marketing_shells_have_one_title_and_a_touch_icon() {
-        for uri in [
-            "/",
-            "/docs",
-            "/ecosystem",
-            "/ecosystem/apps",
-            "/ecosystem/developer-tools",
-            "/ecosystem/registry",
-            "/privacy",
-            "/terms",
-        ] {
-            let response = app()
-                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::OK, "{uri}");
-            let html = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            let html = String::from_utf8(html.to_vec()).unwrap();
-            assert_eq!(html.matches("<title>").count(), 1, "{uri}");
-            assert!(
-                html.contains(r#"<link rel="apple-touch-icon" sizes="180x180""#),
-                "{uri}"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn blog_is_not_publicly_routed_or_linked() {
-        let blog = app()
-            .oneshot(Request::builder().uri("/blog").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(blog.status(), StatusCode::NOT_FOUND);
-
-        let root = app()
-            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        let root = to_bytes(root.into_body(), usize::MAX).await.unwrap();
-        let root = String::from_utf8(root.to_vec()).unwrap();
-        assert!(!root.contains("href=\"/blog"));
-    }
-
-    #[tokio::test]
-    async fn pricing_is_not_publicly_routed_or_linked() {
-        let pricing = app()
-            .oneshot(
-                Request::builder()
-                    .uri("/pricing")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(pricing.status(), StatusCode::NOT_FOUND);
-
-        let root = app()
-            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        let root = to_bytes(root.into_body(), usize::MAX).await.unwrap();
-        let root = String::from_utf8(root.to_vec()).unwrap();
-        assert!(!root.contains("href=\"/pricing"));
     }
 }

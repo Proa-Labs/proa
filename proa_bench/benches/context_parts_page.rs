@@ -17,15 +17,16 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, Uri};
-use criterion::{black_box, criterion_group, Criterion, Throughput};
+use criterion::{criterion_group, Criterion, Throughput};
 use proa_bench::{CARDS_PER_SECTION, ITEMS_PER_CARD, NUM_SECTIONS};
 use proa_core::{
     render_in_context_async, DataLoader, RenderBuffer, RenderMode, RenderOutcome, RequestContext,
     RequestLocation, ResponseContext, RouteParam, RouteParams, SafeText, StreamBoundaryRecorder,
     SyncToAsync, WebContext, WebRenderSync, WriteBuf, WriteError,
 };
-use proa_macros::html_sync;
+use proa_macros::{html, html_sync};
 use proa_stream::{drain_pending_boundaries_with_artifacts, StreamContext, Suspense};
+use std::hint::black_box;
 
 struct ThreadCountingAllocator;
 
@@ -288,29 +289,38 @@ where
         self,
         cx: &mut WebContext<L, RenderBuffer>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        RenderOutcome::pending(async move {
-            let shell_open = if cx.request().method() == Some(&Method::GET) {
-                b"<html lang=\"en\" data-request-method=\"get\"><head><title>SSR Benchmark Page</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body><header class=\"hero-section\"><h1 class=\"title\">SSR Framework Benchmark</h1><p class=\"subtitle\">Request-aware compiled rendering</p></header><main class=\"main-content\">".as_slice()
-            } else {
-                b"<html lang=\"en\" data-request-method=\"other\"><head><title>SSR Benchmark Page</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"></head><body><header class=\"hero-section\"><h1 class=\"title\">SSR Framework Benchmark</h1><p class=\"subtitle\">Request-aware compiled rendering</p></header><main class=\"main-content\">".as_slice()
-            };
-            cx.out.extend_static(shell_open)?;
+        let method = if cx.request().method() == Some(&Method::GET) {
+            "get"
+        } else {
+            "other"
+        };
 
-            for section_idx in 0..NUM_SECTIONS {
-                proa_core::render_child(
-                    &mut *cx,
-                    Suspense::new(
-                        SyncToAsync(RequestAwareSection { idx: section_idx }),
-                        RequestAwareSectionFallback,
-                    ),
-                )
-                .await?;
-            }
-
-            cx.out.extend_static(
-                b"</main><footer class=\"footer\"><p>Rendered by the SSR benchmark fixture</p></footer></body></html>",
-            )
-        })
+        html! {
+            <html lang="en" data-request-method={method}>
+                <head>
+                    <title>"SSR Benchmark Page"</title>
+                    <meta name="viewport" content="width=device-width, initial-scale=1" />
+                </head>
+                <body>
+                    <header class="hero-section">
+                        <h1 class="title">"SSR Framework Benchmark"</h1>
+                        <p class="subtitle">"Request-aware compiled rendering"</p>
+                    </header>
+                    <main class="main-content">
+                        {for section_idx in 0..NUM_SECTIONS {
+                            Suspense::new(
+                                SyncToAsync(RequestAwareSection { idx: section_idx }),
+                                RequestAwareSectionFallback,
+                            )
+                        }}
+                    </main>
+                    <footer class="footer">
+                        <p>"Rendered by the SSR benchmark fixture"</p>
+                    </footer>
+                </body>
+            </html>
+        }
+        .render(cx)
     }
 }
 

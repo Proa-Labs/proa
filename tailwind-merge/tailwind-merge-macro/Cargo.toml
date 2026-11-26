@@ -3,7 +3,7 @@
 
 [package]
 name = "proa_tailwind_merge_macro"
-version = "0.1.2"
+version = "0.1.3"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -21,3 +21,6 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true, features = ["full"] }
 tailwind-merge = { workspace = true }
+
+[lints]
+workspace = true

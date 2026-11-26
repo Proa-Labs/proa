@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::Badge;
-use proa_core::WebContext;
-use proa_core::{MdCodeContent, MdRenderSync, WriteBuf, WriteError};
+use proa::WebContext;
+use proa::{MdCodeContent, MdRenderSync, WriteBuf, WriteError};
 
-impl<Loader: ::proa_core::DataLoader, B: WriteBuf, C: MdCodeContent> MdRenderSync<Loader, B>
+impl<Loader: ::proa::DataLoader, B: WriteBuf, C: MdCodeContent> MdRenderSync<Loader, B>
     for Badge<C>
 {
     fn render_md(self, cx: &mut WebContext<Loader, B>) -> Result<(), WriteError> {

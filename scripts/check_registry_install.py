@@ -2,7 +2,7 @@
 # Copyright Proa Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Install the released CLI and exercise generated sites using only crates.io."""
+"""Exercise generated sites against crates.io with a released or candidate CLI."""
 
 from __future__ import annotations
 
@@ -10,18 +10,82 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
+
+
+def registry_environment(work: Path) -> dict[str, str]:
+    # A fresh Cargo home has no checkout config, source overrides, or credentials.
+    environment = {
+        key: value for key, value in os.environ.items()
+        if not key.startswith(("CARGO_", "PROA_", "RSJS_", "SCCACHE_"))
+        and key not in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER")
+    }
+    # Generated sites live outside the checkout, where rustup cannot see its pin.
+    if not environment.get("RUSTUP_TOOLCHAIN"):
+        pin = Path(__file__).resolve().parents[1] / "rust-toolchain.toml"
+        with pin.open("rb") as manifest:
+            environment["RUSTUP_TOOLCHAIN"] = tomllib.load(manifest)["toolchain"]["channel"]
+    environment.update(CARGO_HOME=tempfile.mkdtemp(prefix="cargo-home-", dir=work),
+                       CARGO_TARGET_DIR=str(work / "target"), CARGO_PROFILE_DEV_DEBUG="0",
+                       CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
+    return environment
 
 
 def run(arguments: list[str], cwd: Path, environment: dict[str, str]) -> None:
     print("$ " + " ".join(arguments), flush=True)
     subprocess.run(arguments, cwd=cwd, env=environment, check=True)
+
+
+def registry_metadata(project: Path, environment: dict[str, str]) -> dict:
+    command = ["cargo", "metadata", "--format-version", "1"]
+    for attempt in range(3):
+        print(f"$ cargo metadata --format-version 1 (attempt {attempt + 1}/3)", flush=True)
+        result = subprocess.run(command, cwd=project, env=environment,
+                                capture_output=True, text=True)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="", flush=True)
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+        pending_version = re.search(
+            r"(?:failed to select a version for the requirement|no matching package named) "
+            r"`(?:proa(?:[_-]|\b)|rsjs)[^`]*`",
+            result.stderr,
+        )
+        if attempt == 2 or not pending_version:
+            result.check_returncode()
+        delay = 5 * (attempt + 1)
+        print(f"Registry version may still be indexing; retrying resolution in {delay}s", flush=True)
+        time.sleep(delay)
+
+
+def generate_additions(proa: Path, project: Path, environment: dict[str, str], template: str) -> None:
+    # Compile generated modules in the same facade-only application as the starter.
+    # Exercise both render traits, Markdown, children, recipes, and layout shapes.
+    commands = [
+        ["component", "generated-notice", "--markdown"],
+        ["component", "generated-async-notice", "--async", "--markdown"],
+        ["component", "generated-panel", "--children", "--recipe", "--markdown"],
+        ["component", "generated-async-panel", "--async", "--children", "--markdown"],
+        ["layout", "generated-section", "--section"],
+        ["layout", "generated-document", "--document", "--replace-root"],
+    ]
+    # ORIGIN uses its own Atlas page composition rather than src/pages routes.
+    if template != "origin":
+        commands.append(["page", "/generated"])
+        if template != "minimal":
+            commands.append(["page", "/generated-html", "--no-markdown"])
+            commands.append(["page", "/guides/{slug}", "--markdown"])
+    for command in commands:
+        run([str(proa), "generate", *command, "--root", str(project)], project, environment)
 
 
 def smoke_http(binary: Path, project: Path, environment: dict[str, str], template: str) -> None:
@@ -46,11 +110,22 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-            paths = ["/", "/healthz", "/readyz"]
+            # The stylesheet's name carries a hash of its bytes, so the page is
+            # the only place its URL can be read from.
+            with urllib.request.urlopen(base + "/", timeout=60) as response:
+                stylesheet = re.search(
+                    rb'href="(/_proa/immutable/styles\.[0-9a-f]{16}\.css)"', response.read()
+                )
+                assert stylesheet, "the page links no hashed stylesheet"
+            paths = ["/", "/healthz", "/readyz", stylesheet.group(1).decode()]
+            if template != "origin":
+                paths += ["/generated"]
+                if template != "minimal":
+                    paths += ["/generated.md", "/generated-html", "/guides/a%2Fb", "/guides/a%2Fb.md"]
             if template != "minimal":
                 paths += ["/index.md"]
             if template == "origin":
-                paths += ["/rsjs-runtime.js", "/rsjs-runtime-query.js", "/static/origin.js"]
+                paths += ["/static/origin.js"]
             for path in paths:
                 with urllib.request.urlopen(base + path, timeout=60) as response:
                     body = response.read()
@@ -58,6 +133,8 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
                     if path == "/":
                         assert "text/html" in response.headers.get("Content-Type", "")
                         assert b"<html" in body and b"</html>" in body
+                    if path == "/guides/a%2Fb":
+                        assert "</guides/a%2Fb.md>" in response.headers.get("Link", "")
                     if path.endswith(".js"):
                         assert "javascript" in response.headers.get("Content-Type", "")
                     if path.endswith(".md"):
@@ -75,45 +152,43 @@ def smoke_http(binary: Path, project: Path, environment: dict[str, str], templat
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", help="specific released proa-cli version (default: latest stable)")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--version", help="specific released proa-cli version (default: latest stable)")
+    source.add_argument("--cli", type=Path, help="verify a candidate CLI instead of installing one")
+    parser.add_argument("--template", action="append", choices=("minimal", "app", "marketing", "docs", "origin"),
+                        help="template to verify (repeatable; default: all)")
     parser.add_argument("--work-dir", type=Path, help="keep generated projects and logs here")
     arguments = parser.parse_args()
     work = arguments.work_dir or Path(tempfile.mkdtemp(prefix="proa-registry-install-"))
     work = work.resolve()
     work.mkdir(parents=True, exist_ok=True)
     print(f"Registry acceptance artifacts: {work}", flush=True)
-    cargo_home = work / "cargo-home"
-    cargo_home.mkdir(exist_ok=True)
-    # A fresh Cargo home has no checkout config, source overrides, or credentials.
-    environment = {
-        key: value for key, value in os.environ.items()
-        if not key.startswith(("CARGO_", "PROA_", "RSJS_", "SCCACHE_"))
-        and key not in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER")
-    }
-    environment.update(CARGO_HOME=str(cargo_home), CARGO_PROFILE_DEV_DEBUG="0",
-                       CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
-    destination = work / "installed"
-    install = ["cargo", "install", "proa-cli", "--locked",
-               "--root", str(destination), "--target-dir", str(work / "target")]
-    if arguments.version:
-        install += ["--version", "=" + arguments.version]
-    run(install, work, environment)
-    suffix = ".exe" if os.name == "nt" else ""
-    environment["PATH"] = str(destination / "bin") + os.pathsep + environment.get("PATH", "")
+    environment = registry_environment(work)
+    print(f"Registry acceptance Rust toolchain: {environment['RUSTUP_TOOLCHAIN']}", flush=True)
+    if arguments.cli:
+        proa = arguments.cli.resolve()
+    else:
+        destination = work / "installed"
+        install = ["cargo", "install", "proa-cli", "--locked",
+                   "--root", str(destination), "--target-dir", str(work / "target")]
+        if arguments.version:
+            install += ["--version", "=" + arguments.version]
+        run(install, work, environment)
+        proa = destination / "bin" / ("proa.exe" if os.name == "nt" else "proa")
+    environment["PATH"] = str(proa.parent) + os.pathsep + environment.get("PATH", "")
     for name in ("proa", "cargo-proa"):
-        run([str(destination / "bin" / (name + suffix)), "--help"], work, environment)
+        run([str(proa.with_name(name + (".exe" if os.name == "nt" else ""))), "--help"], work, environment)
     run(["cargo", "proa", "--help"], work, environment)
-    proa = destination / "bin" / ("proa" + suffix)
-    for template in ("minimal", "app", "marketing", "docs", "origin"):
+    templates = arguments.template or ("minimal", "app", "marketing", "docs", "origin")
+    for template in templates:
         project = work / f"registry-smoke-{template}"
         run([str(proa), "new", "site", str(project), "--template", template,
              "--yes", "--no-git", "--offline"], work, environment)
-        metadata = json.loads(subprocess.check_output(
-            ["cargo", "metadata", "--format-version", "1"], cwd=project,
-            env=environment, text=True))
+        generate_additions(proa, project, environment, template)
+        metadata = registry_metadata(project, environment)
         proa_packages = [package for package in metadata["packages"]
                          if package["name"].startswith(("proa_", "rsjs"))
-                         or package["name"] == "itoa_lut"]
+                         or package["name"] in ("proa", "itoa_lut")]
         assert proa_packages, "scaffold must resolve Proa libraries"
         for package in proa_packages:
             assert package["source"] == "registry+https://github.com/rust-lang/crates.io-index", package
@@ -121,11 +196,12 @@ def main() -> None:
         application = next(package for package in metadata["packages"]
                            if Path(package["manifest_path"]).resolve() == (project / "Cargo.toml").resolve())
         tests = [target["name"] for target in application["targets"] if "test" in target["kind"]]
-        assert tests, "generated site must contain integration tests"
+        if any("lib" in target["kind"] for target in application["targets"]):
+            run(["cargo", "test", "--locked", "--lib"], project, environment)
         for target in tests:
             run([str(proa), "test", "--root", str(project), "--locked", "--test", target],
                 project, environment)
-        artifact = project / ("app" + suffix)
+        artifact = work / (template + (".exe" if os.name == "nt" else ""))
         run([str(proa), "build", "--root", str(project), "--locked", "--profile", "dev",
              "--artifact-out", str(artifact)], project, environment)
         smoke_http(artifact, project, environment, template)

@@ -3,7 +3,7 @@
 
 # Build these native amd64 tools once with tools.yaml, then pin their published
 # digests in cloudbuild.yaml and the profiling configuration.
-FROM rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082 AS compile
+FROM rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS compile
 COPY deploy/marketing/install-tools.sh /tmp/install-tools.sh
 # rust-toolchain.toml requests both components even for a plain cargo build.
 RUN rustup component add clippy rustfmt && bash /tmp/install-tools.sh \

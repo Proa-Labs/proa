@@ -21,7 +21,9 @@
 //! - The impl contains exactly one method named `render`.
 //! - The render method body contains one `html!` / `html_sync!` invocation as
 //!   its tail expression (modulo a `.render(cx)` chain for sync, or
-//!   `.render(cx).resolve().await` for async). The parser retains arbitrary
+//!   `.render(cx).resolve().await` for async; the qualified
+//!   `WebRenderSync::render(template, cx)` / `WebRender::render(template, cx)`
+//!   spellings are equivalent). The parser retains arbitrary
 //!   preceding server statements instead of rejecting them before client
 //!   reachability is known. Site-local emission preserves them for both
 //!   server-only and hydrated results, while rejecting a statement only when
@@ -362,8 +364,8 @@ pub(crate) fn parse_island_item(
     //    generated associated witness, which lets ordinary imports, aliases,
     //    and re-exports resolve through rustc instead of token-name matching.
     let trait_ref = match &item.trait_ {
-        Some((bang, path, _)) => {
-            if let Some(b) = bang {
+        Some((path, _)) => {
+            if let Some(b) = &item.modifiers.polarity {
                 return Err(syn::Error::new(
                     b.span(),
                     "`#[rsjs]` does not support negative trait impls (`impl !Trait for ...`)",
@@ -820,17 +822,30 @@ pub(crate) fn is_interval_call_expr(call: &syn::ExprCall) -> bool {
 ///
 /// Accepted shapes:
 /// - `html_sync! { ... }.render(cx)` (sync)
+/// - `WebRenderSync::render(html_sync! { ... }, cx)` (qualified sync)
 /// - `html! { ... }.render(cx).resolve().await` (async)
+/// - `WebRender::render(html! { ... }, cx).resolve().await` (qualified async)
+///
+/// A qualified call is needed wherever both render traits are in scope, since
+/// `.render(cx)` is then ambiguous. Its trait segment may carry a crate path,
+/// generic arguments, or a qualified-self form (`<_ as WebRenderSync<L>>`).
+/// The trait must agree with the template macro; the caller separately checks
+/// the macro against the component's render kind.
 ///
 /// Returns a reference to the inner [`Macro`] node so the caller can
 /// re-parse its body.
 fn locate_html_macro(expr: &Expr) -> syn::Result<&Macro> {
-    // Drill in: `.await` -> `.resolve()` -> `.render(cx)` -> macro.
+    // Drill in: `.await` -> `.resolve()` -> `.render(cx)` / `WebRender*::render(..., cx)` -> macro.
     let mut cur = expr;
+    let mut qualified_trait = None;
     loop {
         match cur {
             Expr::Await(a) => cur = &a.base,
             Expr::MethodCall(mc) => cur = &mc.receiver,
+            Expr::Call(call) if qualified_render_trait(call).is_some() => {
+                qualified_trait = qualified_render_trait(call);
+                cur = &call.args[0];
+            }
             Expr::Return(ret) => {
                 cur = ret.expr.as_deref().ok_or_else(|| {
                     syn::Error::new(
@@ -846,7 +861,12 @@ fn locate_html_macro(expr: &Expr) -> syn::Result<&Macro> {
                 let path = &m.mac.path;
                 let last = path.segments.last().map(|s| s.ident.to_string());
                 match last.as_deref() {
-                    Some("html_sync") | Some("html") => return Ok(&m.mac),
+                    Some(name @ ("html_sync" | "html")) => {
+                        if let Some(trait_ident) = qualified_trait {
+                            validate_qualified_trait_for_macro(trait_ident, name)?;
+                        }
+                        return Ok(&m.mac);
+                    }
                     _ => {
                         return Err(syn::Error::new(
                             path.span(),
@@ -861,13 +881,70 @@ fn locate_html_macro(expr: &Expr) -> syn::Result<&Macro> {
                 return Err(syn::Error::new(
                     other.span(),
                     "`#[rsjs]` expects the render body's tail to be \
-                     `html_sync!{...}.render(cx)` or \
-                     `html!{...}.render(cx).resolve().await`; \
+                     `html_sync!{...}.render(cx)`, \
+                     `WebRenderSync::render(html_sync!{...}, cx)`, \
+                     `html!{...}.render(cx).resolve().await`, or \
+                     `WebRender::render(html!{...}, cx).resolve().await`; \
                      the tail walker hit an unsupported expression shape",
                 ));
             }
         }
     }
+}
+
+/// The render-trait segment of a qualified `Trait::render(template, cx)` call.
+///
+/// Matching is syntactic: the function path must end in
+/// `WebRenderSync::render` or `WebRender::render`. Leading crate segments
+/// (`proa::`, `::proa_core::`), generic arguments on the trait segment, and a
+/// qualified-self prefix are all accepted. A renamed import is not: the proc
+/// macro cannot resolve aliases, so that tail is rejected as unsupported.
+fn qualified_render_trait(call: &syn::ExprCall) -> Option<&syn::Ident> {
+    if call.args.len() != 2 {
+        return None;
+    }
+    let Expr::Path(path) = call.func.as_ref() else {
+        return None;
+    };
+    let mut segments = path.path.segments.iter().rev();
+    if segments.next()?.ident != "render" {
+        return None;
+    }
+    let trait_ident = &segments.next()?.ident;
+    (trait_ident == "WebRenderSync" || trait_ident == "WebRender").then_some(trait_ident)
+}
+
+/// A qualified call names the trait explicitly, so a trait that cannot render
+/// the template is a mistake rustc would otherwise report as an opaque
+/// unsatisfied bound on the macro's anonymous value type.
+fn validate_qualified_trait_for_macro(
+    trait_ident: &syn::Ident,
+    macro_name: &str,
+) -> syn::Result<()> {
+    let (expected_trait, value, fix) = match macro_name {
+        "html_sync" => (
+            "WebRenderSync",
+            "a synchronous `WebRenderSync` value",
+            "call `WebRenderSync::render(html_sync! { ... }, cx)`, or use `html! { ... }` \
+             when this component implements `WebRender`",
+        ),
+        _ => (
+            "WebRender",
+            "an async-capable `WebRender` value",
+            "call `WebRender::render(html! { ... }, cx).resolve().await`, or use \
+             `html_sync! { ... }` when this component implements `WebRenderSync`",
+        ),
+    };
+    if trait_ident == expected_trait {
+        return Ok(());
+    }
+    Err(syn::Error::new(
+        trait_ident.span(),
+        format!(
+            "`{trait_ident}::render` cannot render an `{macro_name}!` template, which is \
+             {value}; {fix}"
+        ),
+    ))
 }
 
 fn validate_html_macro_for_render_kind(
@@ -1102,6 +1179,124 @@ mod tests {
         validate_html_macro_for_render_kind(html, RenderKind::Async).unwrap();
     }
 
+    fn tail_macro(tail: &str) -> syn::Result<String> {
+        let block = parse_block(&format!("{{ {tail} }}"));
+        let (_, _, _, tail) = split_body(&block)?;
+        let mac = locate_html_macro(tail)?;
+        Ok(mac.path.segments.last().unwrap().ident.to_string())
+    }
+
+    #[test]
+    fn qualified_render_calls_locate_the_template_for_every_trait_spelling() {
+        for (tail, kind) in [
+            (
+                "WebRenderSync::render(html_sync! { <i></i> }, cx)",
+                RenderKind::Sync,
+            ),
+            (
+                "proa::WebRenderSync::render(html_sync! { <i></i> }, cx)",
+                RenderKind::Sync,
+            ),
+            (
+                "proa_core::WebRenderSync::render(html_sync! { <i></i> }, cx)",
+                RenderKind::Sync,
+            ),
+            (
+                "::proa::WebRenderSync::render(proa::html_sync! { <i></i> }, cx)",
+                RenderKind::Sync,
+            ),
+            (
+                "WebRenderSync::<L, B>::render(html_sync! { <i></i> }, cx)",
+                RenderKind::Sync,
+            ),
+            (
+                "<_ as WebRenderSync<L>>::render(html_sync! { <i></i> }, cx)",
+                RenderKind::Sync,
+            ),
+            (
+                "<_ as ::proa_core::WebRenderSync<L, B>>::render(html_sync! { <i></i> }, cx)",
+                RenderKind::Sync,
+            ),
+            (
+                "return (WebRenderSync::render(html_sync! { <i></i> }, cx));",
+                RenderKind::Sync,
+            ),
+            (
+                "WebRender::render(html! { <i></i> }, cx).resolve().await",
+                RenderKind::Async,
+            ),
+            (
+                "proa::WebRender::render(html! { <i></i> }, cx).resolve().await",
+                RenderKind::Async,
+            ),
+            (
+                "::proa_core::WebRender::<L, B>::render(html! { <i></i> }, cx).resolve().await",
+                RenderKind::Async,
+            ),
+            (
+                "<_ as WebRender<L>>::render(html! { <i></i> }, cx).resolve().await",
+                RenderKind::Async,
+            ),
+        ] {
+            let block = parse_block(&format!("{{ {tail} }}"));
+            let (_, _, _, tail_expr) = split_body(&block).unwrap();
+            let mac =
+                locate_html_macro(tail_expr).unwrap_or_else(|error| panic!("{tail}: {error}"));
+            validate_html_macro_for_render_kind(mac, kind)
+                .unwrap_or_else(|error| panic!("{tail}: {error}"));
+        }
+    }
+
+    #[test]
+    fn qualified_render_call_rejects_a_trait_that_cannot_render_the_template() {
+        for (tail, wrong_trait, expected_trait) in [
+            (
+                "WebRender::render(html_sync! { <i></i> }, cx)",
+                "WebRender",
+                "WebRenderSync::render(html_sync!",
+            ),
+            (
+                "proa::WebRenderSync::render(html! { <i></i> }, cx)",
+                "WebRenderSync",
+                "WebRender::render(html!",
+            ),
+            (
+                "<_ as WebRenderSync<L>>::render(html! { <i></i> }, cx).resolve().await",
+                "WebRenderSync",
+                "WebRender::render(html!",
+            ),
+        ] {
+            let message = tail_macro(tail).expect_err(tail).to_string();
+            assert!(
+                message.starts_with(&format!("`{wrong_trait}::render` cannot render"))
+                    && message.contains(expected_trait),
+                "{tail}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_render_trait_calls_with_the_template_first_are_qualified_tails() {
+        for tail in [
+            // Not a Proa render trait: the wrapper may do anything with the template.
+            "helpers::render(html_sync! { <i></i> }, cx)",
+            "render(html_sync! { <i></i> }, cx)",
+            // A different method of the trait.
+            "WebRenderSync::render_head(html_sync! { <i></i> }, cx)",
+            // Wrong arity or argument order.
+            "WebRenderSync::render(html_sync! { <i></i> })",
+            "WebRenderSync::render(cx, html_sync! { <i></i> })",
+            "WebRenderSync::render(html_sync! { <i></i> }, cx, extra)",
+        ] {
+            assert!(tail_macro(tail).is_err(), "accepted `{tail}`");
+        }
+        // The method-call spelling stays accepted alongside the qualified one.
+        assert_eq!(
+            tail_macro("html_sync! { <i></i> }.render(cx)").unwrap(),
+            "html_sync"
+        );
+    }
+
     #[test]
     fn ordinary_server_statements_are_retained_for_reachability_validation() {
         let block = parse_block(
@@ -1189,5 +1384,13 @@ mod tests {
             msg.contains("reserved for future client-only"),
             "got: {msg}"
         );
+    }
+}
+
+/// The outer guard in a match arm is part of the pattern in Syn 3.
+pub(crate) fn match_arm_parts(arm: &syn::Arm) -> (&syn::Pat, Option<&syn::PatGuard>) {
+    match &arm.pat {
+        syn::Pat::Guard(guard) => (&guard.pat, Some(guard)),
+        pat => (pat, None),
     }
 }

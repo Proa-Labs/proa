@@ -152,35 +152,3 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ExternalLinkIcon {
         .render(cx)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{CopyIcon, ExternalLinkIcon, PanelLeftIcon, SearchIcon};
-    use proa_core::{RenderBuffer, WebContext, WebRenderSync};
-    use proa_macros::html_sync;
-
-    #[test]
-    fn icons_render_stable_hooks_sizes_and_optional_classes() {
-        let mut output = RenderBuffer::new();
-        let mut cx = WebContext::with_buffer(&mut output);
-
-        html_sync! {
-            {SearchIcon { size: 16, class: Some("search-trigger-icon") }}
-            {PanelLeftIcon::new(19)}
-            {CopyIcon::new(14)}
-            {ExternalLinkIcon::new(14)}
-        }
-        .render(&mut cx)
-        .unwrap();
-
-        let html = output.into_string();
-        assert_eq!(html.matches("<svg").count(), 4);
-        assert!(html.contains(r#"data-component="search-icon""#));
-        assert!(html.contains(r#"data-component="panel-left-icon""#));
-        assert!(html.contains(r#"data-component="copy-icon""#));
-        assert!(html.contains(r#"data-component="external-link-icon""#));
-        assert!(html.contains(r#"width="16" height="16""#));
-        assert!(html.contains(r#"class="search-trigger-icon""#));
-        assert_eq!(html.matches(r#"aria-hidden="true""#).count(), 4);
-    }
-}

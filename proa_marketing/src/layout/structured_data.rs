@@ -6,31 +6,23 @@
 use crate::data::{routes, site};
 
 use crate::utils::{document::SiteUrl, site_url::public_site_url};
+use proa_core::{RequestContext, TryIntoHeadUrl, WriteError};
 use serde::Serialize;
-use std::{collections::HashMap, sync::OnceLock};
 
-pub(super) fn document() -> &'static str {
-    static DOCUMENT: OnceLock<String> = OnceLock::new();
-    DOCUMENT.get_or_init(|| serialize(public_site_url()))
+pub(super) fn document(request: &RequestContext) -> Result<String, WriteError> {
+    serialize(public_site_url(), request)
 }
 
-/// Immutable documentation metadata is serialized once, outside rendering.
-pub(super) fn for_documentation(path: &str) -> Option<&'static str> {
+/// Serialize metadata for the requested public documentation page.
+pub(super) fn for_documentation(path: &str) -> Option<String> {
     if path != routes::DOCS && !path.starts_with("/docs/") {
         return None;
     }
-    static DOCUMENTS: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
-    DOCUMENTS
-        .get_or_init(|| {
-            crate::pages::docs::docs()
-                .pages
-                .iter()
-                .filter(|page| !page.frontmatter.hidden)
-                .map(|page| (page.route_path, documentation(public_site_url(), page)))
-                .collect()
-        })
-        .get(path)
-        .map(String::as_str)
+    crate::pages::docs::docs()
+        .pages
+        .iter()
+        .find(|page| !page.frontmatter.hidden && page.route_path == path)
+        .map(|page| documentation(public_site_url(), page))
 }
 
 #[derive(Serialize)]
@@ -301,9 +293,17 @@ fn documentation(origin: &str, page: &proa_docs::DocPage) -> String {
     })
 }
 
-fn serialize(origin: &str) -> String {
+fn serialize(origin: &str, request: &RequestContext) -> Result<String, WriteError> {
     let url = |path| SiteUrl { origin, path };
     let (chart_title, charts) = crate::pages::home::benchmark_charts();
+    let logo = request.url(super::APPLE_TOUCH_ICON_PATH);
+    let logo_url = (&logo).try_into_head_url()?;
+    let [render_url, http_url, load_url] = charts.map(|chart| request.url(chart.url));
+    let chart_urls = [
+        (&render_url).try_into_head_url()?,
+        (&http_url).try_into_head_url()?,
+        (&load_url).try_into_head_url()?,
+    ];
     let document = StructuredData {
         context: "https://schema.org",
         graph: (
@@ -312,8 +312,8 @@ fn serialize(origin: &str) -> String {
                 id: url(ORGANIZATION_ID),
                 name: site::ORGANIZATION,
                 url: url(routes::HOME),
-                description: "Publisher of Proa, a Rust web framework for composable, multi-target rendering.",
-                logo: url("/static/apple-touch-icon.png"),
+                description: "A maintainer of Proa, a Rust web framework for composable, multi-target rendering.",
+                logo: url(logo_url.as_ref()),
                 same_as: [site::GITHUB_ORGANIZATION_URL, site::YOUTUBE_URL, site::LINKEDIN_URL],
                 address: Address { kind: "PostalAddress", address_country: "US" },
                 contact_point: [
@@ -365,17 +365,20 @@ fn serialize(origin: &str) -> String {
                 name: chart_title,
                 item_list_order: "https://schema.org/ItemListUnordered",
                 number_of_items: charts.len(),
-                item_list_element: charts.map(|chart| ChartImage {
-                    kind: "ImageObject",
-                    name: chart.title,
-                    description: chart.description,
-                    content_url: url(chart.url),
-                    encoding_format: "image/svg+xml",
+                item_list_element: std::array::from_fn(|index| {
+                    let chart = charts[index];
+                    ChartImage {
+                        kind: "ImageObject",
+                        name: chart.title,
+                        description: chart.description,
+                        content_url: url(chart_urls[index].as_ref()),
+                        encoding_format: "image/svg+xml",
+                    }
                 }),
             },
         ),
     };
-    script_safe(&document)
+    Ok(script_safe(&document))
 }
 
 fn script_safe(document: &impl Serialize) -> String {
@@ -392,7 +395,7 @@ mod tests {
     #[test]
     fn runtime_urls_are_json_escaped_and_script_safe() {
         let origin = "https://preview.example/\"</script>&";
-        let data = super::serialize(origin);
+        let data = super::serialize(origin, &crate::static_assets::request()).unwrap();
         assert!(!data.contains(['<', '>', '&']));
         let parsed: serde_json::Value = serde_json::from_str(&data).unwrap();
         assert_eq!(parsed["@graph"][0]["url"], format!("{origin}/"));

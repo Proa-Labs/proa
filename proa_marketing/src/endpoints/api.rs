@@ -5,53 +5,17 @@
 
 use crate::data::routes;
 
-pub mod exports;
-mod replay;
-pub mod sandbox;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Source {
-    Production,
-    Sandbox,
-}
-
-impl Source {
-    pub fn pages(self) -> &'static [DocPage] {
-        match self {
-            Self::Production => docs::docs().pages,
-            Self::Sandbox => sandbox::PAGES,
-        }
-    }
-
-    pub fn prefix(self) -> &'static str {
-        match self {
-            Self::Production => "",
-            Self::Sandbox => routes::SANDBOX,
-        }
-    }
-}
-
-pub struct ApiState {
-    pub source: Source,
-    replay: replay::SearchReplayCache,
-    pub exports: Arc<exports::Jobs>,
-}
-
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use axum::{
-    body::Bytes,
-    extract::{
-        rejection::{JsonRejection, QueryRejection},
-        Query, Request, State,
-    },
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    extract::{rejection::QueryRejection, Query, Request, State},
+    http::{header, HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{any, get as get_route, post},
+    routing::{any, get as get_route},
     Json, Router,
 };
 use proa_docs::DocPage;
@@ -65,18 +29,11 @@ const DEFAULT_LIMIT: usize = 10;
 const MAX_LIMIT: usize = 50;
 pub const REQUESTS_PER_MINUTE: u32 = 600;
 
-pub fn router(source: Source) -> Router {
-    let state = Arc::new(ApiState {
-        source,
-        replay: replay::SearchReplayCache::default(),
-        exports: Arc::new(exports::Jobs::default()),
-    });
+pub fn router() -> Router {
     Router::new()
         .route(
             routes::API_SEARCH,
-            get_route(search_handler)
-                .post(search_post_handler)
-                .fallback(method_not_allowed),
+            get_route(search_handler).fallback(method_not_allowed),
         )
         .route(
             routes::API_DOCS,
@@ -86,21 +43,7 @@ pub fn router(source: Source) -> Router {
             routes::API_PAGE,
             get_route(page_handler).fallback(method_not_allowed),
         )
-        .route(
-            routes::API_EXPORTS,
-            post(exports::create).fallback(method_not_allowed),
-        )
-        .route(
-            routes::API_EXPORT_JOB,
-            get_route(exports::status).fallback(method_not_allowed),
-        )
-        .route(
-            routes::API_EXPORT_RESULT,
-            get_route(exports::result).fallback(method_not_allowed),
-        )
         .route(routes::API_PATTERN, any(not_found))
-        .layer(axum::extract::DefaultBodyLimit::max(16 * 1024))
-        .with_state(state)
 }
 
 #[derive(Debug, Deserialize, Serialize, IntoParams, JsonSchema, ToSchema)]
@@ -247,10 +190,6 @@ impl IntoResponse for ApiError {
 }
 
 pub fn search(input: SearchInput) -> Result<DocumentList, ApiError> {
-    search_from(Source::Production, input)
-}
-
-fn search_from(source: Source, input: SearchInput) -> Result<DocumentList, ApiError> {
     let q = input.q.trim();
     if q.is_empty() || q.chars().count() > 256 {
         return Err(ApiError::invalid(
@@ -262,31 +201,13 @@ fn search_from(source: Source, input: SearchInput) -> Result<DocumentList, ApiEr
         limit: input.limit,
         cursor: input.cursor,
     };
-    match source {
-        Source::Production => paginate(super::search::matching_pages(&needle), pagination),
-        Source::Sandbox => paginate(
-            sandbox::PAGES.iter().filter(|page| {
-                !page.frontmatter.hidden
-                    && page.frontmatter.search != Some(false)
-                    && (page.title.to_ascii_lowercase().contains(&needle)
-                        || page.markdown.to_ascii_lowercase().contains(&needle)
-                        || page
-                            .description
-                            .is_some_and(|value| value.to_ascii_lowercase().contains(&needle)))
-            }),
-            pagination,
-        ),
-    }
+    paginate(super::search::matching_pages(&needle), pagination)
 }
 
 pub fn list(pagination: Pagination) -> Result<DocumentList, ApiError> {
-    list_from(Source::Production, pagination)
-}
-
-fn list_from(source: Source, pagination: Pagination) -> Result<DocumentList, ApiError> {
     paginate(
-        source
-            .pages()
+        docs::docs()
+            .pages
             .iter()
             .filter(|page| !page.frontmatter.hidden),
         pagination,
@@ -329,13 +250,9 @@ fn paginate(
 }
 
 pub fn page(path: &str) -> Result<&'static DocPage, ApiError> {
-    page_from(Source::Production, path)
-}
-
-pub(super) fn page_from(source: Source, path: &str) -> Result<&'static DocPage, ApiError> {
     // Only lookup known public paths. Never fetch a supplied URL or read a file.
-    source
-        .pages()
+    docs::docs()
+        .pages
         .iter()
         .find(|page| {
             !page.frontmatter.hidden && (page.route_path == path || page.markdown_path == path)
@@ -368,75 +285,9 @@ fn query<T>(input: Result<Query<T>, QueryRejection>) -> Result<T, ApiError> {
 #[utoipa::path(get, path = routes::API_SEARCH, operation_id = "searchDocs",
     params(SearchInput), responses((status = 200, description = "A page of public document summaries.", body = DocumentList), ApiError))]
 pub async fn search_handler(
-    State(state): State<Arc<ApiState>>,
     input: Result<Query<SearchInput>, QueryRejection>,
 ) -> Result<Json<DocumentList>, ApiError> {
-    search_from(state.source, query(input)?).map(Json)
-}
-
-/// Search using a JSON body, with optional response replay for retries.
-///
-/// Idempotency-Key is a quoted opaque string containing 1–128 ASCII letters,
-/// digits, dots, colons, underscores, or hyphens. Use a random UUID per request.
-/// Successful responses are retained for fifteen minutes on the serving
-/// instance. Reusing an active key with a different decoded JSON request is
-/// rejected with 422. JSON field order and whitespace do not affect matching.
-/// The cache is bounded and is not shared between replicas or across restarts.
-/// All searches remain read-only and safe to repeat even after cache expiry.
-#[utoipa::path(post, path = routes::API_SEARCH, operation_id = "searchDocsPost",
-    request_body = SearchInput,
-    params(("Idempotency-Key" = Option<String>, Header, description = "Optional quoted request key. Fifteen-minute, per-instance response replay; not shared across replicas or restarts.", pattern = r#"^"[A-Za-z0-9._:-]{1,128}"$"#)),
-    responses(ApiError,
-        (status = 200, description = "A page of public document summaries.", body = DocumentList,
-            headers(("Idempotency-Replayed" = bool, description = "Present for keyed requests: true when replaying a retained JSON response."))),
-        (status = 413, description = "JSON body exceeds 16 KiB.", body = Problem, content_type = "application/problem+json"),
-        (status = 415, description = "Expected application/json.", body = Problem, content_type = "application/problem+json"),
-        (status = 422, description = "The key was already used for a different decoded request.", body = Problem, content_type = "application/problem+json"),
-        (status = 503, description = "The bounded replay cache cannot accept another request. Retry later or use an unkeyed read.", body = Problem, content_type = "application/problem+json")
-    ))]
-pub async fn search_post_handler(
-    State(state): State<Arc<ApiState>>,
-    headers: HeaderMap,
-    input: Result<Json<SearchInput>, JsonRejection>,
-) -> Result<Response, ApiError> {
-    let input = json_input(input)?;
-    let Some(key) = replay::request_key(&headers)? else {
-        return search_from(state.source, input).map(|result| Json(result).into_response());
-    };
-    let fingerprint = replay::fingerprint(&input);
-    let result = state
-        .replay
-        .get_or_compute(key, fingerprint, Instant::now(), || {
-            search_from(state.source, input).map(|result| {
-                Bytes::from(serde_json::to_vec(&result).expect("serialize search response"))
-            })
-        })?;
-    let mut response = ([(header::CONTENT_TYPE, "application/json")], result.body).into_response();
-    response.headers_mut().insert(
-        "idempotency-replayed",
-        HeaderValue::from_static(if result.replayed { "true" } else { "false" }),
-    );
-    Ok(response)
-}
-
-pub(super) fn json_input<T>(input: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
-    input
-        .map(|Json(input)| input)
-        .map_err(|error| match error.status() {
-            StatusCode::PAYLOAD_TOO_LARGE => ApiError {
-                status: StatusCode::PAYLOAD_TOO_LARGE,
-                code: "payload_too_large",
-                detail: "The JSON request body must not exceed 16 KiB.",
-            },
-            StatusCode::UNSUPPORTED_MEDIA_TYPE => ApiError {
-                status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                code: "unsupported_media_type",
-                detail: "Send the request object with Content-Type: application/json.",
-            },
-            _ => {
-                ApiError::invalid("Expected a JSON object matching the documented request schema.")
-            }
-        })
+    search(query(input)?).map(Json)
 }
 
 /// List public documentation with stable paths and Markdown URLs.
@@ -446,15 +297,9 @@ pub(super) fn json_input<T>(input: Result<Json<T>, JsonRejection>) -> Result<T, 
 #[utoipa::path(get, path = routes::API_DOCS, operation_id = "listDocs",
     params(Pagination), responses((status = 200, description = "A page of public document summaries.", body = DocumentList), ApiError))]
 pub async fn list_handler(
-    State(state): State<Arc<ApiState>>,
     input: Result<Query<Pagination>, QueryRejection>,
 ) -> Result<Json<DocumentList>, ApiError> {
-    let input = query(input)?;
-    match state.source {
-        Source::Production => list(input),
-        Source::Sandbox => list_from(state.source, input),
-    }
-    .map(Json)
+    list(query(input)?).map(Json)
 }
 
 /// Read a complete public document as Markdown.
@@ -464,10 +309,9 @@ pub async fn list_handler(
 #[utoipa::path(get, path = routes::API_PAGE, operation_id = "getDoc",
     params(PageInput), responses((status = 200, description = "Document metadata and complete Markdown.", body = Document), ApiError))]
 pub async fn page_handler(
-    State(state): State<Arc<ApiState>>,
     input: Result<Query<PageInput>, QueryRejection>,
 ) -> Result<Json<Document>, ApiError> {
-    let page = page_from(state.source, &query(input)?.path)?;
+    let page = page(&query(input)?.path)?;
     Ok(Json(Document {
         summary: page.into(),
         markdown: page.markdown,

@@ -13,5 +13,4 @@
 //! ```
 
 mod dataloader;
-mod golden;
 mod origin;

@@ -7,11 +7,11 @@ use super::recipe::{
 };
 use crate::components::_proa::free_web::binding_to_js_attr;
 use crate::components::spinner::{Spinner, SpinnerSize};
-use proa_actions::ActionDataStatic;
+use proa::actions::ActionDataStatic;
 
-use proa_core::{WebContext, WebRenderSync, WriteBuf};
-use proa_ir::ReactiveAttr;
-use proa_macros::html_sync;
+use proa::{WebContext, WebRenderSync, WriteBuf};
+use proa::ir::ReactiveAttr;
+use proa::html_sync;
 
 /// Stable DOM contract for Button across Rust and generated render targets.
 pub const BUTTON_ANATOMY: crate::components::_proa::Anatomy =
@@ -48,7 +48,7 @@ impl ButtonType {
 ///
 /// ```ignore
 /// use crate::components::{Button, ButtonColor, ButtonVariant, ButtonSize};
-/// use proa_macros::html_sync;
+/// use proa::html_sync;
 ///
 /// html_sync! {
 ///     <div>
@@ -137,14 +137,14 @@ where
         }
     }
 }
-impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
+impl<L: ::proa::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderSync<L, B>
     for Button<C>
 {
     #[inline(always)]
     fn render(
         self,
         cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::shared::write_buf::WriteError> {
+    ) -> Result<(), proa::shared::write_buf::WriteError> {
         let style = BUTTON_RECIPE.resolve(ButtonRecipeProps {
             size: self.size,
             color: self.color,
@@ -183,7 +183,7 @@ impl<L: ::proa_core::DataLoader, B: WriteBuf, C: WebRenderSync<L, B>> WebRenderS
                 data-variant={style.variant().as_str()}
                 data-radius={style.radius().as_str()}
                 type={self.button_type.as_str()}
-                class={proa_macros::text!("{} {}", style, self.class)}
+                class={proa::text!("{} {}", style, self.class)}
                 id={self.id}
                 disabled={is_disabled}
                 data-onclick={onclick_action}

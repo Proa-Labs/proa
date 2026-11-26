@@ -195,7 +195,7 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not renderable in an async-capable Proa template",
     label = "missing `WebRender<{L}, {B}>` for this child",
-    note = "wrap a sync-only child with `proa_core::to_async(...)`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
+    note = "wrap a sync-only child with `proa::to_async(...)`; when this is a loader mismatch, the child and surrounding `WebContext` must use the same loader type"
 )]
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// Head providers declare `LAYOUT` or `PAGE`. `COMPONENT` skips the head
@@ -206,14 +206,19 @@ pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     /// values skip this method entirely; `LAYOUT` and `PAGE` invoke it before
     /// their bodies. An inherited-only Page may keep this default.
     ///
-    /// Declare `ROLE` explicitly when overriding this method. `proa lint`
-    /// rejects hooks with a missing role or an explicit `COMPONENT` role.
-    #[expect(
-        async_fn_in_trait,
-        reason = "local rendering intentionally accepts !Send futures; WebRenderSend is the Send companion"
-    )]
-    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        Ok(())
+    /// Override with `async fn render_head(...) -> Result<(), WriteError>`.
+    /// Declare `ROLE` as `LAYOUT` or `PAGE` when overriding this method: code
+    /// generation rejects an override whose role is `COMPONENT`, and
+    /// `proa lint` reports the same mistake without building.
+    ///
+    /// The future has no `Send` bound; [`crate::WebRenderSend`] is the `Send`
+    /// companion. The default returns the zero-sized `NoHead` future, which
+    /// lets dispatch tell an override from the default.
+    fn render_head(
+        &self,
+        _cx: &mut WebContext<L, B>,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        crate::head_dispatch::NoHead
     }
 
     /// Generated component code uses this associated constant as a
@@ -240,9 +245,14 @@ where
 {
     /// Forward the synchronous component's explicit role.
     const ROLE: crate::head_dispatch::ComponentRole = T::ROLE;
-    async fn render_head(&self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+    // Return the sync operation's own future: a hookless child yields the
+    // zero-sized `NoHead`, so the adapter does not read as an async override.
+    fn render_head(
+        &self,
+        cx: &mut WebContext<L, B>,
+    ) -> impl Future<Output = Result<(), WriteError>> {
         use crate::head_dispatch::SyncHeadOperation;
-        self.0.render_head(cx).finish()
+        self.0.render_head(cx).into_async()
     }
     fn render(
         self,

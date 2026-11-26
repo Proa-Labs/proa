@@ -23,7 +23,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use proa_core::{
     render_in_context_async, render_md_in_context_async, to_md_async, MdRender, MdRenderSync,
     NoLoader, RenderBuffer, RenderMode, RenderOutcome, StreamChunkFlusher, SyncToAsync, WebContext,
@@ -31,6 +31,7 @@ use proa_core::{
 };
 use proa_macros::{html_sync, md_sync};
 use proa_stream::Suspense;
+use std::hint::black_box;
 
 /// Smallest possible Suspense child: writes one tiny static span.
 /// Sync, infallible, and generic over buffer + loader.

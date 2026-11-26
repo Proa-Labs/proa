@@ -20,9 +20,11 @@ Dynamic slots: page title, search box value, result count, query echo in the
 heading, the river region (chips + cards, wrapped in #__app_root__), and a
 tail slot before </body> for island scripts.
 
-Run from proa_demo/: python3 scripts/gen_srp_chrome.py
+Run from proa_demo/: python3 scripts/gen_srp_chrome.py /path/to/srp_chrome_reference.html
+See proa_showcase/src/ebay/data/README.md for the archived input.
 """
 
+import argparse
 import json
 import re
 import sys
@@ -32,12 +34,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SHOWCASE_ROOT = ROOT.parent / "proa_showcase"
 EBAY_DATA = SHOWCASE_ROOT / "src/ebay/data"
-REF = EBAY_DATA / "srp_chrome_reference.html"
-CAPTURE_FIXTURES = (
-    REF,
-    EBAY_DATA / "shell_pre.html",
-    EBAY_DATA / "shell_post.html",
-)
 _CAPTURE_IDENTIFIER_PREFIXES = {
     "parentrq": "fixture-parentrq-do-not-use-",
     "pageci": "fixture-pageci-do-not-use-",
@@ -281,23 +277,6 @@ def executable_capture_hooks(source):
     return hooks
 
 
-def sanitize_capture_fixtures():
-    for path in CAPTURE_FIXTURES:
-        source = path.read_text()
-        sanitized = sanitize_capture_html(source)
-        hooks = executable_capture_hooks(sanitized)
-        if hooks:
-            raise RuntimeError(f"{path}: executable capture hooks remain: {', '.join(hooks)}")
-        raw_identifiers = unplaceholdered_capture_identifiers(sanitized)
-        if raw_identifiers:
-            raise RuntimeError(
-                f"{path}: raw capture identifiers remain: {', '.join(raw_identifiers)}"
-            )
-        if sanitized != source:
-            path.write_text(sanitized)
-            print(f"sanitized: {path.relative_to(ROOT.parent)}")
-
-
 # HTML5 spec foreign-content case adjustments (12.2.6.5): Python's HTMLParser
 # lowercases all names, so restore the SVG camelCase forms it destroyed.
 SVG_TAG_CASE = {t.lower(): t for t in [
@@ -414,8 +393,7 @@ def find_parent_of(node, target):
     return None
 
 
-def parse():
-    src = REF.read_text()
+def parse(src):
     p = TreeParser()
     p.feed(src)
     html = find_first(p.root, lambda n: n.tag == "html")
@@ -563,7 +541,7 @@ def emit_rust(doc_html):
         "title": 'text(self.query).render(cx)?;\n        StaticRaw(" for sale | eBay").render(cx)?;',
         "style_main": "StaticRaw(REAL_STYLE).render(cx)?;",
         "style_chips": "StaticRaw(CHIPS_STYLE).render(cx)?;",
-        "query_attr": "escape_attr_value(cx.out, self.query)?;",
+        "query_attr": "escape_attr_value(&mut cx.out, self.query)?;",
         "total": "Commas(self.total).render(cx)?;",
         "query": "text(self.query).render(cx)?;",
         "river": "river.render(cx)?;",
@@ -616,8 +594,7 @@ pub struct RealSrpDocument<'a, R, T> {{
     pub tail: T,
 }}
 
-impl<'a, R, T, L: ::proa_core::DataLoader> WebRenderSync<L>
-    for RealSrpDocument<'a, R, T>
+impl<'a, R, T, L: ::proa_core::DataLoader> WebRenderSync<L> for RealSrpDocument<'a, R, T>
 where
     R: WebRenderSync<L>,
     T: WebRenderSync<L>,
@@ -635,7 +612,7 @@ where
     T: WebRenderSync,
 {{
     let total = 117_406 + (listings.len() as u64) * 7;
-    let mut cx = WebContext::new();
+    let mut cx = proa_core::WebContext::new();
     proa_core::WebRenderSync::render(
         RealSrpDocument {{
             query,
@@ -892,8 +869,15 @@ def emit_marko(html):
 
 
 def main():
-    sanitize_capture_fixtures()
-    html = parse()
+    parser = argparse.ArgumentParser(description="Generate comparison renderers from an archived capture")
+    parser.add_argument("reference", type=Path, help="local path to srp_chrome_reference.html (see data/README.md)")
+    args = parser.parse_args()
+    source = sanitize_capture_html(args.reference.read_text())
+    hooks = executable_capture_hooks(source)
+    identifiers = unplaceholdered_capture_identifiers(source)
+    if hooks or identifiers:
+        raise RuntimeError(f"capture still contains executable hooks or identifiers: {hooks + identifiers}")
+    html = parse(source)
     html = apply_slots(html)
     doc = html_with_placeholders(html)
     emit_rust(doc)

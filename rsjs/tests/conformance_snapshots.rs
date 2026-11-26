@@ -193,6 +193,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
                     headers: &[("Accept", "application/json"), ("X-RSJS", "1")],
                     body: Some(rsjs::RequestBody::Json(r#"{"symbol":"AAPL"}"#)),
                     timeout_ms: Some(1_500),
+                    ..Default::default()
                 },
                 rsjs::QueryOptions {
                     interval_ms: None,
@@ -214,6 +215,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
                     headers: &[("Accept", "text/plain")],
                     body: None,
                     timeout_ms: None,
+                    ..Default::default()
                 },
                 rsjs::QueryOptions {
                     interval_ms: None,
@@ -234,6 +236,7 @@ impl<L: ::proa_core::DataLoader, B: ::proa_core::WriteBuf> ::proa_core::WebRende
                     headers: &[("X-Mutate", "1")],
                     body: None,
                     timeout_ms: Some(2_500),
+                    ..Default::default()
                 },
                 (QueryKey::new(("stock", "AAPL")), QueryKey::new(("feed",))),
                 rsjs::MutationOptions {

@@ -30,10 +30,7 @@ By default the asset handler checks these public roots in order:
 4. this repository's `proa_marketing/public/`
 
 The checked-in `public/assets/airbnb-showcase.js` file is the source-owned
-progressive-enhancement script for the Airbnb-shaped fixtures. Interactive
-Rust islands are served from the `rsjs` manifest. The listing fixture still
-uses the checked-in legacy `DatePickerIsland.js`, `BookingCardIsland.js`, and
-their imported `chunks/Calendar-IoQONdKJ.js`; `listing::build_islands` is the
-source of truth for those references until that page migrates to RSJS. Full
-image/font corpora should be placed under the configured public root using the
+progressive-enhancement script for the Airbnb-shaped fixtures.
+The listing's calendars and booking card are Rust-authored RSJS components
+served from the island manifest. Place image and font assets under the configured public root at the
 paths referenced by the fixture HTML.

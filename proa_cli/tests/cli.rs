@@ -64,6 +64,141 @@ fn new_site_noninteractive_uses_the_bundled_prebuilt_stylesheet() {
     assert!(!stderr(&output).contains("Tailwind CSS CLI v4 was not found on PATH"));
     assert!(temp.path().join("demo/styles/input.css").exists());
     assert!(temp.path().join("demo/public/styles.css").exists());
+    let app = temp.path().join("demo");
+    let authored = fs::read_to_string(app.join("proa.config.rs")).unwrap();
+    assert!(authored.contains("application: Some(proa::config::ApplicationConfig"));
+    assert!(authored.contains("database: Some(proa::config::DatabaseConfig"));
+    assert!(!authored.contains("json!"));
+    assert!(!authored.contains(".into()"));
+    let added = proa(&["add", "docs", "--yes"], &app);
+    assert!(added.status.success(), "{}", stderr(&added));
+    assert_eq!(
+        fs::read_to_string(app.join("proa.config.rs")).unwrap(),
+        authored
+    );
+    assert!(app.join("src/docs/index.md").is_file());
+    let lock: serde_json::Value =
+        serde_json::from_slice(&fs::read(app.join("proa.lock.json")).unwrap()).unwrap();
+    assert!(lock["scaffold"]["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == "content:docs"));
+    let effective = proa(&["config", "show"], &app);
+    assert!(effective.status.success(), "{}", stderr(&effective));
+    let config: serde_json::Value = serde_json::from_str(&stdout(&effective)).unwrap();
+    assert_eq!(config["application"]["binary"], "demo");
+    assert_eq!(config["scripts"]["dev"], "proa dev");
+    assert_eq!(config["scripts"]["build"], "proa build");
+    assert_eq!(config["database"]["driver"], "sqlite");
+    assert_eq!(config["build"]["assets"][0]["kind"], "tailwind");
+    assert_eq!(
+        config["registries"],
+        serde_json::json!({"@proa": "https://ui.proa.so/r/{name}.json"})
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn adding_markdown_changes_page_scaffolding_without_rewriting_config() {
+    let temp = tempfile::tempdir().unwrap();
+    let generated = proa(
+        &["new", "site", "demo", "--template", "minimal", "--no-git"],
+        temp.path(),
+    );
+    assert!(generated.status.success(), "{}", stderr(&generated));
+    let root = temp.path().join("demo");
+    let before = fs::read(root.join("proa.config.rs")).unwrap();
+    let unavailable = proa(&["generate", "page", "about", "--markdown"], &root);
+    assert!(!unavailable.status.success());
+    assert!(stderr(&unavailable).contains("proa add representation markdown"));
+    let added = proa(&["add", "representation", "markdown", "--yes"], &root);
+    assert!(added.status.success(), "{}", stderr(&added));
+    let page = proa(&["generate", "page", "about"], &root);
+    assert!(page.status.success(), "{}", stderr(&page));
+    assert!(fs::read_to_string(root.join("src/routes.rs"))
+        .unwrap()
+        .contains("/about.md"));
+    assert_eq!(fs::read(root.join("proa.config.rs")).unwrap(), before);
+}
+
+#[test]
+fn route_generators_reject_collisions_before_writing_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let new = proa(
+        &["new", "site", "demo", "--template", "minimal", "--no-git"],
+        temp.path(),
+    );
+    assert!(new.status.success(), "{}", stderr(&new));
+    let root = temp.path().join("demo");
+    let added = proa(&["add", "representation", "markdown", "--yes"], &root);
+    assert!(added.status.success(), "{}", stderr(&added));
+    let endpoint = |path: &str| {
+        proa(
+            &[
+                "generate",
+                "endpoint",
+                path,
+                "--method",
+                "get",
+                "--response",
+                "json",
+            ],
+            &root,
+        )
+    };
+    let routes = root.join("src/routes.rs");
+    let source = fs::read_to_string(&routes).unwrap();
+    let source = format!(
+        "// Accept a literal \" in the query.\n{source}\n//        Route::endpoint(\"/about\", get(pages::about::handler)),\n"
+    );
+    fs::write(&routes, &source).unwrap();
+
+    let endpoints = root.join("src/endpoints/mod.rs");
+    let modules_before = fs::read(&endpoints).unwrap();
+    let duplicate = endpoint("healthz");
+    assert!(!duplicate.status.success());
+    assert!(
+        stderr(&duplicate).contains("already registered: /healthz"),
+        "{}",
+        stderr(&duplicate)
+    );
+    assert_eq!(fs::read_to_string(&routes).unwrap(), source);
+    assert_eq!(fs::read(endpoints).unwrap(), modules_before);
+    assert!(!root.join("src/endpoints/healthz.rs").exists());
+
+    let alias = endpoint("about.md");
+    assert!(alias.status.success(), "{}", stderr(&alias));
+    let pages = root.join("src/pages/mod.rs");
+    let routes_before = fs::read(&routes).unwrap();
+    let pages_before = fs::read(&pages).unwrap();
+    let duplicate = proa(&["generate", "page", "about"], &root);
+    assert!(!duplicate.status.success());
+    assert!(
+        stderr(&duplicate).contains("already registered: /about.md"),
+        "{}",
+        stderr(&duplicate)
+    );
+    assert_eq!(fs::read(&routes).unwrap(), routes_before);
+    assert_eq!(fs::read(pages).unwrap(), pages_before);
+    assert!(!root.join("src/pages/about.rs").exists());
+
+    let html = proa(&["generate", "page", "about", "--no-markdown"], &root);
+    assert!(html.status.success(), "{}", stderr(&html));
+    assert!(fs::read_to_string(&routes)
+        .unwrap()
+        .lines()
+        .any(|line| line.trim() == r#"Route::endpoint("/about", get(pages::about::handler)),"#));
+
+    let alias = endpoint("blog/{slug}.md");
+    assert!(alias.status.success(), "{}", stderr(&alias));
+    let captured = proa(&["generate", "page", "blog/:slug"], &root);
+    assert!(captured.status.success(), "{}", stderr(&captured));
+    let source = fs::read_to_string(routes).unwrap();
+    assert_eq!(source.matches(r#""/blog/{slug}.md""#).count(), 1);
+    assert!(source.contains(
+        r#"Route::endpoint("/blog/{slug}", get(pages::blog_slug::handler_with_markdown_alias))"#
+    ));
 }
 
 #[cfg(unix)]
@@ -243,25 +378,45 @@ fn check_fails_on_warning_unless_allowed() {
 }
 
 #[test]
-fn config_validate_reports_typos_and_fails_on_bad_kind() {
+fn config_validate_checks_typed_fields_and_asset_kinds() {
     let temp = tempfile::tempdir().unwrap();
-    fs::write(temp.path().join("Cargo.toml"), "[package]\nname=\"demo\"\n").unwrap();
-    fs::create_dir_all(temp.path().join("src")).unwrap();
+    fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+    let authored = temp.path().join("proa.config.rs");
     fs::write(
-        temp.path().join("proa.config.json"),
-        r#"{
-            "style": "default",
-            "dev": { "prot": 3001 },
-            "build": { "assets": [{ "kind": "webpack", "input": "a", "output": "b" }] }
-        }"#,
+        &authored,
+        r#"use proa::config::{AssetConfig, BuildConfig, Config, Result, ScriptsConfig};
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "cargo run",
+            build: "",
+            ..Default::default()
+        },
+        build: BuildConfig {
+            assets: Some(vec![AssetConfig {
+                kind: "webpack",
+                input: "a",
+                output: "b",
+                ..Default::default()
+            }]),
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
     )
     .unwrap();
-
     let output = proa(&["config", "validate"], temp.path());
     assert!(!output.status.success());
-    let text = stdout(&output);
-    assert!(text.contains("dev.prot"), "{text}");
-    assert!(text.contains("webpack"), "{text}");
+    assert!(stdout(&output).contains("webpack"), "{}", stderr(&output));
+    assert!(stdout(&output).contains("scripts.build must specify a command"));
+
+    let source = fs::read_to_string(&authored).unwrap();
+    fs::write(&authored, source.replace("assets:", "asseets:")).unwrap();
+    let output = proa(&["config", "validate"], temp.path());
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("asseets"));
 }
 
 #[test]
@@ -275,6 +430,62 @@ fn config_validate_json_is_machine_readable() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
     assert!(parsed["warnings"].is_array());
     assert!(parsed["errors"].is_array());
+}
+
+#[test]
+fn authored_config_defaults_to_builtin_workflows_and_rejects_empty_overrides() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+    fs::write(
+        temp.path().join("proa.config.rs"),
+        r#"
+use proa::config::{Config, Result};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config::default())
+}
+"#,
+    )
+    .unwrap();
+
+    let show = proa(&["config", "show", "--json"], temp.path());
+    assert!(show.status.success(), "{}", stderr(&show));
+    let config: serde_json::Value = serde_json::from_slice(&show.stdout).unwrap();
+    assert_eq!(config["scripts"]["dev"], "proa dev");
+    assert_eq!(config["scripts"]["build"], "proa build");
+
+    fs::write(
+        temp.path().join("proa.config.rs"),
+        r#"
+use proa::config::{Config, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "",
+            build: "",
+            ..Default::default()
+        },
+        ..Config::default()
+    })
+}
+"#,
+    )
+    .unwrap();
+    let validation = proa(&["config", "validate", "--json"], temp.path());
+    assert!(!validation.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&validation.stdout).unwrap();
+    assert_eq!(
+        report["errors"],
+        serde_json::json!([
+            "scripts.dev must specify a command",
+            "scripts.build must specify a command"
+        ])
+    );
+
+    let run = proa(&["run", "dev"], temp.path());
+    assert!(!run.status.success());
+    assert!(stderr(&run).contains("scripts.dev must specify a command"));
 }
 
 #[test]
@@ -805,6 +1016,7 @@ fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
     assert!(help.status.success(), "{}", stderr(&help));
     let help = stdout(&help);
     for flag in [
+        "--watch",
         "--no-reload",
         "--no-css-hot-swap",
         "--reload-port",
@@ -813,7 +1025,7 @@ fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
         assert!(help.contains(flag), "`proa dev --help` is missing {flag}");
     }
 
-    // The watcher polls every 100ms, so a shorter window promises a precision
+    // The watcher polls every 50ms, so a shorter window promises a precision
     // it cannot deliver. Rejecting it must cost nothing: no build, no bound
     // port, no spawned server.
     let rejected = proa(
@@ -829,7 +1041,7 @@ fn dev_exposes_live_reload_controls_and_rejects_an_unhonourable_debounce() {
     );
     assert!(!rejected.status.success());
     assert!(
-        stderr(&rejected).contains("below the 100ms file-watch poll interval"),
+        stderr(&rejected).contains("below the 50ms file-watch poll interval"),
         "{}",
         stderr(&rejected)
     );

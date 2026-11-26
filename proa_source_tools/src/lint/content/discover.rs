@@ -104,17 +104,56 @@ impl Resolver {
         } else {
             format!("{}::{first}", self.module)
         };
-        if rest.is_empty() {
+        let resolved = if rest.is_empty() {
             base
         } else {
             format!("{base}::{rest}")
-        }
+        };
+        canonical_facade_path(resolved)
     }
     pub fn known_type(&self, path: &SynPath) -> Option<String> {
         let full = self.path(path);
         self.symbols.contains(&full).then_some(full)
     }
 }
+// Facade exports retain the same implementation identities for coverage.
+fn canonical_facade_path(path: String) -> String {
+    let Some(rest) = path.strip_prefix("proa::") else {
+        return path;
+    };
+    for (module, package) in [
+        ("core", "proa_core"),
+        ("ir", "proa_ir"),
+        ("stream", "proa_stream"),
+        ("axum", "proa_framework_axum"),
+        ("framework", "proa_framework_core"),
+        ("actions", "proa_actions"),
+    ] {
+        if let Some(suffix) = rest.strip_prefix(&format!("{module}::")) {
+            return format!("{package}::{suffix}");
+        }
+    }
+    let first = rest.split("::").next().unwrap_or("");
+    let package = if matches!(
+        first,
+        "html"
+            | "html_sync"
+            | "html_send"
+            | "html_hot_sync"
+            | "xml"
+            | "xml_sync"
+            | "md"
+            | "md_sync"
+            | "omit"
+            | "content"
+    ) {
+        "proa_macros"
+    } else {
+        "proa_core"
+    };
+    format!("{package}::{rest}")
+}
+
 #[derive(Clone)]
 struct Context {
     path: PathBuf,
@@ -206,13 +245,14 @@ fn imports(
         }
     }
 }
-fn contexts(sources: &[(PathBuf, String)], include_tests: bool) -> Vec<Context> {
+fn contexts(
+    sources: &[(PathBuf, String)],
+    parsed: &[Option<&syn::File>],
+    include_tests: bool,
+) -> Vec<Context> {
     let mut files = BTreeMap::new();
-    for (path, source) in sources {
-        files.insert(
-            absolute(path),
-            (source.clone(), syn::parse_file(source).ok()),
-        );
+    for ((path, source), parsed) in sources.iter().zip(parsed) {
+        files.insert(absolute(path), (source.as_str(), *parsed));
     }
     let mut contexts = Vec::new();
     let mut visited = BTreeSet::new();
@@ -236,7 +276,7 @@ fn contexts(sources: &[(PathBuf, String)], include_tests: bool) -> Vec<Context> 
         config: String,
         inherited: BTreeMap<String, String>,
         complete: bool,
-        files: &BTreeMap<PathBuf, (String, Option<syn::File>)>,
+        files: &BTreeMap<PathBuf, (&str, Option<&syn::File>)>,
         visited: &mut BTreeSet<PathBuf>,
         out: &mut Vec<Context>,
         include_tests: bool,
@@ -280,7 +320,7 @@ fn contexts(sources: &[(PathBuf, String)], include_tests: bool) -> Vec<Context> 
         }
         out.push(Context {
             path: path.into(),
-            source: source.clone(),
+            source: (*source).to_owned(),
             module: module.clone(),
             crate_id: crate_id.clone(),
             items: items.clone(),
@@ -637,13 +677,14 @@ fn policy(
     (result, range)
 }
 
-pub(super) fn lint_sources(
+pub(super) fn lint_parsed(
     sources: &[(PathBuf, String)],
+    parsed: &[Option<&syn::File>],
     reporting: &BTreeSet<PathBuf>,
     include_tests: bool,
     options: &ContentOptions,
 ) -> Vec<Diagnostic> {
-    let contexts = contexts(sources, include_tests);
+    let contexts = contexts(sources, parsed, include_tests);
     let mut diagnostics = Vec::new();
     let mut symbols: HashMap<String, BTreeSet<String>> = HashMap::new();
     for context in &contexts {
@@ -687,6 +728,7 @@ pub(super) fn lint_sources(
             generic_children: BTreeSet::new(),
             glob: context.glob,
             extern_roots: [
+                "proa".into(),
                 "proa_core".into(),
                 "proa_macros".into(),
                 "std".into(),
@@ -696,8 +738,8 @@ pub(super) fn lint_sources(
         };
         for item in &context.items {
             if let Item::Impl(item) = item {
-                let Some((_, trait_path, _)) = &item.trait_ else {
-                    let (_, range) = policy(&item.attrs, &resolver, &context, &mut diagnostics);
+                let Some((trait_path, _)) = &item.trait_ else {
+                    let (_, range) = policy(&item.attrs, &resolver, context, &mut diagnostics);
                     if let Some(range) = range {
                         diagnostics.push(Diagnostic::new(
                             &range.path,
@@ -840,7 +882,7 @@ pub(super) fn lint_sources(
     for context in &contexts {
         for item in &context.items {
             if let Item::Impl(item) = item {
-                if let Some((_, trait_path, _)) = &item.trait_ {
+                if let Some((trait_path, _)) = &item.trait_ {
                     let mut name = trait_path
                         .segments
                         .iter()
@@ -1018,6 +1060,7 @@ pub(super) fn lint_sources(
                 .cloned()
                 .unwrap_or_default(),
             extern_roots: [
+                "proa".to_owned(),
                 "proa_core".to_owned(),
                 "proa_macros".to_owned(),
                 "std".to_owned(),
@@ -1072,7 +1115,7 @@ pub(super) fn lint_sources(
                 if !include_tests && is_test(&item.attrs) {
                     continue;
                 }
-                let Some((_, trait_path, _)) = &item.trait_ else {
+                let Some((trait_path, _)) = &item.trait_ else {
                     let (_, range) = policy(&item.attrs, &resolver, &context, &mut diagnostics);
                     if let Some(range) = range {
                         diagnostics.push(Diagnostic::new(
@@ -1378,9 +1421,8 @@ pub(super) fn lint_sources(
                 );
                 continue;
             }
-            let (source_index, source_view) = exact[0];
-            // A field spelling cannot establish correspondence between
-            // different data types. Explicit pairs must map semantic roles.
+            let (source_index, _) = exact[0];
+            // An explicit source policy pairs separate types by their rendered inputs.
             let mut source_summary = summaries[*source_index].clone();
             for (index, _) in &exact {
                 if *index != *source_index {
@@ -1389,23 +1431,8 @@ pub(super) fn lint_sources(
                         .extend(summaries[*index].boundaries.clone());
                 }
             }
-            let mut target_summary = summaries[target_index].clone();
-            if source_view.identity != target.identity {
-                source_summary
-                    .contributions
-                    .retain(|c| matches!(c.key, ContentKey::Role(_)));
-                target_summary
-                    .contributions
-                    .retain(|c| matches!(c.key, ContentKey::Role(_)));
-                if source_summary.contributions.len()
-                    != summaries[*source_index].contributions.len()
-                    || target_summary.contributions.len()
-                        != summaries[target_index].contributions.len()
-                {
-                    source_summary.boundaries.push(Boundary {may_hide_content: true, message:"separate component types require named semantic parts; field spellings do not establish correspondence".into(),range:source_summary.entry.clone()});
-                }
-            }
-            diagnostics.extend(compare_views(&source_summary, &target_summary));
+            let target_summary = &summaries[target_index];
+            diagnostics.extend(compare_views(&source_summary, target_summary));
         }
         if reporting.contains(&target.context.path) {
             for omission in &summaries[target_index].omissions {

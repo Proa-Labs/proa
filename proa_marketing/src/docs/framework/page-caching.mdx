@@ -1,6 +1,7 @@
 ---
 title: Page caching
 description: Cache pages at the edge and refresh them after deployment.
+keywords: [ETag, Cache-Control, "cache control"]
 ---
 
 By default, Proa renders pages on every request; it does not enable page caching. Use your CDN for [static pages](#caching-static-pages) and [ISR](#enabling-isr), and configure [RSJS bundles](#caching-rsjs-bundles) separately.
@@ -11,7 +12,7 @@ Add a cache policy to a public route. `PageCache::new()` requires no provider cr
 
 ```rust filename="src/pages/promo.rs" highlight={10}
 use axum::routing::get;
-use proa_framework_axum::{PageCache, Route, RouteResponse};
+use proa::axum::{PageCache, Route, RouteResponse};
 use crate::pages::PromoPage;
 
 pub fn route() -> Route<()> {
@@ -68,7 +69,7 @@ Let's say you want to re-render the page and cache it on an interval, like every
 ```rust filename="src/pages/promo.rs" highlight={11}
 use std::time::Duration;
 use axum::routing::get;
-use proa_framework_axum::{PageCache, Route, RouteResponse};
+use proa::axum::{PageCache, Route, RouteResponse};
 use crate::pages::PromoPage;
 
 pub fn route() -> Route<()> {
@@ -113,15 +114,25 @@ For Cloudflare, proxy your hostname and create a Cache Rule for your public HTML
 
 Add `cdn` to your existing `deploy` configuration, using your zone ID and application hostname:
 
-```json filename="proa.config.json"
-{
-  "deploy": {
-    "cdn": {
-      "provider": "cloudflare",
-      "zoneId": "your-cloudflare-zone-id",
-      "hostname": "www.example.com"
-    }
-  }
+```rust filename="proa.config.rs"
+use proa::config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "proa dev",
+            build: "proa build",
+            ..Default::default()
+        },
+        deploy: Some(DeployConfig {
+            cdn: Some(CdnConfig::Cloudflare {
+                zone_id: "your-cloudflare-zone-id",
+                hostname: "www.example.com",
+            }),
+            ..Default::default()
+        }),
+        ..Config::default()
+    })
 }
 ```
 
@@ -135,19 +146,33 @@ If your hosting platform already invalidates its cache on deployment, use that w
 
 For a provider with an invalidation CLI, configure its command once. For example, with the [AWS CloudFront CLI](https://docs.aws.amazon.com/cli/latest/reference/cloudfront/create-invalidation.html):
 
-```json filename="proa.config.json"
-{
-  "deploy": {
-    "cdn": {
-      "provider": "command",
-      "command": [
-        "aws", "cloudfront", "create-invalidation",
-        "--distribution-id", "YOUR_DISTRIBUTION_ID",
-        "--paths", "/*",
-        "--no-cli-pager"
-      ]
-    }
-  }
+```rust filename="proa.config.rs"
+use proa::config::{CdnConfig, Config, DeployConfig, Result, ScriptsConfig};
+
+pub async fn config() -> Result<Config> {
+    Ok(Config {
+        scripts: ScriptsConfig {
+            dev: "proa dev",
+            build: "proa build",
+            ..Default::default()
+        },
+        deploy: Some(DeployConfig {
+            cdn: Some(CdnConfig::Command {
+                command: vec![
+                    "aws",
+                    "cloudfront",
+                    "create-invalidation",
+                    "--distribution-id",
+                    "YOUR_DISTRIBUTION_ID",
+                    "--paths",
+                    "/*",
+                    "--no-cli-pager",
+                ],
+            }),
+            ..Default::default()
+        }),
+        ..Config::default()
+    })
 }
 ```
 
@@ -174,13 +199,13 @@ Success means the provider accepted the request or its configured command succee
 
 A bare build, restart, or deployment outside this workflow does not invoke Proa's invalidation integration. Without an integration, pages can remain cached until expiry or eviction.
 
-Page invalidation is separate from JavaScript bundle versioning.
+Page invalidation is separate from JavaScript bundle versioning. When managed public assets are attached to the router, `PageCacheLayer` automatically includes `PublicAssets::cache_key()` in its cache key so a catalog replacement does not serve stale HTML asset URLs. The key also covers the base path and `PROA_ASSET_PREFIX`.
 
 ## Caching RSJS bundles
 
-Proa's default RSJS URLs are stable, including `/rsjs-runtime.js` and `/rsjs/island/<asset_id>.js`. An asset ID is not a guarantee that the URL changes with its contents.
+`FrameworkBuilder` serves the runtimes and every generated module by default at content-hashed names: `/_proa/immutable/rsjs/runtime.<16 hex>.js`, `/_proa/immutable/rsjs/query.<16 hex>.js`, and `/_proa/immutable/rsjs/island/<name>.<16 hex>.js`. It sends `Cache-Control: public, max-age=31536000, immutable`, the modules import each other by relative path, and pages link the hashed names automatically, so there is nothing to configure.
 
-Configure these headers on your static asset server:
+The rest of this section applies to a custom adapter that serves its own copies at the canonical paths (`/rsjs-runtime.js`, `/rsjs/island/<asset_id>.js`). Those URLs are stable: an asset ID is not a guarantee that the URL changes with its contents. Configure these headers on your static asset server:
 
 | Asset URL | `Cache-Control` |
 | --- | --- |

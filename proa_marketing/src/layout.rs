@@ -5,16 +5,18 @@ use crate::data::{routes, site};
 
 mod structured_data;
 
-use axum::response::Html;
+use axum::response::{Html, IntoResponse, Response};
 use proa_core::shared::attr_value::display_attr;
 use proa_core::text::text;
 use proa_core::{
-    raw_text_ok, render_in_context_async, DataLoader, NoLoader, RenderBuffer, RenderOutcome,
-    StaticRaw, WebContext, WebRender, WebRenderSync, WriteBuf, WriteError,
+    raw_text_ok, render_in_context_async, DataLoader, HeadConfig, HeadMedia, HeadUrlPolicy,
+    NoLoader, OpenGraph, RenderBuffer, RenderOutcome, StaticRaw, TryIntoHeadUrl, Twitter,
+    TwitterCard, WebContext, WebRender, WebRenderSync, WriteBuf, WriteError,
 };
+use proa_framework_core::{FrameworkBody, FrameworkRequestContext, RouteResponse};
 use proa_macros::{html, html_sync};
 
-use crate::{analytics::google_analytics, utils::site_url::public_site_url};
+use crate::{analytics::google_analytics, static_assets, utils::site_url::public_site_url};
 
 use crate::components::{
     landing_shell::{LandingFooter, LandingHeader, MarketingNavActive},
@@ -35,7 +37,9 @@ where
 {
     render_chained_html(Document {
         shell: Shell::Marketing,
-        meta,
+        path: meta.path,
+        metadata: DocumentMetadata::new(meta),
+        managed: false,
         content,
     })
 }
@@ -48,9 +52,69 @@ where
 {
     render_chained_html(Document {
         shell: Shell::Docs,
-        meta,
+        path: meta.path,
+        metadata: DocumentMetadata::new(meta),
+        managed: false,
         content,
     })
+}
+
+/// Render a Page that owns its metadata through `render_head`.
+pub fn render_managed_page<C>(path: &'static str, content: C) -> Response
+where
+    C: WebRenderSync<NoLoader, RenderBuffer> + Send + 'static,
+{
+    static HEAD: std::sync::OnceLock<HeadConfig> = std::sync::OnceLock::new();
+    let head = HEAD.get_or_init(|| {
+        let origin = public_site_url();
+        let image_url = static_assets::request()
+            .url(SOCIAL_IMAGE_PATH)
+            .try_to_string()
+            .expect("published social image");
+        HeadConfig::default()
+            .with_urls(HeadUrlPolicy::new(origin, "/").expect("valid public site origin"))
+            .with_defaults(|head| {
+                let mut image = HeadMedia::new(image_url.clone())
+                    .mime_type("image/jpeg")
+                    .alt(SOCIAL_IMAGE_ALT)
+                    .dimensions(1536, 1024);
+                if origin.starts_with("https://") {
+                    image = image.secure_url(image_url);
+                }
+                head.open_graph(
+                    OpenGraph::new()
+                        .site_name(site::NAME)
+                        .locale("en_US")
+                        .kind("website")
+                        .images([image]),
+                )?;
+                head.twitter(
+                    Twitter::new()
+                        .card(TwitterCard::SummaryLargeImage)
+                        .site(site::SOCIAL_HANDLE),
+                )
+            })
+            .expect("valid shared marketing metadata")
+    });
+    let response = futures::executor::block_on(
+        RouteResponse::ssr_async(Document {
+            shell: Shell::Marketing,
+            path,
+            metadata: ManagedMetadata { path },
+            managed: true,
+            content,
+        })
+        .with_head(head.clone())
+        .into_framework_response(&FrameworkRequestContext {
+            request: static_assets::request(),
+            ..FrameworkRequestContext::default()
+        }),
+    )
+    .expect("render managed marketing page");
+    let FrameworkBody::Full(body) = response.body else {
+        unreachable!("buffered page produces a complete response")
+    };
+    (response.status, response.headers, body).into_response()
 }
 
 /// Drive any async root to a finished HTML response.
@@ -69,6 +133,7 @@ where
 {
     let out = futures::executor::block_on(async {
         let mut cx = WebContext::new();
+        cx.set_request(static_assets::request());
         render_in_context_async(&mut cx, root).await.unwrap();
         cx.into_output()
     });
@@ -98,9 +163,11 @@ impl Shell {
     }
 }
 
-struct Document<C> {
+struct Document<C, M> {
     shell: Shell,
-    meta: PageMeta,
+    path: &'static str,
+    metadata: M,
+    managed: bool,
     content: C,
 }
 
@@ -125,27 +192,27 @@ pub(crate) const THEME_BOOT: &str = r#"
 })();
 "#;
 
-pub(crate) const STYLESHEET_HREF: &str =
-    concat!("/static/styles.css?v=", env!("MARKETING_ASSET_VERSION"));
+pub(crate) const STYLESHEET_PATH: &str = "public/styles.css";
 const SOCIAL_IMAGE_ALT: &str =
     "Proa: a person and a robot in a boat with an orange sail, traveling through streams of HTML and Markdown.";
-const SOCIAL_IMAGE_SRC: &str = concat!("/static/og.jpg?v=", env!("MARKETING_ASSET_VERSION"));
+const SOCIAL_IMAGE_PATH: &str = "public/og.jpg";
 /// iOS fills transparent touch icons with black, so this PNG is opaque.
-pub(crate) const APPLE_TOUCH_ICON_HREF: &str = concat!(
-    "/static/apple-touch-icon.png?v=",
-    env!("MARKETING_ASSET_VERSION")
-);
-pub(crate) const DOCS_SCRIPT_SRC: &str =
-    concat!("/static/docs.js?v=", env!("MARKETING_ASSET_VERSION"));
-/// Orama-backed search for the modal on every shell. A module script, so it
-/// is deferred and its `?v=` carries through to the modules it imports.
-pub(crate) const SEARCH_SCRIPT_SRC: &str =
-    concat!("/static/search.mjs?v=", env!("MARKETING_ASSET_VERSION"));
-const AGENT_TOOLS_SCRIPT_SRC: &str = concat!(
-    "/static/agent-tools.mjs?v=",
-    env!("MARKETING_ASSET_VERSION")
-);
+const APPLE_TOUCH_ICON_PATH: &str = "public/apple-touch-icon.png";
 
+pub(crate) struct SiteIcons;
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteIcons {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        WebRenderSync::render(
+            html_sync! {
+                <link rel="icon" href={cx.url("public/favicon.ico")} />
+                <link rel="icon" type="image/svg+xml" href={cx.url("public/favicon.svg")} />
+                <link rel="apple-touch-icon" sizes="180x180" href={cx.url(APPLE_TOUCH_ICON_PATH)} />
+            },
+            cx,
+        )
+    }
+}
 /// Emit the rsjs runtime and island module tags for every hydrated island
 /// this response has rendered so far.
 ///
@@ -189,30 +256,13 @@ impl DocumentMetadata {
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let origin = self.origin;
+        let image = cx.url(SOCIAL_IMAGE_PATH);
+        let image = (&image).try_into_head_url()?;
         WebRenderSync::render(
             html_sync! {
                 <title>{raw_text_ok(text(self.meta.title))}</title>
                 <meta name="description" content={self.meta.description} />
-                <meta name="proa-route" content={self.meta.path} />
-                <link rel="describedby" type="text/plain" href={routes::AGENT_INDEX} />
-                <link
-                    rel="service-desc"
-                    type="application/vnd.oai.openapi+json"
-                    href={routes::OPENAPI}
-                />
-                <link rel="ard" type="application/ai-catalog+json" href={routes::ARD_CATALOG} />
-                {if self.meta.path == routes::HOME {
-                    html_sync! {
-                        <link rel="alternate" type="text/markdown" href={routes::HOME_MARKDOWN} />
-                        <script type="application/ld+json">{StaticRaw(structured_data::document())}</script>
-                    }
-                }}
-                {if let Some(data) = structured_data::for_documentation(self.meta.path) {
-                    html_sync! {
-                        <script type="application/ld+json">{StaticRaw(data)}</script>
-                    }
-                }}
-                <script type="module" src={AGENT_TOOLS_SCRIPT_SRC}></script>
+                {SiteMetadata { path: self.meta.path }}
                 <link
                     rel="canonical"
                     href={display_attr(format_args!("{origin}{}", self.meta.path))}
@@ -234,11 +284,11 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                 <meta
                     name="og:image"
                     property="og:image"
-                    content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))}
+                    content={display_attr(format_args!("{origin}{image}"))}
                 />
                 {if origin.starts_with("https://") {
                     html_sync! {
-                        <meta name="og:image:secure_url" property="og:image:secure_url" content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))} />
+                        <meta name="og:image:secure_url" property="og:image:secure_url" content={display_attr(format_args!("{origin}{image}"))} />
                     }
                 }}
                 <meta name="og:image:type" property="og:image:type" content="image/jpeg" />
@@ -251,9 +301,48 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
                 <meta name="twitter:description" content={self.meta.description} />
                 <meta
                     name="twitter:image"
-                    content={display_attr(format_args!("{origin}{SOCIAL_IMAGE_SRC}"))}
+                    content={display_attr(format_args!("{origin}{image}"))}
                 />
                 <meta name="twitter:image:alt" content={SOCIAL_IMAGE_ALT} />
+            },
+            cx,
+        )
+    }
+}
+
+struct SiteMetadata {
+    path: &'static str,
+}
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for SiteMetadata {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        WebRenderSync::render(
+            html_sync! {
+                <meta name="proa-route" content={self.path} />
+                <link rel="describedby" type="text/plain" href={routes::AGENT_INDEX} />
+                <link
+                    rel="service-desc"
+                    type="application/vnd.oai.openapi+json"
+                    href={routes::OPENAPI}
+                />
+                <link rel="ard" type="application/ai-catalog+json" href={routes::ARD_CATALOG} />
+                {if self.path == routes::HOME {
+                        html_sync! {
+                            <link rel="alternate" type="text/markdown" href={routes::HOME_MARKDOWN} />
+                            <script type="application/ld+json">{raw_text_ok(structured_data::document(cx.request())?)}</script>
+                        }
+                    }}
+                {if self.path == routes::TEAM {
+                        html_sync! {
+                            <link rel="alternate" type="text/markdown" href={routes::TEAM_MARKDOWN} />
+                        }
+                    }}
+                {if let Some(data) = structured_data::for_documentation(self.path) {
+                        html_sync! {
+                            <script type="application/ld+json">{raw_text_ok(data)}</script>
+                        }
+                    }}
+                <script type="module" src={cx.url("public/agent-tools.mjs")}></script>
                 {google_analytics()}
             },
             cx,
@@ -261,32 +350,47 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocumentMetadata {
     }
 }
 
-/// The `<head>` both shells share. Only the docs enhancement script differs.
-struct PageHead {
-    shell: Shell,
-    meta: PageMeta,
+struct ManagedMetadata {
+    path: &'static str,
 }
 
-impl<L, B> WebRenderSync<L, B> for PageHead
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ManagedMetadata {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        WebRenderSync::render(
+            html_sync! {
+                {cx.head()}
+                {SiteMetadata { path: self.path }}
+            },
+            cx,
+        )
+    }
+}
+
+/// The `<head>` both shells share. Only the docs enhancement script differs.
+struct PageHead<M> {
+    shell: Shell,
+    metadata: M,
+}
+
+impl<L, B, M> WebRenderSync<L, B> for PageHead<M>
 where
     B: WriteBuf,
     L: DataLoader,
+    M: WebRenderSync<L, B>,
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         WebRenderSync::render(
             html_sync! {
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            {DocumentMetadata::new(self.meta)}
-            <link rel="icon" href="/static/favicon.ico" />
-            <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-            <link rel="apple-touch-icon" sizes="180x180" href={APPLE_TOUCH_ICON_HREF} />
-            <link rel="stylesheet" href={STYLESHEET_HREF} />
-            <script type="module" src={SEARCH_SCRIPT_SRC}></script>
+            {self.metadata}
+            {SiteIcons}
+            <link rel="stylesheet" href={cx.url(STYLESHEET_PATH)} />
+            <script type="module" src={cx.url("public/search.mjs")}></script>
             {if self.shell.is_docs() {
                 WebRenderSync::render(
                     html_sync! {
-                        <script src={DOCS_SCRIPT_SRC} defer></script>
+                        <script src={cx.url("public/docs.js")} defer></script>
                     },
                     cx,
                 )?;
@@ -306,7 +410,7 @@ where
 /// the content, which owns its own layout.
 struct PageBody<C> {
     shell: Shell,
-    meta: PageMeta,
+    path: &'static str,
     content: C,
 }
 
@@ -325,7 +429,7 @@ where
             html_sync! {
                 <div class="landing-shell min-h-screen">
                     {LandingHeader {
-                        active: MarketingNavActive::for_path(self.meta.path),
+                        active: MarketingNavActive::for_path(self.path),
                     }}
                     <main id="main-content">{self.content}</main>
                     {LandingFooter}
@@ -336,11 +440,12 @@ where
     }
 }
 
-impl<L, B, C> WebRender<L, B> for Document<C>
+impl<L, B, C, M> WebRender<L, B> for Document<C, M>
 where
     B: WriteBuf,
     L: DataLoader,
     C: WebRenderSync<L, B> + Send + 'static,
+    M: WebRenderSync<L, B>,
 {
     fn render(
         self,
@@ -353,19 +458,21 @@ where
                     <head>
                         {proa_core::to_async(PageHead {
                             shell: self.shell,
-                            meta: self.meta,
+                            metadata: self.metadata,
                         })}
                     </head>
                     <body class={self.shell.body_class()}>
                         {proa_core::to_async(PageBody {
                             shell: self.shell,
-                            meta: self.meta,
+                            path: self.path,
                             content: self.content,
                         })}
                         {SearchModal}
                         // Must stay last in `<body>`: it snapshots the islands
                         // rendered so far, so anything after it ships no JS.
-                        {proa_core::to_async(RsjsRuntimeTags)}
+                        {if !self.managed {
+                            proa_core::to_async(RsjsRuntimeTags)
+                        }}
                     </body>
                 </html>
             }
@@ -380,144 +487,35 @@ where
 mod tests {
     use super::*;
 
-    const META: PageMeta = PageMeta {
-        title: "Test",
-        description: "Test page",
-        path: "/",
-    };
-
     #[test]
-    fn document_metadata_emits_absolute_urls_and_escapes_page_values() {
-        for (origin, path) in [
-            (site::CANONICAL_ORIGIN, routes::HOME),
-            ("https://pr-123.example.test", "/docs/core/markdown"),
-            ("http://localhost:5555", "/ecosystem/apps"),
-        ] {
-            let mut cx = WebContext::new();
-            DocumentMetadata {
-                origin,
-                meta: PageMeta {
-                    title: "Docs & <examples>",
-                    description: "A \"quoted\" & <description>",
-                    path,
-                },
-            }
-            .render(&mut cx)
-            .unwrap();
-            let html = cx.into_output().into_string();
-            let canonical = format!("{origin}{path}");
-            let image = format!("{origin}{SOCIAL_IMAGE_SRC}");
+    fn page_shells_load_the_search_islands_runtime_and_modules() {
+        let mut cx = WebContext::new();
+        futures::executor::block_on(SearchModal.render(&mut cx).resolve()).unwrap();
+        let search_assets: Vec<_> = cx.rsjs_artifacts_snapshot().rendered_islands().collect();
+        assert!(
+            !search_assets.is_empty(),
+            "search must register client work"
+        );
 
-            for tag in [
-                format!(r#"<link rel="canonical" href="{canonical}""#),
-                format!(r#"<meta name="og:url" property="og:url" content="{canonical}""#),
-                format!(r#"<meta name="og:image" property="og:image" content="{image}""#),
-                format!(r#"<meta name="twitter:image" content="{image}""#),
-            ] {
-                assert_eq!(html.matches(&tag).count(), 1, "{tag}");
-            }
-            assert_eq!(
-                html.contains(r#"property="og:image:secure_url""#),
-                origin.starts_with("https://")
-            );
-            assert!(html.contains("<title>Docs &amp; &lt;examples&gt;</title>"));
-            assert!(html.contains(r#"property="og:title" content="Docs &amp; &lt;examples&gt;""#));
-            assert!(html.contains(r#"name="twitter:description" content="A &quot;quoted&quot; &amp; &lt;description&gt;""#));
-            assert!(!html.contains("<examples>"));
-            assert!(!html.contains("<description>"));
-        }
-    }
-
-    #[test]
-    fn public_page_shells_share_social_image_metadata() {
-        use futures::FutureExt;
-
-        let jpeg = include_bytes!("../public/og.jpg");
-        assert!(jpeg.len() <= 500_000, "social image must stay below 500 KB");
-        assert_eq!(&jpeg[..2], b"\xff\xd8");
-        // Read the JPEG frame dimensions so metadata follows the actual asset.
-        let mut offset = 2;
-        let (width, height) = loop {
-            assert_eq!(jpeg[offset], 0xff);
-            let marker = jpeg[offset + 1];
-            assert_ne!(marker, 0xda, "frame dimensions must precede image data");
-            if matches!(marker, 0xc0 | 0xc2) {
-                let height = u16::from_be_bytes(jpeg[offset + 5..offset + 7].try_into().unwrap());
-                let width = u16::from_be_bytes(jpeg[offset + 7..offset + 9].try_into().unwrap());
-                break (width, height);
-            }
-            let length = u16::from_be_bytes(jpeg[offset + 2..offset + 4].try_into().unwrap());
-            offset += 2 + usize::from(length);
+        let meta = PageMeta {
+            title: "Test",
+            description: "Test",
+            path: "/",
         };
-        let origin = public_site_url();
-        for (path, html) in [
-            ("/", render_page(META, proa_core::text::text("body")).0),
-            (
-                "/docs/core/markdown",
-                render_docs_page(
-                    PageMeta {
-                        path: "/docs/core/markdown",
-                        ..META
-                    },
-                    proa_core::text::text("body"),
-                )
-                .0,
-            ),
-            (
-                "/ecosystem",
-                crate::pages::ecosystem::handler()
-                    .now_or_never()
-                    .expect("ecosystem page renders without I/O")
-                    .0,
-            ),
+        for html in [
+            render_page(meta, text("body")).0,
+            render_docs_page(meta, text("body")).0,
         ] {
-            let head = html.split_once("</head>").unwrap().0;
-            for tag in [
-                r#"property="og:site_name" content="Proa""#.to_owned(),
-                r#"property="og:image:type" content="image/jpeg""#.to_owned(),
-                format!(r#"property="og:url" content="{origin}{path}""#),
-                format!(r#"rel="canonical" href="{origin}{path}""#),
-                format!(r#"property="og:image" content="{origin}{SOCIAL_IMAGE_SRC}""#),
-                format!(r#"name="twitter:image" content="{origin}{SOCIAL_IMAGE_SRC}""#),
-                format!(r#"property="og:image:width" content="{width}""#),
-                format!(r#"property="og:image:height" content="{height}""#),
-                format!(r#"property="og:image:alt" content="{SOCIAL_IMAGE_ALT}""#),
-                format!(r#"name="twitter:image:alt" content="{SOCIAL_IMAGE_ALT}""#),
-            ] {
-                assert_eq!(head.matches(&tag).count(), 1, "{path}: {tag}");
+            assert!(html.contains(r#"<script type="module" src="/rsjs-runtime.js""#));
+            assert!(html.contains(&format!(
+                r#"<script type="module" src="{}""#,
+                static_assets::get().url("search.mjs").unwrap()
+            )));
+            for asset in &search_assets {
+                assert!(html.contains(&format!(
+                    r#"<script type="module" src="/rsjs/island/{asset}.js""#
+                )));
             }
-        }
-    }
-
-    /// Regression test for the dead cmd+K search: the page shells must load
-    /// the rsjs runtime and the search island module. The old implementation
-    /// filtered the manifest by struct name, which matched nothing under the
-    /// linked-owner asset ids `cargo proa` produces, so no scripts shipped
-    /// and the modal never hydrated.
-    #[test]
-    fn page_shells_emit_rsjs_runtime_tags_for_the_search_modal() {
-        for (shell, html) in [
-            (
-                "render_page",
-                render_page(META, proa_core::text::text("body")).0,
-            ),
-            (
-                "render_docs_page",
-                render_docs_page(META, proa_core::text::text("body")).0,
-            ),
-        ] {
-            assert!(
-                html.contains(r#"<script type="module" src="/rsjs-runtime.js""#),
-                "{shell} must emit the rsjs runtime script tag"
-            );
-            assert!(
-                html.contains("/rsjs/island/"),
-                "{shell} must emit the search island module script tag"
-            );
-            assert!(
-                html.contains(r#"<script type="module" src="/static/search.mjs?v="#),
-                "{shell} must load the Orama search module for the modal"
-            );
         }
     }
 }

@@ -72,7 +72,7 @@ impl WebRender for Page {
         self,
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
-        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend(b"PAGE"))
+        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend_str("PAGE"))
     }
 }
 impl WebRenderSend for Page {
@@ -84,7 +84,7 @@ impl WebRenderSend for Page {
         self,
         cx: &mut SendWebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
-        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend(b"PAGE"))
+        RenderOutcome::<std::future::Ready<_>>::Done(cx.output_mut().extend_str("PAGE"))
     }
 }
 
@@ -110,7 +110,7 @@ impl WebRender for Child {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.output_mut().extend(b"CHILD")?;
+            cx.output_mut().extend_str("CHILD")?;
             finish(self.0).await
         })
     }
@@ -121,7 +121,7 @@ impl WebRenderSend for Child {
         cx: &mut SendWebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
         RenderOutcome::pending(async move {
-            cx.output_mut().extend(b"CHILD")?;
+            cx.output_mut().extend_str("CHILD")?;
             finish(self.0).await
         })
     }
@@ -132,7 +132,7 @@ impl MdRender for Child {
         cx: &mut WebContext,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            cx.output_mut().extend(b"CHILD")?;
+            cx.output_mut().extend_str("CHILD")?;
             finish(self.0).await
         })
     }

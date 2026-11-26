@@ -20,16 +20,19 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 const_format = "0.2.36"
 futures = { workspace = true }
+proa_assets = { workspace = true, features = ["build"] }
 proa_core = { workspace = true, features = ["html-to-markdown"] }
 proa_demo = { workspace = true, features = ["server"] }
 proa_docs = { workspace = true }
+proa_framework_axum = { workspace = true }
+proa_framework_core = { workspace = true }
 proa_macros = { workspace = true }
 proa_third_party = { workspace = true, features = ["google-analytics"] }
 proa_showcase_web = { workspace = true }
 # json to read the GitHub release metadata, stream so an 11MB archive is
 # forwarded to the client instead of buffered in memory.
 reqwest = { workspace = true, features = ["json", "stream"] }
-rmcp = { version = "=3.2.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+rmcp = { workspace = true, features = ["server", "transport-streamable-http-server"] }
 rsjs = { workspace = true }
 rsjs_macros = { workspace = true }
 schemars = "1.2"
@@ -38,8 +41,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
-tower = { version = "0.4" }
-tower-http = { version = "0.5", features = ["compression-br", "compression-gzip", "cors", "fs", "set-header", "trace"] }
+tower-http = { version = "0.7.1", features = ["compression-br", "compression-gzip", "cors", "set-header", "trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 utoipa = { version = "6.0", features = ["axum_extras"] }
@@ -48,7 +50,6 @@ utoipa = { version = "6.0", features = ["axum_extras"] }
 proa_docs_build = { workspace = true }
 
 [dev-dependencies]
-pulldown-cmark = { workspace = true }
 tower-test = { package = "tower", version = "0.5", features = ["util"] }
 
 [lints]

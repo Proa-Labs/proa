@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # CI runner for Proa: ARC base + pinned Rust toolchain + link/build tools
-# + sccache. Rebuild on toolchain bumps (rust-toolchain 1.95.0).
+# + sccache. Rebuild on toolchain bumps (rust-toolchain 1.100.0).
 # 2.338.1 bundles Node 24.22.1, including the October 21 security fixes.
 # setup-node does not update this runtime used to execute JavaScript actions.
 FROM ghcr.io/actions/actions-runner:2.338.1@sha256:e275409999c37162649aa050ca573f03eab2eabcb3a1e7fcc47548de6b4f9690
@@ -11,7 +11,7 @@ RUN /home/runner/externals/node24/bin/node --version
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        acl haproxy openssl \
+        openssl \
         build-essential pkg-config libssl-dev python3 curl git gh jq \
         openssh-client rsync zstd \
     && rm -rf /var/lib/apt/lists/*
@@ -30,7 +30,7 @@ RUN curl -fsSL -o /tmp/sccache.tgz \
 USER runner
 # Pinned toolchain matching the workspace; profile minimal + clippy/rustfmt.
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
-      | sh -s -- -y --default-toolchain 1.95.0 --profile minimal \
+      | sh -s -- -y --default-toolchain 1.100.0 --profile minimal \
         --component clippy --component rustfmt \
     && ~/.cargo/bin/cargo --version
 ENV PATH="/home/runner/.cargo/bin:${PATH}"

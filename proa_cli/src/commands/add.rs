@@ -96,32 +96,32 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
     let root = resolve_config_root(args.root)?;
     let _accept_defaults = args.yes;
     let _offline = args.offline;
-    let config_path = root.join(config::CONFIG_FILE);
+    let config_path =
+        config::project_config_path(&root).context("initialize project config with proa init")?;
+    let original_source = fs::read_to_string(&config_path)?;
     let lock_path = root.join(config::LOCK_FILE);
-    let mut config_value: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&config_path)?)?;
+    let mut project = config::load_project_config(&root)?;
+    let original_config = project.clone();
     let mut lock_value: serde_json::Value = if lock_path.exists() {
         serde_json::from_str(&fs::read_to_string(&lock_path)?)?
     } else {
         serde_json::json!({"schemaVersion":1,"scaffold":{"capabilities":[]},"components":{}})
     };
-    let package = config_value
-        .pointer("/application/package")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("app")
-        .to_string();
-    let has_database = config_value.pointer("/database/driver").is_some();
+    let has_database = project
+        .database
+        .as_ref()
+        .is_some_and(|database| database.driver == config::DatabaseDriver::Sqlite);
     let mut files = Vec::<(PathBuf, String)>::new();
     let mut warnings = Vec::new();
     let (id, changes, partial) = match args.capability {
         AddCapability::Database {
             driver: Database::Sqlite,
         } => {
-            set_pointer(
-                &mut config_value,
-                "database",
-                serde_json::json!({"driver":"sqlite","migrations":"migrations","runMigrationsOnStartup":true,"integration":"manual"}),
-            )?;
+            project.database = Some(config::DatabaseConfig {
+                driver: config::DatabaseDriver::Sqlite,
+                integration: "manual".into(),
+                ..Default::default()
+            });
             add_sqlx_dependency(&root, &mut files)?;
             files.push((PathBuf::from("data/.gitkeep"), String::new()));
             files.push((PathBuf::from("migrations/.gitkeep"), String::new()));
@@ -135,56 +135,24 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         }
         AddCapability::Representation {
             representation: Representation::Markdown,
-        } => {
-            let representations = config_value
-                .as_object_mut()
-                .context("project config must be an object")?
-                .entry("representations")
-                .or_insert_with(|| serde_json::json!({}));
-            representations.as_object_mut().context("representations must be an object")?.insert("markdown".to_string(), serde_json::json!({"enabled":true,"negotiateOnCanonicalPath":true,"explicitSuffix":".md","rootPath":"/index.md"}));
-            (
-                "representation:markdown",
-                vec!["representations.markdown.enabled=true".to_string()],
-                false,
-            )
-        }
+        } => ("representation:markdown", vec![], false),
         AddCapability::Ui => {
-            set_pointer(
-                &mut config_value,
-                "ui",
-                serde_json::json!({"provider":"proa"}),
-            )?;
-            config_value
-                .as_object_mut()
-                .unwrap()
-                .entry("registries")
-                .or_insert_with(|| serde_json::json!({"@proa":"https://ui.proa.so/r/{name}.json"}));
             files.push((PathBuf::from("src/components/mod.rs"), String::new()));
-            ("ui:proa", vec!["ui.provider=proa".to_string()], false)
+            ("ui:proa", vec![], false)
         }
         AddCapability::Docs => {
-            set_content_capability(&mut config_value, "docs")?;
             files.push((
                 PathBuf::from("src/docs/index.md"),
                 "# Documentation\n\nStart writing here.\n".to_string(),
             ));
-            (
-                "content:docs",
-                vec!["content.docs.enabled=true".to_string()],
-                false,
-            )
+            ("content:docs", vec![], false)
         }
         AddCapability::Blog => {
-            set_content_capability(&mut config_value, "blog")?;
             files.push((
                 PathBuf::from("src/blog/first-post.md"),
                 "# First post\n\nWrite your first post here.\n".to_string(),
             ));
-            (
-                "content:blog",
-                vec!["content.blog.enabled=true".to_string()],
-                false,
-            )
+            ("content:blog", vec![], false)
         }
         AddCapability::Deploy { provider } => {
             let provider_name = match provider {
@@ -192,11 +160,8 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
                 Deployment::Railway => "railway",
                 Deployment::Coolify => "coolify",
             };
-            set_pointer(
-                &mut config_value,
-                "deploy",
-                serde_json::json!({"provider":provider_name}),
-            )?;
+            project.deploy.get_or_insert_with(Default::default).provider = provider_name.into();
+            let package = crate::util::cargo_package_name(&root).unwrap_or_else(|| "app".into());
             files.extend(deployment_files(provider, &package, has_database));
             (
                 match provider {
@@ -210,12 +175,15 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         }
     };
     add_capability_lock(&mut lock_value, id, partial)?;
-    let config_source = format!("{}\n", serde_json::to_string_pretty(&config_value)?);
+    let config_source = config::add_rust_capability(&original_source, &original_config, &project)?;
     let lock_source = format!("{}\n", serde_json::to_string_pretty(&lock_value)?);
-    let mut mutations = vec![
-        (PathBuf::from(config::CONFIG_FILE), config_source),
-        (PathBuf::from(config::LOCK_FILE), lock_source),
-    ];
+    let mut mutations = vec![(PathBuf::from(config::LOCK_FILE), lock_source)];
+    if config_source != original_source {
+        mutations.push((
+            PathBuf::from(config_path.file_name().context("config filename")?),
+            config_source,
+        ));
+    }
     for (relative, source) in files {
         if root.join(&relative).exists() && relative != Path::new("Cargo.toml") {
             continue;
@@ -249,6 +217,12 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
         },
     };
     if !args.dry_run {
+        if fs::read_to_string(&config_path)? != original_source {
+            anyhow::bail!(
+                "{} changed during capability preparation; rerun proa add",
+                config_path.display()
+            );
+        }
         commit(&root, &mutations)?;
     }
     if args.json {
@@ -265,27 +239,6 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
             eprintln!("warning: {warning}");
         }
     }
-    Ok(())
-}
-
-fn set_pointer(config: &mut serde_json::Value, key: &str, value: serde_json::Value) -> Result<()> {
-    config
-        .as_object_mut()
-        .context("project config must be an object")?
-        .insert(key.to_string(), value);
-    Ok(())
-}
-
-fn set_content_capability(config: &mut serde_json::Value, name: &str) -> Result<()> {
-    let content = config
-        .as_object_mut()
-        .context("project config must be an object")?
-        .entry("content")
-        .or_insert_with(|| serde_json::json!({}));
-    content
-        .as_object_mut()
-        .context("content config must be an object")?
-        .insert(name.to_string(), serde_json::json!({ "enabled": true }));
     Ok(())
 }
 
@@ -359,7 +312,7 @@ fn add_sqlx_dependency(root: &Path, files: &mut Vec<(PathBuf, String)>) -> Resul
         }
     } else {
         let mut table = InlineTable::new();
-        table.insert("version", Value::from("0.8"));
+        table.insert("version", Value::from("0.9.1"));
         let mut features = Array::new();
         for feature in required {
             features.push(feature);
@@ -405,14 +358,15 @@ fn deployment_files(
     package: &str,
     has_database: bool,
 ) -> Vec<(PathBuf, String)> {
-    let migration_copy = if has_database {
-        "COPY --from=build /app/migrations ./migrations\n"
-    } else {
-        ""
-    };
     let mut files = vec![
-        (PathBuf::from("Dockerfile"), format!("FROM rust:1.93-bookworm AS build\nWORKDIR /app\nCOPY . .\nRUN --mount=type=secret,id=proa_token cargo build --release --locked\nFROM debian:bookworm-slim\nWORKDIR /app\nCOPY --from=build /app/target/release/{package} /usr/local/bin/app\nCOPY --from=build /app/public ./public\n{migration_copy}ENV PROA_HOST=0.0.0.0 PORT=3000\nEXPOSE 3000\nCMD [\"/usr/local/bin/app\"]\n")),
-        (PathBuf::from(".dockerignore"), "target\n.git\ndata/*.db*\n.env\n".to_string()),
+        (
+            PathBuf::from("Dockerfile"),
+            crate::site_scaffold::deployment_dockerfile(has_database),
+        ),
+        (
+            PathBuf::from(".dockerignore"),
+            "target\n.git\ndata/*.db*\n.env\n".to_string(),
+        ),
     ];
     if matches!(provider, Deployment::Railway) {
         files.push((PathBuf::from("railway.json"), "{\n  \"$schema\": \"https://railway.com/railway.schema.json\",\n  \"build\": { \"builder\": \"DOCKERFILE\" },\n  \"deploy\": { \"healthcheckPath\": \"/readyz\", \"healthcheckTimeout\": 120, \"restartPolicyType\": \"ON_FAILURE\" }\n}\n".to_string()));

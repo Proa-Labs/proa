@@ -9,38 +9,8 @@
 use super::calendar::AirbnbCalendar;
 use super::image::{AirImage, AirImageFetchPriority, AirImageLoading};
 use super::shared;
-use proa_core::shared::attr_value::AttrValue;
-use proa_core::{RenderBuffer, StaticRaw, UnsafeRaw, WebContext, WebRenderSync, WriteBuf};
+use proa_core::{RenderBuffer, StaticRaw, WebContext, WebRenderSync};
 use proa_macros::{html_sync, md_sync};
-
-/// Pre-rendered React island HTML strings for interactive sections.
-pub struct ListingIslands {
-    /// "Select dates" section with two interactive calendars
-    pub date_picker: String,
-    /// Booking sidebar card with pricing, popover, and calendars
-    pub booking_card: String,
-    /// React bootstrap script (import + hydration)
-    pub bootstrap: String,
-}
-
-/// Zero-allocation style attribute for `width:NN%;min-width:2px`.
-struct WidthPct(u8);
-
-impl AttrValue for WidthPct {
-    #[inline(always)]
-    fn should_render(&self) -> bool {
-        true
-    }
-    #[inline(always)]
-    fn render_attr_value<B: WriteBuf, L: proa_core::DataLoader>(
-        &self,
-        cx: &mut WebContext<L, B>,
-    ) -> Result<(), proa_core::WriteError> {
-        cx.out.extend(b"width:")?;
-        self.0.render_attr_value(cx)?;
-        cx.out.extend_static(b"%;min-width:2px")
-    }
-}
 
 const STAR_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="#FF385C"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>"##;
 const HOUSE_RULES_ICON: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>"##;
@@ -143,8 +113,10 @@ pub struct ListingData<'a> {
 // Sample data — Malibu listing
 // ---------------------------------------------------------------------------
 
+pub(super) static MALIBU: ListingData<'static> = ListingData::malibu();
+
 impl ListingData<'static> {
-    pub fn malibu() -> Self {
+    pub const fn malibu() -> Self {
         static PHOTOS: &[ListingPhoto<'static>] = &[
             ListingPhoto {
                 src: "/images/airbnb/external/8db0ac0c-2124-4588-8331-e3d7b619bc0d.jpeg",
@@ -297,126 +269,214 @@ impl ListingData<'static> {
     }
 }
 
-/// Pre-render the React islands for the listing page.
-/// In production these would be cached per-request.
-pub fn build_islands(data: &ListingData<'_>) -> ListingIslands {
-    let booking_key = format!(
-        "airbnb-listing:{}:{}:{}",
-        data.title, data.booking.check_in, data.booking.checkout
-    );
-    let date_picker_module = shared::versioned_asset_path("/assets/DatePickerIsland.js");
-    let booking_card_module = shared::versioned_asset_path("/assets/BookingCardIsland.js");
-
-    // Pre-render React islands for interactive calendar + booking card
-    use proa_core::ctx::Ctx;
-    use proa_react::{
-        react_bootstrap, HydrationStrategy, Island, ReactBootstrapConfig, ReactModuleDescriptor,
-    };
-
-    let mut dp_cx = Ctx::new();
-    Island::new("DatePicker")
-        .id("date-picker")
-        .prop("bookingKey", booking_key.as_str())
-        .prop("initialCheckIn", data.booking.check_in)
-        .prop("initialCheckOut", data.booking.checkout)
-        .prop("month1", 3u32)
-        .prop("year1", 2026u32)
-        .prop("month2", 4u32)
-        .prop("year2", 2026u32)
-        .size_hint(340)
-        .render(&mut dp_cx)
-        .unwrap();
-    let date_picker = dp_cx.into_output().into_string();
-
-    let mut bc_cx = Ctx::new();
-    Island::new("BookingCard")
-        .id("booking-card")
-        .prop("bookingKey", booking_key.as_str())
-        .prop("nightlyRate", data.nightly_rate)
-        .prop("cleaningFee", data.cleaning_fee)
-        .prop("serviceFee", data.service_fee)
-        .prop("rating", data.rating)
-        .prop("reviewCount", data.review_count)
-        .prop("guests", data.booking.guests)
-        .prop("freeCancelDate", data.booking.free_cancel_date)
-        .prop("initialCheckIn", data.booking.check_in)
-        .prop("initialCheckOut", data.booking.checkout)
-        .prop("month1", 3u32)
-        .prop("year1", 2026u32)
-        .prop("month2", 4u32)
-        .prop("year2", 2026u32)
-        .size_hint(500)
-        .render(&mut bc_cx)
-        .unwrap();
-    let booking_card = bc_cx.into_output().into_string();
-
-    let mut bs_cx = Ctx::new();
-    let config = ReactBootstrapConfig {
-        hydrate_fn: "createRoot",
-        ..Default::default()
-    };
-    proa_core::Render::render(
-        react_bootstrap(
-            &[
-                ReactModuleDescriptor {
-                    island: "DatePicker",
-                    module_path: date_picker_module.as_str(),
-                    export: None,
-                    strategy: HydrationStrategy::Immediate,
-                },
-                ReactModuleDescriptor {
-                    island: "BookingCard",
-                    module_path: booking_card_module.as_str(),
-                    export: None,
-                    strategy: HydrationStrategy::Immediate,
-                },
-            ],
-            &config,
-        ),
-        &mut bs_cx,
-    )
-    .unwrap();
-    let bootstrap = bs_cx.into_output().into_string();
-
-    ListingIslands {
-        date_picker,
-        booking_card,
-        bootstrap,
+/// Render the browser-facing listing, including its page-local booking controls.
+pub fn render() -> String {
+    let data = &MALIBU;
+    let mut out = RenderBuffer::new();
+    #[cfg(feature = "rsjs-pages")]
+    {
+        let mut cx = WebContext::with_buffer(&mut out);
+        shared::render_document_start(&mut cx, &[data.title, " | Airbnb"]);
+        render_listing_body(&mut cx, data, super::booking::BookingSection {}).unwrap();
+        shared::render_document_end(&mut cx);
+        let artifacts = cx.rsjs_artifacts_snapshot();
+        let nonce = cx.csp_nonce_cloned();
+        drop(cx);
+        let mut html = out.into_string();
+        crate::finalize_rsjs_document(&mut html, &artifacts, nonce.as_ref()).unwrap();
+        html
+    }
+    #[cfg(not(feature = "rsjs-pages"))]
+    {
+        render_into(&mut WebContext::with_buffer(&mut out), data).unwrap();
+        out.into_string()
     }
 }
 
-pub fn render() -> String {
-    let data = ListingData::malibu();
-    let islands = build_islands(&data);
-    let mut buf = RenderBuffer::new();
-    render_into(
-        &mut WebContext::with_buffer(&mut buf),
-        &data,
-        Some(&islands),
-    )
-    .unwrap();
-    buf.into_string()
-}
-
-pub fn render_into<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
+pub fn render_into<B: proa_core::WriteBuf, L: proa_core::DataLoader>(
     cx: &mut WebContext<L, B>,
     data: &ListingData<'_>,
-    islands: Option<&ListingIslands>,
 ) -> Result<(), proa_core::WriteError> {
     shared::render_document_start(cx, &[data.title, " | Airbnb"]);
-    render_content(cx, data, islands)?;
+    render_content(cx, data)?;
     shared::render_document_end(cx);
     Ok(())
 }
 
-/// Render just the page content (no document shell). Used by benchmarks.
-pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
+/// Render the static listing workload shared with the peer benchmarks.
+pub fn render_content<B: proa_core::WriteBuf, L: proa_core::DataLoader>(
     cx: &mut WebContext<L, B>,
     data: &ListingData<'_>,
-    islands: Option<&ListingIslands>,
 ) -> Result<(), proa_core::WriteError> {
     let nightly_total = data.nightly_rate * data.booking.nights;
     let total = nightly_total + data.cleaning_fee + data.service_fee;
+    let dates = html_sync! {
+        <section class="py-8">
+            <div class="mb-6 flex items-end justify-between gap-4">
+                <div>
+                    <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Select dates"</h2>
+                    <p class="mt-2 text-[15px] text-[var(--air-muted)]">"Add your travel dates for exact pricing"</p>
+                </div>
+                <button data-booking-clear-all type="button" class="text-sm font-semibold underline underline-offset-4">"Clear dates"</button>
+            </div>
+            <div class="grid gap-5 md:grid-cols-2">
+                <div data-airbnb-synced-calendar class="rounded-[22px] border border-[var(--air-line)] p-5">
+                    {AirbnbCalendar::new(2026, 3).with_range(18, 25)}
+                </div>
+                <div data-airbnb-synced-calendar class="rounded-[22px] border border-[var(--air-line)] p-5">
+                    {AirbnbCalendar::new(2026, 4)}
+                </div>
+            </div>
+        </section>
+    };
+    let booking_card = html_sync! {
+        <div
+            class="sticky top-28"
+            data-airbnb-booking-root
+            data-initial-checkin={data.booking.check_in}
+            data-initial-checkout={data.booking.checkout}
+            data-nightly-rate={data.nightly_rate}
+            data-cleaning-fee={data.cleaning_fee}
+            data-service-fee={data.service_fee}
+        >
+            <div class="relative">
+                <div class="mb-4 flex justify-end">
+                    <div class="airbnb-booking-pill">
+                        {StaticRaw(STAR_SVG)}
+                        <span>"Prices include all fees"</span>
+                    </div>
+                </div>
+
+                <div class="air-booking-card airbnb-booking-card p-6">
+                    <div class="mb-4">
+                        <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[#222]">
+                            <span data-booking-header-total class="text-[32px] font-semibold tracking-[-0.04em] text-[#222]">"$"{total}</span>
+                            <span data-booking-header-context class="text-[15px] text-[var(--air-muted)]">"for "{data.booking.nights}" nights"</span>
+                        </div>
+                        <div class="mt-2 flex items-center gap-1 text-sm text-[#222]">
+                            {StaticRaw(STAR_SVG)}
+                            <span class="font-medium">{data.rating}</span>
+                            <span>"·"</span>
+                            <a href="#reviews" class="underline">{data.review_count}" reviews"</a>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 overflow-hidden rounded-2xl border border-[#B0B0B0]">
+                        <div class="grid grid-cols-2">
+                            <button data-booking-trigger="checkIn" type="button" class="airbnb-booking-trigger border-b border-r border-[#B0B0B0] px-3 py-2.5 text-left transition-colors hover:bg-[var(--air-soft)]">
+                                <span class="block text-[10px] font-bold tracking-wide uppercase text-[#222]">"CHECK-IN"</span>
+                                <span data-booking-display="checkIn" class="airbnb-booking-display mt-0.5 block text-sm text-[#222]">{data.booking.check_in_display}</span>
+                            </button>
+                            <button data-booking-trigger="checkOut" type="button" class="airbnb-booking-trigger border-b border-[#B0B0B0] px-3 py-2.5 text-left transition-colors hover:bg-[var(--air-soft)]">
+                                <span class="block text-[10px] font-bold tracking-wide uppercase text-[#222]">"CHECKOUT"</span>
+                                <span data-booking-display="checkOut" class="airbnb-booking-display mt-0.5 block text-sm text-[#222]">{data.booking.checkout_display}</span>
+                            </button>
+                        </div>
+                        <div class="px-3 py-2.5">
+                            <label class="block text-[10px] font-bold tracking-wide uppercase text-[#222]">"GUESTS"</label>
+                            <p class="mt-0.5 text-sm text-[#222]">{data.booking.guests}</p>
+                        </div>
+                    </div>
+
+                    <div class="mb-4 rounded-xl bg-[var(--air-soft)] px-4 py-2.5 text-center text-xs font-medium text-[#222]">
+                        "Free cancellation before "{data.booking.free_cancel_date}
+                    </div>
+
+                    <button class="mb-4 w-full rounded-xl bg-gradient-to-r from-[#E61E4D] via-[#E31C5F] to-[#D70466] py-3.5 font-semibold text-white transition-transform hover:scale-[1.01]">
+                        "Reserve"
+                    </button>
+
+                    <p class="mb-5 text-center text-sm text-[var(--air-muted)]">"You won't be charged yet"</p>
+
+                    <div class="space-y-4 text-sm">
+                        <div class="flex justify-between">
+                            <span data-booking-night-line-label class="text-[#222] underline">"$"{data.nightly_rate}" x "{data.booking.nights}" nights"</span>
+                            <span data-booking-night-line-value class="text-[#222]">"$"{nightly_total}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-[#222] underline">"Cleaning fee"</span>
+                            <span class="text-[#222]">"$"{data.cleaning_fee}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-[#222] underline">"Airbnb service fee"</span>
+                            <span class="text-[#222]">"$"{data.service_fee}</span>
+                        </div>
+                        <hr class="air-divider" />
+                        <div class="flex justify-between font-semibold">
+                            <span class="text-[#222]">"Total before taxes"</span>
+                            <span data-booking-total-value class="text-[#222]">"$"{total}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div data-booking-popover aria-hidden="true" class="airbnb-booking-popover hidden">
+                    <div class="airbnb-popover-shell">
+                        <div class="airbnb-popover-header">
+                            <div class="airbnb-popover-summary">
+                                <h3 data-booking-nights>{data.booking.nights}" nights"</h3>
+                                <p data-booking-range-label>{data.booking.range_label}</p>
+                            </div>
+                            <div class="airbnb-popover-fields">
+                                <div class="airbnb-popover-field">
+                                    <button data-booking-trigger="checkIn" type="button" class="block w-full text-left">
+                                        <span class="airbnb-popover-field-label">"Check-in"</span>
+                                        <span data-booking-popover-display="checkIn" class="airbnb-popover-field-value airbnb-popover-value">{data.booking.check_in_display}</span>
+                                    </button>
+                                    <button data-booking-clear-field="checkIn" type="button" class="airbnb-popover-clear" aria-label="Clear dates">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="12" height="12" aria-hidden="true"><path d="m6 6 20 20M26 6 6 26" fill="none" stroke="currentColor" stroke-width="4"/></svg>
+                                    </button>
+                                </div>
+                                <div class="airbnb-popover-field">
+                                    <button data-booking-trigger="checkOut" type="button" class="block w-full text-left">
+                                        <span class="airbnb-popover-field-label">"Checkout"</span>
+                                        <span data-booking-popover-display="checkOut" class="airbnb-popover-field-value airbnb-popover-value">{data.booking.checkout_display}</span>
+                                    </button>
+                                    <button data-booking-clear-field="checkOut" type="button" class="airbnb-popover-clear" aria-label="Clear checkout date">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="12" height="12" aria-hidden="true"><path d="m6 6 20 20M26 6 6 26" fill="none" stroke="currentColor" stroke-width="4"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="airbnb-popover-calendars">
+                            <div data-airbnb-synced-calendar class="airbnb-popover-calendar">
+                                {AirbnbCalendar::new(2026, 3).with_range(18, 25)}
+                            </div>
+                            <div data-airbnb-synced-calendar class="airbnb-popover-calendar">
+                                {AirbnbCalendar::new(2026, 4)}
+                            </div>
+                        </div>
+
+                        <div class="airbnb-popover-footer">
+                            <button data-booking-clear-all type="button" class="airbnb-link-button">"Clear dates"</button>
+                            <button data-booking-close type="button" class="airbnb-close-button">"Close"</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#222] underline underline-offset-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                "Report this listing"
+            </button>
+        </div>
+    };
+    let columns = html_sync! {
+        <div class="air-shell py-10">
+            <div class="grid grid-cols-1 gap-y-12 lg:grid-cols-12 lg:gap-x-16">
+                <div class="lg:col-span-7">{ListingOverview(data)}{dates}{ListingDetails(data)}</div>
+                <aside class="lg:col-span-4 lg:col-start-9">{booking_card}</aside>
+            </div>
+        </div>
+    };
+    render_listing_body(cx, data, columns)
+}
+
+fn render_listing_body<B: proa_core::WriteBuf, L: proa_core::DataLoader>(
+    cx: &mut WebContext<L, B>,
+    data: &ListingData<'_>,
+    columns: impl WebRenderSync<L, B>,
+) -> Result<(), proa_core::WriteError> {
     let review_details: &[(&str, &str, &str)] = &[
         (
             "Cleanliness",
@@ -562,442 +622,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                 </div>
             </div>
 
-            <div class="air-shell py-10">
-                <div class="grid grid-cols-1 gap-y-12 lg:grid-cols-12 lg:gap-x-16">
-                    <div class="lg:col-span-7">
-                        <section class="pb-8">
-                            <div class="flex items-start justify-between gap-4">
-                                <div>
-                                    <h2 class="text-[26px] font-semibold tracking-[-0.03em] text-[#222]">
-                                        {data.property_line}
-                                    </h2>
-                                    <p class="mt-2 text-[16px] text-[#222]">{data.overview_summary}</p>
-                                </div>
-                                {AirImage {
-                                    id: None,
-                                    src: data.host.photo,
-                                    alt: "Host portrait",
-                                    class: Some("h-14 w-14 rounded-full object-cover"),
-                                    loading: AirImageLoading::Lazy,
-                                    fetch_priority: AirImageFetchPriority::Low,
-                                    fallback_src: None,
-                                }}
-                            </div>
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        <section class="py-8">
-                            <div class="airbnb-favorite-strip">
-                                <div class="airbnb-favorite-badge">
-                                    <div class="text-[#222]">{StaticRaw(STAR_SVG)}</div>
-                                    <div>
-                                        <div class="text-base font-semibold text-[#222]">"Guest favorite"</div>
-                                        <div class="text-sm text-[var(--air-muted)]">"Highly rated for reliability"</div>
-                                    </div>
-                                </div>
-                                <div class="airbnb-favorite-copy">
-                                    "One of the most loved homes on Airbnb, according to guests"
-                                </div>
-                                <div class="airbnb-favorite-score">
-                                    <div class="text-[30px] font-semibold tracking-[-0.04em] text-[#222]">{data.rating}</div>
-                                    <div class="text-sm font-medium text-[#222]">{data.review_count}" reviews"</div>
-                                </div>
-                            </div>
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        <section class="py-8">
-                            <div class="flex items-start gap-5">
-                                {AirImage {
-                                    id: None,
-                                    src: data.host.photo,
-                                    alt: "Host portrait",
-                                    class: Some("h-16 w-16 rounded-full object-cover"),
-                                    loading: AirImageLoading::Lazy,
-                                    fetch_priority: AirImageFetchPriority::Low,
-                                    fallback_src: None,
-                                }}
-                                <div>
-                                    <h3 class="text-[22px] font-semibold tracking-[-0.03em] text-[#222]">"Hosted by "{data.host.name}</h3>
-                                    <p class="mt-1 text-sm text-[var(--air-muted)]">"Superhost · "{data.host.years_hosting}" years hosting"</p>
-                                    <div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-                                        <div>
-                                            <div class="text-lg font-semibold text-[#222]">{data.host.review_count}</div>
-                                            <div class="text-sm text-[var(--air-muted)]">"Reviews"</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-lg font-semibold text-[#222]">{data.rating}</div>
-                                            <div class="text-sm text-[var(--air-muted)]">"Rating"</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-lg font-semibold text-[#222]">{data.host.response_rate}</div>
-                                            <div class="text-sm text-[var(--air-muted)]">"Response rate"</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-lg font-semibold text-[#222]">{data.host.response_time}</div>
-                                            <div class="text-sm text-[var(--air-muted)]">"Response time"</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        <section class="space-y-6 py-8">
-                            {for highlight in data.highlights.iter() {
-                                html_sync! {
-                                    <div class="flex gap-4">
-                                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--air-soft)] text-[#222]">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                                        </div>
-                                        <div>
-                                            <p class="font-medium text-[#222]">{highlight.title}</p>
-                                            <p class="mt-1 text-[15px] leading-6 text-[var(--air-muted)]">{highlight.description}</p>
-                                        </div>
-                                    </div>
-                                }
-                            }}
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        <section class="py-8">
-                            <h2 class="mb-5 text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"About this place"</h2>
-                            <div class="space-y-4 text-[16px] leading-7 text-[#222]">
-                                {for paragraph in data.description.split("\n\n") {
-                                    html_sync! { <p>{paragraph}</p> }
-                                }}
-                            </div>
-                            <button class="mt-5 inline-flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold underline underline-offset-4">
-                                "Show more"
-                            </button>
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        <section id="amenities" class="py-8">
-                            <div class="mb-6 flex items-end justify-between gap-4">
-                                <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"What this place offers"</h2>
-                                <span class="text-sm text-[var(--air-muted)]">"Preview of "{data.total_amenity_count}" amenities"</span>
-                            </div>
-                            <div class="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2">
-                                {for amenity in data.amenities.iter() {
-                                    html_sync! {
-                                        <div class="flex items-center gap-4 border-b border-[var(--air-line)] pb-4 text-[#222]">
-                                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--air-soft)]">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16"/><path d="M12 4v16"/></svg>
-                                            </div>
-                                            <span class="text-[15px]">{*amenity}</span>
-                                        </div>
-                                    }
-                                }}
-                            </div>
-                            <button class="mt-8 rounded-xl border border-[#222] px-6 py-3 text-sm font-semibold text-[#222] hover:bg-[var(--air-soft)]">
-                                "Show all "{data.total_amenity_count}" amenities"
-                            </button>
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        {if let Some(islands) = islands {
-                            html_sync! { {UnsafeRaw(&islands.date_picker)} }
-                        } else {
-                            html_sync! {
-                                <section class="py-8">
-                                    <div class="mb-6 flex items-end justify-between gap-4">
-                                        <div>
-                                            <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Select dates"</h2>
-                                            <p class="mt-2 text-[15px] text-[var(--air-muted)]">"Add your travel dates for exact pricing"</p>
-                                        </div>
-                                        <button data-booking-clear-all type="button" class="text-sm font-semibold underline underline-offset-4">"Clear dates"</button>
-                                    </div>
-                                    <div class="grid gap-5 md:grid-cols-2">
-                                        <div data-airbnb-synced-calendar class="rounded-[22px] border border-[var(--air-line)] p-5">
-                                            {AirbnbCalendar::new(2026, 3).with_range(18, 25)}
-                                        </div>
-                                        <div data-airbnb-synced-calendar class="rounded-[22px] border border-[var(--air-line)] p-5">
-                                            {AirbnbCalendar::new(2026, 4)}
-                                        </div>
-                                    </div>
-                                </section>
-                            }
-                        }}
-
-                        <hr class="air-divider" />
-
-                        <section id="location" class="py-8">
-                            <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Where you'll be"</h2>
-                            <p class="mt-2 text-[15px] text-[var(--air-muted)]">{data.location}</p>
-                            <div class="air-map relative mt-6 h-[360px] overflow-hidden rounded-[26px] border border-[var(--air-line)]">
-                                <div class="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.24),transparent_42%)]"></div>
-                                <div class="absolute left-[18%] top-[24%] h-28 w-28 rounded-full border border-white/60 bg-white/35 blur-[2px]"></div>
-                                <div class="absolute right-[14%] top-[18%] h-20 w-20 rounded-full border border-white/60 bg-white/30 blur-[2px]"></div>
-                                <div class="absolute bottom-[18%] left-[52%] h-24 w-24 rounded-full border border-white/60 bg-white/35 blur-[2px]"></div>
-                                <div class="air-price-pin left-[47%] top-[44%] bg-[#222] text-white shadow-lg">
-                                    {data.location_short}
-                                </div>
-                            </div>
-                            <p class="mt-5 max-w-2xl text-[15px] leading-6 text-[var(--air-muted)]">
-                                "This listing's location is verified and the exact location will be provided after booking. Expect quick access to the coast with a quieter canyon setting than many central Malibu homes."
-                            </p>
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        <section class="py-8">
-                            <div class="grid gap-8 lg:grid-cols-[320px_1fr]">
-                                <div class="rounded-[26px] bg-[var(--air-soft)] p-6">
-                                    <div class="flex items-center gap-4">
-                                        {AirImage {
-                                            id: None,
-                                            src: data.host.photo,
-                                            alt: "Host portrait",
-                                            class: Some("h-20 w-20 rounded-full object-cover"),
-                                            loading: AirImageLoading::Lazy,
-                                            fetch_priority: AirImageFetchPriority::Low,
-                                            fallback_src: None,
-                                        }}
-                                        <div>
-                                            <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Meet your host"</h2>
-                                            <p class="mt-1 text-sm text-[var(--air-muted)]">{data.host.name}" · Superhost"</p>
-                                        </div>
-                                    </div>
-                                    <div class="mt-6 grid grid-cols-3 gap-4 border-t border-[var(--air-line)] pt-5 text-center">
-                                        <div>
-                                            <div class="text-xl font-semibold text-[#222]">{data.host.review_count}</div>
-                                            <div class="text-xs text-[var(--air-muted)]">"Reviews"</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-xl font-semibold text-[#222]">{data.rating}</div>
-                                            <div class="text-xs text-[var(--air-muted)]">"Rating"</div>
-                                        </div>
-                                        <div>
-                                            <div class="text-xl font-semibold text-[#222]">{data.host.years_hosting}</div>
-                                            <div class="text-xs text-[var(--air-muted)]">"Years hosting"</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <h3 class="text-[22px] font-semibold tracking-[-0.03em] text-[#222]">{data.host.name}" is a Superhost"</h3>
-                                    <p class="mt-3 max-w-2xl text-[15px] leading-6 text-[var(--air-muted)]">
-                                        {data.host.bio}" "{data.host.name}" lives in "{data.location}
-                                        {if let Some(ref cohost) = data.cohost {
-                                            html_sync! {" and cohosts with "{cohost.name}" for smoother arrivals and faster support."}
-                                        } else {
-                                            html_sync! {"."}
-                                        }}
-                                    </p>
-                                    <div class="mt-6 flex flex-wrap items-center gap-6">
-                                        {if let Some(ref cohost) = data.cohost {
-                                            html_sync! {
-                                                <div class="flex items-center gap-3">
-                                                    {AirImage {
-                                                        id: None,
-                                                        src: cohost.photo,
-                                                        alt: "Cohost portrait",
-                                                        class: Some("h-12 w-12 rounded-full object-cover"),
-                                                        loading: AirImageLoading::Lazy,
-                                                        fetch_priority: AirImageFetchPriority::Low,
-                                                        fallback_src: None,
-                                                    }}
-                                                    <div>
-                                                        <div class="text-sm font-semibold text-[#222]">{cohost.name}</div>
-                                                        <div class="text-sm text-[var(--air-muted)]">"Co-host"</div>
-                                                    </div>
-                                                </div>
-                                            }
-                                        }}
-                                        <div class="text-sm text-[var(--air-muted)]">"Response rate: "{data.host.response_rate}" · Responds within "{data.host.response_time}</div>
-                                    </div>
-                                    <div class="mt-6 rounded-[20px] border border-[var(--air-line)] p-5 text-[15px] leading-6 text-[var(--air-muted)]">
-                                        "To help protect your payment, always use Airbnb to send money and communicate with hosts."
-                                    </div>
-                                    <button class="mt-6 rounded-xl border border-[#222] px-6 py-3 text-sm font-semibold text-[#222] hover:bg-[var(--air-soft)]">
-                                        "Message host"
-                                    </button>
-                                </div>
-                            </div>
-                        </section>
-
-                        <hr class="air-divider" />
-
-                        <section class="py-8">
-                            <h2 class="mb-6 text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Things to know"</h2>
-                            <div class="grid gap-6 md:grid-cols-3">
-                                <div class="rounded-[22px] border border-[var(--air-line)] p-6">
-                                    <div class="mb-4 text-[#222]">{StaticRaw(HOUSE_RULES_ICON)}</div>
-                                    <h3 class="text-lg font-semibold text-[#222]">"House rules"</h3>
-                                    <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
-                                        {for item in data.house_rules.iter() {
-                                            html_sync! { <p>{*item}</p> }
-                                        }}
-                                    </div>
-                                </div>
-                                <div class="rounded-[22px] border border-[var(--air-line)] p-6">
-                                    <div class="mb-4 text-[#222]">{StaticRaw(SAFETY_ICON)}</div>
-                                    <h3 class="text-lg font-semibold text-[#222]">"Safety & property"</h3>
-                                    <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
-                                        {for item in data.safety_items.iter() {
-                                            html_sync! { <p>{*item}</p> }
-                                        }}
-                                    </div>
-                                </div>
-                                <div class="rounded-[22px] border border-[var(--air-line)] p-6">
-                                    <div class="mb-4 text-[#222]">{StaticRaw(CANCELLATION_ICON)}</div>
-                                    <h3 class="text-lg font-semibold text-[#222]">"Cancellation policy"</h3>
-                                    <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
-                                        {for item in data.cancellation_items.iter() {
-                                            html_sync! { <p>{*item}</p> }
-                                        }}
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-                    </div>
-
-                    <aside class="lg:col-span-4 lg:col-start-9">
-                        {if let Some(islands) = islands {
-                            html_sync! { <div class="sticky top-28">{UnsafeRaw(&islands.booking_card)}</div> }
-                        } else {
-                            html_sync! {
-                                <div
-                                    class="sticky top-28"
-                                    data-airbnb-booking-root
-                                    data-initial-checkin={data.booking.check_in}
-                                    data-initial-checkout={data.booking.checkout}
-                                    data-nightly-rate={data.nightly_rate}
-                                    data-cleaning-fee={data.cleaning_fee}
-                                    data-service-fee={data.service_fee}
-                                >
-                                    <div class="relative">
-                                        <div class="mb-4 flex justify-end">
-                                            <div class="airbnb-booking-pill">
-                                                {StaticRaw(STAR_SVG)}
-                                                <span>"Prices include all fees"</span>
-                                            </div>
-                                        </div>
-
-                                        <div class="air-booking-card airbnb-booking-card p-6">
-                                            <div class="mb-4">
-                                                <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[#222]">
-                                                    <span data-booking-header-total class="text-[32px] font-semibold tracking-[-0.04em] text-[#222]">"$"{total}</span>
-                                                    <span data-booking-header-context class="text-[15px] text-[var(--air-muted)]">"for "{data.booking.nights}" nights"</span>
-                                                </div>
-                                                <div class="mt-2 flex items-center gap-1 text-sm text-[#222]">
-                                                    {StaticRaw(STAR_SVG)}
-                                                    <span class="font-medium">{data.rating}</span>
-                                                    <span>"·"</span>
-                                                    <a href="#reviews" class="underline">{data.review_count}" reviews"</a>
-                                                </div>
-                                            </div>
-
-                                            <div class="mb-3 overflow-hidden rounded-2xl border border-[#B0B0B0]">
-                                                <div class="grid grid-cols-2">
-                                                    <button data-booking-trigger="checkIn" type="button" class="airbnb-booking-trigger border-b border-r border-[#B0B0B0] px-3 py-2.5 text-left transition-colors hover:bg-[var(--air-soft)]">
-                                                        <span class="block text-[10px] font-bold tracking-wide uppercase text-[#222]">"CHECK-IN"</span>
-                                                        <span data-booking-display="checkIn" class="airbnb-booking-display mt-0.5 block text-sm text-[#222]">{data.booking.check_in_display}</span>
-                                                    </button>
-                                                    <button data-booking-trigger="checkOut" type="button" class="airbnb-booking-trigger border-b border-[#B0B0B0] px-3 py-2.5 text-left transition-colors hover:bg-[var(--air-soft)]">
-                                                        <span class="block text-[10px] font-bold tracking-wide uppercase text-[#222]">"CHECKOUT"</span>
-                                                        <span data-booking-display="checkOut" class="airbnb-booking-display mt-0.5 block text-sm text-[#222]">{data.booking.checkout_display}</span>
-                                                    </button>
-                                                </div>
-                                                <div class="px-3 py-2.5">
-                                                    <label class="block text-[10px] font-bold tracking-wide uppercase text-[#222]">"GUESTS"</label>
-                                                    <p class="mt-0.5 text-sm text-[#222]">{data.booking.guests}</p>
-                                                </div>
-                                            </div>
-
-                                            <div class="mb-4 rounded-xl bg-[var(--air-soft)] px-4 py-2.5 text-center text-xs font-medium text-[#222]">
-                                                "Free cancellation before "{data.booking.free_cancel_date}
-                                            </div>
-
-                                            <button class="mb-4 w-full rounded-xl bg-gradient-to-r from-[#E61E4D] via-[#E31C5F] to-[#D70466] py-3.5 font-semibold text-white transition-transform hover:scale-[1.01]">
-                                                "Reserve"
-                                            </button>
-
-                                            <p class="mb-5 text-center text-sm text-[var(--air-muted)]">"You won't be charged yet"</p>
-
-                                            <div class="space-y-4 text-sm">
-                                                <div class="flex justify-between">
-                                                    <span data-booking-night-line-label class="text-[#222] underline">"$"{data.nightly_rate}" x "{data.booking.nights}" nights"</span>
-                                                    <span data-booking-night-line-value class="text-[#222]">"$"{nightly_total}</span>
-                                                </div>
-                                                <div class="flex justify-between">
-                                                    <span class="text-[#222] underline">"Cleaning fee"</span>
-                                                    <span class="text-[#222]">"$"{data.cleaning_fee}</span>
-                                                </div>
-                                                <div class="flex justify-between">
-                                                    <span class="text-[#222] underline">"Airbnb service fee"</span>
-                                                    <span class="text-[#222]">"$"{data.service_fee}</span>
-                                                </div>
-                                                <hr class="air-divider" />
-                                                <div class="flex justify-between font-semibold">
-                                                    <span class="text-[#222]">"Total before taxes"</span>
-                                                    <span data-booking-total-value class="text-[#222]">"$"{total}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div data-booking-popover aria-hidden="true" class="airbnb-booking-popover hidden">
-                                            <div class="airbnb-popover-shell">
-                                                <div class="airbnb-popover-header">
-                                                    <div class="airbnb-popover-summary">
-                                                        <h3 data-booking-nights>{data.booking.nights}" nights"</h3>
-                                                        <p data-booking-range-label>{data.booking.range_label}</p>
-                                                    </div>
-                                                    <div class="airbnb-popover-fields">
-                                                        <div class="airbnb-popover-field">
-                                                            <button data-booking-trigger="checkIn" type="button" class="block w-full text-left">
-                                                                <span class="airbnb-popover-field-label">"Check-in"</span>
-                                                                <span data-booking-popover-display="checkIn" class="airbnb-popover-field-value airbnb-popover-value">{data.booking.check_in_display}</span>
-                                                            </button>
-                                                            <button data-booking-clear-field="checkIn" type="button" class="airbnb-popover-clear" aria-label="Clear dates">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="12" height="12" aria-hidden="true"><path d="m6 6 20 20M26 6 6 26" fill="none" stroke="currentColor" stroke-width="4"/></svg>
-                                                            </button>
-                                                        </div>
-                                                        <div class="airbnb-popover-field">
-                                                            <button data-booking-trigger="checkOut" type="button" class="block w-full text-left">
-                                                                <span class="airbnb-popover-field-label">"Checkout"</span>
-                                                                <span data-booking-popover-display="checkOut" class="airbnb-popover-field-value airbnb-popover-value">{data.booking.checkout_display}</span>
-                                                            </button>
-                                                            <button data-booking-clear-field="checkOut" type="button" class="airbnb-popover-clear" aria-label="Clear checkout date">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="12" height="12" aria-hidden="true"><path d="m6 6 20 20M26 6 6 26" fill="none" stroke="currentColor" stroke-width="4"/></svg>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div class="airbnb-popover-calendars">
-                                                    <div data-airbnb-synced-calendar class="airbnb-popover-calendar">
-                                                        {AirbnbCalendar::new(2026, 3).with_range(18, 25)}
-                                                    </div>
-                                                    <div data-airbnb-synced-calendar class="airbnb-popover-calendar">
-                                                        {AirbnbCalendar::new(2026, 4)}
-                                                    </div>
-                                                </div>
-
-                                                <div class="airbnb-popover-footer">
-                                                    <button data-booking-clear-all type="button" class="airbnb-link-button">"Clear dates"</button>
-                                                    <button data-booking-close type="button" class="airbnb-close-button">"Close"</button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <button class="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-[#222] underline underline-offset-4">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
-                                        "Report this listing"
-                                    </button>
-                                </div>
-                            }
-                        }}
-                    </aside>
-                </div>
-            </div>
+            {columns}
 
             <hr class="air-divider mx-auto" style="max-width:var(--air-shell-max)" />
 
@@ -1048,7 +673,7 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
                                     <div class="airbnb-rating-bar">
                                         <div class="airbnb-rating-bar-label">{*label}</div>
                                         <div class="airbnb-rating-bar-track">
-                                            <div class="airbnb-rating-bar-fill" style={proa_core::style_ok(WidthPct(*value))}></div>
+                                            <div class="airbnb-rating-bar-fill" style={proa_core::style_ok(proa_macros::text!("width:{}%;min-width:2px", *value))}></div>
                                         </div>
                                     </div>
                                 }
@@ -1191,14 +816,293 @@ pub fn render_content<B: proa_core::WriteBuf, L: ::proa_core::DataLoader>(
     }
     .render(cx)?;
     shared::render_footer(cx);
-    if let Some(islands) = islands {
-        // proa-perf-ok(scope): bootstrap is trusted pre-rendered React module markup
-        html_sync! {
-            {UnsafeRaw(&islands.bootstrap)}
-        }
-        .render(cx)?;
-    }
     Ok(())
+}
+
+pub(super) struct ListingOverview<'a>(pub(super) &'a ListingData<'a>);
+
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> WebRenderSync<L, B> for ListingOverview<'_> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
+        let data = self.0;
+        html_sync! {
+            <section class="pb-8">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-[26px] font-semibold tracking-[-0.03em] text-[#222]">
+                            {data.property_line}
+                        </h2>
+                        <p class="mt-2 text-[16px] text-[#222]">{data.overview_summary}</p>
+                    </div>
+                    {AirImage {
+                        id: None,
+                        src: data.host.photo,
+                        alt: "Host portrait",
+                        class: Some("h-14 w-14 rounded-full object-cover"),
+                        loading: AirImageLoading::Lazy,
+                        fetch_priority: AirImageFetchPriority::Low,
+                        fallback_src: None,
+                    }}
+                </div>
+            </section>
+
+            <hr class="air-divider" />
+
+            <section class="py-8">
+                <div class="airbnb-favorite-strip">
+                    <div class="airbnb-favorite-badge">
+                        <div class="text-[#222]">{StaticRaw(STAR_SVG)}</div>
+                        <div>
+                            <div class="text-base font-semibold text-[#222]">"Guest favorite"</div>
+                            <div class="text-sm text-[var(--air-muted)]">"Highly rated for reliability"</div>
+                        </div>
+                    </div>
+                    <div class="airbnb-favorite-copy">
+                        "One of the most loved homes on Airbnb, according to guests"
+                    </div>
+                    <div class="airbnb-favorite-score">
+                        <div class="text-[30px] font-semibold tracking-[-0.04em] text-[#222]">{data.rating}</div>
+                        <div class="text-sm font-medium text-[#222]">{data.review_count}" reviews"</div>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="air-divider" />
+
+            <section class="py-8">
+                <div class="flex items-start gap-5">
+                    {AirImage {
+                        id: None,
+                        src: data.host.photo,
+                        alt: "Host portrait",
+                        class: Some("h-16 w-16 rounded-full object-cover"),
+                        loading: AirImageLoading::Lazy,
+                        fetch_priority: AirImageFetchPriority::Low,
+                        fallback_src: None,
+                    }}
+                    <div>
+                        <h3 class="text-[22px] font-semibold tracking-[-0.03em] text-[#222]">"Hosted by "{data.host.name}</h3>
+                        <p class="mt-1 text-sm text-[var(--air-muted)]">"Superhost · "{data.host.years_hosting}" years hosting"</p>
+                        <div class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+                            <div>
+                                <div class="text-lg font-semibold text-[#222]">{data.host.review_count}</div>
+                                <div class="text-sm text-[var(--air-muted)]">"Reviews"</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold text-[#222]">{data.rating}</div>
+                                <div class="text-sm text-[var(--air-muted)]">"Rating"</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold text-[#222]">{data.host.response_rate}</div>
+                                <div class="text-sm text-[var(--air-muted)]">"Response rate"</div>
+                            </div>
+                            <div>
+                                <div class="text-lg font-semibold text-[#222]">{data.host.response_time}</div>
+                                <div class="text-sm text-[var(--air-muted)]">"Response time"</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="air-divider" />
+
+            <section class="space-y-6 py-8">
+                {for highlight in data.highlights.iter() {
+                    html_sync! {
+                        <div class="flex gap-4">
+                            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--air-soft)] text-[#222]">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                            </div>
+                            <div>
+                                <p class="font-medium text-[#222]">{highlight.title}</p>
+                                <p class="mt-1 text-[15px] leading-6 text-[var(--air-muted)]">{highlight.description}</p>
+                            </div>
+                        </div>
+                    }
+                }}
+            </section>
+
+            <hr class="air-divider" />
+
+            <section class="py-8">
+                <h2 class="mb-5 text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"About this place"</h2>
+                <div class="space-y-4 text-[16px] leading-7 text-[#222]">
+                    {for paragraph in data.description.split("\n\n") {
+                        html_sync! { <p>{paragraph}</p> }
+                    }}
+                </div>
+                <button class="mt-5 inline-flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold underline underline-offset-4">
+                    "Show more"
+                </button>
+            </section>
+
+            <hr class="air-divider" />
+
+            <section id="amenities" class="py-8">
+                <div class="mb-6 flex items-end justify-between gap-4">
+                    <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"What this place offers"</h2>
+                    <span class="text-sm text-[var(--air-muted)]">"Preview of "{data.total_amenity_count}" amenities"</span>
+                </div>
+                <div class="grid grid-cols-1 gap-x-10 gap-y-5 sm:grid-cols-2">
+                    {for amenity in data.amenities.iter() {
+                        html_sync! {
+                            <div class="flex items-center gap-4 border-b border-[var(--air-line)] pb-4 text-[#222]">
+                                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--air-soft)]">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16"/><path d="M12 4v16"/></svg>
+                                </div>
+                                <span class="text-[15px]">{*amenity}</span>
+                            </div>
+                        }
+                    }}
+                </div>
+                <button class="mt-8 rounded-xl border border-[#222] px-6 py-3 text-sm font-semibold text-[#222] hover:bg-[var(--air-soft)]">
+                    "Show all "{data.total_amenity_count}" amenities"
+                </button>
+            </section>
+
+            <hr class="air-divider" />
+        }.render(cx)
+    }
+}
+
+pub(super) struct ListingDetails<'a>(pub(super) &'a ListingData<'a>);
+
+impl<L: proa_core::DataLoader, B: proa_core::WriteBuf> WebRenderSync<L, B> for ListingDetails<'_> {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), proa_core::WriteError> {
+        let data = self.0;
+        html_sync! {
+            <hr class="air-divider" />
+
+            <section id="location" class="py-8">
+                <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Where you'll be"</h2>
+                <p class="mt-2 text-[15px] text-[var(--air-muted)]">{data.location}</p>
+                <div class="air-map relative mt-6 h-[360px] overflow-hidden rounded-[26px] border border-[var(--air-line)]">
+                    <div class="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.24),transparent_42%)]"></div>
+                    <div class="absolute left-[18%] top-[24%] h-28 w-28 rounded-full border border-white/60 bg-white/35 blur-[2px]"></div>
+                    <div class="absolute right-[14%] top-[18%] h-20 w-20 rounded-full border border-white/60 bg-white/30 blur-[2px]"></div>
+                    <div class="absolute bottom-[18%] left-[52%] h-24 w-24 rounded-full border border-white/60 bg-white/35 blur-[2px]"></div>
+                    <div class="air-price-pin left-[47%] top-[44%] bg-[#222] text-white shadow-lg">
+                        {data.location_short}
+                    </div>
+                </div>
+                <p class="mt-5 max-w-2xl text-[15px] leading-6 text-[var(--air-muted)]">
+                    "This listing's location is verified and the exact location will be provided after booking. Expect quick access to the coast with a quieter canyon setting than many central Malibu homes."
+                </p>
+            </section>
+
+            <hr class="air-divider" />
+
+            <section class="py-8">
+                <div class="grid gap-8 lg:grid-cols-[320px_1fr]">
+                    <div class="rounded-[26px] bg-[var(--air-soft)] p-6">
+                        <div class="flex items-center gap-4">
+                            {AirImage {
+                                id: None,
+                                src: data.host.photo,
+                                alt: "Host portrait",
+                                class: Some("h-20 w-20 rounded-full object-cover"),
+                                loading: AirImageLoading::Lazy,
+                                fetch_priority: AirImageFetchPriority::Low,
+                                fallback_src: None,
+                            }}
+                            <div>
+                                <h2 class="text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Meet your host"</h2>
+                                <p class="mt-1 text-sm text-[var(--air-muted)]">{data.host.name}" · Superhost"</p>
+                            </div>
+                        </div>
+                        <div class="mt-6 grid grid-cols-3 gap-4 border-t border-[var(--air-line)] pt-5 text-center">
+                            <div>
+                                <div class="text-xl font-semibold text-[#222]">{data.host.review_count}</div>
+                                <div class="text-xs text-[var(--air-muted)]">"Reviews"</div>
+                            </div>
+                            <div>
+                                <div class="text-xl font-semibold text-[#222]">{data.rating}</div>
+                                <div class="text-xs text-[var(--air-muted)]">"Rating"</div>
+                            </div>
+                            <div>
+                                <div class="text-xl font-semibold text-[#222]">{data.host.years_hosting}</div>
+                                <div class="text-xs text-[var(--air-muted)]">"Years hosting"</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-[22px] font-semibold tracking-[-0.03em] text-[#222]">{data.host.name}" is a Superhost"</h3>
+                        <p class="mt-3 max-w-2xl text-[15px] leading-6 text-[var(--air-muted)]">
+                            {data.host.bio}" "{data.host.name}" lives in "{data.location}
+                            {if let Some(ref cohost) = data.cohost {
+                                html_sync! {" and cohosts with "{cohost.name}" for smoother arrivals and faster support."}
+                            } else {
+                                html_sync! {"."}
+                            }}
+                        </p>
+                        <div class="mt-6 flex flex-wrap items-center gap-6">
+                            {if let Some(ref cohost) = data.cohost {
+                                html_sync! {
+                                    <div class="flex items-center gap-3">
+                                        {AirImage {
+                                            id: None,
+                                            src: cohost.photo,
+                                            alt: "Cohost portrait",
+                                            class: Some("h-12 w-12 rounded-full object-cover"),
+                                            loading: AirImageLoading::Lazy,
+                                            fetch_priority: AirImageFetchPriority::Low,
+                                            fallback_src: None,
+                                        }}
+                                        <div>
+                                            <div class="text-sm font-semibold text-[#222]">{cohost.name}</div>
+                                            <div class="text-sm text-[var(--air-muted)]">"Co-host"</div>
+                                        </div>
+                                    </div>
+                                }
+                            }}
+                            <div class="text-sm text-[var(--air-muted)]">"Response rate: "{data.host.response_rate}" · Responds within "{data.host.response_time}</div>
+                        </div>
+                        <div class="mt-6 rounded-[20px] border border-[var(--air-line)] p-5 text-[15px] leading-6 text-[var(--air-muted)]">
+                            "To help protect your payment, always use Airbnb to send money and communicate with hosts."
+                        </div>
+                        <button class="mt-6 rounded-xl border border-[#222] px-6 py-3 text-sm font-semibold text-[#222] hover:bg-[var(--air-soft)]">
+                            "Message host"
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="air-divider" />
+
+            <section class="py-8">
+                <h2 class="mb-6 text-[24px] font-semibold tracking-[-0.03em] text-[#222]">"Things to know"</h2>
+                <div class="grid gap-6 md:grid-cols-3">
+                    <div class="rounded-[22px] border border-[var(--air-line)] p-6">
+                        <div class="mb-4 text-[#222]">{StaticRaw(HOUSE_RULES_ICON)}</div>
+                        <h3 class="text-lg font-semibold text-[#222]">"House rules"</h3>
+                        <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
+                            {for item in data.house_rules.iter() {
+                                html_sync! { <p>{*item}</p> }
+                            }}
+                        </div>
+                    </div>
+                    <div class="rounded-[22px] border border-[var(--air-line)] p-6">
+                        <div class="mb-4 text-[#222]">{StaticRaw(SAFETY_ICON)}</div>
+                        <h3 class="text-lg font-semibold text-[#222]">"Safety & property"</h3>
+                        <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
+                            {for item in data.safety_items.iter() {
+                                html_sync! { <p>{*item}</p> }
+                            }}
+                        </div>
+                    </div>
+                    <div class="rounded-[22px] border border-[var(--air-line)] p-6">
+                        <div class="mb-4 text-[#222]">{StaticRaw(CANCELLATION_ICON)}</div>
+                        <h3 class="text-lg font-semibold text-[#222]">"Cancellation policy"</h3>
+                        <div class="mt-4 space-y-3 text-sm text-[var(--air-muted)]">
+                            {for item in data.cancellation_items.iter() {
+                                html_sync! { <p>{*item}</p> }
+                            }}
+                        </div>
+                    </div>
+                </div>
+            </section>
+        }.render(cx)
+    }
 }
 
 pub fn render_md() -> String {

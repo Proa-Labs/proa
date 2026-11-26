@@ -14,10 +14,9 @@ use proa_core::{
 };
 use proa_framework_core::{
     finalize_route_response, finalize_route_response_stream, finalize_route_response_sync,
-    FrameworkBody, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
+    FrameworkBody, FrameworkError, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
     FrameworkStreamFactory, RouteFinalizeMode, RouteResponse as CoreRouteResponse,
 };
-use proa_react::ReactBootstrapConfig;
 use tracing::error;
 
 use super::context::{RouteContext, ROUTE_CONTEXT};
@@ -48,7 +47,7 @@ impl RouteResponse<NoLoader> {
     ///
     /// Rendering completes before Axum emits the response, so root errors and
     /// response metadata are known before body delivery begins. Use this when
-    /// the component never calls `cx.load(...)`. For routes
+    /// the component never calls `cx.load_json(...)`. For routes
     /// that install a loader, use
     /// [`ssr_async_with_loader`](RouteResponse::<L>::ssr_async_with_loader)
     /// (which fixes `L` to the supplied loader's concrete type) or the
@@ -63,7 +62,7 @@ impl RouteResponse<NoLoader> {
 
     /// Construct a streamed async route response with `L = NoLoader`.
     ///
-    /// Use this when the component never calls `cx.load(...)`. For routes
+    /// Use this when the component never calls `cx.load_json(...)`. For routes
     /// that install a loader, see
     /// [`ssr_stream_with_loader`](RouteResponse::<L>::ssr_stream_with_loader).
     pub fn ssr_stream<T>(component: T) -> Self
@@ -94,7 +93,7 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Construct a typed-loader buffered async route response.
     ///
     /// `L` is inferred from `loader`'s type. The component must implement
-    /// `WebRender<L>`; `cx.load(...)` calls inside it become
+    /// `WebRender<L>`; `cx.load_json(...)` calls inside it become
     /// direct, monomorphized calls on `L`.
     pub fn ssr_async_with_loader<T>(component: T, loader: Arc<L>) -> Self
     where
@@ -139,21 +138,9 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
         Self(self.0.without_head())
     }
 
-    pub fn with_islands<I, S>(self, islands: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        Self(self.0.with_islands(islands))
-    }
-
-    pub fn with_bootstrap(self, config: ReactBootstrapConfig<'static>) -> Self {
-        Self(self.0.with_bootstrap(config))
-    }
-
     /// Install a typed loader on the response.
     ///
-    /// `L` is the loader's concrete type. `cx.load(...)` calls inside the
+    /// `L` is the loader's concrete type. `cx.load_json(...)` calls inside the
     /// component become direct, monomorphized calls on `L` rather than going
     /// through a `Box::pin` at the dyn boundary.
     pub fn with_loader(self, loader: Arc<L>) -> Self {
@@ -165,6 +152,60 @@ impl<L: DataLoader + 'static> RouteResponse<L> {
     /// Chunked modes stream; static and agent modes buffer.
     pub fn with_render_mode(self, render_mode: RenderMode) -> Self {
         Self(self.0.with_render_mode(render_mode))
+    }
+
+    /// Render this response to a complete HTML document without an HTTP
+    /// server or an async runtime.
+    ///
+    /// Forwards to [`proa_framework_core::RouteResponse::render_to_bytes`],
+    /// which documents how async plans, status codes, and runtimes are
+    /// handled. No route context is installed here: the base path is the
+    /// origin root, route parameters are absent, and `render_metadata_head`
+    /// resolves to nothing. For a page that reads any of those, send a request
+    /// through the built router with `tower::ServiceExt::oneshot` instead.
+    pub fn render_to_bytes(self) -> Result<bytes::Bytes, FrameworkError> {
+        self.0.render_to_bytes()
+    }
+
+    /// Render a complete document using the catalog's public URLs and base path.
+    /// This performs the same buffered render as [`render_to_bytes`](Self::render_to_bytes).
+    ///
+    /// A page with RSJS islands links their modules at the canonical
+    /// `/rsjs-runtime.js` paths here. When
+    /// [`RsjsAssets`](crate::RsjsAssets) serves them, use
+    /// [`render_to_bytes_with_assets`](Self::render_to_bytes_with_assets) so
+    /// the page links the names it publishes.
+    pub fn render_to_bytes_with_public_assets(
+        self,
+        assets: &crate::PublicAssets,
+    ) -> Result<bytes::Bytes, FrameworkError> {
+        self.render_to_bytes_with_assets(assets, None)
+    }
+
+    /// [`render_to_bytes_with_public_assets`](Self::render_to_bytes_with_public_assets),
+    /// linking RSJS modules by the names `rsjs` publishes them under.
+    pub fn render_to_bytes_with_assets(
+        self,
+        assets: &crate::PublicAssets,
+        rsjs: Option<&crate::RsjsAssets>,
+    ) -> Result<bytes::Bytes, FrameworkError> {
+        let mut context = FrameworkRequestContext::default();
+        context.request.set_base_path(assets.base_path().clone());
+        context
+            .request
+            .set_public_asset_urls(Some(assets.render_urls()));
+        context
+            .request
+            .set_asset_prefix(assets.asset_prefix().map(crate::AssetPrefix::shared));
+        context
+            .request
+            .set_framework_assets(rsjs.map(|rsjs| rsjs.published().clone()));
+        self.0.render_to_bytes_with_context(&context)
+    }
+
+    /// [`render_to_bytes`](Self::render_to_bytes) as an owned UTF-8 `String`.
+    pub fn render_to_string(self) -> Result<String, FrameworkError> {
+        self.0.render_to_string()
     }
 }
 
@@ -178,7 +219,7 @@ impl RouteResponse<DynLoaderHandle> {
     /// Construct an async route response with a type-erased loader.
     ///
     /// This is the dyn-boundary escape hatch constructor: `L` is fixed to
-    /// `DynLoaderHandle`, so `cx.load(...)` calls inside the component pay
+    /// `DynLoaderHandle`, so `cx.load_json(...)` calls inside the component pay
     /// one `Box::pin` at the dyn boundary. Use only when the loader's
     /// concrete type is genuinely not statically known at the route's
     /// construction site; prefer
@@ -224,7 +265,7 @@ impl RouteResponse<DynLoaderHandle> {
     /// Replace the loader on an existing type-erased response.
     ///
     /// The response must already use `L = DynLoaderHandle`; this method does
-    /// not change its loader type. Every `cx.load(...)` inside the component
+    /// not change its loader type. Every `cx.load_json(...)` inside the component
     /// pays one `Box::pin` at the dyn boundary.
     ///
     /// Use [`with_loader`](Self::with_loader) on a typed `L` for the
@@ -513,10 +554,13 @@ async fn prepare_stream(
     }
 }
 
-fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
+fn framework_request_context(ctx: &mut RouteContext) -> FrameworkRequestContext {
     let request_location = ctx.current_uri().cloned().map(RequestLocation::from);
     let route_params = Some(ctx.current_route_params().clone());
     let mut request = RequestContext::new().with_base_path(ctx.base_path().clone());
+    request.set_public_asset_urls(ctx.public_asset_urls());
+    request.set_framework_assets(ctx.framework_assets());
+    request.set_asset_prefix(ctx.asset_prefix());
     if let Some(method) = ctx.current_method().cloned() {
         request.set_method(method);
     }
@@ -540,7 +584,7 @@ fn framework_request_context(ctx: &RouteContext) -> FrameworkRequestContext {
 
 pub(super) fn current_framework_request_context() -> FrameworkRequestContext {
     ROUTE_CONTEXT
-        .try_with(|ctx| framework_request_context(&ctx.borrow()))
+        .try_with(|ctx| framework_request_context(&mut ctx.borrow_mut()))
         .unwrap_or_default()
 }
 
@@ -548,17 +592,16 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
     fn into_response(self) -> Response {
         ROUTE_CONTEXT
             .try_with(|ctx| {
-                let (manifest, is_client_request, page_title, request) = {
+                let (is_client_request, page_title, request) = {
                     let mut ctx_ref = ctx.borrow_mut();
-                    let manifest = ctx_ref.manifest_arc();
                     let is_client = ctx_ref.is_client_request();
-                    let request = framework_request_context(&ctx_ref);
+                    let request = framework_request_context(&mut ctx_ref);
                     let page_title = if is_client {
                         ctx_ref.resolve_metadata().and_then(|meta| meta.title)
                     } else {
                         None
                     };
-                    (manifest, is_client, page_title, request)
+                    (is_client, page_title, request)
                 };
 
                 let mode = if is_client_request {
@@ -570,16 +613,11 @@ impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
                 let streamed_document =
                     matches!(&mode, RouteFinalizeMode::Document) && response.is_streaming();
                 let finalized = if response.is_synchronous() {
-                    finalize_route_response_sync(response, manifest.as_ref(), &request, mode)
+                    finalize_route_response_sync(response, &request, mode)
                 } else if streamed_document {
-                    finalize_route_response_stream(response, manifest.as_ref(), &request)
+                    finalize_route_response_stream(response, &request)
                 } else {
-                    block_on_current_runtime(finalize_route_response::<L>(
-                        response,
-                        manifest.as_ref(),
-                        &request,
-                        mode,
-                    ))
+                    block_on_current_runtime(finalize_route_response::<L>(response, &request, mode))
                 };
 
                 match finalized {
