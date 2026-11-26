@@ -1,21 +1,22 @@
 // Copyright Proa Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::future::Future;
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 use axum::body::Body;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use futures::{stream, StreamExt as _};
+use futures::{stream, FutureExt as _, StreamExt as _};
 use proa_core::{
     DataLoader, DynDataLoader, DynLoaderHandle, LoadKey, LoadRequest, NoLoader, RenderBuffer,
     RenderMode, RequestContext, RequestLocation,
 };
 use proa_framework_core::{
-    finalize_route_response, finalize_route_response_stream, finalize_route_response_sync,
+    finalize_route_response_deferred, finalize_route_response_stream, finalize_route_response_sync,
     FrameworkBody, FrameworkError, FrameworkRequestContext, FrameworkResponse, FrameworkSendStream,
-    FrameworkStreamFactory, RouteFinalizeMode, RouteResponse as CoreRouteResponse,
+    FrameworkStreamFactory, RouteFinalization, RouteFinalizeMode,
+    RouteResponse as CoreRouteResponse,
 };
 use tracing::error;
 
@@ -46,7 +47,9 @@ impl RouteResponse<NoLoader> {
     /// Construct a buffered async route response with `L = NoLoader`.
     ///
     /// Rendering completes before Axum emits the response, so root errors and
-    /// response metadata are known before body delivery begins. Use this when
+    /// response metadata are known before body delivery begins. The render
+    /// runs on the local render executor after the handler returns, so serve
+    /// it through `FrameworkBuilder` or `RouteContextLayer`. Use this when
     /// the component never calls `cx.load_json(...)`. For routes
     /// that install a loader, use
     /// [`ssr_async_with_loader`](RouteResponse::<L>::ssr_async_with_loader)
@@ -379,9 +382,10 @@ enum StreamPrepareError {
 }
 
 pub(super) async fn prepare_deferred_framework_stream(
-    mut response: Response,
+    response: Response,
     executor: LocalStreamExecutor,
 ) -> Response {
+    let mut response = finish_deferred_render(response).await;
     let Some(deferred) = response
         .extensions_mut()
         .remove::<DeferredFrameworkStream>()
@@ -590,68 +594,173 @@ pub(super) fn current_framework_request_context() -> FrameworkRequestContext {
 
 impl<L: DataLoader + 'static> IntoResponse for RouteResponse<L> {
     fn into_response(self) -> Response {
-        ROUTE_CONTEXT
-            .try_with(|ctx| {
-                let (is_client_request, page_title, request) = {
-                    let mut ctx_ref = ctx.borrow_mut();
-                    let is_client = ctx_ref.is_client_request();
-                    let request = framework_request_context(&mut ctx_ref);
-                    let page_title = if is_client {
-                        ctx_ref.resolve_metadata().and_then(|meta| meta.title)
-                    } else {
-                        None
-                    };
-                    (is_client, page_title, request)
-                };
+        let Ok((is_client_request, page_title, request)) = ROUTE_CONTEXT.try_with(|ctx| {
+            let mut ctx = ctx.borrow_mut();
+            let is_client = ctx.is_client_request();
+            let request = framework_request_context(&mut ctx);
+            let page_title = if is_client {
+                ctx.resolve_metadata().and_then(|meta| meta.title)
+            } else {
+                None
+            };
+            (is_client, page_title, request)
+        }) else {
+            return invalid_route_context();
+        };
 
-                let mode = if is_client_request {
-                    RouteFinalizeMode::ClientPayload { page_title }
-                } else {
-                    RouteFinalizeMode::Document
-                };
-                let response = self.0;
-                let streamed_document =
-                    matches!(&mode, RouteFinalizeMode::Document) && response.is_streaming();
-                let finalized = if response.is_synchronous() {
-                    finalize_route_response_sync(response, &request, mode)
-                } else if streamed_document {
-                    finalize_route_response_stream(response, &request)
-                } else {
-                    block_on_current_runtime(finalize_route_response::<L>(response, &request, mode))
-                };
-
-                match finalized {
-                    Ok(response) => framework_response_to_axum(response),
-                    Err(err) => {
-                        error!(?err, "route finalization failed");
-                        framework_response_to_axum(FrameworkResponse::plain_text(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            "render error",
-                        ))
-                    }
-                }
-            })
-            .unwrap_or_else(|_| {
-                error!("RouteResponse used outside of routing context");
-                (StatusCode::INTERNAL_SERVER_ERROR, "invalid route context").into_response()
-            })
+        let mode = if is_client_request {
+            RouteFinalizeMode::ClientPayload { page_title }
+        } else {
+            RouteFinalizeMode::Document
+        };
+        let response = self.0;
+        let finalized = if response.is_synchronous() {
+            finalize_route_response_sync(response, &request, mode)
+        } else if matches!(mode, RouteFinalizeMode::Document) && response.is_streaming() {
+            finalize_route_response_stream(response, &request)
+        } else {
+            return defer(finalize_route_response_deferred(response, request, mode));
+        };
+        match finalized {
+            Ok(response) => framework_response_to_axum(response),
+            Err(err) => {
+                error!(?err, "route finalization failed");
+                render_error()
+            }
+        }
     }
 }
 
-pub(super) fn block_on_current_runtime<F>(fut: F) -> F::Output
-where
-    F: Future,
-{
-    let handle = tokio::runtime::Handle::try_current().expect(
-        "RouteResponse async finalization was invoked outside a tokio runtime; \
-         axum's tokio runtime is required to drive the future",
-    );
-    match handle.runtime_flavor() {
-        tokio::runtime::RuntimeFlavor::MultiThread => {
-            tokio::task::block_in_place(|| handle.block_on(fut))
+fn invalid_route_context() -> Response {
+    error!("RouteResponse used outside RouteContextLayer, which FrameworkBuilder installs");
+    (StatusCode::INTERNAL_SERVER_ERROR, "invalid route context").into_response()
+}
+
+fn render_error() -> Response {
+    framework_response_to_axum(FrameworkResponse::plain_text(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "render error",
+    ))
+}
+
+/// A buffered render that `into_response` could not await.
+#[derive(Clone)]
+pub(super) struct DeferredRender(Arc<Mutex<Option<PendingRender>>>);
+
+struct PendingRender {
+    finalization: RouteFinalization,
+    route: RouteContext,
+}
+
+/// Return a placeholder whose render runs at the next framework boundary:
+/// a page cache, or else `RouteContextLayer`, which always awaits it before
+/// returning response headers. Without that layer this is an HTTP 500.
+pub(super) fn defer(finalization: RouteFinalization) -> Response {
+    let Ok(route) = ROUTE_CONTEXT.try_with(|ctx| ctx.borrow().clone()) else {
+        return invalid_route_context();
+    };
+    let mut response = Response::new(Body::empty());
+    response
+        .extensions_mut()
+        .insert(DeferredRender(Arc::new(Mutex::new(Some(PendingRender {
+            finalization,
+            route,
+        })))));
+    response
+}
+
+/// Finish a render deferred by [`defer`], then reapply what handler wrappers
+/// and middleware set on the placeholder.
+pub(super) async fn finish_deferred_render(mut response: Response) -> Response {
+    let Some(deferred) = response.extensions_mut().remove::<DeferredRender>() else {
+        return response;
+    };
+    let pending = deferred
+        .0
+        .lock()
+        .expect("deferred render mutex poisoned")
+        .take();
+    let rendered = match pending {
+        Some(PendingRender {
+            finalization,
+            route,
+        }) => render_pending(finalization, route).await,
+        None => {
+            error!("deferred route render was already consumed");
+            render_error()
         }
-        _ => handle.block_on(fut),
+    };
+    apply_placeholder(response, rendered)
+}
+
+async fn render_pending(finalization: RouteFinalization, route: RouteContext) -> Response {
+    // The render sees the route context, endpoint metadata included, from
+    // when the handler returned.
+    let result = match finalization {
+        RouteFinalization::Send(render) => ROUTE_CONTEXT.scope(RefCell::new(route), render).await,
+        RouteFinalization::Local(make) => {
+            let Some(executor) = route.local_stream_executor().cloned() else {
+                error!("deferred local render has no executor");
+                return render_error();
+            };
+            let run = executor.run(Box::new(move || {
+                ROUTE_CONTEXT
+                    .scope(RefCell::new(route), make())
+                    .boxed_local()
+            }));
+            match run.await {
+                Ok(result) => result,
+                Err(LocalStreamPrepareError::Overloaded) => {
+                    error!("local stream executor admission limit reached");
+                    return framework_response_to_axum(FrameworkResponse::plain_text(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "server busy",
+                    ));
+                }
+                Err(LocalStreamPrepareError::Unavailable(reason)) => {
+                    error!(%reason, "local stream executor unavailable");
+                    return render_error();
+                }
+                Err(LocalStreamPrepareError::FirstItem(err)) => Err(err),
+            }
+        }
+    };
+    match result {
+        Ok(response) => framework_response_to_axum(response),
+        Err(err) => {
+            error!(?err, "route finalization failed");
+            render_error()
+        }
     }
+}
+
+/// Wrappers and middleware edited the placeholder after `into_response`, as
+/// they once edited the rendered response. Keep that precedence: a status
+/// other than the placeholder's 200 and each header name win, while `Vary`,
+/// `Link`, and `Set-Cookie` accumulate.
+fn apply_placeholder(placeholder: Response, mut rendered: Response) -> Response {
+    let (parts, _) = placeholder.into_parts();
+    if parts.status != StatusCode::OK {
+        *rendered.status_mut() = parts.status;
+    }
+    let headers = rendered.headers_mut();
+    let mut current = None;
+    for (name, value) in parts.headers {
+        if let Some(name) = name {
+            if name != http::header::VARY
+                && name != http::header::LINK
+                && name != http::header::SET_COOKIE
+            {
+                headers.remove(&name);
+            }
+            current = Some(name);
+        }
+        if let Some(name) = &current {
+            headers.append(name, value);
+        }
+    }
+    rendered.extensions_mut().extend(parts.extensions);
+    rendered
 }
 
 #[cfg(test)]

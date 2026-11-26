@@ -82,8 +82,9 @@ An adapter owns everything IO-shaped. The contract surface it implements:
 1. Map the incoming request to a `proa_core` request context and side
    channels (`ResponseContext`, `HeadContext`, and friends).
 2. Render. Sync pages need no runtime at all; async pages need any
-   executor's `block_on`; streaming routes produce a
-   `FrameworkStreamFactory`.
+   executor's `block_on` from synchronous code, or
+   `finalize_route_response_deferred` awaited at an async boundary inside a
+   runtime; streaming routes produce a `FrameworkStreamFactory`.
 3. Match `FrameworkStreamFactory::Send` and `::Local`. Poll the former
    directly. Keep the latter pinned after invoking its transferable unopened
    factory. Before committing response headers, asynchronously obtain its

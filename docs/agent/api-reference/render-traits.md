@@ -238,8 +238,8 @@ request state, register artifacts, or install stream callbacks.
 At an Axum route boundary, choose `ssr_async_send(...)` for buffered delivery
 or `ssr_stream_send(...)` for direct streaming. Their typed-loader variants
 end in `_with_loader`. Ordinary `ssr_async(...)` and `ssr_stream(...)` retain
-support for local futures and therefore use the bounded local executor when
-streaming.
+support for local futures and therefore render on the bounded local executor,
+buffered or streamed.
 
 ## Genuinely runtime-selected children
 

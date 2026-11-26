@@ -407,7 +407,7 @@ where
     request.headers_mut().remove(header::IF_NONE_MATCH);
     request.headers_mut().remove(header::IF_MODIFIED_SINCE);
     let future = async {
-        let response = inner.oneshot(request).await?;
+        let response = super::response::finish_deferred_render(inner.oneshot(request).await?).await;
         if !cacheable_response(layer, &response) {
             // Keep stale public content on transient server failures only.
             if !response.status().is_server_error() {

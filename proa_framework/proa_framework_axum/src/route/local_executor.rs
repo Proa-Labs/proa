@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use futures::future::LocalBoxFuture;
 use futures::{stream, StreamExt};
 use proa_framework_core::{FrameworkError, FrameworkLocalStreamFactory, FrameworkSendStream};
 use tokio::sync::{mpsc, oneshot, OwnedSemaphorePermit, Semaphore, TryAcquireError};
@@ -145,6 +146,33 @@ impl LocalStreamExecutor {
             let _keep_pool_alive = &keep_pool_alive;
             item
         })))
+    }
+
+    /// Run one local future to completion on a pinned worker and return its
+    /// `Send` output. The future never leaves the worker.
+    ///
+    /// The job is an empty stream that reports its output before ending, so
+    /// it shares admission, pinning, and cancellation with streamed renders.
+    pub(super) async fn run<T: Send + 'static>(
+        &self,
+        make: Box<dyn FnOnce() -> LocalBoxFuture<'static, T> + Send>,
+    ) -> Result<T, LocalStreamPrepareError> {
+        let (output, result) = oneshot::channel();
+        let job: FrameworkLocalStreamFactory = Box::new(move || {
+            Box::pin(
+                stream::once(async move {
+                    // A receiver that has gone away no longer needs the output.
+                    let _ = output.send(make().await);
+                })
+                .filter_map(|()| std::future::ready(None)),
+            )
+        });
+        let _empty = self.prepare_with_head(job, None).await?;
+        result.await.map_err(|_| {
+            LocalStreamPrepareError::Unavailable(Arc::from(
+                "local render stopped before completing",
+            ))
+        })
     }
 }
 

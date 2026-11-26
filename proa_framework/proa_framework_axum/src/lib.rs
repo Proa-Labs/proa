@@ -496,7 +496,8 @@ impl FrameworkBuilder {
         self
     }
 
-    /// Configure the persistent executor used by local streaming renders.
+    /// Configure the persistent executor used by local (`!Send`) renders,
+    /// buffered or streamed.
     ///
     /// This is a joint server resource decision: deployments should account
     /// for these threads alongside Tokio's worker count. Admission and

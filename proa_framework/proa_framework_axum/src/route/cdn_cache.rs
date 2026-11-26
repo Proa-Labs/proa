@@ -173,7 +173,7 @@ where
         let policy = self.policy.clone();
         let future = self.inner.call(request);
         Box::pin(async move {
-            let mut response = future.await?;
+            let mut response = super::response::finish_deferred_render(future.await?).await;
             let cacheable = !bypass && public_html(&response);
             let headers = response.headers_mut();
             for name in ["surrogate-control", "expires", "age"] {

@@ -42,6 +42,8 @@ pub struct RouteContext {
     framework_assets: Option<proa_core::FrameworkAssets>,
     asset_prefix: Option<Arc<str>>,
     head: Option<proa_core::HeadConfig>,
+    /// Finishes local buffered renders after the handler returns.
+    local_stream_executor: Option<LocalStreamExecutor>,
 }
 
 #[derive(Clone)]
@@ -178,11 +180,16 @@ impl RouteContext {
             framework_assets: None,
             asset_prefix: None,
             head: None,
+            local_stream_executor: None,
         }
     }
 
     pub(super) fn head_config(&self) -> Option<&proa_core::HeadConfig> {
         self.head.as_ref()
+    }
+
+    pub(super) fn local_stream_executor(&self) -> Option<&LocalStreamExecutor> {
+        self.local_stream_executor.as_ref()
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
@@ -494,7 +501,7 @@ impl RouteContextLayer {
         self
     }
 
-    /// Configure the bounded executor used only for genuinely local streams.
+    /// Configure the bounded executor used only for genuinely local renders.
     pub fn with_local_stream_executor_config(mut self, config: LocalStreamExecutorConfig) -> Self {
         self.local_stream_executor = LocalStreamExecutor::new(config);
         self
@@ -562,6 +569,7 @@ where
         context.set_csp_nonce(csp_nonce);
         context.base_path = self.base_path.clone();
         context.framework_assets = self.framework_assets.clone();
+        context.local_stream_executor = Some(self.local_stream_executor.clone());
         if let Some(assets) = &self.public_assets {
             // One generation per request: the URLs rendered into the page and
             // the cache key a later layer reads from the extension must agree,

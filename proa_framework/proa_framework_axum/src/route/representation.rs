@@ -3,16 +3,18 @@
 
 //! Shared HTML/Markdown representation negotiation for typed pages.
 
-use super::response::{
-    block_on_current_runtime, current_framework_request_context, framework_response_to_axum,
-};
+use super::response::{current_framework_request_context, defer, framework_response_to_axum};
 use axum::http::{
     header::{ACCEPT, LINK, VARY},
-    HeaderMap, HeaderValue, StatusCode,
+    HeaderMap, HeaderValue,
 };
 use axum::response::IntoResponse;
+use futures::FutureExt as _;
 use proa_core::{DataLoader, MdRenderSync, WriteError};
-use proa_framework_core::{render_sync_markdown_response, FrameworkResponse, MarkdownResponse};
+use proa_framework_core::{
+    render_sync_markdown_response, FrameworkError, FrameworkResponse, MarkdownResponse,
+    RouteFinalization,
+};
 use std::sync::Arc;
 
 use super::RouteResponse;
@@ -106,19 +108,19 @@ impl<L: DataLoader + 'static> IntoResponse for RepresentationResponse<L> {
                 canonical,
             } => {
                 let request = current_framework_request_context();
-                match block_on_current_runtime(response.finalize(&request)) {
-                    Ok(response) => markdown_into_response(response, canonical),
-                    Err(err) => {
-                        tracing::error!(?err, "Markdown route finalization failed");
-                        markdown_into_response(
-                            FrameworkResponse::plain_text(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                "render error",
-                            ),
-                            canonical,
-                        )
+                let mut response = defer(RouteFinalization::Local(Box::new(move || {
+                    async move {
+                        response
+                            .finalize(&request)
+                            .await
+                            .map_err(FrameworkError::from)
                     }
+                    .boxed_local()
+                })));
+                if canonical {
+                    merge_accept_vary(response.headers_mut());
                 }
+                response
             }
         }
     }
@@ -384,6 +386,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::header::CONTENT_TYPE;
+    use axum::http::StatusCode;
     use axum::{
         http::{header, Request},
         routing::get,
@@ -561,6 +564,7 @@ mod tests {
 mod shared_context_tests {
     use super::*;
     use crate::route::context::{RouteContextLayer, ROUTE_CONTEXT};
+    use axum::http::StatusCode;
     use axum::{
         body::Body,
         http::{header, Method, Request},
@@ -649,7 +653,7 @@ mod shared_context_tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
     async fn negotiated_handler_defers_local_markdown_and_preserves_request_and_response() {
         let loader = Arc::new(Loader {
             loads: AtomicUsize::new(0),
@@ -744,14 +748,16 @@ mod shared_context_tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
     async fn explicit_async_errors_use_http_render_error_mapping() {
-        let app = Router::new().route(
-            "/failed.md",
-            get(|| async {
-                explicit_markdown_async_with_loader(Fails, Arc::new(proa_core::NoLoader))
-            }),
-        );
+        let app = Router::new()
+            .route(
+                "/failed.md",
+                get(|| async {
+                    explicit_markdown_async_with_loader(Fails, Arc::new(proa_core::NoLoader))
+                }),
+            )
+            .layer(RouteContextLayer::new(Arc::new(HashMap::new())));
         let response = app
             .oneshot(
                 Request::builder()
