@@ -24,24 +24,30 @@ the owned `RenderBuffer` response writer.
 
 ## Async SSR
 
-Use `RouteResponse::ssr_async` for components that implement `WebRender` and do not use a loader. The full render completes before the response begins, so root errors, status, and headers remain available to the HTTP layer.
+Use `RouteResponse::ssr_async` for components that implement `WebRender` and do not use a loader. The full render completes before the response begins, so root errors, status, and headers remain available to the HTTP layer. Await it in the handler:
 
 ```rust
-pub async fn handler() -> RouteResponse {
-    RouteResponse::ssr_async(PageWithAwait)
+use axum::response::Response;
+
+pub async fn handler() -> Response {
+    RouteResponse::ssr_async(PageWithAwait).await
 }
 ```
 
-For typed data loaders, return `impl IntoResponse` and pass the loader explicitly:
+For typed data loaders, pass the loader explicitly:
 
 ```rust
 use std::sync::Arc;
 
 pub async fn handler() -> impl axum::response::IntoResponse {
     let loader = Arc::new(MyLoader::new());
-    RouteResponse::ssr_async_with_loader(Page, loader)
+    RouteResponse::ssr_async_with_loader(Page, loader).await
 }
 ```
+
+Awaiting finishes the render inside the handler, so every middleware sees the finished page: its status, its headers, and a render error as a `500`. `ssr_async_send` renders on the handler's task. `ssr_async` renders on the local render pool while the handler waits for the result; the route context is available there, but task-locals that middleware sets are not.
+
+A handler can also return the response without `.await`. On a multi-thread runtime, Proa then blocks the handler's worker thread until the render finishes. Under many concurrent renders that wait on I/O or timers, that can exhaust Tokio's blocking thread pool and stall the server. On a current-thread runtime, such as a plain `#[tokio::test]`, it cannot block, so `RouteContextLayer` finishes the render instead, and middleware between the handler and that layer sees an empty placeholder rather than the page.
 
 Prefer typed loaders when the concrete loader type is known. Use the `*_dyn` constructors only at real dynamic boundaries.
 

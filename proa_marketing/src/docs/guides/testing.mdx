@@ -50,6 +50,8 @@ async fn home_serves_html_and_markdown() {
 }
 ```
 
+The plain `#[tokio::test]` runtime has one thread. Handlers that await their buffered response (`RouteResponse::ssr_async(page).await`) render the same way there as in production. A handler that returns one without `.await` still works, but `RouteContextLayer` finishes its render after the handler returns, so middleware inside that layer sees an empty placeholder instead of the page. See [Route responses](/docs/framework/responses#async-ssr).
+
 ## Writing unit tests
 
 Keep focused tests for calculations, validation, state transitions, authorization,

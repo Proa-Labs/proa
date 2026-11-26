@@ -84,7 +84,12 @@ An adapter owns everything IO-shaped. The contract surface it implements:
 2. Render. Sync pages need no runtime at all; async pages need any
    executor's `block_on` from synchronous code, or
    `finalize_route_response_deferred` awaited at an async boundary inside a
-   runtime; streaming routes produce a `FrameworkStreamFactory`.
+   runtime; streaming routes produce a `FrameworkStreamFactory`. Prefer the
+   async boundary closest to the handler, so middleware sees the rendered
+   response. The Axum adapter awaits it in the handler itself
+   (`RouteResponse::ssr_async(page).await`): a `RouteFinalization::Send`
+   render polls on the handler's task, and a `::Local` one runs on the
+   pinned-worker pool while the handler awaits a `Send` handle to its result.
 3. Match `FrameworkStreamFactory::Send` and `::Local`. Poll the former
    directly. Keep the latter pinned after invoking its transferable unopened
    factory. Before committing response headers, asynchronously obtain its

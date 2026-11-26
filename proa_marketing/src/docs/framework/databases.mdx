@@ -186,7 +186,7 @@ pub async fn product(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let loader = DataResolver::request_scope(loader);
-    RouteResponse::ssr_async_with_loader(ProductPage { id }, loader)
+    RouteResponse::ssr_async_with_loader(ProductPage { id }, loader).await
 }
 ```
 

@@ -241,6 +241,22 @@ end in `_with_loader`. Ordinary `ssr_async(...)` and `ssr_stream(...)` retain
 support for local futures and therefore render on the bounded local executor,
 buffered or streamed.
 
+Await a buffered response in its handler:
+
+```rust
+async fn handler() -> axum::response::Response {
+    RouteResponse::ssr_async(SearchPage { query }).await
+}
+```
+
+The render then finishes inside the handler, so every middleware sees the
+finished page, and a render error as a 500. A `Send` render runs on the
+handler's task; a local one runs on the local executor while the handler
+awaits its result. Without `.await`, a multi-thread runtime blocks the
+handler's worker until the render finishes, and a current-thread runtime
+(`#[tokio::test]`) defers it to `RouteContextLayer`, so middleware inside that
+layer sees an empty placeholder.
+
 ## Genuinely runtime-selected children
 
 Keep normal component trees generic: that is the static-dispatch,

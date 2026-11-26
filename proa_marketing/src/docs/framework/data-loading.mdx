@@ -130,7 +130,7 @@ pub async fn product_handler() -> impl axum::response::IntoResponse {
     let app_loader = Arc::new(AppLoader {});
     let loader = DataResolver::request_scope(app_loader);
 
-    RouteResponse::ssr_async_with_loader(ProductPage { id: "sku_1" }, loader)
+    RouteResponse::ssr_async_with_loader(ProductPage { id: "sku_1" }, loader).await
 }
 ```
 
@@ -659,6 +659,7 @@ pub async fn document(
         VerificationPanel { document_id: id },
         loader,
     )
+    .await
 }
 ```
 
