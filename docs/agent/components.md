@@ -40,11 +40,10 @@ explicit Page, and verify head publication while body work remains pending.
 Calling `render` directly exercises only the body and bypasses lifecycle dispatch.
 Run `cargo proa lint <changed-paths> --deny warnings` for changed hooks.
 `render/head-role-required` rejects an override with a missing role declaration
-or an explicit `COMPONENT` role. Native async hooks cannot expose override
-presence to Rust, so the async contract relies on this source check. Forwarded
-roles and application constants are not evaluated by the lint; ensure they resolve
-to `LAYOUT` or `PAGE`. Synchronous hooks also retain a compiler assertion during
-code generation; run `cargo build`, since `cargo check` does not instantiate it.
+or an explicit `COMPONENT` role. Forwarded roles and application constants are
+not evaluated by the lint; ensure they resolve to `LAYOUT` or `PAGE`. Every hook
+surface, sync and async, also retains a compiler assertion during code
+generation; run `cargo build`, since `cargo check` does not instantiate it.
 
 A Page with neither a hook nor a declared role remains indistinguishable from an
 ordinary component. Choosing `LAYOUT` for the selected Page also leaves no Page

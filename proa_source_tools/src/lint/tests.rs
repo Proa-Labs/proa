@@ -127,6 +127,537 @@ fn head_role_lint_ignores_body_only_components_other_traits_and_excluded_tests()
     );
 }
 
+#[test]
+fn head_role_help_names_the_public_facade() {
+    let source = "impl WebRender for Page { async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) } }";
+    let diagnostics = lint_file(Path::new("page.rs"), source);
+    let help = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-required")
+        .and_then(|d| d.help.as_deref())
+        .unwrap();
+    assert!(help.contains("proa::ComponentRole::LAYOUT"), "{help}");
+    assert!(!help.contains("proa_core"), "{help}");
+}
+
+fn codes_at(diagnostics: &[Diagnostic], code: &str) -> Vec<usize> {
+    let mut lines: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == code)
+        .map(|d| d.line)
+        .collect();
+    lines.sort_unstable();
+    lines
+}
+
+#[test]
+fn head_mutation_in_body_flags_checked_setters_in_every_render_body() {
+    let source = r#"
+impl WebRender for Product {
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Allowed in the hook")
+    }
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            cx.head_mut().title("Too late")?;
+            Ok(())
+        })
+    }
+}
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        head.description("Too late")?;
+        cx.head_mut().set_title("legacy manual setter");
+        cx.head_mut().push_meta("robots", "noindex");
+        Ok(())
+    }
+}
+impl WebRenderSend for SendCard {
+    fn render_send(self, cx: &mut SendWebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>> + Send> {
+        RenderOutcome::pending(async move { (cx.head_mut()).metadata(HeadMetadata::default()) })
+    }
+}
+impl WebRenderSendSync for SyncSendCard {
+    fn render_send_sync(self, cx: &mut SendWebContext) -> Result<(), WriteError> {
+        let title = cx.head_state().title();
+        cx.head_mut().canonical("/x")
+    }
+}
+impl OtherTrait for NotRender {
+    fn render(self, cx: &mut WebContext) { cx.head_mut().title("other trait"); }
+}
+"#;
+    let diagnostics = lint_file(Path::new("product.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        [8, 16, 24, 30],
+        "{diagnostics:#?}"
+    );
+    let first = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-mutation-in-body")
+        .unwrap();
+    assert_eq!(first.severity, Severity::Error);
+    assert!(first.message.contains("`head_mut().title(..)` in `render`"));
+    assert!(first.help.as_deref().unwrap().contains("render_head"));
+    assert!(first
+        .help
+        .as_deref()
+        .unwrap()
+        .contains("proa::ComponentRole::PAGE"));
+}
+
+#[test]
+fn head_roles_in_suspense_and_inside_a_page_are_errors() {
+    let source = r#"
+use crate::components::Card;
+use proa::stream::Suspense;
+struct Shell<C> { page: C }
+struct ProductPage;
+struct ReviewsPage;
+struct Fallback;
+impl<C: WebRender> WebRender for Shell<C> {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>{ProductPage}</main> }.render(cx)
+    }
+}
+impl WebRender for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            <section>
+                {Card { title: "ok" }}
+                {Suspense::new(Card { title: "slow" }, Fallback)}
+                {to_async(ReviewsPage)}
+                {Shell { page: () }}
+            </section>
+        }
+        .render(cx)
+    }
+}
+impl WebRender for ReviewsPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move { render_child(cx, Fallback).await })
+    }
+}
+impl WebRenderSync for Fallback {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) }
+}
+async fn route(cx: &mut WebContext) -> Result<(), WriteError> {
+    render_child(cx, Suspense::new(ProductPage, Fallback)).await?;
+    render_child(cx, Shell { page: ProductPage }).await
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [21, 22],
+        "{diagnostics:#?}"
+    );
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-suspense"),
+        [38],
+        "{diagnostics:#?}"
+    );
+    let nested = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-in-page" && d.line == 22)
+        .unwrap();
+    assert_eq!(nested.severity, Severity::Error);
+    assert!(nested.message.contains(
+        "`Shell` declares `ComponentRole::LAYOUT` but is rendered inside the Page `ProductPage`"
+    ));
+    assert!(nested
+        .help
+        .as_deref()
+        .unwrap()
+        .contains("render `ProductPage` inside `Shell`"));
+    assert_eq!(nested.labels.len(), 2);
+    assert_eq!(nested.labels[1].range.line, 9);
+    let suspense = diagnostics
+        .iter()
+        .find(|d| d.code == "render/head-role-in-suspense")
+        .unwrap();
+    assert!(suspense
+        .notes
+        .iter()
+        .any(|note| note.contains("HeadError::Excluded")));
+}
+
+#[test]
+fn head_role_placement_lints_skip_names_they_cannot_resolve() {
+    let source = r#"
+use ui::Header;
+use crate::layouts::*;
+struct ProductPage;
+struct Header;
+mod a { pub struct Banner; }
+mod b { pub struct Banner; }
+impl WebRender for Header {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for a::Banner {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl<T: WebRender> WebRender for Wrapper<T> {
+    const ROLE: ComponentRole = T::ROLE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        let link = ProductPage::new().href();
+        html! {
+            {Header}
+            {a::Banner}
+            {Wrapper(Inner)}
+            {RootLayout { page: () }}
+            {self.layout}
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert!(
+        !diagnostics
+            .iter()
+            .any(|d| d.code.starts_with("render/head-role-in")),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_skip_generic_parameters_named_like_layouts() {
+    let source = r#"
+pub struct Shell;
+impl WebRender for Shell {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+pub struct Article<Shell>(Shell);
+impl<Shell: WebRender + Default> WebRender for Article<Shell> {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { {Shell::default()} }.render(cx)
+    }
+}
+pub fn deferred<Shell: WebRender + Default>() -> impl WebRender {
+    Suspense::new(Shell::default(), ())
+}
+pub struct Note;
+impl WebRender for Note {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { {Shell} }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [21],
+        "only the module's own Shell is a layout: {diagnostics:#?}"
+    );
+    assert!(
+        codes_at(&diagnostics, "render/head-role-in-suspense").is_empty(),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_resolve_names_per_module() {
+    let source = r#"
+mod ui { pub struct Card; }
+mod layouts {
+    pub struct Panel;
+    impl WebRender for Panel {
+        const ROLE: ComponentRole = ComponentRole::LAYOUT;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+    }
+}
+mod aliased {
+    use crate::ui::Card as Panel;
+    pub struct APage;
+    impl WebRender for APage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod direct {
+    use crate::layouts::Panel;
+    pub struct BPage;
+    impl WebRender for BPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} {super::layouts::Panel} }.render(cx)
+        }
+    }
+}
+mod globbed {
+    use crate::layouts::*;
+    use proa::*;
+    pub struct CPage;
+    impl WebRender for CPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod shadowed {
+    use crate::layouts::Panel;
+    pub struct DPage;
+    impl WebRender for DPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            use crate::ui::Card as Panel;
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+mod unimported {
+    pub struct EPage;
+    impl WebRender for EPage {
+        const ROLE: ComponentRole = ComponentRole::PAGE;
+        fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+            html! { {Panel} }.render(cx)
+        }
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/lib.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [26, 26],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_follow_rendered_branches_and_loop_bodies() {
+    let source = r#"
+struct Nested;
+struct Home;
+impl WebRender for Nested {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> { todo!() }
+}
+impl WebRender for Home {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            {if show { Nested }}
+            {if show { () } else if other { () } else { Nested }}
+            {match kind { 1 => Nested, _ => () }}
+            {for _ in 0..2 { Nested }}
+            {while more { Nested }}
+            {{ let n = 1; Nested }}
+            {if show { Nested; }}
+            {'done: { break 'done (); Nested }}
+            {for _ in 0..2 { let _ = Nested; }}
+            {if show { return; }}
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/pages.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-role-in-page"),
+        [12, 13, 14, 15, 16, 17],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_mutation_in_body_checks_template_slots() {
+    let source = r#"
+impl WebRenderSync for Card {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! {
+            <p>{{ cx.head_mut().title("Late")?; () }}</p>
+            <div>{html_sync! { <span>{{ let mut head = cx.head_mut(); head.description("Late")?; () }}</span> }}</div>
+            <a title={cx.head_mut().canonical("/x").is_ok()}></a>
+            <p>{{ cx.head_mut().set_title("legacy"); () }}</p>
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/card.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        [5, 6, 7],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_mutation_writers_follow_rust_scoping() {
+    // Each `// flag` line must be reported; every other `title`,
+    // `description`, or `canonical` call reaches a non-writer.
+    let source = r#"
+impl WebRenderSync for TemplateSlot {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let head = &self.article;
+        html_sync! {
+            <p>{{ let mut head = cx.head_mut(); head.title("Late")?; () }}</p> // flag
+            <p>{head.title()}</p>
+        }
+        .render(cx)?;
+        head.title();
+        Ok(())
+    }
+}
+impl WebRenderSync for NestedBlocks {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let head = &self.article;
+        {
+            let mut head = cx.head_mut();
+            head.title("Late")?; // flag
+        }
+        head.title();
+        let mut writer = cx.head_mut();
+        {
+            let writer = &self.article;
+            writer.description();
+        }
+        writer.description("Late") // flag
+    }
+}
+impl WebRenderSync for Closures {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        let by_param = |head: &Article| head.title();
+        let local = || {
+            let head = &self.article;
+            head.title()
+        };
+        let inner = || {
+            let mut other = cx.head_mut();
+            other.title("Late") // flag
+        };
+        let other = &self.article;
+        other.title();
+        head.title("Late") // flag
+    }
+}
+impl WebRenderSync for MatchArms {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        match self.article {
+            Some(head) => head.title(),
+            Wrapper { head, .. } if head.title() => (),
+            _ if [true].into_iter().any(|head| head) => head.title("Late")?, // flag
+            _ => head.title("Late")?, // flag
+        }
+        if let Some(head) = self.article {
+            head.title();
+        } else {
+            head.canonical("/late")?; // flag
+        }
+        while let Some(head) = next() {
+            head.title();
+        }
+        for head in articles {
+            head.title();
+        }
+        Ok(())
+    }
+}
+impl WebRenderSync for Shadowing {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let mut head = cx.head_mut();
+        let head = &self.article;
+        head.title();
+        let (head, _) = (cx.head_mut(), 1);
+        head.title();
+        let head = &self.article;
+        let mut head = {
+            head.title();
+            cx.head_mut()
+        };
+        head.title("Late")?; // flag
+        let Some(head) = maybe else { return Ok(()) };
+        head.title();
+        let mut writer = cx.head_mut();
+        rebind!(writer);
+        writer.title("hidden by a macro that may rebind it");
+        Ok(())
+    }
+}
+"#;
+    let expected: Vec<_> = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains("// flag"))
+        .map(|(index, _)| index + 1)
+        .collect();
+    let diagnostics = lint_file(Path::new("src/head.rs"), source);
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-mutation-in-body"),
+        expected,
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn head_role_placement_lints_resolve_package_local_imports_across_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.0.0\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/layouts.rs"),
+        r#"
+pub struct Root<C> { pub page: C }
+impl<C: WebRender> WebRender for Root<C> {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <body>{self.page}</body> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    let pages = root.join("src/pages.rs");
+    std::fs::write(
+        &pages,
+        r#"
+use crate::layouts::Root as AppRoot;
+pub struct Product;
+impl WebRender for Product {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>{AppRoot { page: () }}</main> }.render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    let diagnostics = lint_paths(&[pages.clone()], LintOptions::default()).unwrap();
+    let found: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code == "render/head-role-in-page")
+        .collect();
+    assert_eq!(found.len(), 1, "{diagnostics:#?}");
+    assert_eq!(found[0].line, 7);
+    assert!(found[0].labels[1].range.path.ends_with("src/layouts.rs"));
+    assert_eq!(found[0].labels[1].range.line, 4);
+}
+
 fn write_strategy_sidecar_with_fingerprint(
     root: &Path,
     analysis_id: &str,
@@ -6091,6 +6622,72 @@ fn shared_or_mentioned_module_files_stay_production_code() {
         !is_test_path(&inner_only),
         "a declaration in an inline module owns another directory"
     );
+}
+
+#[test]
+fn cfg_test_path_attribute_modules_are_test_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write("lib.rs", "mod route;\n");
+    write("route.rs", "mod response;\n");
+    write(
+        "route/response.rs",
+        "#[cfg(test)]\n#[path = \"response_tests.rs\"]\nmod response_tests;\n#[path = \"shipped_impl.rs\"]\nmod shipped;\n",
+    );
+    let fixture = write("route/response_tests.rs", "");
+    let shipped = write("route/shipped_impl.rs", "");
+    let orphan = write("route/orphan.rs", "");
+    assert!(is_test_path(&fixture));
+    assert!(
+        !is_test_path(&shipped),
+        "a production #[path] owner ships the file"
+    );
+    assert!(!is_test_path(&orphan));
+}
+
+#[test]
+fn production_path_owners_ship_files_that_a_test_module_also_declares() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    let write = |relative: &str, contents: &str| {
+        let path = src.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, contents).unwrap();
+        path
+    };
+    write(
+        "lib.rs",
+        "#[cfg(test)]\nmod shared;\n#[path = \"shared.rs\"]\nmod shipped;\n#[cfg(test)]\nmod helpers;\n#[cfg(test)]\n#[path = \"helpers.rs\"]\nmod helpers_again;\n",
+    );
+    let shared = write("shared.rs", "");
+    let helpers = write("helpers.rs", "");
+    assert!(
+        !is_test_path(&shared),
+        "the #[path] declaration ships shared.rs"
+    );
+    assert!(
+        is_test_path(&helpers),
+        "every owner of helpers.rs is a test"
+    );
+}
+
+#[test]
+fn path_attribute_cycles_do_not_recurse_forever() {
+    let temp = tempfile::tempdir().unwrap();
+    let src = temp.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let a = src.join("a.rs");
+    let b = src.join("b.rs");
+    std::fs::write(&a, "#[path = \"b.rs\"]\nmod x;\n").unwrap();
+    std::fs::write(&b, "#[path = \"a.rs\"]\nmod y;\n").unwrap();
+    assert!(!is_test_path(&a));
+    assert!(!is_test_path(&b));
 }
 
 #[test]

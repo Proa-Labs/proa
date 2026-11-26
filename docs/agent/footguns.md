@@ -375,6 +375,51 @@ and removes the call-site adapter. Explicit custom components use
 
 ---
 
+### "E0080: evaluation panicked: render_head requires an explicit role"
+
+**Triggered by:** overriding `render_head` (or `render_head_send` /
+`render_head_send_sync`) without `const ROLE`, or with an explicit
+`ComponentRole::COMPONENT`. Ordinary components never run head hooks, so the
+override would be skipped silently. The error appears during `cargo build`
+(code generation), not `cargo check`. It points into `proa_core`; the offending
+type is in the `evaluation of ... <YourType as WebRender>::render_head` note.
+
+**Fix:** declare the role on the impl that overrides the hook:
+```rust
+impl<L: DataLoader> WebRender<L> for ProductPage {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE; // or LAYOUT
+    async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        cx.head_mut().title("Product")
+    }
+    // fn render(...)
+}
+```
+A forwarding wrapper (`const ROLE = T::ROLE`) must return the inner hook's
+future directly, `fn render_head(&self, cx) -> impl Future<..> {
+self.0.render_head(cx) }`; wrapping it in `async { .. }` reads as an override
+when `T` is an ordinary component. `cargo proa lint` reports the same mistake as
+`render/head-role-required` without building.
+
+---
+
+### Managed-head lint errors: `render/head-mutation-in-body`, `render/head-role-in-suspense`, `render/head-role-in-page`
+
+These come from `cargo proa lint`, not rustc. Each marks code that compiles but
+always fails at render time; in a streamed document the failure can arrive
+after the `200` status is sent and abort the body.
+
+- `render/head-mutation-in-body`: a checked setter such as
+  `cx.head_mut().title(..)` inside `render`. Move it into `render_head` on the
+  owning layout or Page.
+- `render/head-role-in-suspense`: a `LAYOUT` or `PAGE` component inside
+  `Suspense::new(..)`. Render the Page outside the boundary and put `Suspense`
+  inside the Page body around the slow content.
+- `render/head-role-in-page`: a `LAYOUT` or `PAGE` component rendered from a
+  Page body. Layouts wrap the selected Page; a nested Page should become an
+  ordinary `COMPONENT`.
+
+---
+
 ## Markdown render traits (proa_core)
 
 ### "`AsyncMdFn<...>: MdRenderSync<L>` is not satisfied"

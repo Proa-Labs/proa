@@ -26,8 +26,12 @@ pub trait WebRenderSync<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
 // either synchronously (`Done(r)`) or via a future (`Pending(fut)`).
 pub trait WebRender<L: DataLoader = NoLoader, B: WriteBuf = RenderBuffer> {
     const ROLE: ComponentRole = ComponentRole::COMPONENT;
-    async fn render_head(&self, _cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
-        Ok(())
+    // Override with `async fn render_head(..) -> Result<(), WriteError>`.
+    fn render_head(
+        &self,
+        _cx: &mut WebContext<L, B>,
+    ) -> impl Future<Output = Result<(), WriteError>> {
+        NoHead
     }
     fn render(
         self,
@@ -487,7 +491,9 @@ The impl-level rules stay quiet when the answer is not knowable from the source:
 
 ## Managed document head
 
-HTML components may provide an optional native async hook on `WebRender`:
+HTML components may provide an optional native async hook on `WebRender`. The
+trait declares `fn render_head(&self, cx) -> impl Future<Output = Result<(),
+WriteError>>`; implement it with `async fn`:
 
 ```rust
 async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -503,11 +509,35 @@ and skip head invocation entirely. Ancestor layouts declare `LAYOUT`; the select
 Page declares `PAGE`. Layouts and Pages invoke the hook, including the no-op default
 when omitted. Only the Page seals metadata before its body.
 
-Run `cargo proa lint <paths> --deny warnings`: `render/head-role-required` rejects
-an overridden hook with a missing role declaration or an explicit `COMPONENT`.
-Native futures do not expose override presence, so this is a source check rather
-than an async-trait compiler assertion. Forwarded/application role constants are
-accepted without evaluation; ensure they resolve to `LAYOUT` or `PAGE`.
+An overridden hook whose role is missing or an explicit `COMPONENT` fails code
+generation with `E0080: render_head requires an explicit role`, on every surface
+(sync, async, Send, `to_async`, `to_send`). The default async hook returns the
+zero-sized `NoHead` future, and every `async fn` future has a non-zero size, so
+dispatch tells an override from the default. The error names the component in its
+`evaluation of ... <YourType as WebRender>::render_head` note. It fires only when a
+built render path dispatches the component: run `cargo build`, since `cargo check`
+does not instantiate it. A forwarding wrapper with `const ROLE = T::ROLE` should
+return the inner future directly (`self.0.render_head(cx)`) rather than awaiting it
+in a new `async` block, so a hookless inner component stays hookless.
+
+Run `cargo proa lint <paths> --deny warnings` as well: `render/head-role-required`
+reports the same mistake without a build, including impls nothing renders yet.
+Forwarded/application role constants are accepted without evaluation; ensure they
+resolve to `LAYOUT` or `PAGE`. Three more lint errors catch placements that
+dispatch always rejects:
+
+| Code | Fires on | Runtime error it prevents |
+|---|---|---|
+| `render/head-mutation-in-body` | a checked `cx.head_mut()` setter in `render`, `render_send` or `render_send_sync` | `HeadError::OutsideHook` / `Closed` |
+| `render/head-role-in-suspense` | a `LAYOUT` or `PAGE` component passed to `Suspense::new` (child or fallback) | `HeadError::Excluded` |
+| `render/head-role-in-page` | a `LAYOUT` or `PAGE` component rendered from a `PAGE` body | `HeadError::Closed` |
+
+The placement lints follow the macro's rendered branches and loop bodies, and
+match a component only when its path resolves, in the module that writes it,
+to the module defining the package's only type of that name, whose render impls
+declare a literal `LAYOUT` or `PAGE`. Names from glob imports, re-exports,
+external crates, or function-local items stay quiet. The editor reports them too.
+Legacy setters (`set_title`, `push_meta`, ...) remain valid in manual documents.
 A Page using only inherited metadata still needs its role and a managed route test.
 A component declaring `LAYOUT` or `PAGE` renders only in a managed document,
 including when it inherits the default hook. Layouts belong above the selected
@@ -517,10 +547,10 @@ Sync, async, Send, `to_async` and `to_send` obey the same role contract. Plain
 `HeadError::ManualMode`. Ordinary visual wrappers keep `COMPONENT` for manual
 rendering or use inside a Page. `to_send_static` rejects both metadata roles.
 
-Sync hooks return `impl SyncHeadOperation`, retain their `NoHead` absence marker,
-and keep a code-generation role assertion (run `cargo build` too). Send hooks use
-`render_head_send`; their trait exposes `impl Future<Output = Result<(), WriteError>>
-+ Send`, and implementations may use `async fn` returning `Result`.
+Sync hooks return `impl SyncHeadOperation` and retain their `NoHead` absence
+marker. Send hooks use `render_head_send`; their trait exposes
+`impl Future<Output = Result<(), WriteError>> + Send`, and implementations may use
+`async fn` returning `Result`.
 
 Use `cx.head_mut().title(value)?` and related checked setters inside the hook.
 For several fields, pass `proa::HeadMetadata { title: value.into(),

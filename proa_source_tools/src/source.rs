@@ -459,10 +459,10 @@ fn macro_rules_close_delimiter(source: &str, after_macro_rules: usize) -> Option
 }
 
 /// Out-of-line `mod name;` items at the top level of `source`, with whether
-/// each carries exactly `#[cfg(test)]` and whether it has a `#[path]`
-/// attribute. One lexical pass: comments, strings, and inline module bodies
-/// are skipped, so text that merely looks like a declaration never counts.
-pub(crate) fn top_level_module_declarations(source: &str) -> Vec<(String, bool, bool)> {
+/// each carries exactly `#[cfg(test)]` and its `#[path = "..."]` value, if
+/// any. One lexical pass: comments, strings, and inline module bodies are
+/// skipped, so text that merely looks like a declaration never counts.
+pub(crate) fn top_level_module_declarations(source: &str) -> Vec<(String, bool, Option<String>)> {
     let bytes = source.as_bytes();
     let mut declarations = Vec::new();
     // Compact text of the outer attributes since the last item boundary.
@@ -538,7 +538,10 @@ pub(crate) fn top_level_module_declarations(source: &str) -> Vec<(String, bool, 
                             declarations.push((
                                 source[name_start..name_end].to_owned(),
                                 attributes.iter().any(|attr| attr == "cfg(test)"),
-                                attributes.iter().any(|attr| attr.starts_with("path=")),
+                                attributes.iter().find_map(|attr| {
+                                    let value = attr.strip_prefix("path=")?;
+                                    Some(value.trim_matches('"').to_owned())
+                                }),
                             ));
                             attributes.clear();
                             i = after + 1;

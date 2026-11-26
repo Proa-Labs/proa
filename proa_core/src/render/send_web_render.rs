@@ -40,7 +40,8 @@ pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuf
     /// Override with `async fn render_head_send(...) -> Result<(), WriteError>`
     /// when its captured values are Send. The explicit Future bound keeps the
     /// Send guarantee visible to generic dispatch. Ordinary components skip it.
-    /// A custom hook must declare `LAYOUT` or `PAGE`; run `proa lint` to check.
+    /// A custom hook must declare `LAYOUT` or `PAGE`; code generation rejects
+    /// an override with the `COMPONENT` role, and `proa lint` reports it too.
     ///
     /// ```compile_fail
     /// use proa_core::{ComponentRole, RenderOutcome, SendWebContext, WebRenderSend, WriteError};
@@ -63,7 +64,7 @@ pub trait WebRenderSend<L: DataLoader = NoLoader, B: WriteBuf + Send = RenderBuf
         &self,
         _cx: &mut SendWebContext<L, B>,
     ) -> impl Future<Output = Result<(), WriteError>> + Send {
-        std::future::ready(Ok(()))
+        crate::head_dispatch::NoHead
     }
 
     fn render_send(

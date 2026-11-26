@@ -17,6 +17,26 @@ pub(crate) fn is_test_path(path: &Path) -> bool {
 /// Inline `#[cfg(test)] mod tests { .. }` blocks are covered by
 /// [`cfg_test_module_line_ranges`] instead.
 fn is_cfg_test_module_file(path: &Path) -> bool {
+    is_test_only_module(path, &mut Vec::new())
+}
+
+/// `visiting` holds the files on the current ownership chain. Modules that
+/// declare each other through `#[path]` never compile, so a cycle counts as
+/// a production owner and the file stays linted.
+fn is_test_only_module(path: &Path, visiting: &mut Vec<PathBuf>) -> bool {
+    if visiting.iter().any(|seen| seen == path) {
+        return false;
+    }
+    visiting.push(path.to_path_buf());
+    let test_only = owners_are_test_only(path, visiting);
+    visiting.pop();
+    test_only
+}
+
+/// Some owner exists, and every owner is `#[cfg(test)]` or test-only itself.
+/// The owners are the parent module's `mod name;` and any sibling's
+/// `#[path = "file.rs"] mod ..;`; one production owner ships the file.
+fn owners_are_test_only(path: &Path, visiting: &mut Vec<PathBuf>) -> bool {
     let (Some(stem), Some(dir)) = (path.file_stem().and_then(|s| s.to_str()), path.parent()) else {
         return false;
     };
@@ -44,33 +64,66 @@ fn is_cfg_test_module_file(path: &Path) -> bool {
     }
     let mut test_owner = false;
     for parent in &parents {
-        let Some(test_only) = module_declarations(parent).and_then(|d| d.get(name).copied()) else {
+        let Some(test_only) = module_declarations(parent).and_then(|d| d.names.get(name).copied())
+        else {
             continue;
         };
-        if test_only || is_cfg_test_module_file(parent) {
+        if test_only || is_test_only_module(parent, visiting) {
             test_owner = true;
         } else {
             return false;
+        }
+    }
+    match path_owners_are_test_only(path, dir, visiting) {
+        Some(test_only) => test_only,
+        None => test_owner,
+    }
+}
+
+/// Whether the siblings that declare `path` through a top-level `#[path =
+/// "file.rs"]` are all test-only: `None` when no sibling does. A top-level
+/// `#[path]` resolves against the declaring file's directory.
+fn path_owners_are_test_only(path: &Path, dir: &Path, visiting: &mut Vec<PathBuf>) -> Option<bool> {
+    let file_name = path.file_name().and_then(|name| name.to_str())?;
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut test_owner = None;
+    for sibling in entries.flatten().map(|entry| entry.path()) {
+        if sibling == path || sibling.extension().is_none_or(|ext| ext != "rs") {
+            continue;
+        }
+        let Some(test_only) =
+            module_declarations(&sibling).and_then(|d| d.paths.get(file_name).copied())
+        else {
+            continue;
+        };
+        if test_only || is_test_only_module(&sibling, visiting) {
+            test_owner = Some(true);
+        } else {
+            return Some(false);
         }
     }
     test_owner
 }
 
 /// Out-of-line `mod name;` items declared at the top level of one file,
-/// mapped to whether every declaration of that name is `#[cfg(test)]`.
-/// Declarations with `#[path]` live elsewhere and are left out; nested inline
-/// modules own other directories.
-type ModuleDeclarations = BTreeMap<String, bool>;
+/// mapped to whether every declaration is `#[cfg(test)]`. Nested inline
+/// modules own other directories and are left out.
+#[derive(Debug, Default)]
+struct ModuleDeclarations {
+    /// Declarations without `#[path]`, by module name.
+    names: BTreeMap<String, bool>,
+    /// `#[path = "..."]` declarations, by path value.
+    paths: BTreeMap<String, bool>,
+}
 
 fn parse_module_declarations(source: &str) -> ModuleDeclarations {
-    let mut declarations = ModuleDeclarations::new();
-    for (name, test_only, has_path) in crate::source::top_level_module_declarations(source) {
-        if has_path {
-            continue;
-        }
-        declarations
-            .entry(name)
-            .and_modify(|all_test| *all_test &= test_only)
+    let mut declarations = ModuleDeclarations::default();
+    for (name, test_only, path) in crate::source::top_level_module_declarations(source) {
+        let map = match path {
+            Some(path) => declarations.paths.entry(path),
+            None => declarations.names.entry(name),
+        };
+        map.and_modify(|all_test| *all_test &= test_only)
             .or_insert(test_only);
     }
     declarations
