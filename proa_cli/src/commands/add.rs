@@ -125,7 +125,10 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
             add_sqlx_dependency(&root, &mut files)?;
             files.push((PathBuf::from("data/.gitkeep"), String::new()));
             files.push((PathBuf::from("migrations/.gitkeep"), String::new()));
-            files.push((PathBuf::from("src/db.rs"), database_module()));
+            files.push((
+                PathBuf::from("src/db.rs"),
+                crate::site_scaffold::database_module().to_string(),
+            ));
             warnings.push("Database files were added without rewriting arbitrary router/state code; add `mod db;`, call `db::connect`, and place the pool in application state.".to_string());
             (
                 "database:sqlite",
@@ -323,34 +326,6 @@ fn add_sqlx_dependency(root: &Path, files: &mut Vec<(PathBuf, String)>) -> Resul
     }
     files.push((PathBuf::from("Cargo.toml"), manifest.to_string()));
     Ok(())
-}
-
-fn database_module() -> String {
-    r#"use std::{str::FromStr, time::Duration};
-
-use sqlx::{
-    migrate::Migrator,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
-    SqlitePool,
-};
-
-static MIGRATOR: Migrator = sqlx::migrate!();
-
-pub async fn connect(database_url: &str) -> anyhow::Result<SqlitePool> {
-    let options = SqliteConnectOptions::from_str(database_url)?
-        .create_if_missing(true)
-        .foreign_keys(true)
-        .journal_mode(SqliteJournalMode::Wal)
-        .busy_timeout(Duration::from_secs(5));
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(options)
-        .await?;
-    MIGRATOR.run(&pool).await?;
-    Ok(pool)
-}
-"#
-    .to_string()
 }
 
 fn deployment_files(

@@ -68,6 +68,7 @@ __DATABASE_LOAD__        Ok(__INITIALIZER__)
 pub fn db_rs() -> &'static str {
     r#"use std::{str::FromStr, time::Duration};
 
+use anyhow::Context;
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -82,6 +83,16 @@ pub async fn connect(database_url: &str) -> anyhow::Result<SqlitePool> {
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .busy_timeout(Duration::from_secs(5));
+    // SQLite creates a missing database file but not its directory. An
+    // in-memory URL has no directory.
+    if let Some(directory) = options
+        .get_filename()
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(directory)
+            .with_context(|| format!("create database directory {}", directory.display()))?;
+    }
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)

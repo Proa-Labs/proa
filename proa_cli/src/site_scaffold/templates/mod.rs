@@ -741,6 +741,10 @@ fn add_deploy(
     Ok(())
 }
 
+pub(super) fn database_module() -> &'static str {
+    app::db_rs()
+}
+
 /// The Dockerfile `proa new site` and `proa add <deployment>` both write.
 pub(super) fn current_deployment_dockerfile(has_database: bool) -> String {
     let mut copies = String::new();
