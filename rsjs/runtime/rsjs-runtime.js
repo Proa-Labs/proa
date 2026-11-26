@@ -362,9 +362,13 @@ export function batch(run) {
 // Bare `{}` floats render like proa's server-side float writer (shortest
 // digits, JS spelling), so this path intentionally stays `String(value)`;
 // formatted float placeholders use rust_float_abs_text below instead.
-function rust_float_text(value) {
+function rust_float_text(value, f32 = false) {
     if (value === Infinity) return 'inf';
     if (value === -Infinity) return '-inf';
+    if (f32 && Number.isFinite(value) && value !== 0) {
+        const [digits, scale] = float_shortest_parts(Math.abs(narrow_f32(value)), true);
+        return String(Number(`${value < 0 ? '-' : ''}${digits}e${scale}`));
+    }
     return value == null ? '' : String(value);
 }
 
@@ -543,17 +547,15 @@ function render_text_plan(plan, values, attribute) {
         const value = values[part.arg];
         if (!Object.hasOwn(part, 'width')) {
             if (attribute && part.attr_bool && typeof value === 'boolean') return '';
-            return part.float || typeof value === 'number' ? rust_float_text(value) : String(value ?? '');
+            return part.float || typeof value === 'number' ? rust_float_text(value, part.f32 === true) : String(value ?? '');
         }
         let text;
         let sign = '';
         let prefix = '';
         if (part.float === true) {
-            // f32 seeds arrive as their shortest decimal text and f32
-            // arithmetic runs in f64, so narrow to the f32 value Rust
-            // formats. Non-finite seeds reach the client as JSON null; the
-            // value is unknown, so render no digits rather than a wrong
-            // number. Rust prints NaN without a sign (even with `+`); every
+            // Narrow a decimal f32 seed to the exact Rust value. Old
+            // documents can still carry null for non-finite seeds.
+            // Rust prints NaN without a sign (even with `+`); every
             // other value, including -0.0 and values that round to zero,
             // keeps it.
             const number = value == null ? null : part.f32 === true ? narrow_f32(value) : value;
@@ -617,7 +619,7 @@ function render_text_plan(plan, values, attribute) {
  *                    .update internally and exposed for the rare case where
  *                    a binding wants the value without creating a dep.
  */
-export function signal(initial) {
+export function signal(initial, normalize = null) {
     let value = initial;
     const subscribers = new Set();
     const cell = {
@@ -629,6 +631,7 @@ export function signal(initial) {
             return value;
         },
         set(next) {
+            if (normalize !== null) next = normalize(next);
             if (Object.is(value, next)) {
                 return;
             }
@@ -1906,6 +1909,17 @@ export function signal_initial(initials, index, fallback) {
     return fallback;
 }
 
+/** Decode scalar float seeds without changing the general JSON codec. */
+export function signal_initial_float(initials, index, fallback, f32 = false) {
+    const value = signal_initial(initials, index, fallback);
+    switch (value) {
+        case 'NaN': return NaN;
+        case 'inf': return Infinity;
+        case '-inf': return -Infinity;
+        default: return f32 && typeof value === 'number' ? narrow_f32(value) : value;
+    }
+}
+
 function decode_typed_signal_seed(value, ty, path) {
     if (!ty || typeof ty !== 'object') {
         throw new TypeError(`rsjs typed hydration schema at ${path} is invalid`);
@@ -2324,8 +2338,8 @@ export function bind_text(node, getter, deps, extra_handles, text_kind) {
     }
     const apply = () => {
         const value = getter();
-        node.textContent = text_kind === 'rust-float'
-            ? rust_float_text(value)
+        node.textContent = text_kind === 'rust-float' || text_kind === 'rust-f32'
+            ? rust_float_text(value, text_kind === 'rust-f32')
             : value == null ? '' : String(value);
     };
     const has_signals = Array.isArray(deps);

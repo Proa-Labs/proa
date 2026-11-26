@@ -74,11 +74,12 @@ width, fill, alignment, sign and zero padding, for example
 `text!("{:.1} MB", mb.get())`. These render through core::fmt on the server, so
 the client matches it: precision rounds the exact binary value half-to-even
 (`{:.0}` of `2.5` is `2`), output without a precision is the shortest
-round-trip value in plain positional notation, and `f32` values are narrowed to
-`f32` before formatting. A non-finite seed reaches the client as JSON `null`
-and renders no digits there. The value must come from a typed signal or prop, or
-a memo over one, or from arithmetic and conditionals over one of those. Other
-float arguments produce `rsjs/text-format-unsupported`: float literals
+round-trip value in plain positional notation. Island-local `f32` signals and
+arithmetic use the Rust width in the browser, and scalar float seeds preserve
+`NaN` and both infinities. The width must come from a typed island signal,
+a typed prop seeded into a signal, or a memo, arithmetic expression, or conditional
+over one of those. Other float arguments produce `rsjs/text-format-unsupported`:
+shared-state seeds, which use the general JSON codec, and float literals
 (including a prelude alias, typed closure parameter or memo built from
 literals), because the client types every float literal as `f64` while Rust
 may type it `f32`; block and handler locals, because their type comes from an

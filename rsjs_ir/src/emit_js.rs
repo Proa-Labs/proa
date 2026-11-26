@@ -100,6 +100,7 @@ struct EmitContext {
     excluded_signals: HashSet<SignalId>,
     excluded_handlers: HashSet<EventHandlerId>,
     excluded_node_refs: HashSet<NodeRefId>,
+    f32_signals: HashSet<SignalId>,
     linked_helper_calls: Option<BTreeMap<HelperCallEdgeId, LinkedHelperCallTarget>>,
 }
 
@@ -114,6 +115,11 @@ impl EmitContext {
 
     fn for_root_mode(island: &Island, root_mode: RootMode) -> Self {
         let mut ctx = Self::empty(root_mode);
+        let env = TypeEnv::for_island(island);
+        ctx.f32_signals
+            .extend(island.signals.iter().filter_map(|signal| {
+                (env.signal_type(signal.id) == ClientType::F32).then_some(signal.id)
+            }));
         for mount in &island.component_fragment_mounts {
             ctx.excluded_nodes.extend(mount.owned_nodes.iter().copied());
             ctx.excluded_signals
@@ -133,6 +139,7 @@ impl EmitContext {
             excluded_signals: HashSet::new(),
             excluded_handlers: HashSet::new(),
             excluded_node_refs: HashSet::new(),
+            f32_signals: HashSet::new(),
             linked_helper_calls: None,
         }
     }
@@ -143,9 +150,11 @@ impl EmitContext {
     }
 
     fn client_emit_context(&self) -> ClientEmitContext {
+        let mut ctx = ClientEmitContext::default();
+        ctx.f32_signals.clone_from(&self.f32_signals);
         match &self.linked_helper_calls {
-            Some(calls) => ClientEmitContext::default().with_linked_helper_calls(calls.clone()),
-            None => ClientEmitContext::default(),
+            Some(calls) => ctx.with_linked_helper_calls(calls.clone()),
+            None => ctx,
         }
     }
 
@@ -1998,9 +2007,13 @@ fn runtime_import_line(
     if local_leaf_signals().any(|sig| {
         sig.integer_domain.is_none()
             && !matches!(sig.init, Value::BigInt(_))
+            && !is_scalar_float(&sig.ty)
             && !client_type_needs_typed_seed_decode(&sig.ty)
     }) {
         imports.push("signal_initial");
+    }
+    if local_leaf_signals().any(|sig| is_scalar_float(&sig.ty)) {
+        imports.push("signal_initial_float");
     }
     if local_leaf_signals()
         .any(|sig| sig.integer_domain.is_none() && matches!(sig.init, Value::BigInt(_)))
@@ -2142,6 +2155,10 @@ fn runtime_import_line(
     out
 }
 
+fn is_scalar_float(ty: &ClientType) -> bool {
+    matches!(ty, ClientType::F32 | ClientType::F64)
+}
+
 /// Whether a compound signal seed contains fixed-width integers that require
 /// recursive hydration decoding. Top-level integers use the stricter
 /// `signal_initial_integer` + `integer_signal` path; this predicate covers
@@ -2279,7 +2296,11 @@ fn emit_linked_signal_seed_initializer(out: &mut String, decl: &crate::reactive:
     } else {
         out.push_str("signal(__rsjs_signal_seeds[");
         let _ = write!(out, "{}", decl.id.0);
-        out.push_str("])");
+        if decl.ty == ClientType::F32 {
+            out.push_str("], Math.fround)");
+        } else {
+            out.push_str("])");
+        }
     }
 }
 
@@ -2311,6 +2332,18 @@ fn emit_ssr_signal_initializer(out: &mut String, decl: &crate::reactive::SignalD
         out.push_str(", ");
         write_client_type_json(out, &decl.ty);
         out.push_str("))");
+        return;
+    }
+    if is_scalar_float(&decl.ty) {
+        out.push_str("signal(signal_initial_float(__rsjs_signal_initials, ");
+        let _ = write!(out, "{}", decl.id.0);
+        out.push_str(", ");
+        emit_value(out, &decl.init);
+        if decl.ty == ClientType::F32 {
+            out.push_str(", true), Math.fround)");
+        } else {
+            out.push_str("))");
+        }
         return;
     }
     // Legacy representation-only BigInt seeds still decode their JSON-string
@@ -3344,7 +3377,14 @@ fn emit_text_bindings(
     for (node, expr_id) in entries {
         out.push('\n');
         let deps = collect_reactive_deps(&island.exprs, expr_id);
-        let rust_float_text = expression_uses_rust_float_text(island, &type_env, expr_id);
+        let rust_float_text =
+            expression_uses_rust_float_text(island, &type_env, expr_id).then(|| {
+                if type_env.type_of(island.exprs.client_expr(expr_id)) == ClientType::F32 {
+                    "rust-f32"
+                } else {
+                    "rust-float"
+                }
+            });
         if node_is_in_for_loop(&island.view_tree, node) {
             let node_name = node_var(node);
             let _ = write!(
@@ -3485,7 +3525,7 @@ fn emit_bind_text_call(
     deps: &ReactiveDeps,
     node_name: &str,
     node_context: Option<&str>,
-    rust_float_text: bool,
+    rust_float_text: Option<&'static str>,
     ctx: &EmitContext,
 ) {
     let _ = write!(out, "__rsjs_disposers.push(bind_text({node_name}, () => ");
@@ -3497,11 +3537,11 @@ fn emit_bind_text_call(
         out.push_str(", ");
         emit_handle_array(out, deps);
     }
-    if rust_float_text {
+    if let Some(kind) = rust_float_text {
         if !has_extra_handles {
             out.push_str(", []");
         }
-        out.push_str(", \"rust-float\"");
+        let _ = write!(out, ", \"{kind}\"");
     }
     out.push_str("));\n");
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import assert from 'node:assert/strict';
-import { format_text, format_text_attr, signal, bind_text } from './rsjs-runtime.js';
+import { format_text, format_text_attr, signal, signal_initial_float, bind_text } from './rsjs-runtime.js';
 
 const integer = (domain, extra = {}) => ({ arg: 0, domain, fill: ' ', align: 0,
     plus: false, alternate: false, zero: false, width: 0, precision: null, kind: 0, ...extra });
@@ -90,9 +90,29 @@ for (const [part, value, expected] of [
         '+0.00000000000000000000000007038531'],
     [float({ f32: true, plus: true }), new Float32Array(new Uint32Array([0x15ae43fe]).buffer)[0],
         '+0.000000000000000000000000070385313'],
-    // Non-finite seeds arrive as JSON null: no digits, padding kept.
+    // Legacy null seeds keep their empty value and padding.
     [float({ precision: 1, width: 4 }), null, '    '],
 ]) assert.equal(render(part, value), expected);
+
+// The compiler rounds at each f32 operation. Hydration first restores the
+// exact f32 operands from their shortest decimal spellings.
+const initials = JSON.parse('[1.0000001,1.0,1e-45,"NaN","inf","-inf"]');
+const f32Seed = (index) => signal(signal_initial_float(initials, index, 0, true), Math.fround);
+const a = f32Seed(0);
+const b = f32Seed(1);
+const minimum = f32Seed(2);
+const signed32 = float({ f32: true, plus: true });
+assert.equal(render(signed32, Math.fround(a.get() - b.get())), '+0.00000011920929');
+assert.equal(Math.fround(minimum.get() + minimum.get()), 2 ** -148);
+assert.equal(render({ arg: 0, float: true, f32: true }, a.get()), '1.0000001');
+b.set(0.1);
+assert.equal(b.get(), Math.fround(0.1));
+for (const [index, expected] of [[3, 'NaN'], [4, '+inf'], [5, '-inf']]) {
+    for (const isF32 of [false, true]) {
+        const value = signal_initial_float(initials, index, 0, isF32);
+        assert.equal(render(float({ f32: isF32, plus: true }), value), expected);
+    }
+}
 
 assert.equal(render({ arg: 0, float: false }, Infinity), 'inf');
 assert.equal(render({ arg: 0, float: false }, -Infinity), '-inf');

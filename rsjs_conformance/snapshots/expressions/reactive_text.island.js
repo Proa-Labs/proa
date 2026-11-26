@@ -1,4 +1,4 @@
-import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, integer_signal, signal_initial_integer, bind_attr, bind_delegated_events, walk_path, hydrate, dispose_all, checked_int_add, checked_int_div, checked_int_mul, checked_int_rem, format_text, format_text_attr } from "/rsjs-runtime.js";
+import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, signal_initial_float, integer_signal, signal_initial_integer, bind_attr, bind_delegated_events, walk_path, hydrate, dispose_all, checked_int_add, checked_int_div, checked_int_mul, checked_int_rem, format_text, format_text_attr } from "/rsjs-runtime.js";
 
 hydrate("reactivetextsnapshot_731dff91", (root, __rsjs_disposers = []) => {
     const __rsjs_signal_initials = read_signal_initials(root);
@@ -6,11 +6,11 @@ hydrate("reactivetextsnapshot_731dff91", (root, __rsjs_disposers = []) => {
     const __sig_1 = signal(signal_initial(__rsjs_signal_initials, 1, "<tag & value>"));
     const __sig_2 = signal(signal_initial(__rsjs_signal_initials, 2, null));
     const __sig_3 = signal(signal_initial(__rsjs_signal_initials, 3, "fallback"));
-    const __sig_4 = signal(signal_initial(__rsjs_signal_initials, 4, 0.0));
-    const __sig_5 = signal(signal_initial(__rsjs_signal_initials, 5, 1.0));
-    const __sig_6 = signal(signal_initial(__rsjs_signal_initials, 6, 0.0));
+    const __sig_4 = signal(signal_initial_float(__rsjs_signal_initials, 4, 0.0));
+    const __sig_5 = signal(signal_initial_float(__rsjs_signal_initials, 5, 1.0));
+    const __sig_6 = signal(signal_initial_float(__rsjs_signal_initials, 6, 0.0));
     const __sig_7 = signal(signal_initial(__rsjs_signal_initials, 7, null));
-    const __sig_8 = signal(signal_initial(__rsjs_signal_initials, 8, null));
+    const __sig_8 = signal(signal_initial_float(__rsjs_signal_initials, 8, null));
     const __sig_9 = signal(signal_initial(__rsjs_signal_initials, 9, null));
 
     function __handler_0(event) {

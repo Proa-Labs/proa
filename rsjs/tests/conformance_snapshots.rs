@@ -2526,3 +2526,55 @@ fn reactive_text_ir_matches_conformance_snapshot() {
         "rsjs_conformance/snapshots/client_ir/reactive_text.body-ir.json",
     );
 }
+
+#[test]
+fn formatted_float_hydration_preserves_seed_values_and_f32_operation_boundaries() {
+    for (special, wire, rendered) in [
+        (f64::NAN, "NaN", "NaN"),
+        (f64::INFINITY, "inf", "+inf"),
+        (f64::NEG_INFINITY, "-inf", "-inf"),
+    ] {
+        let upper = 1.0000001_f32;
+        let lower = 1.0_f32;
+        let html = proa_core::render_to_string(reactive_text_fixture::FormattedFloatSnapshot {
+            upper,
+            lower,
+            special,
+            flag: true,
+        });
+        assert!(html.contains(&format!("{:+}", upper - lower)), "{html}");
+        assert!(html.contains(&format!("{rendered}</p>")), "{html}");
+        assert!(
+            html.contains(&format!(r#""signals":[1.0000001,1,"{wire}",true]"#)),
+            "{html}"
+        );
+    }
+
+    let manifest = rsjs::manifest();
+    let island = manifest
+        .islands
+        .iter()
+        .find(|entry| entry.struct_name == "FormattedFloatSnapshot")
+        .expect("formatted float fixture registered");
+    let js = island.js_source;
+    assert!(
+        js.contains("signal_initial_float(__rsjs_signal_initials, 0, null, true), Math.fround)"),
+        "{js}"
+    );
+    assert!(
+        js.contains("Math.fround(Math.fround(__sig_0.get()) - Math.fround(__sig_1.get()))"),
+        "{js}"
+    );
+    assert!(
+        js.contains("Math.fround(Math.fround(__sig_0.get()) + Math.fround(__sig_1.get()))"),
+        "{js}"
+    );
+    assert!(
+        js.contains("__sig_3.get() ? Math.fround(__sig_0.get()) : 0.0"),
+        "{js}"
+    );
+    assert!(
+        js.contains("Math.fround(Math.fround(Math.fround(__sig_0.get()) + "),
+        "{js}"
+    );
+}

@@ -403,10 +403,31 @@ impl<'a> TypeEnv<'a> {
                 then_expr,
                 else_expr,
                 ..
-            } => unify(
-                self.type_of_inner(then_expr, visiting),
-                self.type_of_inner(else_expr, visiting),
-            ),
+            } => {
+                let then_ty = self.type_of_inner(then_expr, visiting);
+                let else_ty = self.type_of_inner(else_expr, visiting);
+                // Float literals are stored as f64. A Rust f32 arm fixes
+                // the contextual width of a literal in the other arm.
+                match (&then_ty, &else_ty) {
+                    (ClientType::F32, ClientType::F64)
+                        if matches!(
+                            else_expr.as_ref(),
+                            ClientExpr::Literal(crate::value::Value::Float(_))
+                        ) =>
+                    {
+                        ClientType::F32
+                    }
+                    (ClientType::F64, ClientType::F32)
+                        if matches!(
+                            then_expr.as_ref(),
+                            ClientExpr::Literal(crate::value::Value::Float(_))
+                        ) =>
+                    {
+                        ClientType::F32
+                    }
+                    _ => unify(then_ty, else_ty),
+                }
+            }
             ClientExpr::IsNonEmpty { .. }
             | ClientExpr::StringContains { .. }
             | ClientExpr::StringPredicate { .. }
@@ -551,7 +572,8 @@ impl<'a> TypeEnv<'a> {
                 };
                 // A memo cell's type is inferred from its body.
                 let Some(body) = decl.derived else {
-                    return !decl.ty.is_unknown();
+                    return decl.shared.is_none()
+                        && matches!(decl.ty, ClientType::F32 | ClientType::F64);
                 };
                 let Some(exprs) = self.exprs else {
                     return false;

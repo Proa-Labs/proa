@@ -67,6 +67,12 @@ pub trait ClientEncode {
     /// Append the wire-format JSON for `self` to `out`.
     fn encode_into(&self, out: &mut String);
 
+    /// Write a scalar island seed, preserving non-finite floats.
+    #[doc(hidden)]
+    fn encode_scalar_signal_into(&self, out: &mut String) {
+        self.encode_into(out);
+    }
+
     /// Encode `self` to a fresh string. Convenience wrapper.
     fn encode(&self) -> String {
         let mut out = String::new();
@@ -665,6 +671,18 @@ macro_rules! impl_float {
                         let _ = write!(out, "{}", self);
                     }
                 }
+
+                fn encode_scalar_signal_into(&self, out: &mut String) {
+                    if self.is_nan() {
+                        out.push_str("\"NaN\"");
+                    } else if *self == <$t>::INFINITY {
+                        out.push_str("\"inf\"");
+                    } else if *self == <$t>::NEG_INFINITY {
+                        out.push_str("\"-inf\"");
+                    } else {
+                        self.encode_into(out);
+                    }
+                }
             }
             impl ClientDecode for $t {
                 fn decode_partial(s: &str) -> Result<(Self, usize), ClientDecodeError> {
@@ -704,6 +722,10 @@ impl ClientDecode for String {
 impl<T: ClientEncode + ?Sized> ClientEncode for &T {
     fn encode_into(&self, out: &mut String) {
         (**self).encode_into(out);
+    }
+
+    fn encode_scalar_signal_into(&self, out: &mut String) {
+        (**self).encode_scalar_signal_into(out);
     }
 }
 

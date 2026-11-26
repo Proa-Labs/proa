@@ -1842,7 +1842,7 @@ fn emit_init_state_json(
                 json.push_str("null");
                 continue;
             }
-            push_value_as_json(&mut json, &sig.init);
+            push_signal_seed(&mut json, &sig.init);
         }
     }
     json.push_str("]}");
@@ -1900,12 +1900,21 @@ fn emit_runtime_init_state_json(
             }
             if signal_initializer_for(signal_initializers, sig.id).is_some() {
                 let local = signal_local_ident(sig.id);
-                tokens.extend(quote! {
-                    ::rsjs::ClientEncode::encode_into(&#local, &mut __rsjs_init_state_json);
-                });
+                if matches!(
+                    sig.ty,
+                    rsjs_ir::client::ClientType::F32 | rsjs_ir::client::ClientType::F64
+                ) {
+                    tokens.extend(quote! {
+                        ::rsjs::ClientEncode::encode_scalar_signal_into(&#local, &mut __rsjs_init_state_json);
+                    });
+                } else {
+                    tokens.extend(quote! {
+                        ::rsjs::ClientEncode::encode_into(&#local, &mut __rsjs_init_state_json);
+                    });
+                }
             } else {
                 let mut json = String::new();
-                push_value_as_json(&mut json, &sig.init);
+                push_signal_seed(&mut json, &sig.init);
                 let chunk = syn::LitStr::new(&json, proc_macro2::Span::call_site());
                 tokens.extend(quote! {
                     __rsjs_init_state_json.push_str(#chunk);
@@ -2679,6 +2688,15 @@ fn push_static_expr_as_json_value(
             Ok(true)
         }
         _ => Ok(false),
+    }
+}
+
+fn push_signal_seed(out: &mut String, value: &Value) {
+    match value {
+        Value::Float(value) if value.is_nan() => out.push_str("\"NaN\""),
+        Value::Float(f64::INFINITY) => out.push_str("\"inf\""),
+        Value::Float(f64::NEG_INFINITY) => out.push_str("\"-inf\""),
+        _ => push_value_as_json(out, value),
     }
 }
 
@@ -4589,6 +4607,12 @@ fn emit_text_arg_as_rust(
             } else {
                 quote! { ::core::clone::Clone::clone(&#local) }
             }
+        }
+        ClientExpr::Literal(Value::Float(value)) => {
+            // A conditional peer can establish f32. Keep literal width
+            // contextual just as for numeric operands in SSR expressions.
+            let literal = proc_macro2::Literal::f64_unsuffixed(*value);
+            quote! { #literal }
         }
         ClientExpr::Conditional { .. } if is_string => {
             let value = emit_text_string_as_cow(expr, query_initializers);

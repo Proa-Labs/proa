@@ -77,4 +77,34 @@ impl<L: DataLoader> WebRenderSync<L> for ReactiveTextSnapshot {
     }
 }
 
+pub struct FormattedFloatSnapshot {
+    pub upper: f32,
+    pub lower: f32,
+    pub special: f64,
+    pub flag: bool,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for FormattedFloatSnapshot {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let upper: rsjs::Signal<f32> = signal(self.upper);
+        let lower: rsjs::Signal<f32> = signal(self.lower);
+        let special: rsjs::Signal<f64> = signal(self.special);
+        let flag: rsjs::Signal<bool> = signal(self.flag);
+        html_sync! {
+            <section>
+                <button type="button" on_click={|_| {
+                    upper.update(|value| value + 0.000000059604644775390625 + 0.000000059604644775390625);
+                    flag.update(|value| !value);
+                }}>"Change"</button>
+                <p>{text!("{:+}", upper.get() - lower.get())}</p>
+                <p>{text!("{:+}", upper.get() + lower.get())}</p>
+                <p>{text!("{:.2}", if flag.get() { upper.get() } else { 0.0 })}</p>
+                <p>{text!("{:+}", special.get())}</p>
+            </section>
+        }
+        .render(cx)
+    }
+}
+
 fn main() {}
