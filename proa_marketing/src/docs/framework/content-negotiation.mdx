@@ -3,41 +3,132 @@ title: Content negotiation
 description: Serve HTML and Markdown representations of one resource through HTTP content negotiation.
 ---
 
-One URL, one resource, more than one representation. A browser asks for `text/html` and gets a page. A command-line client, retrieval pipeline, or agent can ask for `text/markdown` and get the content as a document.
+One URL can serve HTML to a browser and Markdown to an agent. Give a page an HTML and a Markdown implementation, then let `negotiate` choose from the request's `Accept` header:
 
-This is ordinary HTTP. The resource advertises what else it can be, and the client picks.
+```rust filename="src/pages/guide.rs"
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
+use proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};
+use proa::{html_sync, md_sync, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteError};
+
+#[derive(Clone, Copy)]
+pub struct GuidePage {
+    pub title: &'static str,
+    pub body: &'static str,
+}
+
+impl<L: DataLoader> WebRenderSync<L> for GuidePage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <main>
+                <h1>{self.title}</h1>
+                <p>{self.body}</p>
+            </main>
+        }
+        .render(cx)
+    }
+}
+
+impl<L: DataLoader> MdRenderSync<L> for GuidePage {
+    fn render_md(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        md_sync! { r#"
+            # {self.title}
+
+            {self.body}
+            "#
+        }
+        .render_md(cx)
+    }
+}
+
+const GUIDE: GuidePage = GuidePage {
+    title: "Install",
+    body: "Install the CLI with Cargo",
+};
+
+/// `GET /guide`: HTML by default, Markdown when the client prefers it.
+pub async fn guide(headers: HeaderMap) -> Result<impl IntoResponse, StatusCode> {
+    negotiate(&headers, RouteResponse::ssr(GUIDE), GUIDE, MarkdownAlternate::new("/guide.md"))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `GET /guide.md`: always Markdown.
+pub async fn guide_markdown() -> Result<impl IntoResponse, StatusCode> {
+    explicit_markdown(GUIDE).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+```
+
+Register both routes and mount them through `FrameworkBuilder`, which installs the route context `RouteResponse` renders in. On a bare `Router`, the HTML response is a 500:
+
+```rust filename="src/routes.rs"
+use axum::{routing::get, Router};
+use proa::axum::FrameworkBuilder;
+use crate::pages::guide::{guide, guide_markdown};
+
+pub fn router() -> Result<Router, Box<dyn std::error::Error>> {
+    let routes = Router::new()
+        .route("/guide", get(guide))
+        .route("/guide.md", get(guide_markdown));
+    Ok(FrameworkBuilder::new().with_dynamic_routes(routes).try_build()?)
+}
+```
+
+The HTML response advertises the Markdown URL:
 
 ```http
-GET /docs/framework/routing
+GET /guide
 
-HTTP/2 200
-Content-Type: text/html
-Link: </docs/framework/routing.md>; rel="alternate"; type="text/markdown"
-Vary: Accept
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+vary: Accept
+link: </guide.md>; rel="alternate"; type="text/markdown"
 ```
+
+The same URL returns Markdown when the client asks for it:
+
+```http
+GET /guide
+Accept: text/markdown
+
+HTTP/1.1 200 OK
+content-type: text/markdown; charset=utf-8
+vary: Accept
+```
+
+Sites generated with Markdown representations use these functions in their page handlers. Add them to an existing site with `proa add representation markdown`; `proa generate page` then writes both handlers.
+
+## The API
+
+All of these live in `proa::axum`:
+
+| Item | Use |
+|---|---|
+| `negotiate(&headers, html, markdown, alternate)` | Canonical URL. Returns the HTML response with a `Link: rel="alternate"` header, or the Markdown body when the client prefers it. Both add `Vary: Accept`. |
+| `explicit_markdown(markdown)` | Stable `.md` URL. Always Markdown, with no negotiation and no `Vary`. |
+| `MarkdownAlternate::new(path)` | The advertised Markdown path. A `{name}` capture such as `/guides/{slug}.md` expands to the current route parameter, percent-encoded. |
+| `MarkdownAlternate::render_explicit(markdown)` | Serves a captured alias such as `/guides/{slug}.md` with `.md` removed from the final capture, so the renderer sees the same `slug` as the HTML page. |
+| `negotiate_async_with_loader` / `explicit_markdown_async_with_loader` | The same two responses for an `MdRender<L>` that awaits loader data. The handler stays `Send`; rendering runs when the response is finalized. |
+
+The Markdown representation renders without the HTML document shell. See [Markdown rendering](/docs/core/markdown) for `MdRenderSync`, `MdRender`, and `md_sync!`.
+
+## How the representation is chosen
+
+Markdown wins only when the client gives `text/markdown` a positive quality greater than the quality that applies to HTML. Everything else stays on HTML:
+
+| `Accept` | Response |
+|---|---|
+| `text/markdown` | Markdown |
+| `text/html;q=0.4, text/markdown;q=0.9` | Markdown |
+| `text/html, text/markdown` | HTML (equal preference) |
+| `text/markdown;q=0.5, */*;q=1` | HTML (the wildcard covers HTML at a higher quality) |
+| `text/markdown;q=0, text/html;q=0.1` | HTML |
+| `*/*`, `text/*`, or no header | HTML |
 
 ## Why not a separate agent endpoint
 
 The alternative is a parallel surface: a site, an API, an `llms.txt`, a scraping adapter, and an agent-specific endpoint for every piece of public information. Each one is a thing to build, secure, and keep in sync.
 
 Multiple representations of one resource is the design the web already has. `rel="alternate"` is [RFC 8288](https://www.rfc-editor.org/rfc/rfc8288) web linking, and content negotiation is as old as HTTP. The agent needs no prior knowledge of your conventions beyond the standard.
-
-Proa's programming model supports rendering across HTML, Markdown, and other render targets: a component is a typed Rust value with an implementation for each target. In this HTTP example, [`MdRenderSync`](/docs/core/markdown) defines a Markdown representation using the same data and typed children as the HTML implementation.
-
-## What Proa emits today
-
-| Piece | Status |
-|---|---|
-| Typed page → Markdown from one component | Ships. `MdRenderSync` / `MdRender` / `md!` |
-| Per-page Markdown artifact | Ships. `DocPage::markdown_path`, emitted for every page |
-| `text/markdown` responses | Ships. `DocsResponse::markdown()` |
-| `Link` header infrastructure | Ships. `DISCOVERY_LINKS` |
-| `rel="service-desc"` pointing at OpenAPI | Ships |
-| `/.well-known/proa-site.json`, `/llms-full.txt` | Ships |
-| `rel="alternate"` per page | Ships. Every HTML docs page links its Markdown path with `Vary: Accept` |
-| `Accept: text/markdown` negotiation | Ships. Docs pages return Markdown when `Accept` lists `text/markdown` with nonzero quality (`q=0` is respected) |
-
-Both halves are standard-shaped today: the service description and the negotiated Markdown representation.
 
 ## Two layers, not one
 

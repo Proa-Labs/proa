@@ -3,7 +3,25 @@ title: Data caching
 description: Deduplicate loads, cache data across requests, and invalidate render dependencies.
 ---
 
-Proa keeps data cache policy explicit. The framework does not silently cache data fetches for you. Choose the boundary that matches the work:
+Proa keeps data cache policy explicit: the framework does not silently cache data fetches. Wrap a loader once to cache across requests, scope it per request to dedupe, and invalidate after writes:
+
+```rust
+use std::{sync::Arc, time::Duration};
+
+use proa::stream::DataResolver;
+use proa::{LoadKey, StandardDataLoader};
+
+// Shared across requests: keep each loaded value for 30 seconds.
+let cached_loader = Arc::new(StandardDataLoader::new(AppLoader::new(), Duration::from_secs(30)));
+
+// Per request: components asking for the same key share one load.
+let loader = DataResolver::request_scope(Arc::clone(&cached_loader));
+
+// After a write: drop the stale entry.
+cached_loader.invalidate(&LoadKey::named("product", "sku_1"));
+```
+
+Choose the boundary that matches the work:
 
 | Resource | Cache at |
 |----------|----------|
