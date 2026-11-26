@@ -6,6 +6,8 @@ keywords: [ETag, Cache-Control, "cache control"]
 
 By default, Proa renders pages on every request; it does not enable page caching. Use your CDN for [static pages](#caching-static-pages) and [ISR](#enabling-isr), and configure [RSJS bundles](#caching-rsjs-bundles) separately.
 
+A `RouteResponse` document or Markdown representation without a cache policy is sent with `Cache-Control: private, no-store`, so neither a browser's heuristic freshness nor a CDN default stores dynamic output. Proa uses `no-store` rather than `no-cache` because a dynamic page has no validator to revalidate against and may be personalized. Proa never replaces a policy you set: a `Cache-Control`, `Expires`, or CDN cache header from your handler, middleware, or `render_head` hook is kept.
+
 ## Caching static pages
 
 Add a cache policy to a public route. `PageCache::new()` requires no provider credentials, application identity, or environment variables:
@@ -52,7 +54,9 @@ Configure your CDN to use those headers:
 | Cache key | Preserve the hostname, path, and query string. Honor `Vary` for `Accept`, `Accept-Encoding`, `Accept-Language`, and `X-Proa-Client`, or include them in the cache key. |
 | Unsupported variants | Bypass caching when the response varies on headers your CDN cannot distinguish. |
 
-Proa also excludes private requests, non-HTML responses, streaming bodies, cookies, and per-request CSP nonces from caching. **The CDN's bypass rules are still required:** cached requests never reach Proa's checks.
+Proa also excludes private requests, non-HTML responses, cookies, and per-request CSP nonces from caching, and sends them with `private, no-store`. **The CDN's bypass rules are still required:** cached requests never reach Proa's checks.
+
+A route with a cache policy renders an `ssr_stream` document buffered, so the CDN stores the complete page without Suspense fallbacks. Requests that bypass the cache, such as those with a `Cookie`, still stream.
 
 The first request without a cached copy reaches Proa. The CDN stores the rendered HTML near visitors and serves subsequent requests without contacting your server.
 

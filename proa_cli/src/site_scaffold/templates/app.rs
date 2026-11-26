@@ -733,7 +733,7 @@ pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, Fram
 
 pub fn health_rs(has_database: bool) -> String {
     if has_database {
-        r#"use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+        r#"use axum::{extract::State, http::{header, StatusCode}, response::IntoResponse, Json};
 use serde::Serialize;
 
 use crate::app::AppState;
@@ -741,31 +741,34 @@ use crate::app::AppState;
 #[derive(Serialize)]
 pub struct StatusBody { status: &'static str }
 
-pub async fn live() -> Json<StatusBody> {
-    Json(StatusBody { status: "ok" })
+// A probe must reach the process, never a stored answer.
+pub async fn live() -> impl IntoResponse {
+    ([(header::CACHE_CONTROL, "no-store")], Json(StatusBody { status: "ok" }))
 }
 
 pub async fn ready(State(state): State<AppState>) -> impl IntoResponse {
+    let no_store = [(header::CACHE_CONTROL, "no-store")];
     match sqlx::query_scalar::<_, i64>("SELECT 1").fetch_one(&state.db).await {
-        Ok(1) => (StatusCode::OK, Json(StatusBody { status: "ready" })),
-        _ => (StatusCode::SERVICE_UNAVAILABLE, Json(StatusBody { status: "unavailable" })),
+        Ok(1) => (StatusCode::OK, no_store, Json(StatusBody { status: "ready" })),
+        _ => (StatusCode::SERVICE_UNAVAILABLE, no_store, Json(StatusBody { status: "unavailable" })),
     }
 }
 "#
         .to_string()
     } else {
-        r#"use axum::Json;
+        r#"use axum::{http::header, response::IntoResponse, Json};
 use serde::Serialize;
 
 #[derive(Serialize)]
 pub struct StatusBody { status: &'static str }
 
-pub async fn live() -> Json<StatusBody> {
-    Json(StatusBody { status: "ok" })
+// A probe must reach the process, never a stored answer.
+pub async fn live() -> impl IntoResponse {
+    ([(header::CACHE_CONTROL, "no-store")], Json(StatusBody { status: "ok" }))
 }
 
-pub async fn ready() -> Json<StatusBody> {
-    Json(StatusBody { status: "ready" })
+pub async fn ready() -> impl IntoResponse {
+    ([(header::CACHE_CONTROL, "no-store")], Json(StatusBody { status: "ready" }))
 }
 "#
         .to_string()

@@ -3,6 +3,7 @@
 
 use std::{
     convert::Infallible,
+    future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -17,7 +18,16 @@ use axum::{
     routing::get,
     Router,
 };
-use proa_framework_axum::{FrameworkBuilder, PageCacheLayer, RouteResponse};
+use proa_core::{
+    ComponentRole, DataLoader, HeadConfig, MdRenderSync, RenderOutcome, WebContext, WebRender,
+    WriteBuf, WriteError,
+};
+use proa_framework_axum::{
+    explicit_markdown, router_from_spec, FrameworkBuilder, PageCache, PageCacheLayer, Route,
+    RouteResponse,
+};
+use proa_macros::{html, html_sync, md_sync};
+use proa_stream::Suspense;
 use tokio::sync::Notify;
 use tower::{service_fn, Layer, ServiceExt};
 
@@ -450,4 +460,272 @@ async fn downstream_freshness_headers_cannot_hide_a_deployment() {
         }
         assert!(!response.headers().contains_key("surrogate-control"));
     }
+}
+
+/// Resolves after the streamed shell, so a stream shows its fallback first.
+struct Slow;
+
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Slow {
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            WriteBuf::extend_str(&mut cx.out, "<p>resolved</p>")
+        })
+    }
+}
+
+/// A buffered page that chooses its own cache policy while rendering.
+struct SelfCachingPage;
+
+impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for SelfCachingPage {
+    fn render(
+        self,
+        cx: &mut WebContext<L, B>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            tokio::task::yield_now().await;
+            assert!(cx.response_mut().insert_header(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=30"),
+            ));
+            WriteBuf::extend_str(&mut cx.out, "<p>page</p>")
+        })
+    }
+}
+
+/// A managed-head page whose head hook chooses the cache policy.
+struct HeadPolicyPage;
+
+impl WebRender for HeadPolicyPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    async fn render_head(&self, cx: &mut WebContext) -> Result<(), WriteError> {
+        assert!(cx.response_mut().insert_header(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=86400"),
+        ));
+        Ok(())
+    }
+
+    fn render(
+        self,
+        cx: &mut WebContext,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! {
+            <html>
+                <head>{cx.head()}</head>
+                <body></body>
+            </html>
+        }
+        .render(cx)
+    }
+}
+
+struct Notes;
+
+impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for Notes {
+    fn render_md(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        md_sync! { r###"
+            # Notes
+            "###
+        }
+        .render_md(cx)
+    }
+}
+
+fn streamed_page() -> RouteResponse {
+    RouteResponse::ssr_stream(html! {
+        <main>
+            {Suspense::new(Slow, html_sync! {
+                <p>"loading"</p>
+            })}
+        </main>
+    })
+}
+
+fn cache_control(response: &Response) -> Option<&str> {
+    response
+        .headers()
+        .get(header::CACHE_CONTROL)
+        .map(|value| value.to_str().unwrap())
+}
+
+async fn assert_cache_control(app: &Router, cases: &[(&str, Option<&str>)]) {
+    for (uri, expected) in cases {
+        let response = app.clone().oneshot(request(uri)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(cache_control(&response), *expected, "{uri}");
+        body(response).await;
+    }
+}
+
+#[tokio::test]
+async fn framework_documents_without_a_policy_are_private_no_store() {
+    let routes = Router::new()
+        .route(
+            "/",
+            get(|| async { RouteResponse::ssr(proa_core::text::text("page")) }),
+        )
+        .route("/async", get(|| async { RouteResponse::ssr_async(Slow) }))
+        .route("/stream", get(|| async { streamed_page() }))
+        .route(
+            "/index.md",
+            get(|| async { explicit_markdown(Notes).unwrap() }),
+        )
+        .route(
+            "/own",
+            get(|| async {
+                (
+                    [(header::CACHE_CONTROL, "public, max-age=60")],
+                    RouteResponse::ssr_async(Slow),
+                )
+            }),
+        )
+        .route(
+            "/page",
+            get(|| async { RouteResponse::ssr_async(SelfCachingPage) }),
+        )
+        .route(
+            "/edge",
+            get(|| async {
+                (
+                    [("cdn-cache-control", "max-age=60")],
+                    RouteResponse::ssr(proa_core::text::text("page")),
+                )
+            }),
+        )
+        .route("/plain", get(|| async { "ok" }));
+    let app = FrameworkBuilder::new().with_dynamic_routes(routes).build();
+    assert_cache_control(
+        &app,
+        &[
+            ("/", Some("private, no-store")),
+            ("/async", Some("private, no-store")),
+            ("/stream", Some("private, no-store")),
+            ("/index.md", Some("private, no-store")),
+            ("/own", Some("public, max-age=60")),
+            ("/page", Some("public, max-age=30")),
+            ("/edge", None),
+            ("/plain", None),
+        ],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn head_hook_cache_policies_survive_the_default() {
+    let routes = Router::new()
+        .route(
+            "/async",
+            get(|| async { RouteResponse::ssr_async(HeadPolicyPage) }),
+        )
+        .route(
+            "/stream",
+            get(|| async { RouteResponse::ssr_stream(HeadPolicyPage) }),
+        );
+    let app = FrameworkBuilder::new()
+        .with_head(HeadConfig::default())
+        .with_dynamic_routes(routes)
+        .build();
+    assert_cache_control(
+        &app,
+        &[
+            ("/async", Some("public, max-age=86400")),
+            ("/stream", Some("public, max-age=86400")),
+        ],
+    )
+    .await;
+}
+
+fn page_cached_app(route: Route<()>) -> Router {
+    let route = route.with_page_cache(PageCache::new().revalidate(Duration::from_secs(60)));
+    let (routes, metadata) = router_from_spec(vec![route]);
+    FrameworkBuilder::new()
+        .with_dynamic_routes_and_metadata(routes, metadata)
+        .build()
+}
+
+fn assert_cdn_policy(response: &Response) {
+    assert_eq!(
+        cache_control(response),
+        Some("public, max-age=0, s-maxage=60, stale-while-revalidate=86400")
+    );
+    assert_eq!(
+        response.headers()["cdn-cache-control"],
+        "public, max-age=60, stale-while-revalidate=86400"
+    );
+}
+
+async fn page_cached_stream_is_buffered_for_the_cdn() {
+    let app = page_cached_app(Route::endpoint("/", get(|| async { streamed_page() })));
+    let response = app.clone().oneshot(request("/")).await.unwrap();
+    assert_cdn_policy(&response);
+    let html = body(response).await;
+    assert!(html.contains("<p>resolved</p>"), "{html}");
+    assert!(!html.contains("loading"), "{html}");
+    assert!(!html.contains("proa-tpl-"), "{html}");
+
+    // A request the CDN must not store keeps streaming.
+    let mut private = request("/");
+    private
+        .headers_mut()
+        .insert(header::COOKIE, HeaderValue::from_static("session=secret"));
+    let response = app.oneshot(private).await.unwrap();
+    assert_eq!(cache_control(&response), Some("private, no-store"));
+    let html = body(response).await;
+    assert!(
+        html.contains("loading") && html.contains("proa-tpl-"),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn page_cached_stream_is_buffered_for_the_cdn_on_a_current_thread_runtime() {
+    page_cached_stream_is_buffered_for_the_cdn().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn page_cached_stream_is_buffered_for_the_cdn_on_a_multi_thread_runtime() {
+    page_cached_stream_is_buffered_for_the_cdn().await;
+}
+
+#[tokio::test]
+async fn page_cache_policy_replaces_the_page_policy_on_a_deferred_render() {
+    let app = page_cached_app(Route::endpoint(
+        "/",
+        get(|| async { RouteResponse::ssr_async(SelfCachingPage) }),
+    ));
+    let response = app.oneshot(request("/")).await.unwrap();
+    assert_cdn_policy(&response);
+    assert_eq!(body(response).await, "<p>page</p>");
+}
+
+#[tokio::test]
+async fn origin_page_cache_stores_a_streamed_document() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let routes = Router::new()
+        .route(
+            "/",
+            get(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                async { streamed_page() }
+            }),
+        )
+        .route_layer(PageCacheLayer::new("build"));
+    let app = FrameworkBuilder::new().with_dynamic_routes(routes).build();
+    for expected in ["MISS", "HIT"] {
+        let response = app.clone().oneshot(request("/")).await.unwrap();
+        assert_eq!(response.headers()["x-proa-page-cache"], expected);
+        assert_eq!(cache_control(&response), Some("public, no-cache"));
+        let html = body(response).await;
+        assert!(
+            html.contains("<p>resolved</p>") && !html.contains("loading"),
+            "{html}"
+        );
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }

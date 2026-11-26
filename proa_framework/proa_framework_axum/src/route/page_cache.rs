@@ -49,8 +49,8 @@ const LOCK_COUNT: usize = 64;
 /// Only opt in routes whose output is public. Authentication/authorization
 /// middleware must run outside this layer. Cookie and Authorization requests,
 /// per-request CSP nonces, errors, private/no-store responses, unknown Vary
-/// fields, and streaming bodies bypass storage. Use buffered RouteResponse
-/// constructors for cached pages.
+/// fields, and streaming bodies bypass storage. A streamed RouteResponse
+/// renders buffered on requests the cache may store.
 ///
 /// Responses use `public, no-cache` downstream and a generated ETag. This
 /// allows browser revalidation without rerendering and prevents an ordinary
@@ -407,6 +407,7 @@ where
     request.headers_mut().remove(header::IF_NONE_MATCH);
     request.headers_mut().remove(header::IF_MODIFIED_SINCE);
     let future = async {
+        super::cdn_cache::buffer_documents();
         let response = super::response::finish_deferred_render(inner.oneshot(request).await?).await;
         if !cacheable_response(layer, &response) {
             // Keep stale public content on transient server failures only.

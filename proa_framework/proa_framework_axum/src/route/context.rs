@@ -22,6 +22,7 @@ use proa_framework_core::{
 use tower::layer::Layer;
 use tower::Service;
 
+use super::cdn_cache::default_document_policy;
 use super::local_executor::{LocalStreamExecutor, LocalStreamExecutorConfig};
 use super::response::prepare_deferred_framework_stream;
 
@@ -44,6 +45,8 @@ pub struct RouteContext {
     head: Option<proa_core::HeadConfig>,
     /// Runs local buffered renders. See [`RouteContext::detach`].
     local_stream_executor: Option<LocalStreamExecutor>,
+    /// A page cache may store this request's document.
+    buffer_documents: bool,
 }
 
 #[derive(Clone)]
@@ -181,6 +184,7 @@ impl RouteContext {
             asset_prefix: None,
             head: None,
             local_stream_executor: None,
+            buffer_documents: false,
         }
     }
 
@@ -197,6 +201,14 @@ impl RouteContext {
         let mut route = self.clone();
         let executor = route.local_stream_executor.take();
         (route, executor)
+    }
+
+    pub(super) fn set_buffer_documents(&mut self) {
+        self.buffer_documents = true;
+    }
+
+    pub(super) fn buffers_documents(&self) -> bool {
+        self.buffer_documents
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
@@ -593,7 +605,9 @@ where
             let local_stream_executor = self.local_stream_executor.clone();
             return Box::pin(async move {
                 let response = scoped.await?;
-                Ok(prepare_deferred_framework_stream(response, local_stream_executor).await)
+                Ok(default_document_policy(
+                    prepare_deferred_framework_stream(response, local_stream_executor).await,
+                ))
             });
         }
 
@@ -620,7 +634,9 @@ where
                     async move { inner.call(request).await },
                 )
                 .await?;
-            Ok(prepare_deferred_framework_stream(response, local_stream_executor).await)
+            Ok(default_document_policy(
+                prepare_deferred_framework_stream(response, local_stream_executor).await,
+            ))
         })
     }
 }

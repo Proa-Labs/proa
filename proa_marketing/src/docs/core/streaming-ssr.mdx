@@ -169,7 +169,7 @@ In-order boundaries flush and reuse the parent `RenderBuffer`, so a page with tw
 
 For manual checkpoint control without a page pool, `StreamingZeroCopyBuf` flushes complete parts and never half-written dynamic content. Normal routes should not manage checkpoints by hand.
 
-> **Good to know**: A reverse proxy can cache a completed streamed HTML response when its policy permits it. Set cache headers before streaming begins, and check the proxy's buffering behavior: cached delivery need not preserve the origin's chunk timing. Loader caching remains useful on cache misses and private routes. See [Page caching](/docs/framework/page-caching).
+> **Good to know**: A streamed document without a cache policy is sent with `Cache-Control: private, no-store`. A route with a `PageCache` policy renders its `ssr_stream` document buffered on cacheable requests, so the CDN stores the complete page; requests the cache bypasses still stream. If you set cache headers on a streamed route yourself, set them before streaming begins, and check your proxy's buffering behavior: cached delivery need not preserve the origin's chunk timing. Loader caching remains useful on cache misses and private routes. See [Page caching](/docs/framework/page-caching).
 
 ## Next steps
 

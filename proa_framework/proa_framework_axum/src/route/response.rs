@@ -378,6 +378,9 @@ pub(super) fn framework_response_to_axum(response: FrameworkResponse) -> Respons
     };
     *axum_response.headers_mut() = headers;
     axum_response
+        .extensions_mut()
+        .insert(super::cdn_cache::FrameworkDocument);
+    axum_response
 }
 
 #[derive(Clone)]
@@ -761,6 +764,7 @@ fn finalize_without_polling<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     mode: RouteFinalizeMode,
 ) -> Result<Response, (CoreRouteResponse<L>, RouteFinalizeMode)> {
+    let response = super::cdn_cache::buffer_for_page_cache(response);
     let finalized = if response.is_synchronous() {
         finalize_route_response_sync(response, request, mode)
     } else if matches!(mode, RouteFinalizeMode::Document) && response.is_streaming() {
