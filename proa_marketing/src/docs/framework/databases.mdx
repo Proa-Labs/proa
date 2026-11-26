@@ -39,11 +39,11 @@ pub async fn product(
 
 Register it with `.route("/products/{id}", get(product)).with_state(pool)`, where `pool` is your `SqlitePool`.
 
-The CLI offers a starting point you can keep or replace. `proa add database sqlite` adds SQLx, `src/db.rs`, and a `migrations/` directory; `proa db` runs the migrations:
+The CLI offers a starting point you can keep or replace. `proa add database sqlite` adds SQLx, `src/db.rs`, and a `migrations/` directory. `proa generate model` writes the migration that creates the `products` table queried above, and `proa db migrate` applies it:
 
 ```bash
 proa add database sqlite
-proa generate migration create_products
+proa generate model product name:text
 proa db migrate
 ```
 
