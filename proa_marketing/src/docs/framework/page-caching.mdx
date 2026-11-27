@@ -60,6 +60,8 @@ Proa also excludes private requests, non-HTML responses, cookies, and per-reques
 
 On a route with a cache policy, a request the CDN may store renders an `ssr_stream` document in order. It still streams, and its complete body is the same HTML as a buffered render, without Suspense fallbacks or swap scripts, so the CDN stores the complete page. Requests that bypass the cache, such as those with a `Cookie`, keep the route's render mode. A stream that fails partway ends the connection early, and a CDN does not store an incomplete response.
 
+An origin `PageCacheLayer` renders cacheable `ssr_stream` requests in order too. It sends the stream at once, without an ETag, and stores the page if its body ends within the layer's size limit and timeout. A larger or slower page is still delivered in full, but it is not stored.
+
 The first request without a cached copy reaches Proa. The CDN stores the rendered HTML near visitors and serves subsequent requests without contacting your server.
 
 The policy uses a one-year TTL. To keep pages until your next deployment, your deployment must invalidate the CDN cache. Eviction or TTL expiry can trigger an earlier render.

@@ -2164,6 +2164,8 @@ pub(crate) const FRAMEWORK_SINK_PAGE_SIZE: usize = 4096;
 /// mpsc channel.
 pub(crate) struct ChannelSink<const N: usize> {
     tx: mpsc::UnboundedSender<Result<Bytes, FrameworkError>>,
+    /// Whether any item, the head commit included, has been sent.
+    shipped: std::sync::atomic::AtomicBool,
     _page_size: std::marker::PhantomData<[u8; N]>,
 }
 
@@ -2178,13 +2180,34 @@ impl<const N: usize> ChannelSink<N> {
     ) -> Self {
         Self {
             tx,
+            shipped: std::sync::atomic::AtomicBool::new(false),
             _page_size: std::marker::PhantomData,
         }
     }
 
     fn send_bytes(&self, bytes: Bytes) -> Result<(), WriteError> {
+        self.shipped
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         self.tx
             .unbounded_send(Ok(bytes))
+            .map_err(|_| WriteError::StreamClosed)
+    }
+
+    /// Commit the response head when the render reaches a boundary before
+    /// any bytes. A non-managed stream's head is fixed when it starts, so an
+    /// empty first item lets the transport send it now instead of waiting for
+    /// the boundary to resolve. Render errors before this point still fail
+    /// the response before its head, as they do when a shell precedes the
+    /// boundary.
+    fn commit_head(&self) -> Result<(), WriteError> {
+        if self
+            .shipped
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            return Ok(());
+        }
+        self.tx
+            .unbounded_send(Ok(Bytes::new()))
             .map_err(|_| WriteError::StreamClosed)
     }
 }
@@ -2193,11 +2216,19 @@ impl<const N: usize> StreamChunkFlusher for ChannelSink<N> {
     fn flush_chunk(&self, chunk: Vec<u8>) -> Result<(), WriteError> {
         self.send_bytes(Bytes::from(chunk))
     }
+
+    fn flush_empty(&self) -> Result<(), WriteError> {
+        self.commit_head()
+    }
 }
 
 impl<const N: usize> SendStreamChunkFlusher for ChannelSink<N> {
     fn flush_chunk(&self, chunk: Vec<u8>) -> Result<(), WriteError> {
         self.send_bytes(Bytes::from(chunk))
+    }
+
+    fn flush_empty(&self) -> Result<(), WriteError> {
+        self.commit_head()
     }
 }
 

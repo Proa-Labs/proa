@@ -2600,7 +2600,7 @@ impl<L: DataLoader> WebContext<L, Vec<u8>> {
         }
 
         if self.out.is_empty() {
-            return Ok(());
+            return flusher.flush_empty();
         }
 
         let capacity = self.out.capacity().max(128);
@@ -2636,8 +2636,9 @@ impl<L: DataLoader> WebContext<L, RenderBuffer> {
         if WriteBuf::is_empty(&self.out) {
             // Match the framework's current Vec-backed root behavior: an
             // empty pre-boundary flush ships nothing and must not freeze
-            // response metadata or advance the flush generation.
-            return Ok(());
+            // response metadata or advance the flush generation. The
+            // transport may still commit its response head.
+            return flusher.flush_empty();
         }
 
         // The synchronous flusher must consume or copy every borrowed slice

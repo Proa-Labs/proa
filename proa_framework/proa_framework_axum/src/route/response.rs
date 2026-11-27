@@ -577,6 +577,8 @@ async fn prepare_stream(
             .await
             {
                 None => Ok(tail),
+                // An empty first item only commits the response head.
+                Some(Ok(first)) if first.is_empty() => Ok(tail),
                 Some(Err(error)) => Err(StreamPrepareError::FirstItem(error)),
                 Some(Ok(first)) => Ok(Box::pin(
                     stream::once(std::future::ready(Ok(first))).chain(tail),
