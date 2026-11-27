@@ -119,17 +119,21 @@ proa generate layout root-document --document
 |------|----------|
 | `--section` | Generate a section-level wrapper. |
 | `--document` | Generate a full document shell. |
-| `--replace-root` | With `--document`, move the document-root marker from the current root layout to the new one. |
+| `--replace-root` | With `--document`, move the `// proa:document-root` marker to the new layout. |
 | `--root <DIR>` | Use an explicit project root. |
 | `--dry-run [text\|json]` | Print the plan without writing. |
 | `--force` | Overwrite generated files. |
 
 `--document` and `--section` cannot be combined.
 
-Generated wrappers use manual rendering. For a managed document, add the head
-outlet to the document shell and declare `ROLE = LAYOUT`; its selected Page
-declares `ROLE = PAGE`. Body-only visual wrappers keep the default `COMPONENT`
-role. See [Layouts and Pages](/docs/framework/layouts-and-pages).
+A `--document` shell matches the site's head mode, which the CLI reads from
+`src/layouts/root.rs`. In a site created with managed metadata, the shell
+declares `ROLE = LAYOUT` and places the `{cx.head()}` outlet, and the Page
+rendered inside it declares `ROLE = PAGE` and sets the title in `render_head`.
+In a site from an earlier CLI, whose `RootDocument` takes a `title` field, the
+shell takes `title` and `description` fields and writes those tags itself.
+Section wrappers keep the default `COMPONENT` role. See
+[Layouts and Pages](/docs/framework/layouts-and-pages).
 
 ## Data Modules
 

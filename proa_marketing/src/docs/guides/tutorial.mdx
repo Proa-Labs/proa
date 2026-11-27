@@ -131,9 +131,10 @@ mod data;
 
 ## Product Card
 
-The generated starter uses a manual document head. This tutorial keeps that
-mode; to adopt managed metadata, migrate the document outlet and page/layout
-roles together as shown in [Layouts and Pages](/docs/framework/layouts-and-pages).
+The generated starter manages the document head: its router enables the managed
+head once, `RootDocument` places the `{cx.head()}` outlet, and each page declares
+`ROLE = PAGE` (see [Layouts and Pages](/docs/framework/layouts-and-pages)). A
+component such as this card keeps the default role and renders only its body.
 
 The whole card is the link, and the image slot is a placeholder box until you
 have real photography.
@@ -202,9 +203,11 @@ Two pages: a listing that maps over `PRODUCTS`, and a detail page whose
 add-to-cart control is a native form posting `sku` and `qty`. There is no
 JavaScript in either one.
 
-Each handler wraps its page in the generated `RootDocument` layout and hands it
-to `RouteResponse::ssr_async`, the same shape as the generated `src/pages/home.rs`,
-then awaits the render so middleware sees the finished page.
+Each handler wraps its page in the generated `RootDocument`, passes it to
+`RouteResponse::ssr_async`, and awaits the render so middleware sees the
+finished page. The generated router enables the managed head once. Each
+page declares `ROLE = PAGE` and sets its title in `render_head`.
+
 `RootDocument` is async-capable, so a synchronous page goes in through
 `proa::to_async`. A loop body is its own template, so it needs its own
 `html_sync!` block.
@@ -215,7 +218,10 @@ then awaits the render so middleware sees the finished page.
 
 ```rust
 use axum::response::IntoResponse;
-use proa::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::{
+    to_async, ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
+    WriteError,
+};
 use proa::axum::RouteResponse;
 use proa::html_sync;
 
@@ -225,7 +231,6 @@ use crate::layouts::RootDocument;
 
 pub async fn handler() -> impl IntoResponse {
     RouteResponse::ssr_async(RootDocument {
-        title: "Products",
         content: to_async(ProductsPage),
     })
     .await
@@ -234,6 +239,12 @@ pub async fn handler() -> impl IntoResponse {
 struct ProductsPage;
 
 impl<L: DataLoader> WebRenderSync<L> for ProductsPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {
+        cx.head_mut().title("Products")
+    }
+
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         html_sync! {
             <main class="mx-auto grid max-w-6xl gap-8 px-6 py-12">
@@ -256,7 +267,10 @@ impl<L: DataLoader> WebRenderSync<L> for ProductsPage {
 
 ```rust
 use axum::{extract::Path, http::StatusCode, response::IntoResponse};
-use proa::{to_async, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::{
+    to_async, ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync,
+    WriteError,
+};
 use proa::axum::RouteResponse;
 use proa::html_sync;
 
@@ -266,7 +280,6 @@ use crate::layouts::RootDocument;
 pub async fn handler(Path(slug): Path<String>) -> Result<impl IntoResponse, StatusCode> {
     let product = find_product(&slug).ok_or(StatusCode::NOT_FOUND)?;
     Ok(RouteResponse::ssr_async(RootDocument {
-        title: product.name,
         content: to_async(ProductPage { product }),
     })
     .await)
@@ -277,6 +290,12 @@ struct ProductPage {
 }
 
 impl<L: DataLoader> WebRenderSync<L> for ProductPage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {
+        cx.head_mut().title(self.product.name)
+    }
+
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let product = self.product;
         html_sync! {
