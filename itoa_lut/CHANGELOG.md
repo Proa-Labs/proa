@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/Proa-Labs/proa/compare/itoa_lut-v0.1.3...itoa_lut-v0.1.4) - 2026-11-27
+
+### Other
+
+- Clear Proa CLI and workspace manifest lint warnings ([#120](https://github.com/Proa-Labs/proa/pull/120))
+
 ## [0.1.3](https://github.com/Proa-Labs/proa/releases/tag/itoa_lut-v0.1.3) - 2026-11-24
 
 ### Other

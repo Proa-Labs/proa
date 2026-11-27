@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/Proa-Labs/proa/compare/proa_source_tools-v0.1.0...proa_source_tools-v0.1.1) - 2026-11-27
+
+### Added
+
+- *(core)* catch managed-head structure mistakes at build and lint time ([#123](https://github.com/Proa-Labs/proa/pull/123))
+
+### Fixed
+
+- *(lint)* let documented RSJS islands pass the proa build check ([#124](https://github.com/Proa-Labs/proa/pull/124))
+
+### Other
+
+- Clear Proa CLI and workspace manifest lint warnings ([#120](https://github.com/Proa-Labs/proa/pull/120))
+
 ## [0.1.0](https://github.com/Proa-Labs/proa/releases/tag/proa_source_tools-v0.1.0) - 2026-11-24
 
 ### Other

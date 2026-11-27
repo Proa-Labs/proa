@@ -3,7 +3,7 @@
 
 [package]
 name = "rsjs"
-version = "0.3.1"
+version = "0.3.2"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true

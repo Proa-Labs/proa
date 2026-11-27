@@ -3,7 +3,7 @@
 
 [package]
 name = "proa"
-version = "0.4.1"
+version = "0.4.2"
 edition.workspace = true
 publish.workspace = true
 rust-version.workspace = true
@@ -31,10 +31,10 @@ rt-tokio = ["stream", "proa_stream/rt-tokio", "proa_framework_core?/rt-tokio"]
 [dependencies]
 rsjs = { workspace = true, optional = true }
 proa_core = { workspace = true }
-proa_macros = { path = "../proa_macros", version = "0.4.1", default-features = false }
+proa_macros = { path = "../proa_macros", version = "0.4.2", default-features = false }
 proa_ir = { workspace = true }
 proa_stream = { workspace = true, optional = true }
-proa_framework_core = { path = "../proa_framework/proa_framework_core", version = "0.4.1", default-features = false, optional = true }
+proa_framework_core = { path = "../proa_framework/proa_framework_core", version = "0.4.2", default-features = false, optional = true }
 proa_framework_axum = { workspace = true, optional = true }
 proa_actions = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/Proa-Labs/proa/compare/rsjs_macros-v0.3.1...rsjs_macros-v0.3.2) - 2026-11-27
+
+### Fixed
+
+- *(lint)* let documented RSJS islands pass the proa build check ([#124](https://github.com/Proa-Labs/proa/pull/124))
+
+### Other
+
+- Clear Proa CLI and workspace manifest lint warnings ([#120](https://github.com/Proa-Labs/proa/pull/120))
+
 ## [0.3.1](https://github.com/Proa-Labs/proa/compare/rsjs_macros-v0.3.0...rsjs_macros-v0.3.1) - 2026-11-26
 
 ### Other
