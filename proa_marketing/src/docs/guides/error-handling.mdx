@@ -50,6 +50,49 @@ Passing `Ok(3)` renders the count. Passing `Err(WriteError::render("stock lookup
 
 Transport failures and managed-head lifecycle errors propagate to the caller. Rust panics follow the server’s panic handling. For a failure that reaches the whole response, see [Handling framework errors](/docs/framework/errors#handling-framework-errors).
 
+### Recover from a data load failure
+
+When a section loads its own data, call `cx.load_typed` inside the boundary’s child.
+
+```rust filename="src/components/loaded_stock.rs"
+use std::future::Future;
+
+use proa::{
+    DataLoader, ErrorBoundary, LoadKey, RenderOutcome, WebContext, WebRender, WriteError, html_sync,
+};
+
+struct LoadedStock {
+    sku: &'static str,
+}
+
+impl<L: DataLoader> WebRender<L> for LoadedStock {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let key = LoadKey::named("stock", self.sku);
+            let remaining = cx.load_typed::<u32>(key).await?;
+            let content = html_sync! {
+                <p data-stock-count>{*remaining}" in stock"</p>
+            };
+            proa::WebRenderSync::render(content, cx)
+        })
+    }
+}
+
+pub fn loaded_product_stock<L: DataLoader + 'static>(sku: &'static str) -> impl WebRender<L> {
+    ErrorBoundary {
+        child: LoadedStock { sku },
+        fallback: html_sync! {
+            <p>"Stock is temporarily unavailable."</p>
+        },
+    }
+}
+```
+
+When you render `loaded_product_stock("sku_1")`, the route’s loader should return `LoadValue::typed(count)` with a `u32` count for `stock:sku_1`. If the loader returns a `LoadError`, `?` converts it to a `WriteError` and the boundary renders `fallback`. See [Data loading and streaming](/docs/framework/data-loading#server-data-pipeline) for loader and route setup.
+
 ### Stream a section with a fallback
 
 For a streamed section, put `Suspense` inside `ErrorBoundary`. Give `Suspense` the loading UI and `ErrorBoundary` the error UI. Bytes already sent stay in the response, and the HTTP status is fixed once headers are sent. See [Streaming SSR](/docs/core/streaming-ssr).
