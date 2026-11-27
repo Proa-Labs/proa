@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/Proa-Labs/proa/compare/proa_docs_build-v0.3.0...proa_docs_build-v0.3.1) - 2026-11-27
+
+### Other
+
+- fix 0.4.1 review defects and lead key pages with code ([#122](https://github.com/Proa-Labs/proa/pull/122))
+
 ## [0.3.0](https://github.com/Proa-Labs/proa/releases/tag/proa_docs_build-v0.3.0) - 2026-11-24
 
 ### Other

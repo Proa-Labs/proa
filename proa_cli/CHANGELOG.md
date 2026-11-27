@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.2.1...proa-cli-v0.2.2) - 2026-11-27
+
+### Fixed
+
+- *(framework)* default uncached documents to no-store, stream page-cached documents in order ([#127](https://github.com/Proa-Labs/proa/pull/127))
+- *(cli)* make fresh sites deployable and opt them into managed head ([#126](https://github.com/Proa-Labs/proa/pull/126))
+
+### Other
+
+- Clear Proa CLI and workspace manifest lint warnings ([#120](https://github.com/Proa-Labs/proa/pull/120))
+
 ## [0.2.1](https://github.com/Proa-Labs/proa/compare/proa-cli-v0.2.0...proa-cli-v0.2.1) - 2026-11-26
 
 ### Fixed

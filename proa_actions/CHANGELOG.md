@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/Proa-Labs/proa/compare/proa_actions-v0.4.1...proa_actions-v0.4.2) - 2026-11-27
+
+### Other
+
+- Clear Proa CLI and workspace manifest lint warnings ([#120](https://github.com/Proa-Labs/proa/pull/120))
+
 ## [0.4.0](https://github.com/Proa-Labs/proa/releases/tag/proa_actions-v0.4.0) - 2026-11-24
 
 ### Other

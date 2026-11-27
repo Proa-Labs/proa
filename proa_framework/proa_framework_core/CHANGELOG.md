@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://github.com/Proa-Labs/proa/compare/proa_framework_core-v0.4.1...proa_framework_core-v0.4.2) - 2026-11-27
+
+### Fixed
+
+- *(framework)* default uncached documents to no-store, stream page-cached documents in order ([#127](https://github.com/Proa-Labs/proa/pull/127))
+- *(framework)* let handlers await buffered renders and stop panicking on current-thread runtimes ([#125](https://github.com/Proa-Labs/proa/pull/125))
+
+### Other
+
+- Clear Proa CLI and workspace manifest lint warnings ([#120](https://github.com/Proa-Labs/proa/pull/120))
+
 ## [0.4.1](https://github.com/Proa-Labs/proa/compare/proa_framework_core-v0.4.0...proa_framework_core-v0.4.1) - 2026-11-26
 
 ### Other
