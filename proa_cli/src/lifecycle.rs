@@ -1434,8 +1434,46 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
                 .as_deref()
                 .or(published_public_assets.as_deref()),
         )?;
+        print!(
+            "{}",
+            build_output_summary(
+                destination,
+                bundled_public_assets
+                    .as_deref()
+                    .or(published_public_assets.as_deref()),
+                artifact_destination.is_some(),
+            )
+        );
     }
     Ok(())
+}
+
+/// The closing lines of a build: what to run, and what to copy to deploy.
+/// Without `--artifact-out` the executable and its catalog live in separate
+/// target directories that only `proa start` joins.
+// proa-perf-ok(scope): terminal text printed once per build, not HTML.
+fn build_output_summary(executable: &Path, assets: Option<&Path>, deployable: bool) -> String {
+    if deployable {
+        return match assets {
+            Some(assets) => format!(
+                "deployable output, copy together:\n  {}\n  {}\n",
+                executable.display(),
+                assets.display()
+            ),
+            None => format!("deployable output: {}\n", executable.display()),
+        };
+    }
+    let mut summary = format!("built {}\n", executable.display());
+    if let Some(assets) = assets {
+        summary.push_str(&format!(
+            "  public assets {} (`proa start` serves them with it)\n",
+            assets.display()
+        ));
+    }
+    summary.push_str(
+        "  to deploy, rerun with `--artifact-out <path>`: it writes <path> and <path>.assets, copied together\n",
+    );
+    summary
 }
 
 pub fn check(mut options: CheckOptions) -> Result<()> {

@@ -142,6 +142,12 @@ Component generators default to `WebRenderSync`; `--async` emits an owned
 representation. Class composition uses stack-backed `ClassList`. Nested names
 such as `pricing/feature-row` create and register the matching module hierarchy.
 
+Page and document-layout generators follow the site's head mode, read from
+`src/layouts/root.rs`. A managed root (`ROLE = LAYOUT`, `{cx.head()}`) gets
+pages that declare `ROLE = PAGE` and set their title in `render_head`, and
+document layouts that place the head outlet. A root from an earlier CLI, whose
+`RootDocument` takes a `title` field, keeps the manual shape.
+
 Only one generated document layout carries `// proa:document-root`.
 `--replace-root` deliberately transfers that marker. All file generators support
 dry-run planning, and component/layout/data generators also support overwrite
