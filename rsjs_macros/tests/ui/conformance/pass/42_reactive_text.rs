@@ -100,6 +100,8 @@ impl<L: DataLoader> WebRenderSync<L> for FormattedFloatSnapshot {
                 <p>{text!("{:+}", upper.get() - lower.get())}</p>
                 <p>{text!("{:+}", upper.get() + lower.get())}</p>
                 <p>{text!("{:.2}", if flag.get() { upper.get() } else { 0.0 })}</p>
+                <p>{text!("{:.9}", upper.get() * (0.1 + 0.2))}</p>
+                <p>{text!("{:.9}", if flag.get() { upper.get() } else { 0.1 + 0.2 })}</p>
                 <p>{text!("{:+}", special.get())}</p>
             </section>
         }

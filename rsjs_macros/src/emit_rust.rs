@@ -10,6 +10,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use rsjs_ir::analysis::typing::TypeEnv;
 use rsjs_ir::markers::{MARKER_COMPONENT, MARKER_COMPONENT_MOUNT};
 use rsjs_ir::{
     AsType, AttrBindingKind, ClientBinaryOp, ClientBrowserRead, ClientExpr, ClientFunctionRef,
@@ -1527,6 +1528,7 @@ fn emit_signal_initializers(
     reachable_signal_ids: &[SignalId],
 ) -> TokenStream {
     let mut out = TokenStream::new();
+    let types = TypeEnv::for_island(island);
     for sig in island
         .signals
         .iter()
@@ -1565,7 +1567,12 @@ fn emit_signal_initializers(
             // locals (declaration order is id order, and a derived
             // body can only read names declared before it), so SSR
             // shows the derived value evaluated over signal initials.
-            let expr = emit_expr_as_rust(island.exprs.client_expr(body), &[]);
+            let body = island.exprs.client_expr(body);
+            let expr = if types.float_width_proven(body) {
+                emit_contextual_float_as_rust(body, &[])
+            } else {
+                emit_expr_as_rust(body, &[])
+            };
             match expr {
                 Some(expr) => out.extend(quote! {
                     let #name = #expr;
@@ -4527,26 +4534,31 @@ fn emit_client_call_as_rust(
             return quote! { ::core::compile_error!("invalid text! intrinsic template") };
         };
         let template = syn::LitStr::new(template, proc_macro2::Span::call_site());
-        let string_args: Vec<bool> = match args.get(1) {
-            Some(ClientExpr::Literal(Value::String(plan))) => {
-                let parts: serde_json::Value =
-                    serde_json::from_str(plan).expect("compiler text plan is valid JSON");
-                (0..args.len().saturating_sub(2))
-                    .map(|index| {
-                        parts.as_array().unwrap().iter().any(|part| {
-                            part["arg"].as_u64() == Some(index as u64)
-                                && part["string"].as_bool() == Some(true)
-                        })
-                    })
-                    .collect()
-            }
-            _ => return quote! { ::core::compile_error!("invalid text! intrinsic plan") },
+        let Some(ClientExpr::Literal(Value::String(plan))) = args.get(1) else {
+            return quote! { ::core::compile_error!("invalid text! intrinsic plan") };
         };
+        let parts: Vec<serde_json::Value> =
+            serde_json::from_str(plan).expect("compiler text plan is a JSON array");
         let values: Vec<_> = args
             .iter()
             .skip(2)
             .enumerate()
-            .map(|(index, arg)| emit_text_arg_as_rust(arg, string_args[index], query_initializers))
+            .map(|(index, arg)| {
+                let parts_for_arg = || {
+                    parts
+                        .iter()
+                        .filter(|part| part["arg"].as_u64() == Some(index as u64))
+                };
+                if parts_for_arg()
+                    .any(|part| part["float"].as_bool() == Some(true) && part.get("kind").is_some())
+                {
+                    if let Some(value) = emit_contextual_float_as_rust(arg, query_initializers) {
+                        return value;
+                    }
+                }
+                let is_string = parts_for_arg().any(|part| part["string"].as_bool() == Some(true));
+                emit_text_arg_as_rust(arg, is_string, query_initializers)
+            })
             .collect();
         return quote! { #proa_macros::text!(#template, #(#values),*) };
     }
@@ -4591,6 +4603,45 @@ pub(crate) fn text_arg_can_be_native_bool(
             emit_server_expr(expr, query_initializers),
             Some(ServerExpr::Json(_))
         ),
+    }
+}
+
+/// Replay a proven float tree with unsuffixed literals at every depth so
+/// the Rust signal types establish its width even inside nested expressions.
+fn emit_contextual_float_as_rust(
+    expr: &ClientExpr,
+    query_initializers: &[QueryInitializer],
+) -> Option<TokenStream> {
+    match expr {
+        ClientExpr::Literal(Value::Float(value)) => {
+            let literal = proc_macro2::Literal::f64_unsuffixed(*value);
+            Some(quote! { #literal })
+        }
+        ClientExpr::Binary { op, left, right } if op.is_float_arithmetic() => {
+            let left = emit_contextual_float_as_rust(left, query_initializers)?;
+            let right = emit_contextual_float_as_rust(right, query_initializers)?;
+            let op = bin_op_rust(*op);
+            Some(quote! { (#left #op #right) })
+        }
+        ClientExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            let condition = emit_expr_as_bool_rust(condition, query_initializers)?;
+            let then_expr = emit_contextual_float_as_rust(then_expr, query_initializers)?;
+            let else_expr = emit_contextual_float_as_rust(else_expr, query_initializers)?;
+            Some(quote! { if #condition { #then_expr } else { #else_expr } })
+        }
+        ClientExpr::Unary {
+            op: ClientUnaryOp::Neg,
+            expr,
+        } => {
+            let expr = emit_contextual_float_as_rust(expr, query_initializers)?;
+            Some(quote! { (-#expr) })
+        }
+        ClientExpr::SignalRead(_) => emit_expr_as_rust(expr, query_initializers),
+        _ => None,
     }
 }
 

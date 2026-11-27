@@ -1078,21 +1078,10 @@ fn emit_call(
     Ok(())
 }
 
-fn f32_arithmetic_op(op: ClientBinaryOp) -> Option<&'static str> {
-    Some(match op {
-        ClientBinaryOp::Add | ClientBinaryOp::DynAdd => "+",
-        ClientBinaryOp::Sub | ClientBinaryOp::DynSub => "-",
-        ClientBinaryOp::Mul | ClientBinaryOp::DynMul => "*",
-        ClientBinaryOp::Div | ClientBinaryOp::DynDiv => "/",
-        ClientBinaryOp::Rem | ClientBinaryOp::DynRem => "%",
-        _ => return None,
-    })
-}
-
 fn has_f32_source(expr: &ClientExpr, ctx: &ClientEmitContext) -> bool {
     match expr {
         ClientExpr::SignalRead(id) => ctx.f32_signals.contains(id),
-        ClientExpr::Binary { op, left, right } if f32_arithmetic_op(*op).is_some() => {
+        ClientExpr::Binary { op, left, right } if op.is_float_arithmetic() => {
             has_f32_source(left, ctx) || has_f32_source(right, ctx)
         }
         ClientExpr::Conditional {
@@ -1117,10 +1106,10 @@ fn emit_f32_expr(
 ) -> Result<(), ClientEmitError> {
     match expr {
         ClientExpr::Literal(Value::Float(value)) => emit_float(out, f64::from(*value as f32)),
-        ClientExpr::Binary { op, left, right } if f32_arithmetic_op(*op).is_some() => {
+        ClientExpr::Binary { op, left, right } if op.is_float_arithmetic() => {
             out.push_str("Math.fround(");
             emit_f32_expr(out, left, ctx)?;
-            let _ = write!(out, " {} ", f32_arithmetic_op(*op).unwrap());
+            let _ = write!(out, " {} ", binary_op_js(*op));
             emit_f32_expr(out, right, ctx)?;
             out.push(')');
         }

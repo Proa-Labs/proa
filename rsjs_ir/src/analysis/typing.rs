@@ -406,22 +406,15 @@ impl<'a> TypeEnv<'a> {
             } => {
                 let then_ty = self.type_of_inner(then_expr, visiting);
                 let else_ty = self.type_of_inner(else_expr, visiting);
-                // Float literals are stored as f64. A Rust f32 arm fixes
-                // the contextual width of a literal in the other arm.
+                // A typed f32 arm gives a literal-only arm its width.
                 match (&then_ty, &else_ty) {
                     (ClientType::F32, ClientType::F64)
-                        if matches!(
-                            else_expr.as_ref(),
-                            ClientExpr::Literal(crate::value::Value::Float(_))
-                        ) =>
+                        if self.float_source(else_expr, visiting) == Some(false) =>
                     {
                         ClientType::F32
                     }
                     (ClientType::F64, ClientType::F32)
-                        if matches!(
-                            then_expr.as_ref(),
-                            ClientExpr::Literal(crate::value::Value::Float(_))
-                        ) =>
+                        if self.float_source(then_expr, visiting) == Some(false) =>
                     {
                         ClientType::F32
                     }
@@ -516,77 +509,49 @@ impl<'a> TypeEnv<'a> {
         }
     }
 
-    /// Whether a float-typed expression's width comes from a typed signal or
-    /// prop, or a memo over one: the producers whose Rust type the client IR
-    /// records faithfully and whose server rendering is a real float. Float
-    /// arithmetic, conditionals and negation are proven when one side is,
-    /// because Rust has no implicit float conversions.
-    ///
-    /// Everything else is unproven. [`ClientType::of_value`] types every float
-    /// literal as `F64`, but Rust types a literal from its suffix, a binding
-    /// annotation, a closure parameter type or a memo's declared type, none
-    /// of which reach the client IR. Block locals take their type from an
-    /// initializer. Query data takes its type from the initial value and
-    /// reaches server rendering as JSON text, and browser reads such as
-    /// scroll offsets render as integers on the server.
+    /// Whether every value source can render as a native Rust float and a
+    /// typed signal (possibly behind a memo) determines the width.
     pub fn float_width_proven(&self, expr: &ClientExpr) -> bool {
-        self.float_width_proven_inner(expr, &mut Vec::new())
+        self.float_source(expr, &mut Vec::new()) == Some(true)
     }
 
-    fn float_width_proven_inner(&self, expr: &ClientExpr, visiting: &mut Vec<SignalId>) -> bool {
+    /// A literal-only expression needs a type from its context (`Some(false)`).
+    /// Unsupported leaves, such as query values rendered as JSON text, have no
+    /// native float representation here even if a typed sibling does.
+    fn float_source(&self, expr: &ClientExpr, visiting: &mut Vec<SignalId>) -> Option<bool> {
         match expr {
-            ClientExpr::Literal(_) | ClientExpr::Local(_) => false,
-            ClientExpr::Binary {
-                op:
-                    ClientBinaryOp::Add
-                    | ClientBinaryOp::Sub
-                    | ClientBinaryOp::Mul
-                    | ClientBinaryOp::Div
-                    | ClientBinaryOp::Rem
-                    | ClientBinaryOp::DynAdd
-                    | ClientBinaryOp::DynSub
-                    | ClientBinaryOp::DynMul
-                    | ClientBinaryOp::DynDiv
-                    | ClientBinaryOp::DynRem,
-                left,
-                right,
-            } => {
-                self.float_width_proven_inner(left, visiting)
-                    || self.float_width_proven_inner(right, visiting)
+            ClientExpr::Literal(crate::value::Value::Float(_)) => Some(false),
+            ClientExpr::Binary { op, left, right } if op.is_float_arithmetic() => {
+                Some(self.float_source(left, visiting)? | self.float_source(right, visiting)?)
             }
             ClientExpr::Conditional {
                 then_expr,
                 else_expr,
                 ..
-            } => {
-                self.float_width_proven_inner(then_expr, visiting)
-                    || self.float_width_proven_inner(else_expr, visiting)
-            }
+            } => Some(
+                self.float_source(then_expr, visiting)? | self.float_source(else_expr, visiting)?,
+            ),
             ClientExpr::Unary {
                 op: ClientUnaryOp::Neg,
                 expr,
-            } => self.float_width_proven_inner(expr, visiting),
+            } => self.float_source(expr, visiting),
             ClientExpr::SignalRead(id) => {
-                let Some(decl) = self.signals.get(id.0 as usize) else {
-                    return false;
-                };
-                // A memo cell's type is inferred from its body.
+                let decl = self.signals.get(id.0 as usize)?;
                 let Some(body) = decl.derived else {
-                    return decl.shared.is_none()
-                        && matches!(decl.ty, ClientType::F32 | ClientType::F64);
+                    return (decl.shared.is_none()
+                        && matches!(decl.ty, ClientType::F32 | ClientType::F64))
+                    .then_some(true);
                 };
-                let Some(exprs) = self.exprs else {
-                    return false;
-                };
+                let exprs = self.exprs?;
                 if visiting.contains(id) || body.0 as usize >= exprs.len() {
-                    return false;
+                    return None;
                 }
                 visiting.push(*id);
-                let proven = self.float_width_proven_inner(exprs.client_expr(body), visiting);
+                let source = self.float_source(exprs.client_expr(body), visiting);
                 visiting.pop();
-                proven
+                source.filter(|typed| *typed)
             }
-            _ => false,
+            _ => None,
         }
     }
 

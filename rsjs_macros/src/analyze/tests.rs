@@ -5367,6 +5367,39 @@ fn reactive_text_formats_floats_pinned_by_a_typed_producer() {
 }
 
 #[test]
+fn reactive_text_rejects_query_values_in_float_branches_and_operands() {
+    let (statements, lets) = prelude_from_block(syn::parse_quote! {{
+        let amount: rsjs::Signal<f64> = rsjs::signal(1.0);
+        let flag: rsjs::Signal<bool> = rsjs::signal(true);
+        let price: rsjs::Query<f64> = rsjs::query_with_initial(
+            rsjs::QueryKey::new(("price", "initial")),
+            2.0_f64,
+            "/api/price",
+            rsjs::QueryOptions::default(),
+        );
+    }});
+    for expression in [
+        quote::quote! { if flag.get() { amount.get() } else { price.data() } },
+        quote::quote! { if flag.get() { price.data() } else { amount.get() } },
+        quote::quote! { amount.get() + price.data() },
+    ] {
+        let mut analyzer = test_analyzer();
+        analyzer
+            .collect_prelude_bindings(&statements, &lets)
+            .unwrap();
+        let parent = analyzer.builder.element("p", None);
+        let text = syn::parse_quote! { proa_macros::text!("{:.2}", #expression) };
+        let err = analyzer
+            .lower_text_binding_expr(&text, parent, false)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("rsjs/text-format-unsupported"),
+            "{err}"
+        );
+    }
+}
+
+#[test]
 fn reactive_text_float_display_lowers_to_a_float_plan() {
     for (ty, template, precision, f32) in [
         (ClientType::F64, "{:.2}", "2", false),

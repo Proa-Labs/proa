@@ -2543,6 +2543,10 @@ fn formatted_float_hydration_preserves_seed_values_and_f32_operation_boundaries(
             flag: true,
         });
         assert!(html.contains(&format!("{:+}", upper - lower)), "{html}");
+        assert!(
+            html.contains(&format!("{:.9}", upper * (0.1_f32 + 0.2_f32))),
+            "{html}"
+        );
         assert!(html.contains(&format!("{rendered}</p>")), "{html}");
         assert!(
             html.contains(&format!(r#""signals":[1.0000001,1,"{wire}",true]"#)),

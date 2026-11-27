@@ -142,6 +142,23 @@ pub enum ClientBinaryOp {
 }
 
 impl ClientBinaryOp {
+    /// Operators that may produce a floating-point value.
+    pub fn is_float_arithmetic(self) -> bool {
+        matches!(
+            self,
+            Self::Add
+                | Self::Sub
+                | Self::Mul
+                | Self::Div
+                | Self::Rem
+                | Self::DynAdd
+                | Self::DynSub
+                | Self::DynMul
+                | Self::DynDiv
+                | Self::DynRem
+        )
+    }
+
     /// The runtime helper this operator lowers to, or `None` when it lowers to
     /// a bare JS infix operator.
     ///
