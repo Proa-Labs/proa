@@ -504,7 +504,8 @@ fn uncacheable(layer: &PageCacheLayer, key: Key, response: Response) -> Response
 /// sends. The page is stored when its body ends within the size limit and
 /// the cache deadline. A body that outgrows the limit, fails, or ends late
 /// is still delivered as it renders and is not stored, so the cache never
-/// holds back a response head or cuts a body short.
+/// holds back a response head or cuts a body short. The copy is freed as
+/// soon as the page cannot be stored, even while a chunk is pending.
 fn record_stream(
     layer: &PageCacheLayer,
     key: Key,
@@ -537,7 +538,19 @@ fn record_stream(
     let state = (Some(body.into_data_stream()), Some(page));
     let body = stream::unfold(state, |(data, mut page)| async move {
         let mut data = data?;
-        match data.next().await {
+        let next = match page.as_ref().map(|page| page.deadline) {
+            Some(deadline) => match tokio::time::timeout_at(deadline, data.next()).await {
+                Ok(next) => next,
+                Err(_) => {
+                    // Too late to store: free the copy and keep delivering.
+                    tracing::warn!("page cache stopped recording a stream at its timeout");
+                    page = None;
+                    data.next().await
+                }
+            },
+            None => data.next().await,
+        };
+        match next {
             Some(Ok(chunk)) => {
                 if page.as_mut().is_some_and(|page| !page.push(&chunk)) {
                     // Too large to store: deliver it, and drop any stale copy.
@@ -822,4 +835,62 @@ fn matches_etag(headers: &HeaderMap, etag: &HeaderValue) -> bool {
 fn hash_field(hash: &mut Sha256, bytes: &[u8]) {
     hash.update((bytes.len() as u64).to_le_bytes());
     hash.update(bytes);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Chunk bytes that report when the last copy is dropped.
+    struct Tracked(Arc<AtomicBool>);
+
+    impl AsRef<[u8]> for Tracked {
+        fn as_ref(&self) -> &[u8] {
+            b"<p>first</p>"
+        }
+    }
+
+    impl Drop for Tracked {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_recording_past_its_deadline_frees_its_copy() {
+        let layer = PageCacheLayer::new("build").with_timeout(Duration::from_millis(100));
+        let key = [7; 32];
+        let (chunks, rx) = futures::channel::mpsc::unbounded::<Result<Bytes, io::Error>>();
+        let mut response = Response::builder()
+            .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .body(Body::from_stream(rx))
+            .unwrap();
+        response.extensions_mut().insert(CacheableStream::default());
+        let response = record_stream(&layer, key, response, Instant::now() + layer.timeout);
+        assert_eq!(response.headers()[STATUS], "MISS");
+        let mut body = response.into_body();
+
+        let freed = Arc::new(AtomicBool::new(false));
+        chunks
+            .unbounded_send(Ok(Bytes::from_owner(Tracked(freed.clone()))))
+            .unwrap();
+        let first = body.frame().await.unwrap().unwrap().into_data().unwrap();
+        assert_eq!(first, "<p>first</p>");
+        drop(first);
+        assert!(!freed.load(Ordering::SeqCst), "the recording keeps a copy");
+
+        // The next chunk is still pending when the deadline passes.
+        let waiting = tokio::time::timeout(Duration::from_millis(150), body.frame()).await;
+        assert!(waiting.is_err());
+        assert!(freed.load(Ordering::SeqCst), "the expired copy was freed");
+
+        chunks
+            .unbounded_send(Ok(Bytes::from_static(b"<p>last</p>")))
+            .unwrap();
+        drop(chunks);
+        let rest = body.collect().await.unwrap().to_bytes();
+        assert_eq!(rest, "<p>last</p>");
+        assert!(layer.cache.pages.lock().get(&key).is_none());
+    }
 }
