@@ -858,7 +858,7 @@ inside the wrapped expression.
 
 ```rust
 {rsjs::island(SearchInput {
-    value: String::new(),
+    value: self.initial_query,
     on_change: rsjs::noop_handler(),
 })}
 ```
@@ -870,6 +870,8 @@ imports the child's compiled fragment rather than copying its graph.
 `rsjs::island(...)` forces an independent nested owner boundary.
 
 Constraints:
+- Field values render on the server, so seed them from ordinary server data,
+  such as an inbound `self` field.
 - Cannot capture a parent `rsjs::handler(...)` local; handler props do not cross
   island boundaries.
 - Cannot capture parent signals, declare/read client primitives, or call rsjs

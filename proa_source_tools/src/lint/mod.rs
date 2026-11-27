@@ -200,6 +200,7 @@ fn lint_file_with_cache(
             &file,
             &suppressions,
             &test_ranges,
+            &rsjs_ranges,
             &mut diagnostics,
         );
         lint_render_functions(
@@ -207,6 +208,7 @@ fn lint_file_with_cache(
             &file,
             &suppressions,
             &test_ranges,
+            &rsjs_ranges,
             &mut diagnostics,
         );
         lint_render_helper_definitions(
@@ -562,13 +564,21 @@ fn lint_render_impls(
     file: &File,
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if is_formatter_source_generation_file(path) {
         return;
     }
 
-    lint_render_impl_items(path, &file.items, suppressions, ignored_ranges, diagnostics);
+    lint_render_impl_items(
+        path,
+        &file.items,
+        suppressions,
+        ignored_ranges,
+        rsjs_ranges,
+        diagnostics,
+    );
 }
 
 fn lint_render_impl_items(
@@ -576,6 +586,7 @@ fn lint_render_impl_items(
     items: &[Item],
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let helpers = HelperIndex::new(items);
@@ -600,6 +611,7 @@ fn lint_render_impl_items(
                     &structs,
                     suppressions,
                     ignored_ranges,
+                    rsjs_ranges,
                     diagnostics,
                 );
                 lint_markdown_render_impl(
@@ -613,7 +625,14 @@ fn lint_render_impl_items(
             }
             Item::Mod(item_mod) => {
                 if let Some((_, items)) = &item_mod.content {
-                    lint_render_impl_items(path, items, suppressions, ignored_ranges, diagnostics);
+                    lint_render_impl_items(
+                        path,
+                        items,
+                        suppressions,
+                        ignored_ranges,
+                        rsjs_ranges,
+                        diagnostics,
+                    );
                 }
             }
             _ => {}
@@ -689,6 +708,7 @@ fn explicit_component_role(expr: &Expr) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lint_render_impl(
     path: &Path,
     item_impl: &ItemImpl,
@@ -696,6 +716,7 @@ fn lint_render_impl(
     structs: &StructIndex,
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match &item_impl.trait_ {
@@ -714,7 +735,15 @@ fn lint_render_impl(
         if line_in_ranges(line, ignored_ranges) {
             continue;
         }
-        check_render_block_perf(path, &method.block, suppressions, diagnostics, true);
+        let in_rsjs_item = line_in_ranges(line, rsjs_ranges);
+        check_render_block_perf(
+            path,
+            &method.block,
+            suppressions,
+            diagnostics,
+            true,
+            in_rsjs_item,
+        );
         check_render_api_perf(path, item_impl, method, suppressions, diagnostics);
         check_owned_view_model_perf(path, &method.block, structs, suppressions, diagnostics);
         check_large_render_clone_perf(path, &method.block, suppressions, diagnostics);
@@ -1461,13 +1490,21 @@ fn lint_render_functions(
     file: &File,
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if is_formatter_source_generation_file(path) {
         return;
     }
 
-    lint_render_function_items(path, &file.items, suppressions, ignored_ranges, diagnostics);
+    lint_render_function_items(
+        path,
+        &file.items,
+        suppressions,
+        ignored_ranges,
+        rsjs_ranges,
+        diagnostics,
+    );
 }
 
 fn lint_render_function_items(
@@ -1475,6 +1512,7 @@ fn lint_render_function_items(
     items: &[Item],
     suppressions: &SuppressionComments,
     ignored_ranges: &[RangeInclusive<usize>],
+    rsjs_ranges: &[RangeInclusive<usize>],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let helpers = HelperIndex::new(items);
@@ -1486,7 +1524,14 @@ fn lint_render_function_items(
                     continue;
                 }
                 let html = standalone_renders_html(item_fn);
-                check_render_block_perf(path, &item_fn.block, suppressions, diagnostics, html);
+                check_render_block_perf(
+                    path,
+                    &item_fn.block,
+                    suppressions,
+                    diagnostics,
+                    html,
+                    line_in_ranges(line, rsjs_ranges),
+                );
                 check_direct_helper_perf(
                     path,
                     &item_fn.block,
@@ -1504,6 +1549,7 @@ fn lint_render_function_items(
                         items,
                         suppressions,
                         ignored_ranges,
+                        rsjs_ranges,
                         diagnostics,
                     );
                 }
@@ -3485,10 +3531,27 @@ fn check_render_api_perf(
     }
 
     if !has_async_child_bound {
-        check_async_html_static_subtree(path, &method.block, suppressions, diagnostics);
+        let rsjs_tail = has_attr(&item_impl.attrs, &["rsjs"])
+            .then(|| rsjs_pending_tail_template(&method.block))
+            .flatten()
+            .map(|(prelude, template)| RsjsAsyncTail {
+                template,
+                requires_async: stmts_await_outside_nested_futures(prelude)
+                    || stmts_declare_rsjs_mutation(prelude),
+            });
+        check_async_html_static_subtree(path, &method.block, rsjs_tail, suppressions, diagnostics);
     }
 
     check_sync_child_in_async_template(path, &method.block, suppressions, diagnostics);
+}
+
+/// The analyzed tail template of an async `#[rsjs(...)]` island.
+#[derive(Clone, Copy)]
+struct RsjsAsyncTail<'a> {
+    template: &'a syn::Macro,
+    /// The island awaits server work before its template (for example an
+    /// awaited `query_with_initial` value) or declares a mutation.
+    requires_async: bool,
 }
 
 /// Flag `html!` invocations whose whole subtree is synchronous.
@@ -3496,14 +3559,19 @@ fn check_render_api_perf(
 /// Both async and sync macro output is monomorphized and unboxed. Prefer
 /// `html_sync!` when no child needs to await, keeping the synchronous contract
 /// explicit and avoiding unnecessary future construction.
+///
+/// RSJS requires `html!` as the tail of an async island, so that template is
+/// reported only when the island itself could implement `WebRenderSync`.
 fn check_async_html_static_subtree(
     path: &Path,
     block: &Block,
+    rsjs_tail: Option<RsjsAsyncTail<'_>>,
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     struct Visitor<'a> {
         path: &'a Path,
+        rsjs_tail: Option<RsjsAsyncTail<'a>>,
         suppressions: &'a SuppressionComments,
         diagnostics: &'a mut Vec<Diagnostic>,
     }
@@ -3531,6 +3599,14 @@ fn check_async_html_static_subtree(
             if root.nodes.iter().any(html_node_has_async_child) {
                 return;
             }
+            let rsjs_tail = self
+                .rsjs_tail
+                .filter(|tail| std::ptr::eq(tail.template, &node.mac));
+            let help = match rsjs_tail {
+                Some(tail) if tail.requires_async => return,
+                Some(_) => "this RSJS island neither awaits nor declares a mutation; implement WebRenderSync and render with html_sync!, because RSJS requires html! in a WebRender island",
+                None => "use html_sync! here; wrap the result with proa_core::to_async(...) if it is composed into an async tree",
+            };
             push_expr_diag(
                 self.path,
                 SpanOrigin::File,
@@ -3539,13 +3615,14 @@ fn check_async_html_static_subtree(
                 node.mac.path.span(),
                 "perf/async-html-static-subtree",
                 "async html! template has no async children",
-                "use html_sync! here; wrap the result with proa_core::to_async(...) if it is composed into an async tree",
+                help,
             );
         }
     }
 
     let mut visitor = Visitor {
         path,
+        rsjs_tail,
         suppressions,
         diagnostics,
     };
@@ -3863,6 +3940,7 @@ fn check_render_block_perf(
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
     html: bool,
+    in_rsjs_item: bool,
 ) {
     let mut visitor = PerfVisitor {
         path,
@@ -3874,6 +3952,7 @@ fn check_render_block_perf(
         static_markup_locals: HashSet::new(),
         handled_spans: HashSet::new(),
         html,
+        in_rsjs_item,
     };
     visitor.visit_block(block);
 }
@@ -3926,7 +4005,9 @@ fn check_direct_helper_perf_inner(
             check_manual_escape_helper_perf(path, &helper_call, helper, suppressions, diagnostics);
         }
         check_string_display_helper_perf(path, &helper_call, helper, suppressions, diagnostics);
-        check_render_block_perf(path, helper.block, suppressions, diagnostics, html);
+        // RSJS analyzes only the item it is attached to, never a helper the
+        // item calls.
+        check_render_block_perf(path, helper.block, suppressions, diagnostics, html, false);
         check_direct_helper_perf_inner(
             path,
             helper.block,
@@ -4335,6 +4416,7 @@ fn lint_node_perf(
                         path,
                         SpanOrigin::Macro(inv),
                         expr,
+                        in_rsjs_item,
                         suppressions,
                         diagnostics,
                     );
@@ -4351,7 +4433,7 @@ fn lint_node_perf(
             }
 
             for attr in &el.attrs {
-                lint_attr_perf(path, inv, attr, suppressions, diagnostics);
+                lint_attr_perf(path, inv, attr, in_rsjs_item, suppressions, diagnostics);
             }
         }
         Node::Fragment(children) => {
@@ -4372,6 +4454,7 @@ fn lint_node_perf(
                 path,
                 SpanOrigin::Macro(inv),
                 expr,
+                in_rsjs_item,
                 suppressions,
                 diagnostics,
             );
@@ -4541,6 +4624,7 @@ fn lint_attr_perf(
     path: &Path,
     inv: &MacroInvocation,
     attr: &Attribute,
+    in_rsjs_item: bool,
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -4562,6 +4646,14 @@ fn lint_attr_perf(
         Attribute::Dynamic { name, value } => {
             let value = value.as_ref();
             if is_perf_suppressed(value) {
+                return;
+            }
+            // RSJS removes event attributes from the server output of the
+            // items it analyzes; an inline handler body there is browser code.
+            if in_rsjs_item
+                && rsjs_event_attr_name(name.as_markup_str())
+                && matches!(value, Expr::Closure(_))
+            {
                 return;
             }
 
@@ -4612,6 +4704,7 @@ fn lint_attr_perf(
                 path,
                 SpanOrigin::Macro(inv),
                 value,
+                in_rsjs_item,
                 suppressions,
                 diagnostics,
             );
@@ -4769,6 +4862,7 @@ fn check_expr_perf(
     path: &Path,
     origin: SpanOrigin<'_>,
     expr: &Expr,
+    in_rsjs_item: bool,
     suppressions: &SuppressionComments,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -4782,6 +4876,7 @@ fn check_expr_perf(
         static_markup_locals: HashSet::new(),
         handled_spans: HashSet::new(),
         html: true,
+        in_rsjs_item,
     };
     visitor.visit_expr(expr);
 }
@@ -5314,9 +5409,30 @@ struct PerfVisitor<'a> {
     /// Call spans already reported through a more specific rule (for
     /// example `return String::new()` sentinels), keyed by (line, column).
     handled_spans: HashSet<(usize, usize)>,
+    /// The code sits inside an item RSJS analyzes, so RSJS browser-closure
+    /// primitives there compile to browser code only.
+    in_rsjs_item: bool,
 }
 
 impl<'ast> Visit<'ast> for PerfVisitor<'_> {
+    fn visit_expr_struct(&mut self, node: &'ast syn::ExprStruct) {
+        if path_ends(&node.path, &["SharedStateProvider"]) && path_is_rsjs_dialect_call(&node.path)
+        {
+            for field in &node.fields {
+                if matches!(&field.member, syn::Member::Named(name) if name == "state") {
+                    self.visit_shared_state_seed(&field.expr);
+                } else {
+                    self.visit_field_value(field);
+                }
+            }
+            if let Some(rest) = &node.rest {
+                self.visit_expr(rest);
+            }
+            return;
+        }
+        visit::visit_expr_struct(self, node);
+    }
+
     fn visit_expr_return(&mut self, node: &'ast syn::ExprReturn) {
         // `return String::new()` / `return Vec::new()` sentinels are usually
         // deliberate empty-result fast paths, not per-render allocation
@@ -5367,6 +5483,20 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
         if is_perf_suppressed_call(node) {
             return;
+        }
+
+        if self.in_rsjs_item && call_path_is_rsjs_dialect(node, RSJS_BROWSER_CLOSURE_PRIMITIVES) {
+            for arg in &node.args {
+                if !matches!(arg, Expr::Closure(_)) {
+                    self.visit_expr(arg);
+                }
+            }
+            return;
+        }
+
+        if let Some(seed) = rsjs_signal_empty_owned_seed(node) {
+            let start = seed.span().start();
+            self.handled_spans.insert((start.line, start.column));
         }
 
         if matches!(self.origin, SpanOrigin::Macro(inv) if inv.dialect == MacroDialect::Html)
@@ -5748,6 +5878,28 @@ impl<'ast> Visit<'ast> for PerfVisitor<'_> {
 }
 
 impl PerfVisitor<'_> {
+    /// Visit a `SharedStateProvider { state: .. }` seed.
+    ///
+    /// `#[derive(rsjs::SharedState)]` rejects borrowed fields, so only owned
+    /// literal or empty field initializers (`"mode".to_string()`,
+    /// `String::new()`, `Vec::new()`) are skipped, in the seed struct and any
+    /// nested struct literal. Everything else in the seed runs on every SSR
+    /// render and stays linted.
+    fn visit_shared_state_seed(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Struct(seed) => {
+                for field in &seed.fields {
+                    self.visit_shared_state_seed(&field.expr);
+                }
+                if let Some(rest) = &seed.rest {
+                    self.visit_expr(rest);
+                }
+            }
+            expr if expr_is_shared_state_owned_seed(expr) => {}
+            expr => self.visit_expr(expr),
+        }
+    }
+
     fn check_template_static_markup_raw(&mut self, node: &ExprMacro) {
         if self.static_markup_locals.is_empty() || template_macro_dialect(node).is_none() {
             return;

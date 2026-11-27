@@ -27,11 +27,11 @@ For production components, declare a named typed `event_handler(...)` before the
 ```rust filename="src/components/shipping_picker.rs"
 use rsjs::elem;
 
-let selected = signal("standard".to_string());
+let selected = signal("standard");
 let pick = rsjs::event_handler(
     |event: rsjs::MouseEvent<elem::Button>, value: &'static str| {
         event.prevent_default();
-        selected.set(value.to_string());
+        selected.set(value);
     },
 );
 

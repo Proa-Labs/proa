@@ -132,7 +132,7 @@ impl<L: DataLoader> WebRenderSync<L> for LoginForm {
                 </div>
                 <input bind_value={email}/>
                 <div>
-                    {if email.get() == String::new() {
+                    {if email.get().is_empty() {
                         html_sync! { <p class="error">"Email required"</p> }
                     }}
                 </div>

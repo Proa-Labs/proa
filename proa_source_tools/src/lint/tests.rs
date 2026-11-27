@@ -2043,6 +2043,527 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Price {
     assert!(has_code(&diagnostics, "perf/async-html-static-subtree"));
 }
 
+/// The "Running mutations" example from
+/// `proa_marketing/src/docs/rsjs/queries-mutations.mdx`, verbatim.
+const DOCS_CART_EDITOR: &str = r#"
+use std::future::Future;
+use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::html;
+use rsjs::{rsjs, QueryKey};
+
+pub struct CartEditor;
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for CartEditor {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let draft = rsjs::signal(String::new());
+            let save = rsjs::mutation::<String, ()>(
+                QueryKey::new(("cart", "update")),
+                rsjs::FetchRequest {
+                    url: "/api/cart",
+                    apply_base_path: true,
+                    method: Some(rsjs::HttpMethod::Patch),
+                    credentials: Some(rsjs::FetchCredentials::SameOrigin),
+                    response: Some(rsjs::ResponseKind::Empty),
+                    timeout_ms: Some(2_500),
+                    ..Default::default()
+                },
+                &[QueryKey::new(("cart", "summary"))],
+            );
+            let update_draft = rsjs::event_handler(
+                |event: rsjs::InputEvent<rsjs::elem::Input>| {
+                    draft.set(event.current_value());
+                },
+            );
+            let submit = rsjs::event_handler(
+                |_: rsjs::MouseEvent<rsjs::elem::Button>| {
+                    save.run(draft.get());
+                },
+            );
+
+            html! {
+                <div>
+                    <input value={draft.get()} on_input={update_draft()} />
+                    <button
+                        type="button"
+                        disabled={save.is_pending()}
+                        on_click={submit()}
+                    >
+                        {if save.is_pending() { "Saving..." } else { "Save" }}
+                    </button>
+                </div>
+            }
+            .render(cx)
+            .resolve()
+            .await
+        })
+    }
+}
+"#;
+
+fn blocking_diagnostics(source: &str) -> Vec<Diagnostic> {
+    lint_file(Path::new("src/components/cart_editor.rs"), source)
+        .into_iter()
+        .filter(|diag| diag.severity.rank() >= Severity::Warning.rank())
+        .collect()
+}
+
+#[test]
+fn docs_mutation_island_passes_the_build_check() {
+    // `proa build` fails on any warning. RSJS requires `html!` for the tail
+    // of an async island and only accepts mutations in one, so neither rule
+    // may suggest `html_sync!` here.
+    let blocking = blocking_diagnostics(DOCS_CART_EDITOR);
+    assert!(blocking.is_empty(), "{blocking:#?}");
+
+    let explicit_return = DOCS_CART_EDITOR
+        .replacen("            html! {", "            return html! {", 1)
+        .replace("            .await\n", "            .await;\n");
+    assert_ne!(explicit_return, DOCS_CART_EDITOR);
+    let blocking = blocking_diagnostics(&explicit_return);
+    assert!(blocking.is_empty(), "{blocking:#?}");
+
+    let with_options = DOCS_CART_EDITOR
+        .replace("rsjs::mutation::<", "rsjs::mutation_with_options::<")
+        .replace(
+            "&[QueryKey::new((\"cart\", \"summary\"))],",
+            "&[QueryKey::new((\"cart\", \"summary\"))],
+                rsjs::MutationOptions {
+                    retry_count: 1,
+                    on_success_invalidate_strategy: rsjs::InvalidationStrategy::Refetch,
+                },",
+        );
+    assert!(with_options.contains("MutationOptions"));
+    let blocking = blocking_diagnostics(&with_options);
+    assert!(blocking.is_empty(), "{blocking:#?}");
+}
+
+/// The ```rust fence in `doc` that contains `marker`.
+fn doc_rust_fence<'a>(doc: &'a str, marker: &str) -> &'a str {
+    doc.split("\n```")
+        .filter_map(|block| block.strip_prefix("rust"))
+        .filter_map(|block| block.split_once('\n').map(|(_, body)| body))
+        .find(|body| body.contains(marker))
+        .unwrap_or_else(|| panic!("no rust fence contains {marker:?}"))
+}
+
+#[test]
+fn docs_agent_rsjs_examples_pass_the_build_check() {
+    // These examples once failed `proa build` on `String::new()`: an
+    // empty-string comparison in a slot, and an island seed.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for (doc, marker) in [
+        ("docs/agent/rsjs-islands.md", "for UserForm"),
+        ("docs/agent/cookbook.md", "for LoginForm"),
+        ("docs/agent/rsjs-islands.md", "rsjs::island(SearchInput"),
+        (
+            "docs/agent/api-reference/slot-grammar.md",
+            "rsjs::island(SearchInput",
+        ),
+    ] {
+        let text = std::fs::read_to_string(root.join(doc)).unwrap();
+        let fence = doc_rust_fence(&text, marker);
+        let indent = |text: &str, by: &str| {
+            text.lines()
+                .map(|line| format!("{by}{line}\n"))
+                .collect::<String>()
+        };
+        let source = if fence.contains("impl") {
+            fence.to_owned()
+        } else {
+            // A template or slot fragment, rendered by its parent component
+            // in canonical layout so only the example itself is checked.
+            let template = if fence.starts_with("html_sync!") {
+                indent(fence, "        ")
+            } else {
+                format!(
+                    "        html_sync! {{\n            <div>\n{}            </div>\n        }}\n",
+                    indent(fence, "                ")
+                )
+            };
+            format!(
+                "#[rsjs(component, client)]\n\
+                 impl<L: DataLoader> WebRenderSync<L> for StandaloneSearch {{\n    \
+                 fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {{\n\
+                 {template}        .render(cx)\n    }}\n}}\n"
+            )
+        };
+        let blocking = blocking_diagnostics(&source);
+        assert!(blocking.is_empty(), "{doc} ({marker}): {blocking:#?}");
+    }
+}
+
+#[test]
+fn rsjs_async_island_awaiting_a_query_initial_keeps_its_html_tail() {
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for Price {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let initial: Quote = cx.load_json(LoadKey::named("quote", "AAPL")).await?;
+            let badge = html! { <b>"live"</b> };
+            let quote = rsjs::query_with_initial(
+                rsjs::QueryKey::new(("quote", "AAPL")),
+                initial,
+                "/api/quote",
+                rsjs::QueryOptions::default(),
+            );
+            html! { <span>{quote.data().value}</span> }.render(cx).resolve().await
+        })
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("price.rs"), source);
+    let static_subtrees: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.code == "perf/async-html-static-subtree")
+        .collect();
+    // Only the analyzed tail is exempt; a prelude template can still be sync.
+    assert_eq!(static_subtrees.len(), 1, "{static_subtrees:#?}");
+    assert_eq!(static_subtrees[0].line, 10);
+}
+
+#[test]
+fn rsjs_async_island_without_async_work_is_told_to_become_sync() {
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for Toggle {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let open = rsjs::signal(false);
+            html! { <button on_click={|_| open.set(!open.get())}>"Toggle"</button> }
+                .render(cx)
+                .resolve()
+                .await
+        })
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("toggle.rs"), source);
+    let diag = diagnostics
+        .iter()
+        .find(|diag| diag.code == "perf/async-html-static-subtree")
+        .expect("an island with no async work should still be reported");
+    assert!(
+        diag.help
+            .as_deref()
+            .is_some_and(|help| help.contains("implement WebRenderSync")),
+        "{diag:#?}"
+    );
+}
+
+#[test]
+fn rsjs_browser_closure_bodies_are_not_render_allocations() {
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Panel {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let mode = rsjs::signal(String::new());
+        let choose = rsjs::event_handler(|_: rsjs::MouseEvent<rsjs::elem::Button>| {
+            rsjs::batch(|| mode.set("edit".to_string()));
+        });
+        let pick = rsjs::handler(|value: u32| mode.set(value.to_string()));
+        rsjs::interval(1_000, || mode.set(format!("{}", 1)));
+        let label = rsjs::memo(|| mode.get().to_string());
+        let server = "server".to_string();
+        html_sync! {
+            <div>
+                <button on_click={choose()}>"Edit"</button>
+                <button on_click={|_| mode.set("inline".to_string())}>"Inline"</button>
+                <input on_input={rsjs::debounce(|event| mode.set(event.value().to_string()), 300)} />
+            </div>
+        }
+        .render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("panel.rs"), source);
+    let mut lines: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.severity.rank() >= Severity::Warning.rank())
+        .map(|diag| (diag.line, diag.code))
+        .collect();
+    lines.sort();
+    // `memo` runs its closure during SSR, so only it and the prelude local
+    // remain render-path allocations.
+    assert_eq!(
+        lines,
+        [
+            (11, "perf/to-string"),
+            (12, "render/static-string-to-string"),
+        ],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn shared_state_provider_seeds_may_own_their_strings() {
+    let source = r##"
+#[rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for WorkbenchPage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            {rsjs::SharedStateProvider {
+                state: WorkbenchState {
+                    mode: "select".to_string(),
+                    button_bg: "#3366cc".to_string(),
+                },
+                children: Panel { title: "Tools".to_string() },
+            }}
+        }
+        .render(cx)
+    }
+}
+"##;
+    let diagnostics = lint_file(Path::new("workbench.rs"), source);
+    let lines: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.code == "render/static-string-to-string")
+        .map(|diag| diag.line)
+        .collect();
+    // The derive requires owned fields; the children literal is still checked.
+    assert_eq!(lines, [11], "{diagnostics:#?}");
+}
+
+#[test]
+fn empty_owned_signal_seeds_are_not_render_allocations() {
+    let source = r#"
+impl<L: DataLoader> WebRenderSync<L> for Form {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let draft = rsjs::signal(String::new());
+        let rows = signal::<Vec<Row>>(Vec::new());
+        let mut label = String::new();
+        let mut items = Vec::new();
+        html_sync! { <input value={draft.get()} /> }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("form.rs"), source);
+    let lines = |code: &str| {
+        diagnostics
+            .iter()
+            .filter(|diag| diag.code == code)
+            .map(|diag| diag.line)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lines("perf/string-new"), [6]);
+    assert_eq!(lines("perf/vec-new"), [7]);
+}
+
+#[test]
+fn browser_closure_exemption_keeps_server_arguments_and_methods() {
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Probe {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let row = self.handler(format!("row {}", id));
+        rsjs::interval(period(format!("{}", ms)), || tick.set(format!("{}", 1)));
+        let draft = rsjs::signal(
+            String::new(),
+        );
+        html_sync! { <p>{row}</p> }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("probe.rs"), source);
+    let mut found: Vec<_> = diagnostics
+        .iter()
+        .filter(|diag| diag.severity.rank() >= Severity::Warning.rank())
+        .map(|diag| (diag.line, diag.column, diag.code))
+        .collect();
+    found.sort();
+    // A method named `handler` and an `interval` period run on the server;
+    // only the timer closure is browser code.
+    assert_eq!(
+        found,
+        [(5, 32, "perf/format"), (6, 31, "perf/format")],
+        "{diagnostics:#?}"
+    );
+}
+
+/// Blocking render-allocation findings as sorted `(line, code)` pairs.
+fn render_allocations(source: &str) -> Vec<(usize, &'static str)> {
+    let mut found: Vec<_> = lint_file(Path::new("src/components/probe.rs"), source)
+        .into_iter()
+        .filter(|diag| diag.severity.rank() >= Severity::Warning.rank())
+        .filter(|diag| {
+            diag.code.starts_with("perf/") || diag.code == "render/static-string-to-string"
+        })
+        .map(|diag| (diag.line, diag.code))
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn browser_closure_names_outside_rsjs_items_are_server_calls() {
+    // Without `#[rsjs]`, `handler` is whatever the file defines, and even
+    // `rsjs::handler` returns its closure unchanged, so the closures can run
+    // during SSR.
+    let source = r#"
+fn handler<F: Fn() -> String>(f: F) -> String { f() }
+
+impl<L: DataLoader> WebRenderSync<L> for Card {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let label = handler(|| format!("{} items", self.count));
+        let other = rsjs::handler(|| self.count.to_string());
+        html_sync! {
+            <p on_click={|_| log(format!("{}", 1))}>{label}{other}</p>
+        }
+        .render(cx)
+    }
+}
+"#;
+    assert_eq!(
+        render_allocations(source),
+        [
+            (6, "perf/format"),
+            (7, "perf/to-string"),
+            (9, "perf/format"),
+        ]
+    );
+
+    // The same calls inside an RSJS item are browser code.
+    let rsjs = source.replace(
+        "impl<L: DataLoader> WebRenderSync<L> for Card",
+        "#[rsjs(component, client)]\nimpl<L: DataLoader> WebRenderSync<L> for Card",
+    );
+    assert_eq!(render_allocations(&rsjs), []);
+}
+
+#[test]
+fn shared_state_provider_seed_exempts_only_owned_literal_initializers() {
+    let source = r##"
+#[rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for WorkbenchPage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            {rsjs::SharedStateProvider::<WorkbenchState, Panel> {
+                state: WorkbenchState {
+                    mode: "select".to_string(),
+                    accent: String::from("#3366cc"),
+                    tone: "warm".to_owned(),
+                    query: String::new(),
+                    draft: String::default(),
+                    rows: Vec::new(),
+                    filters: Filters { owner: std::string::String::new() },
+                    title: format!("{} ({})", self.name, self.count),
+                    tags: self.tags.iter().cloned().collect(),
+                    json: serde_json::to_string(&self.rows).unwrap(),
+                    preview: render_to_string(Panel { title: "x" }),
+                    name: String::from(self.name),
+                    label: self.label.to_string(),
+                    ..WorkbenchState::seeded(format!("{}", 1))
+                },
+                children: Panel { title: "Tools" },
+            }}
+        }
+        .render(cx)
+    }
+}
+"##;
+    // Everything except an owned literal or empty seed is per-render work.
+    assert_eq!(
+        render_allocations(source),
+        [
+            (15, "perf/format"),
+            (16, "perf/collect"),
+            (17, "perf/serde-json-to-string"),
+            (18, "perf/render-to-string"),
+            (19, "perf/string-from"),
+            (20, "perf/to-string"),
+            (21, "perf/format"),
+        ]
+    );
+}
+
+#[test]
+fn rsjs_async_tail_exemption_ignores_awaits_in_nested_futures() {
+    // RSJS accepts this body as `WebRenderSync`: the awaits belong to the
+    // future and closure the prelude builds, not to the island.
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRender<L> for Toggle {
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let open = rsjs::signal(false);
+            let later = async move { load().await };
+            let reload = || async { load().await };
+            html! { <button on_click={|_| open.set(!open.get())}>"Toggle"</button> }
+                .render(cx)
+                .resolve()
+                .await
+        })
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("toggle.rs"), source);
+    let diag = diagnostics
+        .iter()
+        .find(|diag| diag.code == "perf/async-html-static-subtree")
+        .expect("an await inside a nested future does not make the island async");
+    assert!(
+        diag.help
+            .as_deref()
+            .is_some_and(|help| help.contains("implement WebRenderSync")),
+        "{diag:#?}"
+    );
+
+    let awaited = source.replace(
+        "let later = async move { load().await };",
+        "let later = load().await;",
+    );
+    let diagnostics = lint_file(Path::new("toggle.rs"), &awaited);
+    assert!(
+        !has_code(&diagnostics, "perf/async-html-static-subtree"),
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn rsjs_seed_and_closure_spellings_match_the_regex_lint() {
+    // `scripts/proa_perf_lint.py` exempts the same spellings; see
+    // `test_rsjs_seed_and_closure_spellings_match_cargo_proa_lint`.
+    let source = r#"
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for Panel {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let mode = rsjs::signal(String::new());
+        let pairs = signal::<Vec<(u32, String)>>(Vec::new());
+        let named = rsjs::signal::<std::string::String>(std::string::String::new());
+        html_sync! {
+            <div>
+                <button on_click={move |_| {
+                    mode.set("inline".to_string());
+                }}>"Inline"</button>
+                {rsjs::SharedStateProvider::<WorkbenchState, Tools> {
+                    state: WorkbenchState {
+                        mode: "select".to_string(),
+                    },
+                    children: Tools {},
+                }}
+            </div>
+        }
+        .render(cx)
+    }
+}
+"#;
+    assert_eq!(render_allocations(source), []);
+}
+
 #[test]
 fn lint_allows_async_html_with_an_unwrapped_component_child() {
     // An un-wrapped component child is presumed async; `render/sync-child-in-async`
