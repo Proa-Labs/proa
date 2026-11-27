@@ -22,8 +22,8 @@ use proa_framework_core::{
 use tower::layer::Layer;
 use tower::Service;
 
+use super::cdn_cache::{finish_route_document, MayStore};
 use super::local_executor::{LocalStreamExecutor, LocalStreamExecutorConfig};
-use super::response::prepare_deferred_framework_stream;
 
 tokio::task_local! {
     pub(super) static ROUTE_CONTEXT: RefCell<RouteContext>;
@@ -44,6 +44,8 @@ pub struct RouteContext {
     head: Option<proa_core::HeadConfig>,
     /// Runs local buffered renders. See [`RouteContext::detach`].
     local_stream_executor: Option<LocalStreamExecutor>,
+    /// A page cache may store this request's document.
+    may_store: bool,
 }
 
 #[derive(Clone)]
@@ -181,6 +183,7 @@ impl RouteContext {
             asset_prefix: None,
             head: None,
             local_stream_executor: None,
+            may_store: false,
         }
     }
 
@@ -197,6 +200,18 @@ impl RouteContext {
         let mut route = self.clone();
         let executor = route.local_stream_executor.take();
         (route, executor)
+    }
+
+    pub(super) fn local_stream_executor(&self) -> Option<LocalStreamExecutor> {
+        self.local_stream_executor.clone()
+    }
+
+    pub(super) fn set_may_store(&mut self) {
+        self.may_store = true;
+    }
+
+    pub(super) fn may_store(&self) -> bool {
+        self.may_store
     }
 
     pub(super) fn base_path(&self) -> &proa_core::BasePath {
@@ -568,8 +583,11 @@ where
         let current_headers = req.headers().clone();
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
+        // A page cache outside this layer may store the document.
+        let outer_cache = req.extensions().get::<MayStore>().is_some();
 
         let mut context = RouteContext::new(self.computed_metadata.clone());
+        context.may_store = outer_cache;
         context.head = self.head.clone();
         context.set_is_client_request(is_client_request);
         context.set_current_request_parts(current_method, current_headers, current_uri);
@@ -593,7 +611,7 @@ where
             let local_stream_executor = self.local_stream_executor.clone();
             return Box::pin(async move {
                 let response = scoped.await?;
-                Ok(prepare_deferred_framework_stream(response, local_stream_executor).await)
+                Ok(finish_route_document(response, local_stream_executor, outer_cache).await)
             });
         }
 
@@ -620,7 +638,7 @@ where
                     async move { inner.call(request).await },
                 )
                 .await?;
-            Ok(prepare_deferred_framework_stream(response, local_stream_executor).await)
+            Ok(finish_route_document(response, local_stream_executor, outer_cache).await)
         })
     }
 }

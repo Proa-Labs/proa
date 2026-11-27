@@ -16,9 +16,160 @@ use axum::{
     response::Response,
     routing::MethodRouter,
 };
+use proa_core::{DataLoader, RenderMode};
+use proa_framework_core::RouteResponse as CoreRouteResponse;
 use tower::{Layer, Service};
 
+use super::context::ROUTE_CONTEXT;
+use super::local_executor::LocalStreamExecutor;
 use super::page_cache::{bypass_request, PageCacheLayer};
+use super::response::{
+    finish_deferred_render, prepare_deferred_framework_stream, DeferredFrameworkStream,
+};
+
+/// The policy for documents no cache may store.
+///
+/// Dynamic documents carry no validator, so `no-cache` would keep a copy the
+/// browser must download again before every reuse, while leaving possibly
+/// personalized HTML on disk. `no-store` gives the same freshness without
+/// storage, and matches what a page cache sends when it bypasses a request.
+const PRIVATE_NO_STORE: &str = "private, no-store";
+
+/// Marks a response rendered by the framework: a `RouteResponse` document or
+/// client payload, or a Markdown representation.
+#[derive(Clone, Copy)]
+pub(super) struct FrameworkDocument;
+
+/// Marks a request a page cache may store.
+///
+/// A page cache inside `RouteContextLayer` records it on the route context.
+/// One outside inserts it into the request, and `RouteContextLayer` copies it
+/// there. Either way, a streamed document renders in order for the cache.
+#[derive(Clone, Copy)]
+pub(super) struct MayStore;
+
+/// Marks a framework document streamed in order for a page cache. Once its
+/// body ends, its bytes equal the buffered render.
+#[derive(Clone, Default)]
+pub(super) struct CacheableStream(Option<LocalStreamExecutor>);
+
+/// Send `Cache-Control: private, no-store` on a framework document when no
+/// handler, layer, head hook, or page cache chose a cache policy.
+///
+/// Without one, RFC 9111 heuristic freshness and CDN defaults may store
+/// dynamic output. Any cache policy header the application set is kept.
+///
+/// `RouteContextLayer` applies this after finishing any deferred render. A
+/// page cache inside it sets its own policy first. A page cache outside it
+/// marks the requests it may store, and their documents keep no default: the
+/// cache would otherwise read the default as the page's own `private`
+/// policy and never store it. That cache sets a policy on every response.
+fn default_document_policy(mut response: Response, outer_cache: bool) -> Response {
+    if response
+        .extensions_mut()
+        .remove::<FrameworkDocument>()
+        .is_some()
+        && !outer_cache
+    {
+        let headers = response.headers();
+        let chosen = headers.contains_key(header::CACHE_CONTROL)
+            || headers.contains_key(header::EXPIRES)
+            || CDN_HEADERS.iter().any(|name| headers.contains_key(*name));
+        if !chosen {
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static(PRIVATE_NO_STORE),
+            );
+        }
+    }
+    response
+}
+
+/// Finish a route response, or hand an unopened in-order stream to the
+/// outer cache so its lookup deadline only covers the handler response.
+pub(super) async fn finish_route_document(
+    mut response: Response,
+    executor: LocalStreamExecutor,
+    outer_cache: bool,
+) -> Response {
+    if outer_cache
+        && response
+            .extensions()
+            .get::<DeferredFrameworkStream>()
+            .is_some()
+    {
+        if let Some(stream) = response.extensions_mut().get_mut::<CacheableStream>() {
+            stream.0 = Some(executor);
+            return default_document_policy(response, outer_cache);
+        }
+    }
+    default_document_policy(
+        prepare_deferred_framework_stream(response, executor).await,
+        outer_cache,
+    )
+}
+
+/// Record that a page cache may store this request's document.
+pub(super) fn may_store(request: &mut Request<Body>) {
+    request.extensions_mut().insert(MayStore);
+    let _ = ROUTE_CONTEXT.try_with(|cx| cx.borrow_mut().set_may_store());
+}
+
+/// Stream a document in order when a page cache may store it, and say
+/// whether it did.
+///
+/// A cache needs the complete document. In order, a stream's bytes equal
+/// the buffered render, with no fallbacks or boundary scripts, while its
+/// response head is still known before the body. The cache can then bypass
+/// an uncacheable page without waiting for its body, and a slow page keeps
+/// streaming instead of running into deadlines that end at the response
+/// head. Requests the cache bypasses keep the route's render mode.
+pub(super) fn stream_in_order_for_page_cache<L: DataLoader + 'static>(
+    response: CoreRouteResponse<L>,
+) -> (CoreRouteResponse<L>, bool) {
+    let cached = ROUTE_CONTEXT
+        .try_with(|cx| cx.borrow().may_store())
+        .unwrap_or(false);
+    if cached && response.is_streaming() {
+        (response.with_render_mode(RenderMode::ChunkedInOrder), true)
+    } else {
+        (response, false)
+    }
+}
+
+/// Prepare a stream rendered for a page cache, so the cache decides on the
+/// final response head, managed head decisions included.
+pub(super) async fn prepare_cacheable_stream(mut response: Response) -> Response {
+    let extensions = response.extensions();
+    if extensions.get::<CacheableStream>().is_none()
+        || extensions.get::<DeferredFrameworkStream>().is_none()
+    {
+        return response;
+    }
+    let executor = response
+        .extensions_mut()
+        .get_mut::<CacheableStream>()
+        .and_then(|stream| stream.0.take())
+        .or_else(|| {
+            ROUTE_CONTEXT
+                .try_with(|cx| cx.borrow().local_stream_executor())
+                .ok()
+                .flatten()
+        });
+    match executor {
+        Some(executor) => prepare_deferred_framework_stream(response, executor).await,
+        None => response,
+    }
+}
+
+/// Whether the response is a cacheable stream whose head is final.
+pub(super) fn prepared_cacheable_stream(response: &Response) -> bool {
+    response.extensions().get::<CacheableStream>().is_some()
+        && response
+            .extensions()
+            .get::<DeferredFrameworkStream>()
+            .is_none()
+}
 
 /// CDN caching policy for a public page.
 ///
@@ -28,6 +179,11 @@ use super::page_cache::{bypass_request, PageCacheLayer};
 /// CDN caching requires HTML cache eligibility and correct request variation at
 /// the CDN. Deployment invalidation belongs to the selected provider integration.
 /// A new executable alone cannot invalidate a remote CDN cache.
+///
+/// A streamed `RouteResponse` on this route streams in order on requests the
+/// CDN may store, so the CDN receives the complete document, without Suspense
+/// fallbacks, once the stream ends. Requests the policy bypasses, such as
+/// those with a `Cookie` or `Authorization` header, keep the route's mode.
 #[derive(Clone)]
 pub struct PageCache {
     kind: CacheKind,
@@ -168,12 +324,16 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Request<Body>) -> Self::Future {
+    fn call(&mut self, mut request: Request<Body>) -> Self::Future {
         let bypass = bypass_request(&request);
+        if !bypass {
+            may_store(&mut request);
+        }
         let policy = self.policy.clone();
         let future = self.inner.call(request);
         Box::pin(async move {
-            let mut response = super::response::finish_deferred_render(future.await?).await;
+            let response = finish_deferred_render(future.await?).await;
+            let mut response = prepare_cacheable_stream(response).await;
             let cacheable = !bypass && public_html(&response);
             let headers = response.headers_mut();
             for name in ["surrogate-control", "expires", "age"] {
@@ -194,7 +354,7 @@ where
             } else {
                 headers.remove("cache-tag");
                 headers.remove("vercel-cache-tag");
-                let private = HeaderValue::from_static("private, no-store");
+                let private = HeaderValue::from_static(PRIVATE_NO_STORE);
                 headers.insert(header::CACHE_CONTROL, private.clone());
                 for name in CDN_HEADERS {
                     headers.insert(name, private.clone());
@@ -214,13 +374,14 @@ const CDN_HEADERS: [&str; 4] = [
 
 fn public_html(response: &Response) -> bool {
     let headers = response.headers();
-    // Deferred framework streams have no buffered HTML here. Do not cache them.
+    // Any other stream may carry Suspense fallbacks, or has no head here yet.
     response.status() == StatusCode::OK
-        && response
-            .body()
-            .size_hint()
-            .exact()
-            .is_some_and(|size| size > 0)
+        && (prepared_cacheable_stream(response)
+            || response
+                .body()
+                .size_hint()
+                .exact()
+                .is_some_and(|size| size > 0))
         && headers
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())

@@ -217,6 +217,13 @@ pub trait StreamChunkFlusher {
         })?;
         self.flush_chunk(out)
     }
+
+    /// Note a flush point with no buffered bytes, such as a Suspense
+    /// boundary that opens the document. A transport may commit its response
+    /// head here, before any body bytes. The default does nothing.
+    fn flush_empty(&self) -> Result<(), WriteError> {
+        Ok(())
+    }
 }
 
 /// Send-safe chunk sink used by in-order direct streams.
@@ -230,5 +237,12 @@ pub trait SendStreamChunkFlusher: Send + Sync {
             Ok(())
         })?;
         self.flush_chunk(out)
+    }
+
+    /// Note a flush point with no buffered bytes, such as a Suspense
+    /// boundary that opens the document. A transport may commit its response
+    /// head here, before any body bytes. The default does nothing.
+    fn flush_empty(&self) -> Result<(), WriteError> {
+        Ok(())
     }
 }

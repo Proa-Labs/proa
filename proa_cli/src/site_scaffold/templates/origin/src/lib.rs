@@ -284,10 +284,17 @@ async fn lab_rows(Query(query): Query<LabRowCount>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "rows": count, "millis": millis, "bytes": bytes, "profile": profile }))
 }
 
-async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "status": "ok" }))
+// A probe must reach the process, never a stored answer.
+async fn health() -> impl IntoResponse {
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(serde_json::json!({ "status": "ok" })),
+    )
 }
 
-async fn ready() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "status": "ready" }))
+async fn ready() -> impl IntoResponse {
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(serde_json::json!({ "status": "ready" })),
+    )
 }

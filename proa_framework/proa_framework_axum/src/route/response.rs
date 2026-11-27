@@ -379,6 +379,9 @@ pub(super) fn framework_response_to_axum(response: FrameworkResponse) -> Respons
     };
     *axum_response.headers_mut() = headers;
     axum_response
+        .extensions_mut()
+        .insert(super::cdn_cache::FrameworkDocument);
+    axum_response
 }
 
 #[derive(Clone)]
@@ -574,6 +577,8 @@ async fn prepare_stream(
             .await
             {
                 None => Ok(tail),
+                // An empty first item only commits the response head.
+                Some(Ok(first)) if first.is_empty() => Ok(tail),
                 Some(Err(error)) => Err(StreamPrepareError::FirstItem(error)),
                 Some(Ok(first)) => Ok(Box::pin(
                     stream::once(std::future::ready(Ok(first))).chain(tail),
@@ -762,14 +767,24 @@ fn finalize_without_polling<L: DataLoader + 'static>(
     request: &FrameworkRequestContext,
     mode: RouteFinalizeMode,
 ) -> Result<Response, (CoreRouteResponse<L>, RouteFinalizeMode)> {
-    let finalized = if response.is_synchronous() {
-        finalize_route_response_sync(response, request, mode)
-    } else if matches!(mode, RouteFinalizeMode::Document) && response.is_streaming() {
-        finalize_route_response_stream(response, request)
-    } else {
+    if response.is_synchronous() {
+        return Ok(finalized_to_axum(finalize_route_response_sync(
+            response, request, mode,
+        )));
+    }
+    if !matches!(mode, RouteFinalizeMode::Document) || !response.is_streaming() {
         return Err((response, mode));
-    };
-    Ok(finalized_to_axum(finalized))
+    }
+    let (response, cacheable) = super::cdn_cache::stream_in_order_for_page_cache(response);
+    let finalized = finalize_route_response_stream(response, request);
+    let cacheable = cacheable && finalized.is_ok();
+    let mut response = finalized_to_axum(finalized);
+    if cacheable {
+        response
+            .extensions_mut()
+            .insert(super::cdn_cache::CacheableStream::default());
+    }
+    Ok(response)
 }
 
 /// The current runtime, when it can block a worker in place.

@@ -516,7 +516,9 @@ async fn drive_job(mut job: LocalJob) {
             return;
         }
         Some(Ok(bytes)) => {
-            if job.first.send(Ok(Some(bytes))).is_err() {
+            // An empty first item only commits the response head.
+            let bytes = (!bytes.is_empty()).then_some(bytes);
+            if job.first.send(Ok(bytes)).is_err() {
                 return;
             }
         }

@@ -6,6 +6,10 @@ keywords: [ETag, Cache-Control, "cache control"]
 
 By default, Proa renders pages on every request; it does not enable page caching. Use your CDN for [static pages](#caching-static-pages) and [ISR](#enabling-isr), and configure [RSJS bundles](#caching-rsjs-bundles) separately.
 
+A `RouteResponse` document or Markdown representation without a cache policy is sent with `Cache-Control: private, no-store`, so neither a browser's heuristic freshness nor a CDN default stores dynamic output. Proa uses `no-store` rather than `no-cache` because a dynamic page has no validator to revalidate against and may be personalized.
+
+Proa adds this default in `RouteContextLayer`, which `FrameworkBuilder` installs around your routes, and never replaces a policy that reaches it. A `Cache-Control`, `Expires`, or CDN cache header from your handler, your page, a `render_head` hook, or middleware on the router you pass to `with_dynamic_routes` is kept. Await buffered responses in their handlers so that middleware sees the page's own policy; see [Route responses](/docs/framework/responses#async-ssr). Middleware layered on the built router runs after the default is in place, so a layer that only adds `Cache-Control` when it is missing, such as `SetResponseHeaderLayer::if_not_present`, changes nothing there. Add that layer to your dynamic router instead, or replace the header with `SetResponseHeaderLayer::overriding`. A `PageCacheLayer` on the built router is the exception: the framework leaves the default off the requests that cache may store, and the cache sets its own policy on every response.
+
 ## Caching static pages
 
 Add a cache policy to a public route. `PageCache::new()` requires no provider credentials, application identity, or environment variables:
@@ -52,7 +56,11 @@ Configure your CDN to use those headers:
 | Cache key | Preserve the hostname, path, and query string. Honor `Vary` for `Accept`, `Accept-Encoding`, `Accept-Language`, and `X-Proa-Client`, or include them in the cache key. |
 | Unsupported variants | Bypass caching when the response varies on headers your CDN cannot distinguish. |
 
-Proa also excludes private requests, non-HTML responses, streaming bodies, cookies, and per-request CSP nonces from caching. **The CDN's bypass rules are still required:** cached requests never reach Proa's checks.
+Proa also excludes private requests, non-HTML responses, cookies, and per-request CSP nonces from caching, and sends them with `private, no-store`. **The CDN's bypass rules are still required:** cached requests never reach Proa's checks.
+
+On a route with a cache policy, a request the CDN may store renders an `ssr_stream` document in order. It still streams, and its complete body is the same HTML as a buffered render, without Suspense fallbacks or swap scripts, so the CDN stores the complete page. Requests that bypass the cache, such as those with a `Cookie`, keep the route's render mode. A stream that fails partway ends the connection early, and a CDN does not store an incomplete response.
+
+An origin `PageCacheLayer` renders cacheable `ssr_stream` requests in order too. It sends the stream at once, without an ETag, and stores the page if its body ends within the layer's size limit and timeout. A larger or slower page is still delivered in full, but it is not stored.
 
 The first request without a cached copy reaches Proa. The CDN stores the rendered HTML near visitors and serves subsequent requests without contacting your server.
 

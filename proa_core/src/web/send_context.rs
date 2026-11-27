@@ -448,7 +448,7 @@ impl<L: DataLoader> SendWebContext<L, RenderBuffer> {
         }
 
         if self.out.is_empty() {
-            return Ok(());
+            return flusher.flush_empty();
         }
         self.parts.response.mark_stream_chunk_flushed();
         let result = flusher.flush_chunk_view(&self.out);
