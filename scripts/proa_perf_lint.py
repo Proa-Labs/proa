@@ -508,8 +508,8 @@ def seed_string_literal(delimiter: str) -> str:
 
 # A struct field initialized with an owned literal or empty value, matching
 # `expr_is_shared_state_owned_seed` in `proa_source_tools`.
-OWNED_SEED_FIELD = re.compile(
-    r"[{,]\s*[A-Za-z_]\w*\s*:\s*("
+OWNED_SEED_VALUE = re.compile(
+    r"\s*("
     + r"(?:(?:::)?std::string::)?String::(?:new|default)\s*\(\s*\)"
     + "|"
     + VEC_NEW
@@ -518,8 +518,38 @@ OWNED_SEED_FIELD = re.compile(
     + r"\s*,?\s*\)|"
     + seed_string_literal("receiver_hashes")
     + r"\s*\.\s*to_(?:string|owned)\s*\(\s*\)"
-    + r")\s*(?=[,}])"
+    + r")\s*"
 )
+
+SEED_STRUCT_OPEN = re.compile(
+    r"\s*(?:::)?(?:r#)?[A-Za-z_]\w*(?:\s*::\s*(?:r#)?[A-Za-z_]\w*)*"
+    r"(?:\s*::\s*<[^{}]*>)?\s*\{"
+)
+SEED_FIELD = re.compile(r"\s*(?:(?:r#)?[A-Za-z_]\w*|[0-9]+)\s*:(?!:)")
+
+
+def seed_struct_fields(text: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Return direct field values only when the entire expression is a struct literal."""
+    opening = SEED_STRUCT_OPEN.match(text, start, end)
+    if opening is None:
+        return []
+    field_start = opening.end()
+    depth = 0
+    fields: list[tuple[int, int]] = []
+    for index in range(field_start, end):
+        char = text[index]
+        if depth == 0 and char in ",}":
+            field = SEED_FIELD.match(text, field_start, index)
+            if field is not None:
+                fields.append((field.end(), index))
+            if char == "}":
+                return fields if not text[index + 1:end].strip() else []
+            field_start = index + 1
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+    return []
 
 
 def shared_state_seed_spans(lines: list[str], code_lines: list[str]) -> list[tuple[int, int]]:
@@ -536,8 +566,14 @@ def shared_state_seed_spans(lines: list[str], code_lines: list[str]) -> list[tup
     # matched against the original source at the same offsets.
     source = "\n".join(lines)
     spans: list[tuple[int, int]] = []
-    for start, end in shared_state_value_spans(text):
-        spans.extend(field.span(1) for field in OWNED_SEED_FIELD.finditer(source, start, end))
+    pending = shared_state_value_spans(text)
+    while pending:
+        start, end = pending.pop()
+        owned = OWNED_SEED_VALUE.fullmatch(source, start, end)
+        if owned is not None:
+            spans.append(owned.span(1))
+        else:
+            pending.extend(seed_struct_fields(text, start, end))
     return spans
 
 

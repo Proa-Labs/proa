@@ -315,6 +315,24 @@ class ScanFixtureTest(unittest.TestCase):
             ["string-from", "to-string"],
         )
 
+    def test_shared_state_seed_does_not_skip_literals_in_helpers(self):
+        self.assertEqual(
+            self.codes(
+                [
+                    "{rsjs::SharedStateProvider {",
+                    "    state: WorkbenchState {",
+                    '        direct: Nested { label: "owned".to_string() },',
+                    '        mode: make_mode(Config { label: "x".to_string() }),',
+                    '        options: (Config { label: "y".to_string() }).normalize(),',
+                    "    },",
+                    "    children: Panel,",
+                    "}}",
+                ],
+                rsjs=True,
+            ),
+            ["to-string", "to-string"],
+        )
+
     def test_browser_closure_names_outside_rsjs_items_are_flagged(self):
         # Mirrors `browser_closure_names_outside_rsjs_items_are_server_calls`
         # in proa_source_tools: without `#[rsjs]` these are ordinary calls.
