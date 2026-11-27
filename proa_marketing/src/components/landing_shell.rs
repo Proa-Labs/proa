@@ -22,6 +22,7 @@ pub enum MarketingNavVariant {
 pub enum MarketingNavActive {
     None,
     Docs,
+    Blog,
     Ecosystem,
 }
 
@@ -29,6 +30,8 @@ impl MarketingNavActive {
     pub fn for_path(path: &str) -> Self {
         if path == routes::DOCS || path.starts_with(routes::DOCS_PREFIX) {
             Self::Docs
+        } else if path == routes::BLOG || path.starts_with(routes::BLOG_PREFIX) {
+            Self::Blog
         } else if path == routes::ECOSYSTEM || path.starts_with(routes::ECOSYSTEM_PREFIX) {
             Self::Ecosystem
         } else {
@@ -129,6 +132,12 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for MarketingNav {
                     href: routes::DOCS,
                     label: "Docs",
                     active: self.active == MarketingNavActive::Docs,
+                    variant: self.variant,
+                }}
+                {MarketingNavLink {
+                    href: routes::BLOG,
+                    label: crate::pages::blog::LABEL,
+                    active: self.active == MarketingNavActive::Blog,
                     variant: self.variant,
                 }}
                 {MarketingEcosystemNav {
@@ -393,6 +402,7 @@ pub(crate) const RESOURCE_LINKS: FooterLinks = FooterLinks {
     title: "Resources",
     links: &[
         ("Docs", routes::DOCS),
+        (crate::pages::blog::LABEL, routes::BLOG),
         ("API & MCP", routes::API_GUIDE),
         ("Sitemap", routes::SITEMAP),
         ("For agents", routes::AGENT_INDEX),

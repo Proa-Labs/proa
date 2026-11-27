@@ -19,6 +19,25 @@ pub(crate) fn response_for_collection_path(
     label: &'static str,
     request_headers: &HeaderMap,
 ) -> Response {
+    collection_response(docs, path, request_headers, |page| {
+        render_docs_page(
+            PageMeta {
+                title: page.title,
+                description: page.description.unwrap_or(docs.config.site_name),
+                path: page.route_path,
+            },
+            DocsPageView { docs, page, label },
+        )
+        .into_response()
+    })
+}
+
+pub(crate) fn collection_response(
+    docs: &'static Docs,
+    path: &str,
+    request_headers: &HeaderMap,
+    render_html: impl FnOnce(&'static DocPage) -> Response,
+) -> Response {
     if let Some(response) = proa_docs::render_static(docs, path) {
         let mut response = docs_response_to_axum(response);
         if let Some(page) = page_for_markdown_path(docs, path) {
@@ -38,20 +57,11 @@ pub(crate) fn response_for_collection_path(
         return negotiated_markdown_response(page);
     }
 
-    let mut response = render_docs_page(
-        PageMeta {
-            title: page.title,
-            description: page.description.unwrap_or(docs.config.site_name),
-            path: page.route_path,
-        },
-        DocsPageView { docs, page, label },
-    )
-    .into_response();
-
+    let mut response = render_html(page);
     response
         .headers_mut()
         .insert(VARY, HeaderValue::from_static("Accept"));
-    insert_alternate_markdown_link(&mut response, page);
+    insert_alternate_markdown_link(&mut response, page.markdown_path);
     insert_page_token_headers(&mut response, page);
     response
 }
@@ -61,11 +71,8 @@ pub(crate) fn response_for_collection_path(
 /// Style guide 11.2: the site already emits `rel="service-desc"` for OpenAPI,
 /// so an agent can discover the API but not the readable source of the page it
 /// just fetched. `rel="alternate"` closes that gap without a second request.
-fn insert_alternate_markdown_link(response: &mut Response, page: &'static DocPage) {
-    let value = format!(
-        "<{}>; rel=\"alternate\"; type=\"text/markdown\"",
-        page.markdown_path
-    );
+pub(crate) fn insert_alternate_markdown_link(response: &mut Response, markdown_path: &str) {
+    let value = format!("<{markdown_path}>; rel=\"alternate\"; type=\"text/markdown\"");
     if let Ok(value) = HeaderValue::from_str(&value) {
         response.headers_mut().append(LINK, value);
     }

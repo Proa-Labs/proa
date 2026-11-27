@@ -1,0 +1,18 @@
+---
+title: One source, two representations
+description: How Proa serves a readable Markdown version alongside the HTML page.
+author: Proa Labs
+date: 2026-11-27
+---
+
+This blog has two ways to read each post. The HTML page has the site's navigation and a table of contents. Open Markdown gives you the underlying text, with headings, links, and code ready to quote or process.
+
+## One post file
+
+Each post is authored in MDX. The build produces HTML and a Markdown export from that file, so an edit to a heading or link reaches both formats. The title, description, author, and date also drive the archive and article metadata.
+
+## Pick a representation
+
+Open the link below an article title to see the Markdown directly. HTTP clients can request the same representation by sending `Accept: text/markdown` to the article URL. The response advertises `Vary: Accept` so caches can distinguish the two formats.
+
+For Rust-authored pages, share the content fields between the HTML and Markdown renderers and let each renderer lay them out for its medium. The [content negotiation guide](/docs/framework/content-negotiation) shows how to wire that up in a Proa application.

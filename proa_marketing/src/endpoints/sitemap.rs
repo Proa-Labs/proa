@@ -5,7 +5,11 @@ use axum::http::header;
 use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
 use proa_macros::xml_sync;
 
-use crate::{data::routes::STATIC_ROUTES, pages::docs, utils::site_url::public_site_url};
+use crate::{
+    data::routes::STATIC_ROUTES,
+    pages::{blog, docs},
+    utils::site_url::public_site_url,
+};
 
 struct Sitemap<'a> {
     origin: &'a str,
@@ -18,9 +22,9 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Sitemap<'_> {
             .copied()
             .chain(proa_showcase_web::SHOWCASE_ROUTES.iter().copied())
             .chain(
-                docs::docs()
-                    .pages
-                    .iter()
+                [docs::docs(), blog::docs()]
+                    .into_iter()
+                    .flat_map(|collection| collection.pages)
                     .filter(|page| !page.frontmatter.hidden)
                     .map(|page| page.route_path),
             );
@@ -58,9 +62,9 @@ mod tests {
         assert!(xml.contains("?a=1&amp;b=2"));
         let expected = STATIC_ROUTES.len()
             + proa_showcase_web::SHOWCASE_ROUTES.len()
-            + docs::docs()
-                .pages
-                .iter()
+            + [docs::docs(), blog::docs()]
+                .into_iter()
+                .flat_map(|collection| collection.pages)
                 .filter(|page| !page.frontmatter.hidden)
                 .count();
         assert_eq!(xml.matches("<loc>").count(), expected);

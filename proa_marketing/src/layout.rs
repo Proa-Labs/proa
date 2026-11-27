@@ -368,7 +368,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ManagedMetadata {
 
 /// The `<head>` both shells share. Only the docs enhancement script differs.
 struct PageHead<M> {
-    shell: Shell,
+    article_tools: bool,
     metadata: M,
 }
 
@@ -387,7 +387,7 @@ where
             {SiteIcons}
             <link rel="stylesheet" href={cx.url(STYLESHEET_PATH)} />
             <script type="module" src={cx.url("public/search.mjs")}></script>
-            {if self.shell.is_docs() {
+            {if self.article_tools {
                 WebRenderSync::render(
                     html_sync! {
                         <script src={cx.url("public/docs.js")} defer></script>
@@ -457,7 +457,7 @@ where
                 <html lang="en">
                     <head>
                         {proa_core::to_async(PageHead {
-                            shell: self.shell,
+                            article_tools: self.shell.is_docs() || self.path.starts_with(routes::BLOG_PREFIX),
                             metadata: self.metadata,
                         })}
                     </head>

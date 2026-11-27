@@ -114,8 +114,11 @@ Keep route-owned MDX in these crate-local directories:
 - `src/docs` -> `/docs`
 - `src/blog` -> `/blog`
 
-Each collection follows the fumadocs-style `meta.json` convention for sidebar
-ordering and nested groups.
+Docs use `meta.json` for sidebar ordering and nested groups. Add a blog post as
+`src/blog/<slug>.mdx` with `title`, `description`, `author`, and an ISO
+`date` (`YYYY-MM-DD`) in frontmatter. The archive and sidebar list posts newest
+first. The post is available at `/blog/<slug>` and `/blog/<slug>.md`.
+Set `draft: true` to keep a work in progress out of the build.
 
 ## Local Docker Build
 
