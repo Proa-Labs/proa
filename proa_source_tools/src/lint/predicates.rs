@@ -1216,14 +1216,169 @@ pub(crate) fn path_is_rsjs_dialect_call(path: &syn::Path) -> bool {
 }
 
 pub(crate) fn call_path_is_rsjs_shared_state(call: &ExprCall) -> bool {
+    call_path_is_rsjs_dialect(call, &["shared"])
+}
+
+/// A bare or `rsjs::`-rooted call to one of the named dialect primitives.
+pub(crate) fn call_path_is_rsjs_dialect(call: &ExprCall, names: &[&str]) -> bool {
     let Expr::Path(path) = call.func.as_ref() else {
         return false;
     };
     path.path
         .segments
         .last()
-        .is_some_and(|segment| segment.ident == "shared")
+        .is_some_and(|segment| names.iter().any(|name| segment.ident == name))
         && path_is_rsjs_dialect_call(&path.path)
+}
+
+/// RSJS primitives whose closure arguments compile to browser code only.
+///
+/// RSJS removes `event_handler`/`handler` declarations and `interval` timers
+/// from the server program, and removes event attributes (where `debounce`
+/// lives) from server output, so these closure bodies never run during SSR.
+/// That only holds inside code RSJS analyzes: elsewhere the same names are
+/// ordinary functions (`rsjs::handler` returns its closure unchanged), so
+/// callers apply this list only within an RSJS item.
+/// `memo` and `batch` are absent: both run their closure on the server.
+pub(crate) const RSJS_BROWSER_CLOSURE_PRIMITIVES: &[&str] =
+    &["event_handler", "handler", "interval", "debounce"];
+
+/// `signal(String::new())` or `signal::<Vec<T>>(Vec::new())`: an empty owned
+/// seed for client state.
+///
+/// Neither constructor allocates, and the owned type is the point: handlers
+/// write runtime strings and rows into the cell, so a borrowed seed would not
+/// type-check.
+pub(crate) fn rsjs_signal_empty_owned_seed(call: &ExprCall) -> Option<&ExprCall> {
+    if !call_path_is_rsjs_dialect(call, &["signal"]) || call.args.len() != 1 {
+        return None;
+    }
+    let Expr::Call(seed) = &call.args[0] else {
+        return None;
+    };
+    (seed.args.is_empty()
+        && (call_path_ends(seed, &["String", "new"]) || call_path_ends(seed, &["Vec", "new"])))
+    .then_some(seed)
+}
+
+/// The template RSJS analyzes in an async `#[rsjs(...)]` impl.
+///
+/// RSJS accepts only `RenderOutcome::pending(async move { .. })` as the method
+/// body and requires its tail template to be `html!`, so `html_sync!` alone is
+/// never a valid fix for that template. Returns the statements before the tail
+/// (the island prelude) and the tail macro.
+pub(crate) fn rsjs_pending_tail_template(block: &Block) -> Option<(&[syn::Stmt], &syn::Macro)> {
+    fn template(expr: &Expr) -> Option<&syn::Macro> {
+        match expr {
+            Expr::Await(expr) => template(&expr.base),
+            Expr::MethodCall(expr) => template(&expr.receiver),
+            Expr::Call(call) if call.args.len() == 2 && call_path_ends(call, &["render"]) => {
+                template(&call.args[0])
+            }
+            Expr::Paren(expr) => template(&expr.expr),
+            Expr::Group(expr) => template(&expr.expr),
+            Expr::Return(expr) => template(expr.expr.as_deref()?),
+            Expr::Macro(expr) => Some(&expr.mac),
+            _ => None,
+        }
+    }
+
+    let [syn::Stmt::Expr(Expr::Call(call), None)] = block.stmts.as_slice() else {
+        return None;
+    };
+    if !call_path_ends(call, &["RenderOutcome", "pending"]) || call.args.len() != 1 {
+        return None;
+    }
+    let Some(Expr::Async(pending)) = call.args.first() else {
+        return None;
+    };
+    let Some((syn::Stmt::Expr(tail, _), prelude)) = pending.block.stmts.split_last() else {
+        return None;
+    };
+    Some((prelude, template(tail)?))
+}
+
+/// True when the statements declare an RSJS mutation, which RSJS accepts only
+/// in an async `WebRender` island.
+pub(crate) fn stmts_declare_rsjs_mutation(stmts: &[syn::Stmt]) -> bool {
+    struct Finder {
+        found: bool,
+    }
+
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+            if call_path_is_rsjs_dialect(node, &["mutation", "mutation_with_options"]) {
+                self.found = true;
+            }
+            visit::visit_expr_call(self, node);
+        }
+    }
+
+    let mut finder = Finder { found: false };
+    for stmt in stmts {
+        finder.visit_stmt(stmt);
+    }
+    finder.found
+}
+
+/// True when the statements await directly, using the scan RSJS applies before
+/// it accepts a `WebRenderSync` island (`block_contains_await` in
+/// `rsjs_macros/src/parse.rs`).
+///
+/// An `.await` inside a nested `async` block or closure belongs to the future
+/// or closure that expression builds, not to the island, so it does not stop
+/// the island from being synchronous. Like RSJS, the scan does not look inside
+/// macro arguments.
+pub(crate) fn stmts_await_outside_nested_futures(stmts: &[syn::Stmt]) -> bool {
+    struct Finder {
+        found: bool,
+    }
+
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_expr_await(&mut self, _node: &'ast syn::ExprAwait) {
+            self.found = true;
+        }
+
+        fn visit_expr_async(&mut self, _node: &'ast syn::ExprAsync) {}
+
+        fn visit_expr_closure(&mut self, _node: &'ast syn::ExprClosure) {}
+    }
+
+    let mut finder = Finder { found: false };
+    for stmt in stmts {
+        finder.visit_stmt(stmt);
+    }
+    finder.found
+}
+
+/// An owned literal or empty seed for a `#[derive(rsjs::SharedState)]` field:
+/// `String::new()`, `String::default()`, `String::from("lit")`,
+/// `"lit".to_string()`, `"lit".to_owned()`, or `Vec::new()`.
+///
+/// The derive rejects borrowed fields, so a literal or empty seed has to be
+/// spelled as one of these owned values. Any other expression in a provider
+/// seed is ordinary per-render server work.
+pub(crate) fn expr_is_shared_state_owned_seed(expr: &Expr) -> bool {
+    match expr {
+        Expr::Group(group) => expr_is_shared_state_owned_seed(&group.expr),
+        Expr::Paren(paren) => expr_is_shared_state_owned_seed(&paren.expr),
+        Expr::Call(call) if call.args.is_empty() => {
+            call_path_ends(call, &["String", "new"])
+                || call_path_ends(call, &["String", "default"])
+                || call_path_ends(call, &["Vec", "new"])
+        }
+        Expr::Call(call) => {
+            call.args.len() == 1
+                && call_path_ends(call, &["String", "from"])
+                && expr_string_literal(&call.args[0]).is_some()
+        }
+        Expr::MethodCall(method) => {
+            (method.method == "to_string" || method.method == "to_owned")
+                && method.args.is_empty()
+                && expr_string_literal(&method.receiver).is_some()
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn call_path_is_rsjs_browser_helper(call: &ExprCall) -> bool {

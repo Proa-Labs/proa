@@ -361,8 +361,248 @@ def is_suppressed(line: str, previous_line: str) -> bool:
     )
 
 
+# A bare or `rsjs::`-rooted call, never a method call or another crate's path,
+# matching the RSJS dialect and `cargo proa lint`.
+RSJS_CALL_PREFIX = r"(?<![\w:.])(?:(?:::)?rsjs::)?"
+
+STRING_NEW = r"(?:(?:::)?std::string::)?String::new\s*\(\s*\)"
+VEC_NEW = r"(?:(?:::)?(?:std|alloc)::vec::)?Vec::new\s*\(\s*\)"
+
+EMPTY_SIGNAL_SEED = re.compile(
+    RSJS_CALL_PREFIX
+    + r"signal\s*(?:::\s*<[^;{}]*?>\s*)?\(\s*("
+    + STRING_NEW
+    + "|"
+    + VEC_NEW
+    + r")\s*,?\s*\)"
+)
+
+
+def empty_signal_seed_spans(code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of `signal(String::new())` / `signal::<Vec<T>>(Vec::new())` seeds.
+
+    Neither constructor allocates, and RSJS needs the owned type so handlers
+    can write runtime values into the signal. Formatting, a trailing comma, a
+    turbofish, and a `std::` path do not matter. Offsets index the masked
+    lines joined with newlines.
+    """
+    text = "\n".join(code_lines)
+    return [seed.span(1) for seed in EMPTY_SIGNAL_SEED.finditer(text)]
+
+
+# An attribute that makes RSJS analyze the item it is on, mirroring
+# `rsjs_line_ranges` in `proa_source_tools`.
+RSJS_ITEM_ATTRIBUTE = re.compile(
+    r"#\s*\[\s*(?:::)?(?:\w+\s*::\s*)*(?:rsjs|client|client_module)\s*[(\]]"
+)
+
+
+def rsjs_item_spans(code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of items RSJS analyzes, from the attribute to the closing `}`.
+
+    Covers `#[rsjs(...)]` impls and functions, `#[client]` functions, and
+    client modules. Offsets match `empty_signal_seed_spans`.
+    """
+    text = "\n".join(code_lines)
+    spans: list[tuple[int, int]] = []
+    for attribute in RSJS_ITEM_ATTRIBUTE.finditer(text):
+        index = text.index("[", attribute.start())
+        depth = 0
+        # Skip the rest of the attribute, then the item header up to its body.
+        # A `;` outside parentheses or brackets ends a bodiless item.
+        body_start = None
+        while index < len(text):
+            char = text[index]
+            if char in "([":
+                depth += 1
+            elif char in ")]":
+                depth -= 1
+            elif char == ";" and depth == 0:
+                break
+            elif char == "{" and depth == 0:
+                body_start = index
+                break
+            index += 1
+        if body_start is None:
+            continue
+        depth = 0
+        for index in range(body_start, len(text)):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    spans.append((attribute.start(), index + 1))
+                    break
+        else:
+            spans.append((attribute.start(), len(text)))
+    return spans
+
+
+CLIENT_CLOSURE_CALL_OPEN = re.compile(
+    RSJS_CALL_PREFIX + r"(?:event_handler|handler|interval|debounce)\s*\("
+)
+CLOSURE_HEAD = re.compile(r"\s*(?:move\s+)?\|[^|]*\|")
+
+
+def client_closure_call_spans(code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of closure arguments to browser-only RSJS primitive calls.
+
+    Inside an item RSJS analyzes, RSJS removes `event_handler`/`handler`
+    declarations and `interval` timers from the server program, and
+    `debounce` only appears in event attributes, so closures passed to them
+    never run during SSR. Elsewhere the same names are ordinary functions and
+    stay linted, as do other arguments such as an `interval` period. Offsets
+    match `empty_signal_seed_spans`.
+    """
+    text = "\n".join(code_lines)
+    rsjs_items = rsjs_item_spans(code_lines)
+    spans: list[tuple[int, int]] = []
+    for call in CLIENT_CLOSURE_CALL_OPEN.finditer(text):
+        if not any(start <= call.start() < end for start, end in rsjs_items):
+            continue
+        index = call.end()
+        depth = 1
+        closure_start = None
+        at_argument_start = True
+        while index < len(text):
+            if at_argument_start:
+                at_argument_start = False
+                head = CLOSURE_HEAD.match(text, index)
+                if head is not None:
+                    # Skip the parameter list so commas between typed
+                    # parameters do not end the argument.
+                    closure_start = index
+                    index = head.end()
+                    continue
+            char = text[index]
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            if depth == 0 or (depth == 1 and char == ","):
+                if closure_start is not None:
+                    spans.append((closure_start, index))
+                    closure_start = None
+                if depth == 0:
+                    break
+                at_argument_start = True
+            index += 1
+        if closure_start is not None:
+            spans.append((closure_start, len(text)))
+    return spans
+
+
+SHARED_STATE_PROVIDER_OPEN = re.compile(
+    r"(?<![\w:])(?:(?:::)?rsjs::)?SharedStateProvider\s*(?:::\s*<[^;{}]*>\s*)?\{"
+)
+STATE_FIELD = re.compile(r"(?<!\w)state\s*:(?!:)")
+STRING_LITERAL = r'"(?:[^"\\]|\\[\s\S])*"'
+
+
+def seed_string_literal(delimiter: str) -> str:
+    """Match a quoted string or a raw string with the same hashes at both ends."""
+    raw = rf'r(?P<{delimiter}>#*)"(?:(?!"(?P={delimiter}))[\s\S])*"(?P={delimiter})'
+    return rf"(?:{STRING_LITERAL}|{raw})"
+
+
+# A struct field initialized with an owned literal or empty value, matching
+# `expr_is_shared_state_owned_seed` in `proa_source_tools`.
+OWNED_SEED_VALUE = re.compile(
+    r"\s*("
+    + r"(?:(?:::)?std::string::)?String::(?:new|default)\s*\(\s*\)"
+    + "|"
+    + VEC_NEW
+    + r"|(?:(?:::)?std::string::)?String::from\s*\(\s*"
+    + seed_string_literal("from_hashes")
+    + r"\s*,?\s*\)|"
+    + seed_string_literal("receiver_hashes")
+    + r"\s*\.\s*to_(?:string|owned)\s*\(\s*\)"
+    + r")\s*"
+)
+
+SEED_STRUCT_OPEN = re.compile(
+    r"\s*(?:::)?(?:r#)?[A-Za-z_]\w*(?:\s*::\s*(?:r#)?[A-Za-z_]\w*)*"
+    r"(?:\s*::\s*<[^{}]*>)?\s*\{"
+)
+SEED_FIELD = re.compile(r"\s*(?:(?:r#)?[A-Za-z_]\w*|[0-9]+)\s*:(?!:)")
+
+
+def seed_struct_fields(text: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Return direct field values only when the entire expression is a struct literal."""
+    opening = SEED_STRUCT_OPEN.match(text, start, end)
+    if opening is None:
+        return []
+    field_start = opening.end()
+    depth = 0
+    fields: list[tuple[int, int]] = []
+    for index in range(field_start, end):
+        char = text[index]
+        if depth == 0 and char in ",}":
+            field = SEED_FIELD.match(text, field_start, index)
+            if field is not None:
+                fields.append((field.end(), index))
+            if char == "}":
+                return fields if not text[index + 1:end].strip() else []
+            field_start = index + 1
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+    return []
+
+
+def shared_state_seed_spans(lines: list[str], code_lines: list[str]) -> list[tuple[int, int]]:
+    """Return offsets of owned literal or empty fields in `SharedStateProvider` seeds.
+
+    `#[derive(rsjs::SharedState)]` rejects borrowed fields, so a field of the
+    `state: ...` seed may be `"mode".to_string()`, `"mode".to_owned()`,
+    `String::from("mode")`, `String::new()`, `String::default()`, or
+    `Vec::new()`. Any other seed expression runs on every SSR render and stays
+    linted. Offsets match `client_closure_call_spans`.
+    """
+    text = "\n".join(code_lines)
+    # Literal receivers are blank in the masked text, so seed fields are
+    # matched against the original source at the same offsets.
+    source = "\n".join(lines)
+    spans: list[tuple[int, int]] = []
+    pending = shared_state_value_spans(text)
+    while pending:
+        start, end = pending.pop()
+        owned = OWNED_SEED_VALUE.fullmatch(source, start, end)
+        if owned is not None:
+            spans.append(owned.span(1))
+        else:
+            pending.extend(seed_struct_fields(text, start, end))
+    return spans
+
+
+def shared_state_value_spans(text: str) -> list[tuple[int, int]]:
+    """Return offsets of each `SharedStateProvider { state: ... }` value in masked text."""
+    spans: list[tuple[int, int]] = []
+    for provider in SHARED_STATE_PROVIDER_OPEN.finditer(text):
+        depth = 0
+        start = None
+        for index in range(provider.end() - 1, len(text)):
+            char = text[index]
+            if depth == 1 and start is None:
+                field = STATE_FIELD.match(text, index)
+                if field is not None:
+                    start = field.end()
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            if start is not None and (depth == 0 or (depth == 1 and char == ",")):
+                spans.append((start, index))
+                break
+            if depth == 0:
+                break
+    return spans
+
+
 EVENT_HANDLER_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{")
-EVENT_HANDLER_CLOSURE_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{\s*\|")
+EVENT_HANDLER_CLOSURE_OPEN = re.compile(r"\bon_[a-zA-Z0-9_]+\s*=\s*\{\s*(?:move\s+)?\|")
 
 
 def is_client_event_handler_expression(line: str, match_start: int) -> bool:
@@ -463,6 +703,14 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
         lines = full_path.read_text(encoding="utf-8", errors="replace").splitlines()
 
     code_lines = mask_rust_non_code(lines)
+    exempt_spans = (
+        client_closure_call_spans(code_lines)
+        + shared_state_seed_spans(lines, code_lines)
+        + empty_signal_seed_spans(code_lines)
+    )
+    line_starts = [0]
+    for code_line in code_lines:
+        line_starts.append(line_starts[-1] + len(code_line) + 1)
     findings: list[Finding] = []
     previous_line = ""
     cfg_test_pending = False
@@ -535,6 +783,9 @@ def scan_file(path: pathlib.Path, include_tests: bool) -> list[Finding]:
                     if match.start() < handler_close_index:
                         continue
                     if is_client_event_handler_expression(code_line, match.start()):
+                        continue
+                    offset = line_starts[index - 1] + match.start()
+                    if any(start <= offset < end for start, end in exempt_spans):
                         continue
                     findings.append(
                         Finding(

@@ -605,7 +605,7 @@ impl<L: DataLoader> WebRenderSync<L> for UserForm {
                 </div>
                 <input bind_value={email}/>
                 <div>
-                    {if email.get() == String::new() {
+                    {if email.get().is_empty() {
                         html_sync! { <p class="error">"Email required"</p> }
                     }}
                 </div>
@@ -1055,12 +1055,15 @@ html_sync! {
     <section>
         {rsjs::island(SearchInput {
             label: "Standalone search",
-            value: String::new(),
+            value: self.initial_query,
             on_change: rsjs::noop_handler(),
         })}
     </section>
 }
 ```
+
+The boundary expression renders on the server, so seed the child from
+ordinary server data, such as the parent's own `initial_query: String` field.
 
 Boundary rule: parent `rsjs::handler(...)` values cannot cross
 `rsjs::island(...)`. If the child should update parent state, render it directly

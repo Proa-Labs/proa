@@ -100,7 +100,7 @@ A `<select>` binds a string rather than a boolean, and it carries one extra name
 Both `bind_value` and `bind_selected` target the owning `<select>` element's string `value`: the selected option's value.
 
 ```rust filename="src/components/plan_picker.rs"
-let plan = signal("starter".to_string());
+let plan = signal("starter");
 
 html_sync! {
     <div>

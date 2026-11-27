@@ -1920,6 +1920,21 @@ fn string_from_signal_infers_owned_string_without_a_turbofish() {
 }
 
 #[test]
+fn string_default_signal_infers_owned_string_without_a_turbofish() {
+    let local = local_from_stmt(syn::parse_quote! {
+        let draft = rsjs::signal(String::default());
+    });
+
+    let declaration = signal_local_decl(&local)
+        .unwrap()
+        .expect("String::default signal declaration");
+
+    assert_eq!(declaration.explicit_ty, None);
+    assert!(matches!(declaration.runtime_expr, Some(Expr::Call(_))));
+    assert_eq!(signal_decl_client_type(&declaration), ClientType::String);
+}
+
+#[test]
 fn explicit_client_props_vector_signal_preserves_its_nominal_item_type() {
     let local = local_from_stmt(syn::parse_quote! {
         let rows = rsjs::signal::<Vec<SearchRow>>(load_rows());
