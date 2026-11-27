@@ -122,6 +122,196 @@ fn adding_markdown_changes_page_scaffolding_without_rewriting_config() {
     assert_eq!(fs::read(root.join("proa.config.rs")).unwrap(), before);
 }
 
+/// `src/layouts/root.rs` as `proa new site` wrote it before sites used the
+/// managed head: the layout takes the page title and writes `<title>` itself.
+const LEGACY_ROOT_LAYOUT: &str = r#"// proa:document-root
+use std::future::Future;
+
+use proa::html;
+use proa::{raw_text_ok, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+
+pub struct RootDocument<C> {
+    pub title: &'static str,
+    pub content: C,
+}
+
+impl<L, C> WebRender<L> for RootDocument<C>
+where
+    L: DataLoader,
+    C: WebRender<L> + Send + 'static,
+{
+    fn render(
+        self,
+        cx: &mut WebContext<L>,
+    ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let RootDocument { title, content } = self;
+            let (favicon, stylesheet) = if cx.request().has_public_assets() {
+                ("public/favicon.svg", "public/styles.css")
+            } else {
+                ("/static/favicon.svg", "/static/styles.css")
+            };
+            let favicon = cx.url(favicon);
+            let stylesheet = cx.url(stylesheet);
+            html! {
+                <!DOCTYPE html>
+                <html lang="en">
+                    <head>
+                        <meta charset="utf-8" />
+                        <meta name="viewport" content="width=device-width, initial-scale=1" />
+                        <meta name="color-scheme" content="dark" />
+                        <title>{raw_text_ok(title)}</title>
+                        <link rel="icon" href={favicon} />
+                        <link rel="stylesheet" href={stylesheet} />
+                    </head>
+                    <body>{content}</body>
+                </html>
+            }
+            .render(cx)
+            .resolve()
+            .await
+        })
+    }
+}
+"#;
+
+/// The blank `src/pages/home.rs` that matches [`LEGACY_ROOT_LAYOUT`].
+const LEGACY_HOME_PAGE: &str = r#"use axum::response::IntoResponse;
+use proa::axum::RouteResponse;
+use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};
+
+use crate::{error::AppError, layouts::RootDocument};
+
+const READY_HEADING: &str = "Ready.";
+
+#[derive(Debug, Clone, Copy)]
+pub struct HomePage;
+
+impl<L: DataLoader> WebRenderSync<L> for HomePage {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <main class="blank-page">
+                <h1>{READY_HEADING}</h1>
+            </main>
+        }
+        .render(cx)
+    }
+}
+
+pub async fn handler() -> Result<impl IntoResponse, AppError> {
+    let html = RouteResponse::ssr_async(RootDocument {
+        title: "Demo",
+        content: proa::to_async(HomePage),
+    });
+    Ok(html)
+}
+"#;
+
+const MANAGED_HEAD_BUILDER: &str = "        .with_head(proa::HeadConfig::default())\n";
+
+fn new_minimal_site(parent: &Path) -> std::path::PathBuf {
+    let new = proa(
+        &["new", "site", "demo", "--template", "minimal", "--no-git"],
+        parent,
+    );
+    assert!(new.status.success(), "{}", stderr(&new));
+    parent.join("demo")
+}
+
+fn generate(args: &[&str], root: &Path) {
+    let output = proa(args, root);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn generated_pages_and_documents_follow_a_managed_head_site() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = new_minimal_site(temp.path());
+    generate(&["generate", "page", "about"], &root);
+    let about = fs::read_to_string(root.join("src/pages/about.rs")).unwrap();
+    assert!(about.contains("ComponentRole::PAGE"), "{about}");
+    assert!(about.contains("cx.head_mut().title(\"About\")"), "{about}");
+    assert!(!about.contains("title: \"About\""), "{about}");
+
+    generate(
+        &[
+            "generate",
+            "layout",
+            "marketing",
+            "--document",
+            "--replace-root",
+        ],
+        &root,
+    );
+    let document = fs::read_to_string(root.join("src/layouts/marketing.rs")).unwrap();
+    assert!(document.starts_with("// proa:document-root"), "{document}");
+    assert!(
+        document.contains("const ROLE: ComponentRole = ComponentRole::LAYOUT;"),
+        "{document}"
+    );
+    assert!(document.contains("{cx.head()}"), "{document}");
+    assert!(!document.contains("<title>"), "{document}");
+    let previous = fs::read_to_string(root.join("src/layouts/root.rs")).unwrap();
+    assert!(
+        previous.starts_with("// proa:document-layout"),
+        "{previous}"
+    );
+
+    // The site's root layout decides, so moving the builder call out of
+    // src/routes.rs, or handing the document marker to another layout, keeps
+    // generated pages managed.
+    let routes = root.join("src/routes.rs");
+    let source = fs::read_to_string(&routes).unwrap();
+    assert!(source.contains(MANAGED_HEAD_BUILDER), "{source}");
+    fs::write(&routes, source.replace(MANAGED_HEAD_BUILDER, "")).unwrap();
+    generate(&["generate", "page", "contact"], &root);
+    let contact = fs::read_to_string(root.join("src/pages/contact.rs")).unwrap();
+    assert!(contact.contains("ComponentRole::PAGE"), "{contact}");
+}
+
+#[test]
+fn generated_pages_and_documents_follow_an_older_manual_head_site() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = new_minimal_site(temp.path());
+    fs::write(root.join("src/layouts/root.rs"), LEGACY_ROOT_LAYOUT).unwrap();
+    fs::write(root.join("src/pages/home.rs"), LEGACY_HOME_PAGE).unwrap();
+    // A commented-out builder call does not enable the managed head.
+    let routes = root.join("src/routes.rs");
+    let source = fs::read_to_string(&routes).unwrap();
+    assert!(source.contains(MANAGED_HEAD_BUILDER), "{source}");
+    fs::write(
+        &routes,
+        source.replace(
+            MANAGED_HEAD_BUILDER,
+            "        // .with_head(proa::HeadConfig::default())\n",
+        ),
+    )
+    .unwrap();
+
+    generate(&["generate", "page", "contact"], &root);
+    let contact = fs::read_to_string(root.join("src/pages/contact.rs")).unwrap();
+    assert!(contact.contains("title: \"Contact\","), "{contact}");
+    assert!(!contact.contains("ComponentRole"), "{contact}");
+
+    generate(
+        &[
+            "generate",
+            "layout",
+            "marketing",
+            "--document",
+            "--replace-root",
+        ],
+        &root,
+    );
+    let document = fs::read_to_string(root.join("src/layouts/marketing.rs")).unwrap();
+    assert!(
+        document.contains("<title>{raw_text_ok(self.title)}</title>"),
+        "{document}"
+    );
+    assert!(!document.contains("ComponentRole"), "{document}");
+    assert!(!document.contains("cx.head()"), "{document}");
+}
+
 #[test]
 fn route_generators_reject_collisions_before_writing_files() {
     let temp = tempfile::tempdir().unwrap();

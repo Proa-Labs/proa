@@ -68,6 +68,7 @@ __DATABASE_LOAD__        Ok(__INITIALIZER__)
 pub fn db_rs() -> &'static str {
     r#"use std::{str::FromStr, time::Duration};
 
+use anyhow::Context;
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -82,6 +83,16 @@ pub async fn connect(database_url: &str) -> anyhow::Result<SqlitePool> {
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .busy_timeout(Duration::from_secs(5));
+    // SQLite creates a missing database file but not its directory. An
+    // in-memory URL has no directory.
+    if let Some(directory) = options
+        .get_filename()
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(directory)
+            .with_context(|| format!("create database directory {}", directory.display()))?;
+    }
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)
@@ -166,11 +177,10 @@ pub fn root_layout() -> &'static str {
     r#"// proa:document-root
 use std::future::Future;
 
-use proa::{raw_text_ok, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
+use proa::{ComponentRole, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
 use proa::html;
 
 pub struct RootDocument<C> {
-    pub title: &'static str,
     pub content: C,
 }
 
@@ -179,12 +189,13 @@ where
     L: DataLoader,
     C: WebRender<L> + Send + 'static,
 {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+
     fn render(
         self,
         cx: &mut WebContext<L>,
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
-            let RootDocument { title, content } = self;
             let (favicon, stylesheet) = if cx.request().has_public_assets() {
                 ("public/favicon.svg", "public/styles.css")
             } else {
@@ -199,11 +210,11 @@ where
                         <meta charset="utf-8">
                         <meta name="viewport" content="width=device-width, initial-scale=1">
                         <meta name="color-scheme" content="dark">
-                        <title>{raw_text_ok(title)}</title>
+                        {cx.head()}
                         <link rel="icon" href={favicon}>
                         <link rel="stylesheet" href={stylesheet}>
                     </head>
-                    <body>{content}</body>
+                    <body>{self.content}</body>
                 </html>
             }
             .render(cx)
@@ -330,12 +341,13 @@ pub fn home_rs(
     });
     if has_database {
         imports.push("use proa::stream::DataResolver;");
-        imports.push(
-            "use proa::{html, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
-        );
-    } else {
-        imports.push("use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};");
     }
+    imports.push(match (has_database, blank) {
+        (true, true) => "use proa::{html, ComponentRole, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
+        (true, false) => "use proa::{html, ComponentRole, DataLoader, HeadMetadata, RenderOutcome, WebContext, WebRender, WriteError};",
+        (false, true) => "use proa::{html_sync, ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
+        (false, false) => "use proa::{html_sync, ComponentRole, DataLoader, HeadMetadata, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
+    });
     if markdown {
         if has_database {
             imports.push("use proa::{md, MdRender};");
@@ -361,7 +373,8 @@ pub fn home_rs(
         }
     }
 
-    let mut constants = Vec::new();
+    let title_constant = format!("const TITLE: &str = {};", super::rust_string_literal(title));
+    let mut constants = vec![title_constant.as_str()];
     if blank {
         constants.push("const READY_HEADING: &str = \"Ready.\";");
     } else {
@@ -498,8 +511,23 @@ pub fn home_rs(
         String::new()
     };
 
+    let head = if blank {
+        "cx.head_mut().title(TITLE)"
+    } else {
+        "cx.head_mut().metadata(HeadMetadata {
+            title: TITLE.into(),
+            description: LEDE.into(),
+            ..Default::default()
+        })"
+    };
     let render_impl = if has_database {
         r#"impl<L: DataLoader> WebRender<L> for HomePage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    async fn render_head(&self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        __HEAD__
+    }
+
     fn render(
         self,
         cx: &mut WebContext<L>,
@@ -509,6 +537,12 @@ pub fn home_rs(
 }"#
     } else {
         r#"impl<L: DataLoader> WebRenderSync<L> for HomePage {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+
+    fn render_head(&self, cx: &mut WebContext<L>) -> impl SyncHeadOperation {
+        __HEAD__
+    }
+
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         __BODY__
     }
@@ -523,14 +557,9 @@ pub fn home_rs(
     };
     let html_response = if has_database {
         r#"let resolver = DataResolver::request_scope(state.loader.clone());
-    let html = RouteResponse::ssr_async_with_loader(
-        RootDocument { title: __TITLE__, content: HomePage },
-        resolver.clone(),
-    );"#
+    let html = RouteResponse::ssr_async_with_loader(RootDocument { content: HomePage }, resolver.clone());"#
     } else {
-        r#"let html = RouteResponse::ssr_async(
-        RootDocument { title: __TITLE__, content: proa::to_async(HomePage) },
-    );"#
+        r#"let html = RouteResponse::ssr_async(RootDocument { content: proa::to_async(HomePage) });"#
     };
     let response = if markdown {
         if has_database {
@@ -560,32 +589,30 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
         ""
     };
 
-    r#"__IMPORTS__
+    // One formatting pass: the constants carry the user's title, and a later
+    // placeholder replacement would rewrite any placeholder name it contains.
+    let imports = imports.join("\n");
+    let constants = constants.join("\n");
+    let render_impl = render_impl
+        .replace("__HEAD__", head)
+        .replace("__BODY__", &body);
+    format!(
+        r#"{imports}
 
-__CONSTANTS__
+{constants}
 
 #[derive(Debug, Clone, Copy)]
 pub struct HomePage;
 
-__RENDER_IMPL__
-__MARKDOWN_IMPL__
+{render_impl}
+{markdown_impl}
 
-pub async fn handler(__ARGS__) -> Result<impl IntoResponse, AppError> {
-    __HTML_RESPONSE__
-    __RESPONSE__
-}
-__MD_HANDLER__"#
-        .replace("__IMPORTS__", &imports.join("\n"))
-        .replace("__CONSTANTS__", &constants.join("\n"))
-        .replace("__RENDER_IMPL__", &render_impl.replace("__BODY__", &body))
-        .replace("__MARKDOWN_IMPL__", &markdown_impl)
-        .replace("__ARGS__", args)
-        .replace(
-            "__HTML_RESPONSE__",
-            &html_response.replace("__TITLE__", &super::rust_string_literal(title)),
-        )
-        .replace("__RESPONSE__", response)
-        .replace("__MD_HANDLER__", md_handler)
+pub async fn handler({args}) -> Result<impl IntoResponse, AppError> {{
+    {html_response}
+    {response}
+}}
+{md_handler}"#
+    )
 }
 
 fn home_markdown_impl(has_database: bool, has_ui: bool, blank: bool) -> String {
@@ -723,6 +750,7 @@ pub fn router(state: AppState, base_path: proa::BasePath) -> Result<Router, Fram
     };
     let app = FrameworkBuilder::new()
         .with_base_path(base_path)
+        .with_head(proa::HeadConfig::default())
         .with_dynamic_routes_and_metadata(router, metadata)
         .try_build()?;
     Ok(app.layer(TraceLayer::new_for_http()))

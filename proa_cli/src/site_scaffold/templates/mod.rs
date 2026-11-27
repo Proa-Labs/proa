@@ -9,13 +9,13 @@ use base16ct::HexDisplay;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use quote::ToTokens;
 use serde_json::{json, Map};
 use sha2::{Digest, Sha256};
 
 use crate::capabilities::{
     CapabilitySelection, DatabaseChoice, DeployChoice, StarterChoice, StylingChoice, UiChoice,
 };
+use crate::scaffold::rust_string_literal;
 
 use super::plan::SitePlan;
 
@@ -144,6 +144,7 @@ pub fn populate(
 
     if has_database {
         plan.write("tests/dataloader.rs", dataloader_test())?;
+        plan.write("tests/database.rs", database_test())?;
     }
     if selection.markdown {
         plan.write(
@@ -185,12 +186,6 @@ fn sha256(source: &str) -> String {
         "sha256:{:x}",
         HexDisplay(&Sha256::digest(source.as_bytes()))
     )
-}
-
-fn rust_string_literal(value: &str) -> String {
-    syn::LitStr::new(value, proc_macro2::Span::call_site())
-        .into_token_stream()
-        .to_string()
 }
 
 fn cargo_toml(package: &str, has_database: bool) -> String {
@@ -344,6 +339,7 @@ fn agents() -> &'static str {
 - Use `WebRenderSync<L>` unless a component awaits; then use `WebRender<L>` and `html!`.
 - Put request-shared keyed reads behind `cx.load_typed(...)` and create one `DataResolver::request_scope(...)` per HTML response.
 - Keep `RootDocument` HTML-only. Put semantic non-browser output on the page with `MdRenderSync`.
+- The router enables the managed head once with `FrameworkBuilder::with_head`. Each page declares `const ROLE: ComponentRole = ComponentRole::PAGE;` and sets its title and other metadata in `render_head`, never in `render`. A layout that renders the `{cx.head()}` outlet declares `ComponentRole::LAYOUT`. A missing role can still build and lint cleanly: a page without `ROLE = PAGE` compiles, then its HTML response fails with a 500 (`HeadLifecycle(OrphanProvider)`).
 - Configure dev/build scripts, asset tasks, and `paths.public` in `proa.config.rs`. Reference managed public files with `cx.url("public/...")` so they resolve to fingerprinted URLs.
 - Static classes stay in constants and hot render paths must not allocate.
 - Every component root has a stable `data-*` marker.
@@ -565,6 +561,28 @@ async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children(
 "#
 }
 
+/// Startup must open the configured database from any working directory, so
+/// connect against a directory that does not exist yet, and an in-memory URL.
+fn database_test() -> &'static str {
+    r#"#[path = "../src/db.rs"] mod db;
+
+#[tokio::test]
+async fn connect_creates_a_missing_database_directory() {
+    let root = std::env::temp_dir().join(format!("proa-database-test-{}", std::process::id()));
+    let file = root.join("nested/data/app.db");
+    let pool = db::connect(&format!("sqlite://{}", file.display())).await.unwrap();
+    pool.close().await;
+    assert!(file.is_file());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn connect_opens_an_in_memory_database() {
+    db::connect("sqlite::memory:").await.unwrap().close().await;
+}
+"#
+}
+
 fn representation_test(has_database: bool, starter: StarterChoice) -> String {
     let arc_import = if has_database {
         "use std::sync::Arc;\n\n"
@@ -739,6 +757,15 @@ fn add_deploy(
         )?;
     }
     Ok(())
+}
+
+pub(super) fn database_module() -> &'static str {
+    app::db_rs()
+}
+
+#[cfg(test)]
+pub(super) fn root_layout() -> &'static str {
+    app::root_layout()
 }
 
 /// The Dockerfile `proa new site` and `proa add <deployment>` both write.
