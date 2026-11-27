@@ -183,7 +183,7 @@ pub fn generate_layout(options: GenerateLayoutOptions) -> Result<()> {
 
     target.plan_mod_updates(&mut plan);
     let source = if options.document {
-        document_layout_source(&struct_name)
+        document_layout_source(&struct_name, site_manages_head(&root))
     } else {
         section_layout_source(&struct_name)
     };
@@ -658,6 +658,69 @@ impl ScaffoldPlan {
             description: description.into(),
         });
     }
+}
+
+/// Spell `value` as a Rust string literal, escaping quotes, backslashes, and
+/// control characters. Every user-supplied string spliced into generated Rust
+/// goes through this.
+pub(crate) fn rust_string_literal(value: &str) -> String {
+    proc_macro2::Literal::string(value).to_string()
+}
+
+/// Whether the site renders the managed document head.
+///
+/// Generated pages wrap themselves in the site's `RootDocument`, so its source
+/// in `src/layouts/root.rs` decides. A managed root declares `ROLE = LAYOUT`
+/// or renders the `cx.head()` outlet. A root from an earlier CLI takes a
+/// `title` field and writes `<title>` itself. Comments never count. A site
+/// without a readable root layout gets the current, managed shape.
+pub(crate) fn site_manages_head(root: &Path) -> bool {
+    let Ok(source) = fs::read_to_string(root.join("src/layouts/root.rs")) else {
+        return true;
+    };
+    let Ok(file) = syn::parse_file(&source) else {
+        return true;
+    };
+    let mut title_field = false;
+    for item in &file.items {
+        match item {
+            syn::Item::Struct(item) if item.ident == "RootDocument" => {
+                title_field = item
+                    .fields
+                    .iter()
+                    .any(|field| field.ident.as_ref().is_some_and(|ident| ident == "title"));
+            }
+            syn::Item::Impl(item) => {
+                let layout = item.items.iter().any(|item| {
+                    matches!(item, syn::ImplItem::Const(constant)
+                        if constant.ident == "ROLE"
+                            && matches!(&constant.expr, syn::Expr::Path(path)
+                                if path.path.segments.last().is_some_and(|segment| segment.ident == "LAYOUT")))
+                });
+                if layout {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    renders_head_outlet(quote::ToTokens::into_token_stream(file)) || !title_field
+}
+
+/// Find a `.head()` call with no arguments anywhere, including inside
+/// template macros, whose bodies `syn` leaves as tokens.
+fn renders_head_outlet(tokens: proc_macro2::TokenStream) -> bool {
+    use proc_macro2::{Delimiter, TokenTree};
+    let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+    tokens.windows(3).any(|window| {
+        matches!(window, [TokenTree::Punct(dot), TokenTree::Ident(name), TokenTree::Group(arguments)]
+            if dot.as_char() == '.'
+                && name == "head"
+                && arguments.delimiter() == Delimiter::Parenthesis
+                && arguments.stream().is_empty())
+    }) || tokens.iter().any(
+        |token| matches!(token, TokenTree::Group(group) if renders_head_outlet(group.stream())),
+    )
 }
 
 pub(crate) fn format_generated_rust(path: &Path, source: &str) -> Result<String> {
@@ -1246,8 +1309,43 @@ where
     )
 }
 
-fn document_layout_source(struct_name: &str) -> String {
-    fill(
+/// A full document shell. In a managed-head site it is a `LAYOUT` that places
+/// the head outlet, and its Page sets the metadata. An older site's shell
+/// takes the title and description and writes them itself.
+fn document_layout_source(struct_name: &str, managed_head: bool) -> String {
+    let template = if managed_head {
+        r#"// proa:document-root
+use proa::{ComponentRole, DataLoader, WebContext, WebRenderSync, WriteError};
+use proa::html_sync;
+
+pub struct __STRUCT__<C> {
+    pub content: C,
+}
+
+impl<L, C> WebRenderSync<L> for __STRUCT__<C>
+where
+    L: DataLoader,
+    C: WebRenderSync<L>,
+{
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <!DOCTYPE html>
+            <html lang="en">
+                <head>
+                    <meta charset="utf-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1" />
+                    {cx.head()}
+                </head>
+                <body>{self.content}</body>
+            </html>
+        }
+        .render(cx)
+    }
+}
+"#
+    } else {
         r#"// proa:document-root
 use proa::{raw_text_ok, DataLoader, WebContext, WebRenderSync, WriteError};
 use proa::html_sync;
@@ -1280,9 +1378,8 @@ where
     }
 }
 "#
-        .to_string(),
-        &[("__STRUCT__", struct_name)],
-    )
+    };
+    fill(template.to_string(), &[("__STRUCT__", struct_name)])
 }
 
 fn data_source(name: &str) -> String {
@@ -1448,7 +1545,8 @@ mod tests {
     fn generated_layouts_use_default_writer() {
         for source in [
             section_layout_source("MarketingLayout"),
-            document_layout_source("DocumentLayout"),
+            document_layout_source("DocumentLayout", true),
+            document_layout_source("DocumentLayout", false),
         ] {
             assert!(source.contains("impl<L, C> WebRenderSync<L>"));
             assert!(source.contains("C: WebRenderSync<L>"));
@@ -1456,5 +1554,47 @@ mod tests {
             assert!(!source.contains("WriteBuf"));
             syn::parse_file(&source).expect("generated layout must be valid Rust syntax");
         }
+    }
+
+    #[test]
+    fn document_layouts_match_the_site_head_mode() {
+        let managed = document_layout_source("DocumentLayout", true);
+        assert!(managed.contains("const ROLE: ComponentRole = ComponentRole::LAYOUT;"));
+        assert!(managed.contains("{cx.head()}"));
+        assert!(!managed.contains("<title>"), "{managed}");
+        assert!(!managed.contains("pub title"), "{managed}");
+
+        let manual = document_layout_source("DocumentLayout", false);
+        assert!(manual.contains("<title>{raw_text_ok(self.title)}</title>"));
+        assert!(!manual.contains("ComponentRole"), "{manual}");
+        assert!(!manual.contains("cx.head()"), "{manual}");
+    }
+
+    #[test]
+    fn head_mode_follows_the_root_layout_not_comments() {
+        let site = tempfile::tempdir().unwrap();
+        let layout = site.path().join("src/layouts/root.rs");
+        fs::create_dir_all(layout.parent().unwrap()).unwrap();
+        let manual = "pub struct RootDocument<C> {\n    pub title: &'static str,\n    pub content: C,\n}\n\nfn render() {\n    html! { <head><title>{raw_text_ok(title)}</title></head> }\n}\n";
+        for (source, managed) in [
+            (crate::site_scaffold::root_layout().to_string(), true),
+            (manual.to_string(), false),
+            // Commented-out managed code does not make an older root managed.
+            (
+                format!("// const ROLE: ComponentRole = ComponentRole::LAYOUT;\n// {{cx.head()}}\n{manual}"),
+                false,
+            ),
+            // An older root migrated by hand keeps working with either signal.
+            (manual.replace("<title>{raw_text_ok(title)}</title>", "{cx.head()}"), true),
+            (
+                format!("{manual}\nimpl<C> WebRender<L> for RootDocument<C> {{\n    const ROLE: ComponentRole = ComponentRole::LAYOUT;\n}}\n"),
+                true,
+            ),
+        ] {
+            fs::write(&layout, &source).unwrap();
+            assert_eq!(site_manages_head(site.path()), managed, "{source}");
+        }
+        fs::remove_file(&layout).unwrap();
+        assert!(site_manages_head(site.path()), "no root layout");
     }
 }
