@@ -780,7 +780,7 @@ fn finalize_without_polling<L: DataLoader + 'static>(
     if cacheable {
         response
             .extensions_mut()
-            .insert(super::cdn_cache::CacheableStream);
+            .insert(super::cdn_cache::CacheableStream::default());
     }
     Ok(response)
 }

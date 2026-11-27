@@ -22,9 +22,8 @@ use proa_framework_core::{
 use tower::layer::Layer;
 use tower::Service;
 
-use super::cdn_cache::{default_document_policy, MayStore};
+use super::cdn_cache::{finish_route_document, MayStore};
 use super::local_executor::{LocalStreamExecutor, LocalStreamExecutorConfig};
-use super::response::prepare_deferred_framework_stream;
 
 tokio::task_local! {
     pub(super) static ROUTE_CONTEXT: RefCell<RouteContext>;
@@ -612,10 +611,7 @@ where
             let local_stream_executor = self.local_stream_executor.clone();
             return Box::pin(async move {
                 let response = scoped.await?;
-                Ok(default_document_policy(
-                    prepare_deferred_framework_stream(response, local_stream_executor).await,
-                    outer_cache,
-                ))
+                Ok(finish_route_document(response, local_stream_executor, outer_cache).await)
             });
         }
 
@@ -642,10 +638,7 @@ where
                     async move { inner.call(request).await },
                 )
                 .await?;
-            Ok(default_document_policy(
-                prepare_deferred_framework_stream(response, local_stream_executor).await,
-                outer_cache,
-            ))
+            Ok(finish_route_document(response, local_stream_executor, outer_cache).await)
         })
     }
 }

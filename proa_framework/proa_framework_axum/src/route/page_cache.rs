@@ -524,6 +524,9 @@ async fn record_stream(
     let mut chunks = Vec::new();
     let mut len = 0;
     let recorded = loop {
+        if Instant::now() >= deadline {
+            break Recorded::Late;
+        }
         match tokio::time::timeout_at(deadline, body.frame()).await {
             Err(_) => break Recorded::Late,
             Ok(None) => break Recorded::Complete,

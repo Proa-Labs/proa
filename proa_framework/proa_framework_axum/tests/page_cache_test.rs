@@ -531,7 +531,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Slow {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             tokio::time::sleep(Duration::from_millis(5)).await;
-            WriteBuf::extend_str(&mut cx.out, "<p>resolved</p>")
+            html! { <p>"resolved"</p> }.render(cx).resolve().await
         })
     }
 }
@@ -550,7 +550,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for SelfCachingPage {
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("public, max-age=30"),
             ));
-            WriteBuf::extend_str(&mut cx.out, "<p>page</p>")
+            html! { <p>"page"</p> }.render(cx).resolve().await
         })
     }
 }
@@ -799,7 +799,7 @@ impl<L: DataLoader, B: WriteBuf> WebRender<L, B> for Sleeps {
     ) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
         RenderOutcome::pending(async move {
             tokio::time::sleep(Duration::from_millis(self.0)).await;
-            WriteBuf::extend_str(&mut cx.out, "<p>resolved</p>")
+            html! { <p>"resolved"</p> }.render(cx).resolve().await
         })
     }
 }
@@ -922,6 +922,28 @@ async fn streams_outlast_the_page_cache_timeout_on_a_current_thread_runtime() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streams_outlast_the_page_cache_timeout_on_a_multi_thread_runtime() {
     streams_outlast_the_page_cache_timeout().await;
+}
+
+#[tokio::test]
+async fn an_outer_page_cache_lets_a_stream_outlast_its_first_chunk_deadline() {
+    let routes = Router::new().route(
+        "/",
+        get(|| async {
+            RouteResponse::ssr_stream(html! {
+                {Suspense::new(Sleeps(300), html_sync! { <p>"loading"</p> })}
+            })
+        }),
+    );
+    let app = FrameworkBuilder::new()
+        .with_dynamic_routes(routes)
+        .build()
+        .layer(PageCacheLayer::new("build").with_timeout(Duration::from_millis(50)));
+
+    let response = app.oneshot(request("/")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(cache_status(&response), "BYPASS");
+    assert_eq!(cache_control(&response), Some("private, no-store"));
+    assert_eq!(body(response).await, "<p>resolved</p>");
 }
 
 async fn cdn_cached_streams_outlast_the_request_timeout() {

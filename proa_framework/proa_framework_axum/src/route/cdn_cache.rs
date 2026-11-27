@@ -21,6 +21,7 @@ use proa_framework_core::RouteResponse as CoreRouteResponse;
 use tower::{Layer, Service};
 
 use super::context::ROUTE_CONTEXT;
+use super::local_executor::LocalStreamExecutor;
 use super::page_cache::{bypass_request, PageCacheLayer};
 use super::response::{
     finish_deferred_render, prepare_deferred_framework_stream, DeferredFrameworkStream,
@@ -49,8 +50,8 @@ pub(super) struct MayStore;
 
 /// Marks a framework document streamed in order for a page cache. Once its
 /// body ends, its bytes equal the buffered render.
-#[derive(Clone, Copy)]
-pub(super) struct CacheableStream;
+#[derive(Clone, Default)]
+pub(super) struct CacheableStream(Option<LocalStreamExecutor>);
 
 /// Send `Cache-Control: private, no-store` on a framework document when no
 /// handler, layer, head hook, or page cache chose a cache policy.
@@ -63,7 +64,7 @@ pub(super) struct CacheableStream;
 /// marks the requests it may store, and their documents keep no default: the
 /// cache would otherwise read the default as the page's own `private`
 /// policy and never store it. That cache sets a policy on every response.
-pub(super) fn default_document_policy(mut response: Response, outer_cache: bool) -> Response {
+fn default_document_policy(mut response: Response, outer_cache: bool) -> Response {
     if response
         .extensions_mut()
         .remove::<FrameworkDocument>()
@@ -82,6 +83,30 @@ pub(super) fn default_document_policy(mut response: Response, outer_cache: bool)
         }
     }
     response
+}
+
+/// Finish a route response, or hand an unopened in-order stream to the
+/// outer cache so its lookup deadline only covers the handler response.
+pub(super) async fn finish_route_document(
+    mut response: Response,
+    executor: LocalStreamExecutor,
+    outer_cache: bool,
+) -> Response {
+    if outer_cache
+        && response
+            .extensions()
+            .get::<DeferredFrameworkStream>()
+            .is_some()
+    {
+        if let Some(stream) = response.extensions_mut().get_mut::<CacheableStream>() {
+            stream.0 = Some(executor);
+            return default_document_policy(response, outer_cache);
+        }
+    }
+    default_document_policy(
+        prepare_deferred_framework_stream(response, executor).await,
+        outer_cache,
+    )
 }
 
 /// Record that a page cache may store this request's document.
@@ -114,17 +139,26 @@ pub(super) fn stream_in_order_for_page_cache<L: DataLoader + 'static>(
 
 /// Prepare a stream rendered for a page cache, so the cache decides on the
 /// final response head, managed head decisions included.
-pub(super) async fn prepare_cacheable_stream(response: Response) -> Response {
+pub(super) async fn prepare_cacheable_stream(mut response: Response) -> Response {
     let extensions = response.extensions();
     if extensions.get::<CacheableStream>().is_none()
         || extensions.get::<DeferredFrameworkStream>().is_none()
     {
         return response;
     }
-    // Without the route context the stream stays deferred, and uncached.
-    match ROUTE_CONTEXT.try_with(|cx| cx.borrow().local_stream_executor()) {
-        Ok(Some(executor)) => prepare_deferred_framework_stream(response, executor).await,
-        _ => response,
+    let executor = response
+        .extensions_mut()
+        .get_mut::<CacheableStream>()
+        .and_then(|stream| stream.0.take())
+        .or_else(|| {
+            ROUTE_CONTEXT
+                .try_with(|cx| cx.borrow().local_stream_executor())
+                .ok()
+                .flatten()
+        });
+    match executor {
+        Some(executor) => prepare_deferred_framework_stream(response, executor).await,
+        None => response,
     }
 }
 
