@@ -18,6 +18,31 @@ pub(super) struct DocsSidebar {
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSidebar {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        ReadingSidebar {
+            title: self.docs.config.site_name,
+            section: Some(DocsSectionMenu {
+                docs: self.docs,
+                active_path: self.page.route_path,
+            }),
+            content: DocsNav {
+                items: self.docs.nav_items_for_path(self.page.route_path),
+                active_path: self.page.route_path,
+            },
+        }
+        .render(cx)
+    }
+}
+
+pub(crate) struct ReadingSidebar<C, S = ()> {
+    pub(crate) title: &'static str,
+    pub(crate) section: Option<S>,
+    pub(crate) content: C,
+}
+
+impl<L: DataLoader, B: WriteBuf, C: WebRenderSync<L, B>, S: WebRenderSync<L, B>> WebRenderSync<L, B>
+    for ReadingSidebar<C, S>
+{
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div data-component="docs-sidebar" class="docs-sidebar-inner">
                 <div class="docs-sidebar-header">
@@ -26,23 +51,15 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsSidebar {
                             {ProaLogoMark { class: "docs-sidebar-logo-svg" }}
                         </span>
                         <span class="docs-sidebar-brand-copy">
-                            <strong>{self.docs.config.site_name}</strong>
+                            <strong>{self.title}</strong>
                         </span>
                     </a>
                     {SearchTrigger {
                         class: Some("docs-sidebar-search"),
                     }}
-                    {DocsSectionMenu {
-                        docs: self.docs,
-                        active_path: self.page.route_path,
-                    }}
+                    {self.section}
                 </div>
-                <div class="docs-sidebar-content">
-                    {DocsNav {
-                        items: self.docs.nav_items_for_path(self.page.route_path),
-                        active_path: self.page.route_path,
-                    }}
-                </div>
+                <div class="docs-sidebar-content">{self.content}</div>
                 <div class="docs-sidebar-footer">
                     <a href={routes::HOME} class="docs-sidebar-footer-link">"Back to site"</a>
                     {ThemeToggle::new()}

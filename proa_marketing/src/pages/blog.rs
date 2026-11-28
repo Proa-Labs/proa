@@ -16,8 +16,15 @@ use proa_docs::{DocPage, Docs, DocsToc};
 use proa_macros::{html_sync, md_sync};
 
 use crate::{
+    components::{
+        brand::ProaLogoMark,
+        docs::{DocsHeader, ReadingSidebar},
+        icons::PanelLeftIcon,
+        search_trigger::SearchIconButton,
+        theme_toggle::ThemeToggle,
+    },
     data::{routes, site},
-    layout::{render_managed_page, PageMeta},
+    layout::{render_managed_docs_page, PageMeta},
     utils::{
         document::{render_markdown, Url},
         http::accepts_markdown,
@@ -84,7 +91,7 @@ pub async fn handler(headers: HeaderMap) -> Response {
     if accepts_markdown(&headers) {
         return archive_markdown();
     }
-    let mut response = render_managed_page(INDEX.path, BlogPage { post: None });
+    let mut response = render_managed_docs_page(INDEX.path, BlogPage { post: None });
     response
         .headers_mut()
         .insert(header::VARY, HeaderValue::from_static("Accept"));
@@ -114,7 +121,7 @@ pub async fn path_handler(headers: HeaderMap, Path(path): Path<String>) -> Respo
             .iter()
             .find(|post| post.page.slug == page.slug)
             .expect("compiled blog post");
-        render_managed_page(page.route_path, BlogPage { post: Some(post) })
+        render_managed_docs_page(page.route_path, BlogPage { post: Some(post) })
     })
 }
 
@@ -148,24 +155,51 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BlogPage {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let current = self.meta().path;
         html_sync! {
-            <div class="blog-layout" data-component="blog-page">
-                <div class="blog-frame">
-                    <aside class="blog-sidebar">
-                        <p class="blog-sidebar-title">{LABEL}</p>
+            <header class="docs-mobile-topbar blog-mobile-header" aria-label="Blog navigation">
+                <a class="docs-sidebar-brand" href={routes::BLOG}>
+                    <span class="docs-sidebar-mark" aria-hidden="true">
+                        {ProaLogoMark { class: "docs-sidebar-logo-svg" }}
+                    </span>
+                    <strong>{TITLE}</strong>
+                </a>
+                <div class="docs-mobile-actions">
+                    {SearchIconButton::new("Search Proa").with_class("docs-mobile-icon-button")}
+                    {ThemeToggle { class: Some("docs-mobile-icon-button") }}
+                    <button
+                        type="button"
+                        class="docs-mobile-icon-button"
+                        popovertarget="blog-posts-menu"
+                        aria-label="Browse posts"
+                    >
+                        {PanelLeftIcon::new(19)}
+                    </button>
+                    <div id="blog-posts-menu" popover="auto" class="blog-mobile-menu">
                         {PostNav { current }}
-                    </aside>
-                    <details class="blog-mobile-nav">
-                        <summary>"Browse posts"</summary>
-                        {PostNav { current }}
-                    </details>
-                    <div class="blog-content">
-                        {match self.post {
-                            Some(post) => html_sync! { {Article { post }} },
-                            None => html_sync! { {Archive} },
-                        }}
+                        <a class="blog-mobile-home docs-sidebar-footer-link" href={routes::HOME}>
+                            "Back to site"
+                        </a>
                     </div>
                 </div>
-            </div>
+            </header>
+            <main
+                class="docs-layout blog-layout"
+                id="main"
+                data-component="blog-page"
+                tabindex="-1"
+            >
+                <aside class="docs-sidebar blog-sidebar" aria-label="Blog sidebar">
+                    {ReadingSidebar::<PostNav> {
+                        title: TITLE,
+                        section: None,
+                        content: PostNav { current },
+                    }}
+                </aside>
+                {DocsHeader { active_path: current }}
+                {match self.post {
+                    Some(post) => html_sync! { {Article { post }} },
+                    None => html_sync! { {Archive} },
+                }}
+            </main>
         }
         .render(cx)
     }
@@ -178,7 +212,7 @@ struct PostNav {
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for PostNav {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
-            <nav class="blog-nav" data-component="blog-nav" aria-label="Blog posts">
+            <nav class="proa-docs-nav blog-nav" data-component="blog-nav" aria-label="Blog posts">
                 <ul>
                     <li>
                         <a
@@ -209,8 +243,8 @@ struct Archive;
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Archive {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
-            <section data-component="blog-archive">
-                <header class="blog-archive-header">
+            <section class="blog-archive" data-component="blog-archive">
+                <header>
                     <h1 class="blog-heading">{TITLE}</h1>
                     <p class="blog-intro">{INTRO}</p>
                 </header>
@@ -218,11 +252,13 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Archive {
                     {for post in visible_posts() {
                         html_sync! {
                             <li>
-                                <a href={post.page.route_path} class="blog-card">
+                                <a href={post.page.route_path} class="blog-post-link">
                                     <time datetime={post.date}>{post.date}</time>
-                                    <h2>{post.page.title}</h2>
-                                    <p>{post.page.description}</p>
-                                    <span class="blog-card-arrow" aria-hidden="true">"→"</span>
+                                    <div>
+                                        <h2>{post.page.title}</h2>
+                                        <p>{post.page.description}</p>
+                                    </div>
+                                    <span class="blog-post-arrow" aria-hidden="true">"→"</span>
                                 </a>
                             </li>
                         }
@@ -258,7 +294,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Article {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         let page = self.post.page;
         html_sync! {
-            <article data-component="blog-article">
+            <article class="blog-article" data-component="blog-article">
                 <header class="blog-article-header">
                     <a class="blog-back" href={routes::BLOG}><span aria-hidden="true">"←"</span>{ALL_POSTS}</a>
                     <h1 class="blog-heading">{page.title}</h1>
@@ -266,21 +302,20 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Article {
                     <div class="blog-byline">
                         <span>{self.post.author}</span>
                         <time datetime={self.post.date}>{self.post.date}</time>
-                        <a href={page.markdown_path}>"Open Markdown"</a>
+                        <a class="docs-article-action" href={page.markdown_path}>"Open Markdown"</a>
                     </div>
                 </header>
-                <div class="blog-reading">
-                    {if page.frontmatter.toc != Some(false) && !page.toc.is_empty() {
-                        html_sync! {
-                            <aside class="blog-toc" aria-label="Article contents">
-                                {DocsToc { items: page.toc }}
-                            </aside>
-                        }
-                    }}
-                    <div class="blog-prose prose">
-                        // The MDX compiler renders and escapes the authored source at build time.
-                        {StaticRaw(page.article_html)}
-                    </div>
+                {if page.frontmatter.toc != Some(false) && !page.toc.is_empty() {
+                    html_sync! {
+                        <aside class="docs-toc docs-toc-nav blog-toc" aria-label="Article contents">
+                            <p class="docs-toc-title">"On this page"</p>
+                            {DocsToc { items: page.toc }}
+                        </aside>
+                    }
+                }}
+                <div class="docs-article prose blog-prose">
+                    // The MDX compiler renders and escapes the authored source at build time.
+                    {StaticRaw(page.article_html)}
                 </div>
             </article>
         }

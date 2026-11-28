@@ -5,4 +5,5 @@ mod article;
 mod page;
 mod sidebar;
 
-pub(crate) use page::DocsPageView;
+pub(crate) use page::{DocsHeader, DocsPageView};
+pub(crate) use sidebar::ReadingSidebar;
