@@ -122,6 +122,18 @@ fn app(prefix: &str) -> Router {
             }),
         ),
         Route::endpoint(
+            "/issues/{id}",
+            get(|| async {
+                proa_framework_axum::negotiate(
+                    &axum::http::HeaderMap::new(),
+                    RouteResponse::ssr(Page),
+                    (),
+                    MarkdownAlternate::new("/issues/{id}/index.md"),
+                )
+                .unwrap()
+            }),
+        ),
+        Route::endpoint(
             "/extension",
             get(|Extension(base): Extension<BasePath>| async move { base.url("/api").to_string() }),
         ),
@@ -213,6 +225,29 @@ async fn nested_page_urls_redirects_and_framework_links_follow_startup_prefix() 
             headers[header::LINK],
             format!("<{prefix}/index.md>; rel=\"alternate\"; type=\"text/markdown\"")
         );
+    }
+}
+
+#[tokio::test]
+async fn captured_markdown_alternate_names_the_requested_resource_under_every_mount() {
+    // The alternate path is a static template. Its `{id}` capture is filled
+    // from the matched route, so a page per record needs no owned string.
+    for prefix in ["", "/apps/demo"] {
+        let app = app(prefix);
+        for (request, alternate) in [
+            ("/issues/42", "/issues/42/index.md"),
+            // A captured value is one path segment, however it was spelled.
+            ("/issues/a%2Fb%20c", "/issues/a%2Fb%20c/index.md"),
+        ] {
+            let (status, headers, _) = fetch(&app, request).await;
+            assert_eq!(status, StatusCode::OK, "{request}");
+            assert_eq!(
+                headers[header::LINK],
+                format!("<{prefix}{alternate}>; rel=\"alternate\"; type=\"text/markdown\""),
+                "{request}"
+            );
+            assert_eq!(headers[header::VARY], "Accept", "{request}");
+        }
     }
 }
 

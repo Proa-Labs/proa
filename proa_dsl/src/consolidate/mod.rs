@@ -275,11 +275,9 @@ struct AncestorCtx<'a> {
     stack: &'a [String],
     /// Whether we're inside a <script> or <style> element.
     in_script_or_style: bool,
-    /// Whether we're inside a raw-text or escapable-raw-text element
-    /// (<textarea>, <xmp>, <noscript>, <noframes>).
-    /// These have different parser semantics from normal flow content —
-    /// dynamic interpolation requires different guarantees than HTML escape
-    /// provides on its own. See CVE review Gap B.
+    /// Whether we're inside a raw-text element (<xmp>, <noscript>,
+    /// <noframes>). These do not decode character references, so an
+    /// HTML-escaped value is displayed with its entities. See CVE review Gap B.
     in_raw_text_element: bool,
     /// Whether we're inside an SVG/MathML/foreignObject subtree.
     /// HTML re-parses content in foreign-content mode, so namespace
@@ -314,15 +312,16 @@ impl<'a> AncestorCtx<'a> {
     }
 }
 
-/// Raw-text / escapable-raw-text elements per HTML5 §13.2.5. Dynamic
-/// interpolation inside these needs the same care as `<script>`/`<style>`:
-/// HTML escaping is sufficient for RCDATA (`<textarea>`, `<title>`) but not
-/// for the raw-text variants (`<xmp>`, `<noscript>`, `<noframes>`) where
-/// entities are not decoded — the user would see literal `&lt;` in the output.
+/// Raw-text elements per HTML5 §13.2.5, other than `<script>`/`<style>`.
+/// Entities are not decoded inside them, so an HTML-escaped dynamic value
+/// would show the reader literal `&lt;` and `&amp;`.
 fn is_raw_text_element(tag: &str) -> bool {
-    // `<title>` is ordinary RCDATA: the normal text writer escapes `<` and
-    // `&`, so dynamic titles need no warning or custom render component.
-    matches!(tag, "textarea" | "xmp" | "noscript" | "noframes")
+    // `<title>` and `<textarea>` are escapable raw text (RCDATA) and are not
+    // listed: character references are decoded there and only the element's
+    // own end tag closes it. The normal text writer escapes `<` and `&`, so an
+    // interpolated value is both safe and exact, and a text child is the only
+    // way to give a `<textarea>` its initial value.
+    matches!(tag, "xmp" | "noscript" | "noframes")
 }
 
 /// Foreign content containers. Content inside is parsed in the SVG or MathML
@@ -563,14 +562,12 @@ fn validate_block_expr(
         }
     }
 
-    // CVE review Gap B — raw-text and escapable-raw-text elements.
+    // CVE review Gap B: raw-text elements.
     //
-    // `<textarea>` / `<title>` are RCDATA: standard HTML escape is sufficient
-    // because `<` → `&lt;` prevents any `</textarea>` bytes from appearing.
-    // Title interpolation uses normal escaping without a warning. For textarea
-    // we still surface an advisory because initial values should
-    // usually come from a typed `value=` attribute path, not a free-form text
-    // child node. For `<xmp>` / `<noscript>` / `<noframes>` (raw text, no
+    // `<title>` / `<textarea>` are RCDATA and never reach this branch: the
+    // standard HTML escape is sufficient because `<` → `&lt;` prevents any
+    // `</textarea>` bytes from appearing, and the entities decode back to the
+    // original text. For `<xmp>` / `<noscript>` / `<noframes>` (raw text, no
     // entity decoding) the escape leaves literal `&lt;` in the output, which
     // is not an XSS but is a rendering bug worth surfacing.
     if ctx.in_raw_text_element
@@ -583,11 +580,11 @@ fn validate_block_expr(
             "raw-text element dynamic interpolation",
             &format!(
                 "dynamic expression `{expr_short}` inside raw-text element <{ancestor_tag}>. \
-                 HTML escape prevents tag breakout in RCDATA (<textarea>, <title>), but \
-                 raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities \
-                 so the output will contain literal `&lt;`/`&amp;`. Prefer a typed initial \
-                 value (e.g. the `value` attribute) or pre-render the text outside the \
-                 element (HTML5 §13.2.5.4)"
+                 Raw-text elements (<xmp>, <noscript>, <noframes>) do not decode entities, \
+                 so the HTML-escaped value is shown with literal `&lt;`/`&amp;`. Render the \
+                 text in an element with normal content such as <pre>, or wrap the \
+                 expression in `raw_text_ok(...)` if the literal entities are acceptable \
+                 (HTML5 §13.2.5.4)"
             ),
         ));
         if warnings.exhausted() {
@@ -2847,18 +2844,23 @@ mod tests {
     use crate::parse::HtmlRoot;
 
     #[test]
-    fn dynamic_title_is_accepted_while_raw_text_warnings_remain() {
-        let title: HtmlRoot = syn::parse_str("<title>{page_title}</title>").unwrap();
-        let validation = validate(&title);
-        assert!(validation.errors.is_empty());
-        assert!(validation.warnings.is_empty());
-        for tag in ["textarea", "xmp", "noscript", "noframes"] {
+    fn dynamic_rcdata_is_accepted_while_raw_text_warnings_remain() {
+        // Escapable raw text decodes entities, so an escaped value is exact.
+        for tag in ["title", "textarea"] {
+            let root: HtmlRoot = syn::parse_str(&format!("<{tag}>{{value}}</{tag}>")).unwrap();
+            let validation = validate(&root);
+            assert!(validation.errors.is_empty(), "{tag}");
+            assert!(validation.warnings.is_empty(), "{tag}");
+        }
+        // Raw text does not, so the reader would see `&lt;` and `&amp;`.
+        for tag in ["xmp", "noscript", "noframes"] {
             let root: HtmlRoot = syn::parse_str(&format!("<{tag}>{{value}}</{tag}>")).unwrap();
             let warnings = validate_security(&root).unwrap().to_string();
             assert!(
                 warnings.contains("raw_text_element_dynamic_interpolation"),
                 "{tag}: {warnings}"
             );
+            assert!(warnings.contains("raw_text_ok"), "{tag}: {warnings}");
         }
     }
 

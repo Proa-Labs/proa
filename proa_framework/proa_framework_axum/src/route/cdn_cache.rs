@@ -64,23 +64,26 @@ pub(super) struct CacheableStream(Option<LocalStreamExecutor>);
 /// marks the requests it may store, and their documents keep no default: the
 /// cache would otherwise read the default as the page's own `private`
 /// policy and never store it. That cache sets a policy on every response.
-fn default_document_policy(mut response: Response, outer_cache: bool) -> Response {
-    if response
+fn default_document_policy(mut response: Response, outer_cache: bool, probe: bool) -> Response {
+    let document = response
         .extensions_mut()
         .remove::<FrameworkDocument>()
-        .is_some()
-        && !outer_cache
-    {
-        let headers = response.headers();
-        let chosen = headers.contains_key(header::CACHE_CONTROL)
-            || headers.contains_key(header::EXPIRES)
-            || CDN_HEADERS.iter().any(|name| headers.contains_key(*name));
-        if !chosen {
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static(PRIVATE_NO_STORE),
-            );
-        }
+        .is_some();
+    let policy = if document && !outer_cache {
+        PRIVATE_NO_STORE
+    } else if probe || response.status().is_server_error() {
+        "no-store"
+    } else {
+        return response;
+    };
+    let headers = response.headers();
+    let chosen = headers.contains_key(header::CACHE_CONTROL)
+        || headers.contains_key(header::EXPIRES)
+        || CDN_HEADERS.iter().any(|name| headers.contains_key(*name));
+    if !chosen {
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static(policy));
     }
     response
 }
@@ -91,6 +94,7 @@ pub(super) async fn finish_route_document(
     mut response: Response,
     executor: LocalStreamExecutor,
     outer_cache: bool,
+    probe: bool,
 ) -> Response {
     if outer_cache
         && response
@@ -100,12 +104,13 @@ pub(super) async fn finish_route_document(
     {
         if let Some(stream) = response.extensions_mut().get_mut::<CacheableStream>() {
             stream.0 = Some(executor);
-            return default_document_policy(response, outer_cache);
+            return default_document_policy(response, outer_cache, probe);
         }
     }
     default_document_policy(
         prepare_deferred_framework_stream(response, executor).await,
         outer_cache,
+        probe,
     )
 }
 
