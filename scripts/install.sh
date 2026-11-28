@@ -69,7 +69,7 @@ set_defaults() {
     NO_MODIFY_PATH="${PROA_NO_MODIFY_PATH:-}"
     BUILD_FROM_SOURCE="${PROA_BUILD_FROM_SOURCE:-}"
     PREBUILT_ONLY="${PROA_PREBUILT_ONLY:-}"
-    TAILWIND_CHOICE="${PROA_TAILWIND:-install}"
+    TAILWIND_CHOICE="${PROA_TAILWIND:-ask}"
     TAILWIND_ONLY=""
     ASSUME_YES="${PROA_YES:-}"
     VERBOSE="${PROA_VERBOSE:-}"
@@ -1062,7 +1062,7 @@ usage() {
 "    PROA_NO_MODIFY_PATH     Any non-empty value behaves like --no-modify-path." \
 "    PROA_BUILD_FROM_SOURCE  Any non-empty value behaves like --build-from-source." \
 "    PROA_PREBUILT_ONLY      Any non-empty value behaves like --prebuilt-only." \
-"    PROA_TAILWIND           Tailwind choice: install (default), skip, or ask." \
+"    PROA_TAILWIND           Override the Tailwind choice: install, skip, or ask." \
 "    PROA_YES                Any non-empty value behaves like --yes." \
 "    PROA_VERBOSE            Any non-empty value behaves like --verbose." \
 "    PROA_LOG                Write the log here instead of the default path." \
@@ -1110,7 +1110,8 @@ usage() {
 "    4. Downloads the archive and its SHA256SUMS file over HTTPS and verifies" \
 "       the checksum before anything is unpacked. A mismatch installs nothing." \
 "    5. Installs 'proa' and 'cargo-proa'. If Tailwind CSS v4 is missing from" \
-"       PATH, it installs the verified v$TAILWIND_VERSION standalone binary." \
+"       PATH, it offers the verified v$TAILWIND_VERSION standalone binary in" \
+"       a terminal and installs it automatically in non-interactive runs." \
 "    6. Adds the bin directory to your shell profile if it is not already on" \
 "       PATH." \
 "" \
@@ -2261,11 +2262,6 @@ install_tailwind() {
 }
 
 maybe_install_tailwind() {
-    if [ "$SRC_TAILWIND" = default ] && tailwind_on_path '4.'; then
-        step_ok "tailwind" "Tailwind CSS v4 is already on PATH"
-        return 0
-    fi
-
     case "$TAILWIND_CHOICE" in
         skip)
             log_info "Tailwind install skipped by explicit configuration"
@@ -2273,8 +2269,12 @@ maybe_install_tailwind() {
             return 0
             ;;
         ask)
-            if tailwind_on_path "$TAILWIND_VERSION"; then
-                step_ok "tailwind" "v$TAILWIND_VERSION is already on PATH"
+            local required_version="$TAILWIND_VERSION"
+            if [ "$SRC_TAILWIND" = default ]; then
+                required_version='4.'
+            fi
+            if tailwind_on_path "$required_version"; then
+                step_ok "tailwind" "Tailwind CSS v4 is already on PATH"
                 return 0
             fi
             if [ -n "$ASSUME_YES" ]; then
@@ -2284,7 +2284,7 @@ maybe_install_tailwind() {
                     step_run "tailwind" "skipped"
                     return 0
                 fi
-            else
+            elif [ "$SRC_TAILWIND" != default ]; then
                 log_info "Tailwind prompt skipped because this run is non-interactive"
                 step_run "tailwind" "skipped (set PROA_TAILWIND=install to install)"
                 return 0

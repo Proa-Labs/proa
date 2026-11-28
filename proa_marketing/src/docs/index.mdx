@@ -18,7 +18,9 @@ Requires Rust `1.98` or newer. On macOS and Linux, install Proa with:
 curl -fsSL https://proa.so/install.sh | sh
 ```
 
-The installer uses Tailwind CSS v4 from your `PATH` if available and installs it otherwise.
+The installer uses Tailwind CSS v4 from your `PATH` if available. If it’s
+missing, the installer asks in a terminal and installs it automatically
+in non-interactive runs.
 You can also install the Proa CLI directly from crates.io:
 
 ```bash

@@ -289,20 +289,25 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("--prebuilt-only", result.stdout)
         self.assertIn("PROA_PREBUILT_ONLY", result.stdout)
 
-    def test_unix_noninteractive_install_defaults_to_tailwind(self) -> None:
+    def test_unix_tailwind_defaults_keep_the_terminal_prompt(self) -> None:
         definitions = (ROOT / "scripts/install.sh").read_text().rsplit('\nmain "$@"', 1)[0]
         harness = r'''
 install_tailwind() { printf '%s\n' install; }
 step_ok() { :; }
 step_run() { :; }
-is_interactive() { return 1; }
+is_interactive() { [ -n "${FIXTURE_TTY:-}" ]; }
+prompt_yes_no() { printf '%s\n' prompt; [ "$FIXTURE_TTY" = yes ]; }
 set_defaults
 parse_args "$@"
 maybe_install_tailwind
 '''
         cases = [
             (None, [], {}, "install"),
+            (None, [], {"FIXTURE_TTY": "yes"}, "prompt\ninstall"),
+            (None, [], {"FIXTURE_TTY": "no"}, "prompt"),
+            (None, ["--yes"], {"FIXTURE_TTY": "no"}, "install"),
             ("4.2.0", [], {}, ""),
+            ("4.2.0", [], {"FIXTURE_TTY": "no"}, ""),
             ("3.4.17", [], {}, "install"),
             (None, ["--no-tailwind"], {}, ""),
             (None, [], {"PROA_TAILWIND": "skip"}, ""),
