@@ -38,12 +38,14 @@ set -eu
 # ---------------------------------------------------------------------------
 
 set_defaults() {
-    # HOME drives the default install root and every profile path, so an unset
-    # HOME is worth catching here rather than producing a path like "/.proa".
-    if [ -z "${HOME:-}" ]; then
-        printf 'error: HOME is not set, cannot pick an install directory\n' >&2
-        exit 1
-    fi
+    # HOME is only a default: the install root, the shell profiles and cargo's
+    # bin directory are all derived from it when nothing names them. A
+    # container or CI step often has no HOME and names the directory instead,
+    # so its absence is an error only when the directory depends on it, which
+    # parse_args decides once --to has been read. Every later read goes through
+    # USER_HOME, because a bare $HOME aborts under `set -u` and an empty one
+    # produces paths like "/.proa" and "/.profile".
+    USER_HOME="${HOME:-}"
 
     # Minimum supported Rust version, kept in sync with [workspace.package]
     # rust-version in the repository root Cargo.toml.
@@ -64,7 +66,10 @@ set_defaults() {
     DOWNLOAD_BASE="${PROA_DOWNLOAD_BASE:-https://proa.so/downloads/cli}"
     VERSION="${PROA_VERSION:-}"
 
-    PROA_ROOT="${PROA_HOME:-$HOME/.proa}"
+    # Empty when neither PROA_HOME nor HOME is set, which only matters when no
+    # install directory is named either.
+    PROA_ROOT="${PROA_HOME:-}"
+    if [ -z "$PROA_ROOT" ] && [ -n "$USER_HOME" ]; then PROA_ROOT="$USER_HOME/.proa"; fi
     INSTALL_DIR="${PROA_INSTALL_DIR:-}"
     NO_MODIFY_PATH="${PROA_NO_MODIFY_PATH:-}"
     BUILD_FROM_SOURCE="${PROA_BUILD_FROM_SOURCE:-}"
@@ -674,9 +679,15 @@ format_bytes() {
 # Shortens $HOME to ~ for display only. Every log record keeps the full path,
 # because a bug report that says "~/.proa/bin" does not say whose home.
 tilde_path() {
+    # With no HOME there is nothing to shorten, and an empty prefix would match
+    # every absolute path.
+    if [ -z "$USER_HOME" ]; then
+        printf '%s' "$1"
+        return 0
+    fi
     case "$1" in
-        "$HOME") printf '~' ;;
-        "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;;
+        "$USER_HOME") printf '~' ;;
+        "$USER_HOME"/*) printf '~%s' "${1#"$USER_HOME"}" ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -1228,6 +1239,15 @@ parse_args() {
 
     if [ -n "${PROA_INSTALL_DIR:-}" ] && [ -z "$DIR_WAS_EXPLICIT" ]; then
         DIR_WAS_EXPLICIT="yes"
+    fi
+
+    # The one case where a missing HOME is fatal: nothing named the directory
+    # or the root, so the default would have to come from it.
+    if [ -z "$INSTALL_DIR" ] && [ -z "$PROA_ROOT" ]; then
+        err "HOME is not set, cannot pick an install directory.\
+${NL}${NL}The default is \$HOME/.proa/bin. Set HOME, or name the directory:\
+${NL}  ./install.sh --to <DIR>\
+${NL}  PROA_INSTALL_DIR=<DIR> ./install.sh"
     fi
 
     # Flags replace the environment before this check, so a valid flag can
@@ -1846,6 +1866,11 @@ probe_rust() {
 }
 
 ensure_rust() {
+    # Cargo can use a linker selected in project config; missing cc is advisory.
+    if ! command -v cc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then
+        warn "No C compiler found on PATH. Proa sites need a host linker to build."
+        detail "Install Xcode Command Line Tools on macOS, your Linux distribution's C build tools, or configure Cargo's target linker."
+    fi
     case "$RUST_STATE" in
         ok)
             return 0
@@ -2422,7 +2447,7 @@ update_path() {
     local display="$BIN_DIR"
     local posix_line
     local fish_line
-    local fish_config="$HOME/.config/fish/config.fish"
+    local fish_config="$USER_HOME/.config/fish/config.fish"
     local profile
     local updated=""
     local names=""
@@ -2438,9 +2463,11 @@ update_path() {
 
     # Write $HOME rather than the expanded path when possible, so the profile
     # stays portable across machines and users.
-    case "$BIN_DIR" in
-        "$HOME"/*) display="\$HOME${BIN_DIR#"$HOME"}" ;;
-    esac
+    if [ -n "$USER_HOME" ]; then
+        case "$BIN_DIR" in
+            "$USER_HOME"/*) display="\$HOME${BIN_DIR#"$USER_HOME"}" ;;
+        esac
+    fi
     posix_line="export PATH=\"$display:\$PATH\""
     fish_line="set -gx PATH \"$BIN_DIR\" \$PATH"
     # The $HOME form is what the closing block offers to paste, so a reader who
@@ -2457,7 +2484,16 @@ update_path() {
         return 0
     fi
 
-    for profile in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.profile"; do
+    # Every profile below lives under HOME. Without one there is no file to
+    # edit, so the run ends the way --no-modify-path does: with the line to add.
+    if [ -z "$USER_HOME" ]; then
+        log_info "no profile is modified: HOME is not set, so there is no shell profile to find"
+        PATH_STATE="manual"
+        step_run "path" "left alone (HOME is not set)"
+        return 0
+    fi
+
+    for profile in "$USER_HOME/.bashrc" "$USER_HOME/.bash_profile" "$USER_HOME/.zshrc" "$USER_HOME/.profile"; do
         if [ -f "$profile" ]; then
             found_profile="yes"
             if append_to_profile "$profile" "$posix_line"; then
@@ -2490,11 +2526,11 @@ update_path() {
     # A machine with no profile at all still needs somewhere for the line to
     # live, and ~/.profile is the one every POSIX login shell reads.
     if [ -z "$found_profile" ]; then
-        log_info "no shell profile exists, creating $HOME/.profile"
-        if append_to_profile "$HOME/.profile" "$posix_line"; then
-            updated="$updated $HOME/.profile"
-            names=$(join_basename "$names" "$HOME/.profile")
-            log_info "profile $HOME/.profile: appended the PATH line"
+        log_info "no shell profile exists, creating $USER_HOME/.profile"
+        if append_to_profile "$USER_HOME/.profile" "$posix_line"; then
+            updated="$updated $USER_HOME/.profile"
+            names=$(join_basename "$names" "$USER_HOME/.profile")
+            log_info "profile $USER_HOME/.profile: appended the PATH line"
         fi
     fi
 
@@ -2651,9 +2687,16 @@ install_from_source() {
         *-main.*) err "main snapshots require a prebuilt archive; choose a published --version to build from crates.io" ;;
     esac
 
-    local cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+    # Empty when CARGO_INSTALL_ROOT, CARGO_HOME and HOME are all unset: cargo
+    # then picks its own home from the password database, which this script
+    # cannot see.
+    local cargo_bin=""
     if [ -n "${CARGO_INSTALL_ROOT:-}" ]; then
         cargo_bin="${CARGO_INSTALL_ROOT%/}/bin"
+    elif [ -n "${CARGO_HOME:-}" ]; then
+        cargo_bin="$CARGO_HOME/bin"
+    elif [ -n "$USER_HOME" ]; then
+        cargo_bin="$USER_HOME/.cargo/bin"
     fi
     local standalone="${PROA_STANDALONE_SOURCE:-}"
     local staged_install=""
@@ -2679,6 +2722,10 @@ install_from_source() {
                 staged_install="1"
                 ;;
         esac
+    elif [ -z "$cargo_bin" ]; then
+        # Nowhere to follow cargo to, so the build is staged into the
+        # directory PROA_HOME named.
+        staged_install="1"
     elif [ "$BIN_DIR" != "$cargo_bin" ]; then
         # Any existing install that matters here is cargo's, so re-read the
         # previous version from there before the build overwrites it.
