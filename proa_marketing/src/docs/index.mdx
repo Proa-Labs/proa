@@ -12,13 +12,16 @@ Building with an AI agent? The complete documentation is served at [/llms-full.t
 
 ## 1. Install Proa
 
-Requires Rust `1.98` or newer. Install the CLI and standalone Tailwind CSS binary:
+Requires Rust `1.98` or newer. On macOS and Linux, install Proa with:
 
 ```bash
-curl -fsSL https://proa.so/install.sh | sh -s -- --with-tailwind
+curl -fsSL https://proa.so/install.sh | sh
 ```
 
-Or install the CLI directly from crates.io:
+The installer uses Tailwind CSS v4 from your `PATH` if available. If it’s
+missing, the installer asks in a terminal and installs it automatically
+in non-interactive runs.
+You can also install the Proa CLI directly from crates.io:
 
 ```bash
 cargo install proa-cli --locked
@@ -35,7 +38,7 @@ Proa is public; no GitHub credential or Cargo token is needed. On Windows or if 
 A minimal Axum-backed application with the core boundaries in place:
 
 ```bash
-proa new site hello-proa --yes
+proa new site hello-proa
 ```
 
 ```proa-filetree
@@ -71,7 +74,7 @@ The kitchen-sink starter, and the fastest way to see a production Proa app
 fit together:
 
 ```bash
-proa new site origin-atlas --template origin --yes
+proa new site origin-atlas --template origin
 ```
 
 This scaffolds ORIGIN, a live routing atlas that exercises the whole

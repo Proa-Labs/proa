@@ -2352,7 +2352,7 @@ function Show-NextSteps {
 
     Write-Blank
     Write-Note 'Then create a site:'
-    Write-Command 'proa new site hello-proa --template marketing --tailwind --yes'
+    Write-Command 'proa new site hello-proa --template marketing --tailwind'
     Write-Blank
     Write-Closing 'Docs' 'https://proa.so/docs'
 }
