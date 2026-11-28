@@ -74,12 +74,15 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReadingSidebarFooter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="docs-sidebar-footer" data-component="reading-sidebar-footer">
-                <nav aria-label="Social links" class="flex items-center gap-2">
-                    {SocialLink::GitHub}
-                    {SocialLink::YouTube}
-                    {SocialLink::Discord}
-                    {SocialLink::X}
-                </nav>
+                <details class="docs-sidebar-socials">
+                    <summary>"Socials"</summary>
+                    <nav aria-label="Social links" class="flex items-center gap-2">
+                        {SocialLink::GitHub}
+                        {SocialLink::YouTube}
+                        {SocialLink::Discord}
+                        {SocialLink::X}
+                    </nav>
+                </details>
                 {ThemeToggle::new()}
             </div>
         }
