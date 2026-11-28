@@ -724,6 +724,11 @@ fn emit_stmt_inner(
             emit_expr_with_context(out, payload, ctx)?;
             out.push_str(");\n");
         }
+        // `run(...)` and `refetch()` return a promise that these statements
+        // discard. That is safe only because the query runtime records the
+        // failure in handle state and marks the promise handled
+        // (`mark_failure_recorded` in `rsjs-runtime-query.js`). A bare call to
+        // any other promise-returning API would raise an unhandled rejection.
         ClientStmt::RunMutation { mutation, args } => {
             out.push_str(&ctx.mutation_name(*mutation));
             out.push_str(".run(");

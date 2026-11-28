@@ -458,6 +458,76 @@ pub fn link_descriptor_transport<R: DescriptorCargoRun>(
     Ok(linked)
 }
 
+/// Source paths are local to the Cargo invocation. Resolve them only on an
+/// error; the portable descriptors and their semantic hashes stay path-free.
+fn locate_unsupported_component(
+    error: &mut SemanticLinkError,
+    units: &[ValidatedDescriptorUnit],
+    working_directory: &std::path::Path,
+) {
+    use crate::abi_adapter::CompatibilityGap;
+    let SemanticLinkError::Unsupported(report) = error else {
+        return;
+    };
+    let Some(name) = report.semantic_path.as_ref().map(|path| &path.item) else {
+        return;
+    };
+    let Some(shapes) = report.gaps.iter_mut().find_map(|gap| match gap {
+        CompatibilityGap::UnsupportedClientShapes { shapes } => Some(shapes),
+        _ => None,
+    }) else {
+        return;
+    };
+    let Some(unit) = units
+        .iter()
+        .find(|unit| unit.unit.as_abi_id() == report.definition.unit)
+    else {
+        return;
+    };
+    let mut matches = unit.sidecar.source_dependencies.iter().filter_map(|input| {
+        let path = &input.absolute_path;
+        if path.extension()?.to_str()? != "rs" {
+            return None;
+        }
+        let source = std::fs::read_to_string(path).ok()?;
+        if !source.contains(name.as_str()) {
+            return None;
+        }
+        let parsed = syn::parse_file(&source).ok()?;
+        has_component_impl(&parsed.items, name).then_some(path)
+    });
+    if let (Some(path), None) = (matches.next(), matches.next()) {
+        for shape in shapes {
+            shape.source_file = Some(
+                path.strip_prefix(working_directory)
+                    .unwrap_or(path)
+                    .to_owned(),
+            );
+        }
+    }
+}
+
+fn has_component_impl(items: &[syn::Item], name: &str) -> bool {
+    items.iter().any(|item| match item {
+        syn::Item::Impl(item)
+            if item.attrs.iter().any(|attr| {
+                attr.path()
+                    .segments
+                    .last()
+                    .is_some_and(|seg| seg.ident == "rsjs")
+            }) =>
+        {
+            matches!(item.self_ty.as_ref(), syn::Type::Path(ty)
+            if ty.path.segments.last().is_some_and(|seg| seg.ident == name))
+        }
+        syn::Item::Mod(module) => module
+            .content
+            .as_ref()
+            .is_some_and(|(_, items)| has_component_impl(items, name)),
+        _ => false,
+    })
+}
+
 fn prepare_linked_cargo(
     request: &LinkedCargoRequest,
     linked: LinkedDescriptorTransport,
@@ -478,8 +548,14 @@ fn prepare_linked_cargo(
     .map_err(LinkedCargoError::AbiAdapter)?;
     let adapted = adapt_transport_plan(&abi, &transport).map_err(LinkedCargoError::AbiAdapter)?;
     timing.mark("ABI adaptation");
-    let semantic = link_semantic_plan(transport.link_unit, &adapted)
-        .map_err(LinkedCargoError::SemanticLink)?;
+    let semantic = link_semantic_plan(transport.link_unit, &adapted).map_err(|mut error| {
+        locate_unsupported_component(
+            &mut error,
+            &final_descriptor_units,
+            &request.descriptor.working_directory,
+        );
+        LinkedCargoError::SemanticLink(error)
+    })?;
     timing.mark("semantic planning");
     let semantic_plan_path =
         write_content_addressed_semantic_plan(&request.plan_directory, &semantic)
@@ -1238,8 +1314,9 @@ pub enum LinkedCargoError {
     /// Legacy producer data could not become canonical ABI.
     #[error("failed to adapt RSJS descriptors: {0}")]
     AbiAdapter(#[source] AbiAdapterError),
-    /// Canonical graph/owner linking failed.
-    #[error("failed to link canonical RSJS plan: {0}")]
+    /// Canonical graph/owner linking failed. The cause is reported once, as
+    /// the source: it can span several lines.
+    #[error("failed to link canonical RSJS plan")]
     SemanticLink(#[source] SemanticLinkError),
     /// Semantic plan persistence failed.
     #[error("failed to persist canonical RSJS plan: {0}")]

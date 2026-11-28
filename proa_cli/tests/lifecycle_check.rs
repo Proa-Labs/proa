@@ -298,4 +298,28 @@ fn main() {
     let stderr = String::from_utf8_lossy(&plain_final.stderr);
     assert!(stderr.contains("RSJS_PLAN_ID"), "{stderr}");
     assert!(stderr.contains("cargo proa build"), "{stderr}");
+
+    // A real proc macro under the linked rustc wrapper must point back into the authored file.
+    let unsupported = initial_source.replace(
+        "on_input={update()}",
+        "on_input={rsjs::debounce(|event| value.set(event.value()), 300)}",
+    );
+    let (line, expression) = unsupported
+        .lines()
+        .enumerate()
+        .find(|(_, text)| text.contains("rsjs::debounce"))
+        .unwrap();
+    let column = expression.find("rsjs::debounce").unwrap() + 1;
+    fs::write(&source, &unsupported).unwrap();
+    let check = run_check(temp.path(), &target);
+    assert!(!check.status.success());
+    let stderr = String::from_utf8_lossy(&check.stderr).replace('\\', "/");
+    assert!(
+        stderr.contains(&format!("src/main.rs:{}:{column}:", line + 1)),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("rsjs::debounce") && !stderr.contains("CargoUnitId(["),
+        "{stderr}"
+    );
 }

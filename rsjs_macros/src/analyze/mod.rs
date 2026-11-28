@@ -952,6 +952,7 @@ impl Analyzer {
             Some(existing_shape) if existing_shape != shape => {
                 return Err(syn::Error::new(
                     field_span,
+                    // proa-perf-ok: the compiler diagnostic quotes generic Rust types
                     format!(
                         "inbound callback field `self.{field_name}` has conflicting callback \
                          shapes: it was first invoked as `{}` but this use requires `{}`\n\
@@ -2340,7 +2341,16 @@ fn shared_signal_receiver_error(span: proc_macro2::Span, method: &str) -> syn::E
 }
 
 fn rsjs_source_anchor(span: proc_macro2::Span) -> rsjs_ir::SourceAnchor {
+    // Build-script compiler probes can be unavailable under a Cargo wrapper.
+    // Use Rust's stable native locations when proc-macro2 supplies a dummy span.
     let start = span.start();
+    if start.line == 0 && proc_macro::is_available() {
+        let native = span.unwrap();
+        return rsjs_ir::SourceAnchor {
+            start_line: native.line(),
+            start_column: native.column(),
+        };
+    }
     rsjs_ir::SourceAnchor {
         start_line: start.line,
         start_column: start.column + 1,
@@ -2694,6 +2704,7 @@ impl Analyzer {
         self.signals.get(name).copied().ok_or_else(|| {
             syn::Error::new(
                 span,
+                // proa-perf-ok: the compiler diagnostic quotes a Rust expression
                 format!(
                     "`#[rsjs]` could not find a signal named `{}`; \
                      declare it with `let {} = signal(<initial>);` before the `html_sync!` body",
@@ -2707,6 +2718,7 @@ impl Analyzer {
         self.node_refs.get(name).copied().ok_or_else(|| {
             syn::Error::new(
                 span,
+                // proa-perf-ok: the compiler diagnostic quotes a Rust type argument
                 format!(
                     "`#[rsjs]` could not find a node ref named `{}`; \
                      declare it with `let {} = node_ref::<HtmlElement>();` before the `html_sync!` body",
