@@ -12,7 +12,7 @@ serde = { version = "1", features = ["derive"] }
 ```
 
 ```rust check="mail" filename="src/mail.rs"
-use reqwest::Client;
+use reqwest::{header::{HeaderValue, RETRY_AFTER}, Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -29,14 +29,26 @@ pub struct Delivery {
     pub id: String,
 }
 
+pub enum DeliveryOutcome {
+    Sent(Delivery),
+    Rejected { status: StatusCode, retry_after: Option<HeaderValue> },
+}
+
 pub async fn deliver(
     client: &Client, api_key: &str, job_key: &str, email: &Email<'_>,
-) -> Result<Delivery, reqwest::Error> {
-    client.post("https://api.resend.com/emails")
+) -> Result<DeliveryOutcome, reqwest::Error> {
+    let response = client.post("https://api.resend.com/emails")
         .bearer_auth(api_key)
         .header("Idempotency-Key", job_key)
         .timeout(Duration::from_secs(10))
-        .json(email).send().await?.error_for_status()?.json().await
+        .json(email).send().await?;
+    if response.status().is_success() {
+        return Ok(DeliveryOutcome::Sent(response.json().await?));
+    }
+    Ok(DeliveryOutcome::Rejected {
+        status: response.status(),
+        retry_after: response.headers().get(RETRY_AFTER).cloned(),
+    })
 }
 ```
 
