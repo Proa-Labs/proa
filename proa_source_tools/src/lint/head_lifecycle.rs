@@ -218,40 +218,6 @@ fn simple_binding(pat: &Pat) -> Option<String> {
     }
 }
 
-/// Every name a pattern may bind. Identifiers inside pattern macros count as
-/// bindings, so an opaque pattern can only hide a writer.
-fn pattern_bindings(pat: &Pat) -> Vec<String> {
-    struct Bindings(Vec<String>);
-    impl<'ast> Visit<'ast> for Bindings {
-        fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
-            self.0.push(node.ident.to_string());
-            visit::visit_pat_ident(self, node);
-        }
-        fn visit_macro(&mut self, node: &'ast syn::Macro) {
-            self.0.extend(token_idents(node.tokens.clone()));
-        }
-        // Names inside an arm guard or a const pattern (closure parameters,
-        // block locals) are scoped to that expression and never bind in the
-        // arm.
-        fn visit_expr(&mut self, _: &'ast Expr) {}
-    }
-    let mut bindings = Bindings(Vec::new());
-    bindings.visit_pat(pat);
-    bindings.0
-}
-
-fn token_idents(tokens: proc_macro2::TokenStream) -> Vec<String> {
-    let mut idents = Vec::new();
-    for token in tokens {
-        match token {
-            proc_macro2::TokenTree::Ident(ident) => idents.push(ident.to_string()),
-            proc_macro2::TokenTree::Group(group) => idents.extend(token_idents(group.stream())),
-            _ => {}
-        }
-    }
-    idents
-}
-
 impl<'ast> Visit<'ast> for HeadMutationVisitor {
     fn visit_block(&mut self, node: &'ast Block) {
         self.scoped(|visitor| visit::visit_block(visitor, node));
@@ -438,9 +404,90 @@ impl Role {
     }
 }
 
+/// Only infer a missing Page when the document forwards exactly one body slot
+/// and the supplied component renders a literal HTML tree with no child slots.
+#[derive(Clone, PartialEq, Eq)]
+enum BodyShape {
+    Document(syn::Member),
+    Leaf,
+}
+
+fn simple_body(item: &ItemImpl, method: &str) -> Option<BodyShape> {
+    let method = item.items.iter().find_map(|item| match item {
+        ImplItem::Fn(f) if f.sig.ident == method => Some(f),
+        _ => None,
+    })?;
+    let [syn::Stmt::Expr(expr, None)] = method.block.stmts.as_slice() else {
+        return None;
+    };
+    let syn::FnArg::Typed(cx) = method.sig.inputs.last()? else {
+        return None;
+    };
+    let syn::Pat::Ident(cx) = cx.pat.as_ref() else {
+        return None;
+    };
+    let mut setup = false;
+    let template = tail_template(expr, &mut setup)?;
+    let root = syn::parse2::<HtmlRoot>(template.tokens.clone()).ok()?;
+    let mut slots = Vec::new();
+    html_slot_exprs(&root.nodes, &mut slots);
+    if slots.is_empty() {
+        return (!setup).then_some(BodyShape::Leaf);
+    }
+    let mut head = false;
+    let mut field = None;
+    for slot in slots {
+        match slot {
+            Expr::MethodCall(call)
+                if call.method == "head"
+                    && call.args.is_empty()
+                    && matches!(call.receiver.as_ref(), Expr::Path(p) if p.path.is_ident(&cx.ident)) =>
+            {
+                head = true
+            }
+            Expr::Field(value)
+                if field.is_none()
+                    && matches!(value.base.as_ref(), Expr::Path(p) if p.path.is_ident("self")) =>
+            {
+                field = Some(value.member.clone());
+            }
+            _ => return None,
+        }
+    }
+    head.then_some(BodyShape::Document(field?))
+}
+
+fn tail_template<'a>(expr: &'a Expr, setup: &mut bool) -> Option<&'a syn::Macro> {
+    match expr {
+        Expr::Macro(template) if is_html_macro(&template.mac) => Some(&template.mac),
+        Expr::MethodCall(call) if call.method == "render" || call.method == "resolve" => {
+            tail_template(&call.receiver, setup)
+        }
+        Expr::Await(wait) => tail_template(&wait.base, setup),
+        Expr::Call(call)
+            if call_path_ends(call, &["RenderOutcome", "pending"]) && call.args.len() == 1 =>
+        {
+            tail_template(&call.args[0], setup)
+        }
+        Expr::Async(body) => {
+            let (last, prefix) = body.block.stmts.split_last()?;
+            *setup |= !prefix.is_empty();
+            if !prefix.iter().all(|s| matches!(s, syn::Stmt::Local(_))) {
+                return None;
+            }
+            let syn::Stmt::Expr(tail, None) = last else {
+                return None;
+            };
+            tail_template(tail, setup)
+        }
+        _ => None,
+    }
+}
+
 /// Where a metadata role was declared, for the secondary label.
 #[derive(Clone)]
 struct Declaration {
+    body: Option<BodyShape>,
     role: Role,
     file: usize,
     span: Span,
@@ -459,14 +506,14 @@ struct PackageIndex {
 impl PackageIndex {
     /// The metadata role of the package's only type named `name`, and where
     /// that type is defined.
-    fn metadata_role(&self, name: &str) -> Option<(&Declaration, &Location)> {
+    fn declaration(&self, name: &str) -> Option<(&Declaration, &Location)> {
         let [Some(location)] = self.definitions.get(name)?.as_slice() else {
             return None;
         };
         let declarations = self.roles.get(name)?;
         let first = declarations.first()?;
         let agreed = declarations.iter().all(|d| d.role == first.role);
-        (agreed && matches!(first.role, Role::Page | Role::Layout)).then_some((first, location))
+        agreed.then_some((first, location))
     }
 }
 
@@ -489,6 +536,7 @@ impl IndexVisitor<'_> {
         // same-named metadata type elsewhere in the package stays ambiguous.
         if attrs.iter().any(derives_component) {
             self.index.roles.entry(name).or_default().push(Declaration {
+                body: None,
                 role: Role::Component,
                 file: self.file,
                 span: Span::call_site(),
@@ -543,7 +591,7 @@ impl<'ast> Visit<'ast> for IndexVisitor<'_> {
         visit::visit_item_type(self, node);
     }
     fn visit_item_impl(&mut self, node: &'ast ItemImpl) {
-        if render_trait(node).is_some() {
+        if let Some((_, method)) = render_trait(node) {
             if let Some(name) = type_path_last_ident(&node.self_ty) {
                 let role = Role::of_impl(node);
                 let span = node
@@ -555,6 +603,7 @@ impl<'ast> Visit<'ast> for IndexVisitor<'_> {
                     })
                     .unwrap_or_else(|| node.self_ty.span());
                 self.index.roles.entry(name).or_default().push(Declaration {
+                    body: simple_body(node, method),
                     role,
                     file: self.file,
                     span,
@@ -815,14 +864,37 @@ impl Resolver<'_> {
         Some((root, path))
     }
 
+    /// A starter imports its layout through a module that explicitly re-exports it.
+    /// Follow only named, unambiguous imports up to the definition.
+    fn follow_imports(
+        &self,
+        mut location: Location,
+        mut name: String,
+    ) -> Option<(Location, String)> {
+        for _ in 0..=8 {
+            let (file, inline) = &location;
+            let mut scopes = BTreeMap::new();
+            module_scopes(&self.files[*file].file.items, Vec::new(), &mut scopes);
+            let scope = scopes.get(inline)?;
+            if scope.defined.contains(&name) {
+                return (!scope.imports.contains_key(&name)).then_some((location, name));
+            }
+            let (prefix, original) = scope.imports.get(&name)?.as_ref()?;
+            let (root, module) = self.resolve_prefix(*file, inline, scope, prefix, 0)?;
+            location = self.locate(*file, root, module)?;
+            name = original.clone();
+        }
+        None
+    }
+
     /// Where the type a rendered path names is defined, and its name there.
     fn resolve(
         &self,
         file: usize,
         scopes: &BTreeMap<Vec<String>, ModuleScope>,
         finding: &Finding,
+        path: &SynPath,
     ) -> Option<(Location, String)> {
-        let path = &finding.path;
         if path.leading_colon.is_some() {
             return None;
         }
@@ -968,6 +1040,7 @@ fn html_slot_exprs<'a>(nodes: &'a [Node], out: &mut Vec<&'a Expr>) {
 struct Finding {
     /// The enclosing Page, or `None` for a `Suspense` argument.
     page: Option<String>,
+    document_slot: Option<(SynPath, syn::Member)>,
     path: SynPath,
     span: Span,
     /// The inline module holding the usage, within its file.
@@ -997,6 +1070,22 @@ impl UsageVisitor<'_> {
                 page: (self.suspense_depth == 0)
                     .then(|| self.page.clone())
                     .flatten(),
+                document_slot: None,
+                path: component_path(path),
+                span,
+                module: self.module.to_vec(),
+                shadow: Rc::clone(&self.shadow),
+            });
+        }
+    }
+
+    fn record_document_slot(&mut self, document: &SynPath, member: syn::Member, expr: &Expr) {
+        let mut children = Vec::new();
+        rendered_slot(expr, &mut children);
+        for (path, span) in children {
+            self.findings.push(Finding {
+                page: None,
+                document_slot: Some((document.clone(), member.clone())),
                 path: component_path(path),
                 span,
                 module: self.module.to_vec(),
@@ -1038,6 +1127,25 @@ fn is_render_child(call: &ExprCall) -> bool {
 
 impl<'ast> Visit<'ast> for UsageVisitor<'_> {
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+        if matches!(node.func.as_ref(), Expr::Path(p) if {
+            let mut segments = p.path.segments.iter().rev();
+            segments.next().is_some_and(|s| matches!(s.ident.to_string().as_str(), "ssr" | "ssr_async" | "ssr_async_with_loader" | "ssr_stream"))
+                && segments.next().is_some_and(|s| s.ident == "RouteResponse")
+        }) {
+            match node.args.first() {
+                Some(Expr::Struct(doc)) => {
+                    for field in &doc.fields {
+                        self.record_document_slot(&doc.path, field.member.clone(), &field.expr);
+                    }
+                }
+                Some(Expr::Call(doc)) if let Expr::Path(p) = doc.func.as_ref() => {
+                    for (i, child) in doc.args.iter().enumerate() {
+                        self.record_document_slot(&p.path, syn::Member::Unnamed(i.into()), child);
+                    }
+                }
+                _ => {}
+            }
+        }
         if is_suspense_new(node) {
             self.suspense_depth += 1;
             for arg in &node.args {
@@ -1188,13 +1296,65 @@ pub(super) fn lint_parsed(
             if line_in_ranges(start.line, &prepared.test_ranges) {
                 continue;
             }
-            let Some((location, name)) = resolver.resolve(index, &scopes, &finding) else {
+            let Some((location, name)) = resolver.resolve(index, &scopes, &finding, &finding.path)
+            else {
                 continue;
             };
-            let Some((declaration, defined)) = package.metadata_role(&name) else {
+            let resolved = if finding.document_slot.is_some() {
+                resolver.follow_imports(location, name)
+            } else {
+                Some((location, name))
+            };
+            let Some((location, name)) = resolved else {
+                continue;
+            };
+            let Some((declaration, defined)) = package.declaration(&name) else {
                 continue;
             };
             if *defined != location {
+                continue;
+            }
+            if let Some((doc_path, member)) = &finding.document_slot {
+                if declaration.role != Role::Component
+                    || !package.roles[&name]
+                        .iter()
+                        .all(|d| d.body == Some(BodyShape::Leaf))
+                {
+                    continue;
+                }
+                let Some((doc_location, doc_name)) = resolver
+                    .resolve(index, &scopes, &finding, doc_path)
+                    .and_then(|(loc, n)| resolver.follow_imports(loc, n))
+                else {
+                    continue;
+                };
+                let Some((doc, defined)) = package.declaration(&doc_name) else {
+                    continue;
+                };
+                if doc_location == *defined
+                    && doc.role == Role::Layout
+                    && package.roles[&doc_name]
+                        .iter()
+                        .all(|d| d.body == Some(BodyShape::Document(member.clone())))
+                {
+                    let message = format!(
+                        "`{doc_name}` renders `{name}` as its only body slot without a Page boundary"
+                    );
+                    diagnostics.push(
+                        Diagnostic::new(
+                            display_path(prepared.path),
+                            start.line,
+                            start.column + 1,
+                            Severity::Warning,
+                            "render/head-page-missing",
+                            message,
+                        )
+                        .with_help("supply a Page that declares `proa::ComponentRole::PAGE`, or wrap the component in one"),
+                    );
+                }
+                continue;
+            }
+            if !matches!(declaration.role, Role::Page | Role::Layout) {
                 continue;
             }
             diagnostics.push(role_diagnostic(

@@ -16,6 +16,11 @@
 //! enables eager Tokio loads. Markdown, streaming, framework, and RSJS are enabled
 //! by default; RSJS is available through `proa::rsjs`. Build-time font tools remain
 //! separate dependencies.
+//!
+//! The two streaming types a route or page names sit at the root beside
+//! `DataLoader`: `DataResolver`, the request-scoped loader wrapper, and
+//! `Suspense`, the fallback boundary. Drivers and adapter plumbing stay under
+//! `proa::stream`, where both types remain available as well.
 
 #![deny(unsafe_code)]
 
@@ -35,6 +40,8 @@ pub use proa_framework_axum as axum;
 pub use proa_framework_core as framework;
 #[cfg(feature = "stream")]
 pub use proa_stream as stream;
+#[cfg(feature = "stream")]
+pub use proa_stream::{DataResolver, Suspense};
 
 #[doc(hidden)]
 pub mod __private {

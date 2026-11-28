@@ -137,6 +137,8 @@ pub fn lint_snapshot(overlays: &[SourceOverlay]) -> Result<Vec<Diagnostic>> {
         false,
     ));
 
+    super::link_docs(&mut diagnostics);
+
     // Keep exact snapshot evidence for UTF-16 conversion in the editor, even
     // for ordinary lints which normally only carry a line and scalar column.
     for diagnostic in &mut diagnostics {

@@ -3,6 +3,40 @@
 
 use super::*;
 
+/// Every name a pattern may bind. Identifiers inside pattern macros count as
+/// bindings, so callers can conservatively hide shadowed names.
+pub(super) fn pattern_bindings(pat: &Pat) -> Vec<String> {
+    struct Bindings(Vec<String>);
+    impl<'ast> Visit<'ast> for Bindings {
+        fn visit_pat_ident(&mut self, node: &'ast syn::PatIdent) {
+            self.0.push(node.ident.to_string());
+            visit::visit_pat_ident(self, node);
+        }
+        fn visit_macro(&mut self, node: &'ast syn::Macro) {
+            self.0.extend(token_idents(node.tokens.clone()));
+        }
+        // Names inside an arm guard or a const pattern (closure parameters,
+        // block locals) are scoped to that expression and never bind in the
+        // arm.
+        fn visit_expr(&mut self, _: &'ast Expr) {}
+    }
+    let mut bindings = Bindings(Vec::new());
+    bindings.visit_pat(pat);
+    bindings.0
+}
+
+pub(super) fn token_idents(tokens: proc_macro2::TokenStream) -> Vec<String> {
+    let mut idents = Vec::new();
+    for token in tokens {
+        match token {
+            proc_macro2::TokenTree::Ident(ident) => idents.push(ident.to_string()),
+            proc_macro2::TokenTree::Group(group) => idents.extend(token_idents(group.stream())),
+            _ => {}
+        }
+    }
+    idents
+}
+
 pub(crate) fn has_attr(attrs: &[SynAttribute], expected: &[&str]) -> bool {
     attrs.iter().any(|attr| {
         path_ends(attr.path(), expected)

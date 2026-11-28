@@ -31,6 +31,7 @@ pub mod content;
 mod head_lifecycle;
 pub mod live;
 mod predicates;
+mod route_paths;
 mod rsjs_strategy;
 mod scope;
 mod suppression;
@@ -89,7 +90,45 @@ pub fn lint_file_with_options(path: &Path, source: &str, options: LintOptions) -
         options.include_tests,
     ));
     dedupe_diagnostics(&mut diagnostics);
+    link_docs(&mut diagnostics);
     diagnostics
+}
+
+/// The public guide for a rule, where one explains it.
+fn docs_url(code: &str) -> Option<&'static str> {
+    match code {
+        "render/head-page-missing"
+        | "render/head-role-required"
+        | "render/head-mutation-in-body"
+        | "render/head-role-in-suspense"
+        | "render/head-role-in-page" => {
+            Some("https://proa.so/docs/framework/layouts-and-pages#roles-are-explicit")
+        }
+        "rsjs/fetch-base-path" | "rsjs/query-key-static-url" => {
+            Some("https://proa.so/docs/rsjs/queries-mutations#describing-fetch-requests")
+        }
+        "route/express-path-syntax" => {
+            Some("https://proa.so/docs/framework/routing#register-a-route")
+        }
+        // Discovery status only reports which views exist.
+        "render/content-status" => None,
+        code if code.starts_with("render/content-") => {
+            Some("https://proa.so/docs/cli/format-lint-check#content-coverage")
+        }
+        _ => None,
+    }
+}
+
+/// End every diagnostic of a documented rule with a link to its guide. Each
+/// lint entry point calls this once, after its passes have been merged.
+pub(super) fn link_docs(diagnostics: &mut [Diagnostic]) {
+    for diagnostic in diagnostics {
+        if let Some(url) = docs_url(diagnostic.code) {
+            diagnostic
+                .notes
+                .push(format!("for more information, see {url}"));
+        }
+    }
 }
 
 fn lint_file_with_cache(
@@ -192,6 +231,14 @@ fn lint_file_with_cache(
             &file,
             source,
             &suppressions,
+            &test_ranges,
+            &mut diagnostics,
+        );
+        route_paths::lint_route_paths(
+            path,
+            &display,
+            &file,
+            source,
             &test_ranges,
             &mut diagnostics,
         );
@@ -310,6 +357,7 @@ pub fn lint_paths(paths: &[std::path::PathBuf], options: LintOptions) -> Result<
         options.include_tests,
     ));
     dedupe_diagnostics(&mut diagnostics);
+    link_docs(&mut diagnostics);
     Ok(diagnostics)
 }
 
@@ -874,7 +922,7 @@ fn check_async_md_static_body(
                     node.mac.path.span(),
                     "perf/async-md-static-subtree",
                     "async md! template has no async interpolation",
-                    "use md_sync! here; wrap the result with proa_core::to_md_async(...) if it is composed into an async tree",
+                    "use md_sync! here; wrap the result with proa::to_md_async(...) if it is composed into an async tree",
                 );
             }
             visit::visit_expr_macro(self, node);
@@ -3605,7 +3653,7 @@ fn check_async_html_static_subtree(
             let help = match rsjs_tail {
                 Some(tail) if tail.requires_async => return,
                 Some(_) => "this RSJS island neither awaits nor declares a mutation; implement WebRenderSync and render with html_sync!, because RSJS requires html! in a WebRender island",
-                None => "use html_sync! here; wrap the result with proa_core::to_async(...) if it is composed into an async tree",
+                None => "use html_sync! here; wrap the result with proa::to_async(...) if it is composed into an async tree",
             };
             push_expr_diag(
                 self.path,
@@ -3858,7 +3906,7 @@ fn check_sync_child_in_async_template(
                     Severity::Info,
                     "render/sync-child-in-async",
                     "component-like child is embedded directly in async html! output",
-                    "wrap sync children with proa_core::to_async(...) when composing inside async html!",
+                    "wrap sync children with proa::to_async(...) when composing inside async html!",
                 );
             }
         }
@@ -4898,6 +4946,58 @@ struct RsjsVisitor<'a> {
 }
 
 impl RsjsVisitor<'_> {
+    fn check_request(&mut self, call: &ExprCall) {
+        let Some(kind) = (match call.func.as_ref() {
+            Expr::Path(path) => path.path.segments.last().map(|s| s.ident.to_string()),
+            _ => None,
+        }) else {
+            return;
+        };
+        let request_arg = match kind.as_str() {
+            "query_with_initial" => 2,
+            "mutation" | "mutation_with_options" => 1,
+            _ => return,
+        };
+        let Some(Expr::Struct(request)) = call.args.get(request_arg) else {
+            return;
+        };
+        if !request
+            .path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "FetchRequest")
+        {
+            return;
+        }
+        let field = |name: &str| {
+            request
+                .fields
+                .iter()
+                .find(|f| matches!(&f.member, syn::Member::Named(id) if id == name))
+        };
+        let Some(url) = field("url").and_then(|f| expr_string_literal(&f.expr)) else {
+            return;
+        };
+        let path = url.value();
+        // A custom struct-update base can opt in to the mount itself.
+        if path.starts_with('/')
+            && !path.starts_with("//")
+            && field("apply_base_path").is_none()
+            && matches!(request.rest.as_deref(), Some(Expr::Call(c)) if call_path_ends(c, &["default"]) && c.args.is_empty())
+        {
+            push_expr_diag_with_severity(self.path, SpanOrigin::File, self.diagnostics, self.suppressions, url.span(), Severity::Info,
+                "rsjs/fetch-base-path", "this request stays at the origin root when the site is mounted at a prefix",
+                "set `apply_base_path: true` for an application endpoint, or explicitly choose `false` for an origin-wide endpoint");
+        }
+        if kind == "query_with_initial"
+            && matches!(call.args.first(), Some(Expr::Call(key)) if call_path_ends(key, &["QueryKey", "new"]) && key.args.iter().any(query_key_reads_input))
+        {
+            push_expr_diag_with_severity(self.path, SpanOrigin::File, self.diagnostics, self.suppressions, url.span(), Severity::Info,
+                "rsjs/query-key-static-url", "changing this input selects a new cache entry but fetches the same literal URL",
+                "check that the endpoint returns the resource for each key; key parts are never substituted into the URL");
+        }
+    }
+
     /// Name of a shared-state field local read in this expression, if any.
     fn shared_field_operand(&self, expr: &Expr) -> Option<String> {
         match expr {
@@ -4914,6 +5014,19 @@ impl RsjsVisitor<'_> {
             Expr::Unary(unary) => self.shared_field_operand(&unary.expr),
             _ => None,
         }
+    }
+}
+
+fn query_key_reads_input(expr: &Expr) -> bool {
+    match expr {
+        Expr::MethodCall(call) => call.method == "get" && call.args.is_empty(),
+        Expr::Field(field) => {
+            matches!(field.base.as_ref(), Expr::Path(p) if p.path.is_ident("self"))
+        }
+        Expr::Tuple(tuple) => tuple.elems.iter().any(query_key_reads_input),
+        Expr::Array(array) => array.elems.iter().any(query_key_reads_input),
+        Expr::Paren(paren) => query_key_reads_input(&paren.expr),
+        _ => false,
     }
 }
 
@@ -5011,6 +5124,7 @@ impl<'ast> Visit<'ast> for RsjsVisitor<'_> {
     }
 
     fn visit_expr_call(&mut self, node: &'ast ExprCall) {
+        self.check_request(node);
         if call_path_is_raw_browser_global(node) {
             push_expr_diag(
                 self.path,

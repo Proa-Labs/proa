@@ -819,8 +819,10 @@ fn actual_product_fixture_and_real_incident_report_deletions_are_caught() {
     let path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../proa_macros/tests/content_coverage.rs");
     let source = std::fs::read_to_string(&path).unwrap();
-    let mut options = ContentOptions::default();
-    options.root = Some(path.parent().unwrap().into());
+    let options = ContentOptions {
+        root: Some(path.parent().unwrap().into()),
+        ..Default::default()
+    };
     let reporting = BTreeSet::from([discover::absolute(&path)]);
     let pristine = lint_sources(
         &[(path.clone(), source.clone())],
@@ -1643,4 +1645,409 @@ fn markdown_image_alt_and_link_labels_match_across_dynamic_destinations() {
     let diagnostics = missing(&wrong_alt);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert!(diagnostics[0].message.contains("Brand"), "{diagnostics:?}");
+}
+
+#[test]
+fn suspense_fallbacks_are_placeholders_not_content() {
+    let markdown = r####"md_sync! {r###"{Impact::new(self.data)}"###}.render_md(cx)"####;
+    for import in [
+        "use proa::Suspense;",
+        "use proa::Suspense as Boundary;",
+        "use proa::stream::Suspense;",
+        "use proa_stream::Suspense;",
+        "use proa::stream::Suspense as Boundary;",
+    ] {
+        for html in [
+            // A skeleton component, an inline skeleton, and a bound boundary.
+            "html_sync! {{Suspense::new(Impact::new(self.data), RestockNotice)}}.render(cx)",
+            r#"html_sync! {{Suspense::new(Impact::new(self.data), html_sync! {<p aria-label="Busy">"Loading stats..."</p>})}}.render(cx)"#,
+            r#"let stats = Suspense::new(Impact::new(self.data), html_sync! {<p>"Loading stats..."</p>}); html_sync! {<section>{stats}</section>}.render(cx)"#,
+        ] {
+            let html = if import.ends_with("as Boundary;") {
+                html.replace("Suspense::new", "Boundary::new")
+            } else {
+                html.to_owned()
+            };
+            let source = format!("{import}\n{}", fixture(&html, markdown));
+            assert!(lint(&source).is_empty(), "{html}: {:?}", lint(&source));
+
+            // The boundary's child is still content the Markdown must render.
+            let deleted = source.replace("{Impact::new(self.data)}", "");
+            let diagnostics = missing(&deleted);
+            assert_eq!(diagnostics.len(), 1, "{html}: {diagnostics:?}");
+            assert!(diagnostics[0].message.contains("`Impact`"));
+        }
+    }
+    let qualified = fixture(
+        "html_sync! {{proa::stream::Suspense::new(Impact::new(self.data), RestockNotice)}}.render(cx)",
+        markdown,
+    );
+    assert!(lint(&qualified).is_empty(), "{:?}", lint(&qualified));
+    let wrapped = fixture(
+        "html_sync! {{proa_stream::Suspense::new(Impact::new(self.data), RestockNotice)}}.render(cx)",
+        r####"md_sync! {r###"{proa_stream::Suspense::new(Impact::new(self.data), ())}"###}.render_md(cx)"####,
+    );
+    assert!(lint(&wrapped).is_empty(), "{:?}", lint(&wrapped));
+}
+
+#[test]
+fn only_the_framework_suspense_boundary_drops_its_second_argument() {
+    // An application type that happens to be named `Suspense` keeps every
+    // argument as an input, so a changed argument is still reported.
+    let source = format!(
+        "struct Suspense;\n{}",
+        fixture(
+            "html_sync! {{Suspense::new(self.data, self.title)}}.render(cx)",
+            "summary(self.data).render_md(cx)",
+        )
+    );
+    let diagnostics = missing(&source);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics[0].message.contains("`Suspense`"));
+    let helper = fixture(
+        "html_sync! {{boundary::new(self.data, self.title)}}.render(cx)",
+        "summary(self.data).render_md(cx)",
+    );
+    assert_eq!(missing(&helper).len(), 1, "{:?}", lint(&helper));
+}
+
+#[test]
+fn loaded_values_are_named_by_the_call_and_field_path_the_author_wrote() {
+    let page = |load: &str, markdown: &str| {
+        fixture(
+            &format!("{load} html_sync! {{{{for issue in &payload.issues {{html_sync! {{{{issue.id}}{{issue.title.as_str()}}}}}}}}}}.render(cx)"),
+            &format!("{load} {markdown}"),
+        )
+        .replace("&mut Cx", "&mut proa_core::WebContext")
+    };
+    for (load, call) in [
+        (
+            "let payload = cx.load_typed::<Data>(issues_key()).await?;",
+            "cx.load_typed::<crate::Data>(crate::issues_key())",
+        ),
+        (
+            "let payload: Arc<Data> = cx.load_typed(issues_key()).await?;",
+            "cx.load_typed(crate::issues_key())",
+        ),
+        (
+            "let payload = cx.load_typed::<Data>(issue_key(self.title)).await?;",
+            "cx.load_typed::<crate::Data>(crate::issue_key(self.title))",
+        ),
+    ] {
+        let covered = page(
+            load,
+            r####"md_sync! {r###"{for issue in &payload.issues {md_sync! {"- {issue.id} {issue.title.as_str()}\n"}}}"###}.render_md(cx)"####,
+        );
+        assert!(lint(&covered).is_empty(), "{load}: {:?}", lint(&covered));
+
+        let diagnostics = missing(&covered.replace(" {issue.title.as_str()}", ""));
+        assert_eq!(diagnostics.len(), 1, "{load}: {diagnostics:?}");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(
+            diagnostic.message,
+            format!("`Product`'s Markdown view does not render `{call}.issues[].title` from its HTML view")
+        );
+        assert_eq!(
+            diagnostic.help.as_deref(),
+            Some(
+                format!("render `title` for each item of `{call}.issues` in the Markdown view: loop over the same collection, and end the loop body with the expression or nested template that renders it")
+                    .as_str()
+            )
+        );
+        // No internal identity encoding reaches the terminal or JSON output.
+        let rendered = diagnostic.to_string();
+        assert!(!rendered.contains('@'), "{rendered}");
+        assert!(
+            rendered.contains(&format!("`{call}.issues[].title` rendered in HTML")),
+            "{rendered}"
+        );
+    }
+}
+
+#[test]
+fn unit_variants_are_named_by_their_path() {
+    let source = format!(
+        "enum Status {{ Open, Closed }}\n{}",
+        fixture(
+            "html_sync! {{Status::Open}{self.title}}.render(cx)",
+            r#"md_sync! {"{self.title}"}.render_md(cx)"#,
+        )
+    );
+    let diagnostics = missing(&source);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        diagnostics[0].message.contains("`crate::Status::Open`"),
+        "{}",
+        diagnostics[0].message
+    );
+    assert!(!diagnostics[0].to_string().contains('@'));
+}
+
+#[test]
+fn nested_templates_in_loop_slots_cover_loaded_item_fields() {
+    let html = "let payload = cx.load_typed::<Data>(issues_key()).await?; html_sync! {<ul>{for issue in &payload.issues {html_sync! {<li>{issue.id}<b>{issue.title.as_str()}</b></li>}}}</ul>}.render(cx)";
+    let load = "let payload = cx.load_typed::<Data>(issues_key()).await?;";
+    for markdown in [
+        // A nested template as the loop body's tail, in every supported form.
+        r####"md_sync! {r###"
+            {for issue in &payload.issues {
+                md_sync! { r#"
+                    - {issue.id} **{issue.title.as_str()}**
+                    "#
+                }
+            }}
+            "###}.render_md(cx)"####,
+        r####"md_sync! {r###"{for issue in &payload.issues { md_sync! { "- {issue.id} **{issue.title.as_str()}**\n" } }}"###}.render_md(cx)"####,
+        r####"md! {r###"{for issue in payload.issues.iter() { md! { "- {issue.id} **{issue.title.as_str()}**\n" } }}"###}.render_md(cx).resolve().await"####,
+        r####"MdRenderSync::render_md(md_sync! {r###"{for issue in &payload.issues {
+            let id = issue.id;
+            let title = issue.title.as_str();
+            proa_macros::md_sync! { "- {id} **{title}**\n" }
+        }}"###}, cx)"####,
+    ] {
+        let source = fixture(html, &format!("{load} {markdown}"))
+            .replace("&mut Cx", "&mut proa_core::WebContext");
+        assert!(lint(&source).is_empty(), "{markdown}: {:?}", lint(&source));
+        let deleted = source
+            .replace(" **{issue.title.as_str()}**", "")
+            .replace(" **{title}**", "");
+        assert_eq!(missing(&deleted).len(), 1, "{markdown}");
+    }
+}
+
+#[test]
+fn a_render_call_statement_in_a_markdown_slot_is_reported_at_the_call() {
+    let html = "let payload = cx.load_typed::<Data>(issues_key()).await?; html_sync! {<ul>{for issue in &payload.issues {html_sync! {<li>{issue.id}<b>{issue.title.as_str()}</b>{Impact::new(issue.status)}</li>}}}</ul>}.render(cx)";
+    let row = r#"{ "- {issue.id} **{issue.title.as_str()}** {Impact::new(issue.status)}\n" }"#;
+    let page = |body: &str| {
+        let markdown = format!(
+            "let payload = cx.load_typed::<Data>(issues_key()).await?; MdRenderSync::render_md(md_sync! {{r###\"\n# Issues\n\n{{for issue in &payload.issues {{\n    {body}\n}}}}\n\"###}}, cx)"
+        );
+        fixture(html, &markdown).replace("&mut Cx", "&mut proa_core::WebContext")
+    };
+    // The same template as the loop body's last expression is covered.
+    let tail = page(&format!("md_sync! {row}"));
+    assert!(lint(&tail).is_empty(), "{:#?}", lint(&tail));
+
+    for (statement, call) in [
+        (
+            format!("md_sync! {row}.render_md(cx)?;"),
+            ".render_md(cx)?".to_owned(),
+        ),
+        (
+            format!("md! {row}.render_md(cx).resolve().await?;"),
+            ".render_md(cx).resolve().await?".to_owned(),
+        ),
+        (
+            format!("MdRenderSync::render_md(md_sync! {row}, cx)?;"),
+            format!("MdRenderSync::render_md(md_sync! {row}, cx)?"),
+        ),
+    ] {
+        let source = page(&statement);
+        let diagnostics = lint(&source);
+        assert_eq!(diagnostics.len(), 1, "{statement}: {diagnostics:#?}");
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic.code, "render/content-coverage");
+        assert_eq!(diagnostic.severity, Severity::Error);
+        assert_eq!(
+            diagnostic.message,
+            "`Product`'s Markdown view does not render 3 contributions from its HTML view"
+        );
+        // The primary label selects the call to remove, not the template.
+        let range = &diagnostic.labels[0].range;
+        let selected: String = source
+            .lines()
+            .nth(range.line - 1)
+            .unwrap()
+            .chars()
+            .skip(range.column - 1)
+            .take(range.end_column - range.column)
+            .collect();
+        assert_eq!(selected, call, "{diagnostic}");
+        assert_eq!(
+            (diagnostic.line, diagnostic.column),
+            (range.line, range.column)
+        );
+        // One secondary label per HTML contribution the call was meant to render.
+        assert_eq!(diagnostic.labels.len(), 4, "{diagnostic}");
+        assert!(diagnostic.notes[0].contains("only the last expression of its block"));
+        assert_eq!(
+            diagnostic.help.as_deref(),
+            Some("remove this call and its `;` so the nested template is the last expression of the block")
+        );
+    }
+
+    // A single affected contribution is named.
+    let one = page(&format!("md_sync! {row}.render_md(cx)?;")).replace(
+        "<li>{issue.id}<b>{issue.title.as_str()}</b>{Impact::new(issue.status)}</li>",
+        "<li>{issue.id}</li>",
+    );
+    let diagnostics = lint(&one);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    assert_eq!(
+        diagnostics[0].message,
+        "`Product`'s Markdown view does not render `cx.load_typed::<crate::Data>(crate::issues_key()).issues[].id` from its HTML view"
+    );
+}
+
+#[test]
+fn statement_renders_stay_real_output_outside_markdown_slots() {
+    // An imperative loop in the method body writes through `cx` directly.
+    let source = fixture(
+        "html_sync! {<ul>{for item in self.items {html_sync! {<li>{item.title}</li>}}}</ul>}.render(cx)",
+        r#"for item in self.items { md_sync! { "- {item.title}\n" }.render_md(cx)?; } Ok(())"#,
+    );
+    assert!(lint(&source).is_empty(), "{:?}", lint(&source));
+}
+
+#[test]
+fn a_missing_child_without_a_markdown_view_says_what_to_do() {
+    // `Panel` stands in for an island, a stats card, or any HTML-only child.
+    let page = |panel_attr: &str, panel_markdown: &str, page_markdown: &str| {
+        format!(
+            r####"{IMPORTS}
+use rsjs::rsjs;
+struct Page {{ title: String }}
+struct Panel;
+{panel_attr}
+impl WebRenderSync for Panel {{ fn render(self, cx: &mut Cx) -> Result {{ html_sync! {{<button on_click={{save()}}>"Save"</button>}}.render(cx) }} }}
+{panel_markdown}
+impl WebRenderSync for Page {{ fn render(self, cx: &mut Cx) -> Result {{ html_sync! {{<h1>{{self.title}}</h1>{{Panel}}}}.render(cx) }} }}
+impl MdRenderSync for Page {{ fn render_md(self, cx: &mut Cx) -> Result {{ {page_markdown} }} }}
+"####
+        )
+    };
+    let title_only = r###"md_sync! {"# {self.title}"}.render_md(cx)"###;
+
+    // An island stays required: every island server-renders HTML.
+    let island = missing(&page("#[rsjs(component, client)]", "", title_only));
+    assert_eq!(island.len(), 1, "{island:#?}");
+    assert_eq!(island[0].severity, Severity::Error);
+    assert!(island[0].message.contains("does not render `Panel`"));
+    assert!(island[0].notes[0].starts_with("`Panel` is an RSJS island."));
+    let help = island[0].help.as_deref().unwrap();
+    assert!(
+        help.starts_with("`Panel` has no Markdown view to render."),
+        "{help}"
+    );
+    assert!(
+        help.contains("add the `omit!` below with a reason"),
+        "{help}"
+    );
+    assert_eq!(
+        island[0].suggestions[0].replacement,
+        "proa_macros::omit!(crate::Panel);"
+    );
+    // The acknowledgement the help names is accepted.
+    let omitted = page(
+        "#[rsjs(component, client)]",
+        "",
+        r###"omit!(Panel, "Browser-only controls"); md_sync! {"# {self.title}"}.render_md(cx)"###,
+    );
+    assert!(lint(&omitted).is_empty(), "{:?}", lint(&omitted));
+
+    // A plain HTML-only child cannot be rendered in Markdown either.
+    let html_only = missing(&page("", "", title_only));
+    assert_eq!(html_only.len(), 1, "{html_only:#?}");
+    assert!(html_only[0].notes.is_empty(), "{:?}", html_only[0].notes);
+    assert_eq!(
+        html_only[0].help.as_deref(),
+        Some("`Panel` has no Markdown view to render: write the content it shows in this Markdown view, or give `Panel` a Markdown view and render it here")
+    );
+
+    // A child that has a Markdown view keeps the direct instruction.
+    let panel_markdown = r###"#[proa_macros::content(skip)] impl MdRenderSync for Panel { fn render_md(self, cx: &mut Cx) -> Result { md_sync! {"Save"}.render_md(cx) } }"###;
+    for attr in ["", "#[rsjs(component, client)]"] {
+        let renderable = missing(&page(attr, panel_markdown, title_only));
+        assert_eq!(renderable.len(), 1, "{renderable:#?}");
+        assert!(renderable[0].notes.is_empty(), "{:?}", renderable[0].notes);
+        assert_eq!(
+            renderable[0].help.as_deref(),
+            Some("render `Panel` in the Markdown view")
+        );
+        let rendered = page(
+            attr,
+            panel_markdown,
+            r###"md_sync! {"# {self.title}\n\n{Panel}"}.render_md(cx)"###,
+        );
+        assert!(lint(&rendered).is_empty(), "{:?}", lint(&rendered));
+    }
+}
+
+#[test]
+fn an_island_with_both_views_is_compared_and_names_the_whole_view_exemption_once() {
+    let island = |attr: &str, policy: &str| {
+        format!(
+            r####"{IMPORTS}
+struct StatusPanel {{ label: String }}
+{attr}
+impl WebRenderSync for StatusPanel {{ fn render(self, cx: &mut Cx) -> Result {{ html_sync! {{<h2>{{self.label}}</h2><button on_click={{save()}}>"Update status"</button><p>"Saving..."</p>}}.render(cx) }} }}
+{policy}
+impl MdRenderSync for StatusPanel {{ fn render_md(self, cx: &mut Cx) -> Result {{ md_sync! {{"## {{self.label}}"}}.render_md(cx) }} }}
+"####
+        )
+    };
+    let diagnostics = missing(&island("#[rsjs(component, client)]", ""));
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+    assert!(diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.severity == Severity::Error));
+    assert_eq!(diagnostics[0].notes.len(), 1, "{:?}", diagnostics[0].notes);
+    assert!(diagnostics[0].notes[0]
+        .contains("`#[proa_macros::content(skip, reason = \"...\")]` on the Markdown impl"));
+    assert!(
+        diagnostics[1].notes.is_empty(),
+        "{:?}",
+        diagnostics[1].notes
+    );
+
+    // The exemption the note names is accepted, and a plain component gets
+    // the same errors without the island note.
+    let skipped = island(
+        "#[rsjs(component, client)]",
+        "#[proa_macros::content(skip, reason = \"Browser controls only\")]",
+    );
+    assert!(lint(&skipped).is_empty(), "{:?}", lint(&skipped));
+    let plain = missing(&island("", ""));
+    assert_eq!(plain.len(), 2);
+    assert!(plain.iter().all(|diagnostic| diagnostic.notes.is_empty()));
+}
+
+/// A slot inside a Markdown code span is literal text, so `{label}` prints
+/// its own name and the field never renders. This is a real omission.
+#[test]
+fn a_local_inside_a_markdown_code_span_does_not_render_its_field() {
+    let badge = |markdown: &str| {
+        format!(
+            r####"{IMPORTS}
+struct StatusBadge {{ status: Status }}
+impl WebRenderSync for StatusBadge {{
+    fn render(self, cx: &mut Cx) -> Result {{
+        html_sync! {{<span data-variant={{self.status.as_str()}}>{{self.status.as_str()}}</span>}}.render(cx)
+    }}
+}}
+impl MdRenderSync for StatusBadge {{
+    fn render_md(self, cx: &mut Cx) -> Result {{
+        let label = self.status.as_str();
+        {markdown}
+    }}
+}}
+"####
+        )
+    };
+    let diagnostics = lint(&badge(r###"md_sync! { "`{label}`" }.render_md(cx)"###));
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.code, "render/content-coverage");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(
+        diagnostic.message,
+        "`StatusBadge`'s Markdown view does not render `self.status` from its HTML view"
+    );
+    assert_eq!(
+        diagnostic.help.as_deref(),
+        Some("add `{label}` to the Markdown template; constructing or testing a value does not render it")
+    );
+    let rendered = badge(r###"md_sync! { "**{label}**" }.render_md(cx)"###);
+    assert!(lint(&rendered).is_empty(), "{:?}", lint(&rendered));
 }

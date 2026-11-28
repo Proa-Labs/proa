@@ -647,7 +647,7 @@ impl WebRender for Product {
 "#,
     )
     .unwrap();
-    let diagnostics = lint_paths(&[pages.clone()], LintOptions::default()).unwrap();
+    let diagnostics = lint_paths(std::slice::from_ref(&pages), LintOptions::default()).unwrap();
     let found: Vec<_> = diagnostics
         .iter()
         .filter(|d| d.code == "render/head-role-in-page")
@@ -2802,6 +2802,46 @@ impl<B: WriteBuf> MdRender<::proa_core::NoLoader, B> for Note {
     let diagnostics = lint_file(Path::new("sample.rs"), source);
     assert!(has_code(&diagnostics, "render/md-async-unneeded"));
     assert!(has_code(&diagnostics, "perf/async-md-static-subtree"));
+}
+
+/// Applications import the `proa` facade, so help must not name the
+/// internal `proa_core` crate.
+#[test]
+fn async_template_help_names_the_proa_facade() {
+    let source = r####"
+impl WebRender for Page {
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>{Badge { label: "ok" }}</main> }.render(cx)
+    }
+}
+impl WebRender for Shell {
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        html! { <main>"Body"</main> }.render(cx)
+    }
+}
+impl MdRender for Note {
+    fn render_md(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        md! { r###"# Title"### }.render_md(cx)
+    }
+}
+"####;
+    let diagnostics = lint_file(Path::new("sample.rs"), source);
+    for (code, wrapper) in [
+        ("render/sync-child-in-async", "proa::to_async(...)"),
+        ("perf/async-html-static-subtree", "proa::to_async(...)"),
+        ("perf/async-md-static-subtree", "proa::to_md_async(...)"),
+    ] {
+        let help = diagnostics
+            .iter()
+            .find(|diag| diag.code == code)
+            .and_then(|diag| diag.help.as_deref())
+            .unwrap_or_else(|| panic!("{code}: {diagnostics:?}"));
+        assert!(help.contains(wrapper), "{code}: {help}");
+    }
+    for diag in &diagnostics {
+        let text = format!("{diag}");
+        assert!(!text.contains("proa_core::"), "{text}");
+    }
 }
 
 #[test]
@@ -7625,4 +7665,524 @@ mod tests {
             ),
         ]
     );
+}
+
+fn route_path_diagnostics(path: &Path, source: &str) -> Vec<Diagnostic> {
+    lint_file(path, source)
+        .into_iter()
+        .filter(|d| d.code == "route/express-path-syntax")
+        .collect()
+}
+
+#[test]
+fn axum_route_receivers_follow_method_arguments_and_pattern_scopes() {
+    let source = r#"use axum::Router;
+use proa::axum::RouteResponse;
+struct Nav;
+impl Nav {
+    fn route(&self, path: &str, value: ()) {}
+    fn mount(&self, app: Router, navs: &[Option<Nav>]) {
+        if let Some(app) = &navs[0] {
+            app.route("/custom/:id", ());
+        } else {
+            app.clone().route("/missing/:id", get(show));
+        }
+        for app in navs.iter().flatten() { app.route("/nav/:id", ()); }
+        match &navs[0] {
+            Some(app) if is_visible(app) => app.route("/visible/:id", ()),
+            _ => (),
+        }
+        while let Some(app) = next_nav() { app.route("/next/:id", ()); }
+        {
+            let Some(app) = next_nav() else { return; };
+            app.route("/local/:id", ());
+        }
+        app.route("/method/:id", get(show));
+    }
+}
+trait Mount {
+    fn mount(app: axum::Router) { app.route("/trait/:id", get(show)); }
+}
+mod navigation {
+    struct Router;
+    impl Router {
+        fn new() -> Self { Self }
+        fn route(self, _: &str, _: ()) {}
+    }
+    fn mount() { Router::new().route("/navigation/:id", ()); }
+}
+fn local_import() {
+    use crate::nav::Router;
+    Router::new().route("/local-import/:id", ());
+}
+mod inherited {
+    use super::*;
+    fn mount(app: Router) { app.route("/inherited/:id", get(show)); }
+}
+mod renamed {
+    use super::Router as App;
+    fn mount(app: App) { app.route("/renamed/:id", get(show)); }
+}"#;
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    let lines: Vec<_> = diagnostics
+        .iter()
+        .map(|d| source.lines().nth(d.line - 1).unwrap().trim())
+        .collect();
+    assert_eq!(lines.len(), 5, "{lines:?}");
+    for (line, path) in lines.iter().zip([
+        "/missing/:id",
+        "/method/:id",
+        "/trait/:id",
+        "/inherited/:id",
+        "/renamed/:id",
+    ]) {
+        assert!(line.contains(path), "{lines:?}");
+    }
+}
+
+#[test]
+fn axum_routes_resolve_function_local_parent_imports() {
+    let source = r#"use axum::Router;
+use proa::axum::router_from_spec;
+mod api {
+    use crate::nav::Router as BlockOnly;
+    fn build() {
+        use super::Router;
+        Router::new().route("/direct/:id", get(show));
+        {
+            use super::router_from_spec as build_routes;
+            let (app, _) = build_routes(vec![]);
+            app.route("/renamed/:id", get(show));
+        }
+    }
+    fn wildcard() {
+        use super::*;
+        Router::new().route("/glob/:id", get(show));
+    }
+    fn inner_module() {
+        use axum::Router as BlockOnly;
+        mod nested {
+            fn build() {
+                use super::BlockOnly;
+                BlockOnly::new().route("/block-only/:id", ());
+            }
+        }
+    }
+}
+mod nav {
+    pub(crate) struct Router;
+    impl Router {
+        pub fn new() -> Self { Self }
+        pub fn route(self, _: &str, _: ()) {}
+    }
+    mod sub {
+        use axum::Router;
+        fn build() {
+            use super::Router;
+            Router::new().route("/custom/:id", ());
+        }
+        fn wildcard() {
+            use super::*;
+            Router::new().route("/custom-glob/:id", ());
+        }
+    }
+}"#;
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    let paths: Vec<_> = diagnostics.iter().map(|d| underlined(source, d)).collect();
+    assert_eq!(paths, [":id"; 3]);
+    for (diagnostic, path) in diagnostics.iter().zip(["/direct/", "/renamed/", "/glob/"]) {
+        assert!(source
+            .lines()
+            .nth(diagnostic.line - 1)
+            .unwrap()
+            .contains(path));
+    }
+}
+
+/// The text a diagnostic's primary label underlines.
+fn underlined(source: &str, diagnostic: &Diagnostic) -> String {
+    let range = &diagnostic.labels[0].range;
+    source
+        .lines()
+        .nth(range.line - 1)
+        .unwrap()
+        .chars()
+        .skip(range.column - 1)
+        .take(range.end_column - range.column)
+        .collect()
+}
+
+#[test]
+fn express_route_syntax_is_an_error_in_every_router_path_position() {
+    let source = r#"use axum::{routing::get, Router};
+use proa::axum::{router_from_spec, FrameworkBuilder, Route};
+
+pub fn router(state: AppState) -> Router {
+    let (router, metadata) = router_from_spec(vec![
+        Route::endpoint("/", get(pages::home::handler)),
+    ]);
+    router
+        .route("/healthz", get(health))
+        .route("/api/issues/:id", get(api::issue).delete(api::delete_issue))
+        .route("/orgs/:org/repos/:repo", get(api::repo))
+        .route_service("/media/*file", media())
+        .nest("/api/:version", api::router())
+        .nest_service("/static/*path", static_assets::service())
+        .with_state(state)
+}
+"#;
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    let found: Vec<_> = diagnostics
+        .iter()
+        .map(|d| {
+            (
+                d.line,
+                underlined(source, d),
+                d.suggestions[0].replacement.clone(),
+            )
+        })
+        .collect();
+    let expect = |line, segment: &str, fixed: &str| (line, segment.to_owned(), fixed.to_owned());
+    assert_eq!(
+        found,
+        [
+            expect(10, ":id", r#""/api/issues/{id}""#),
+            expect(11, ":org", r#""/orgs/{org}/repos/{repo}""#),
+            expect(12, "*file", r#""/media/{*file}""#),
+            expect(13, ":version", r#""/api/{version}""#),
+            expect(14, "*path", r#""/static""#),
+        ],
+        "{diagnostics:#?}"
+    );
+    for diagnostic in &diagnostics {
+        assert_eq!(diagnostic.severity, Severity::Error);
+        assert_eq!(diagnostic.column, diagnostic.labels[0].range.column);
+        assert!(diagnostic.notes[0].contains("panics while the router is built"));
+        // The fix replaces the whole literal and nothing else.
+        let suggestion = &diagnostic.suggestions[0];
+        assert_eq!(
+            suggestion.applicability,
+            crate::diagnostic::SuggestionApplicability::MachineApplicable
+        );
+        assert_eq!(suggestion.range.line, diagnostic.line);
+    }
+    assert_eq!(
+        diagnostics[0].to_string(),
+        r#"error[route/express-path-syntax]: route path `/api/issues/:id` uses the Express-style capture `:id`; Axum 0.8 writes captures as `{id}`
+  --> src/routes.rs:10:29
+    |
+  9 |         .route("/healthz", get(health))
+ 10 |         .route("/api/issues/:id", get(api::issue).delete(api::delete_issue))
+    |                             ^^^ Axum 0.8 rejects a segment that starts with `:`
+ 11 |         .route("/orgs/:org/repos/:repo", get(api::repo))
+ 12 |         .route_service("/media/*file", media())
+    |
+   = note: Axum 0.8 panics while the router is built ("Path segments must not start with `:`"), so the server exits at startup instead of serving requests
+   = note: for more information, see https://proa.so/docs/framework/routing#register-a-route
+   = help: write the path as
+           "/api/issues/{id}"
+"#
+    );
+    assert!(diagnostics[4]
+        .message
+        .starts_with("nest prefix `/static/*path` ends in the Express-style wildcard `*path`"));
+
+    // The corrected file is clean.
+    let fixed = source
+        .replace(":id", "{id}")
+        .replace(":org", "{org}")
+        .replace(":repo", "{repo}")
+        .replace("*file", "{*file}")
+        .replace(":version", "{version}")
+        .replace("/static/*path", "/static");
+    assert!(route_path_diagnostics(Path::new("src/routes.rs"), &fixed).is_empty());
+}
+
+#[test]
+fn express_route_syntax_stays_quiet_without_proof_of_an_axum_0_8_panic() {
+    let proa = "use axum::{routing::get, Router};\nuse proa::axum::{router_from_spec, FrameworkBuilder, Route};\n";
+    for (why, source) in [
+        (
+            "an unrelated receiver in an Axum application",
+            format!("{proa}fn menu(nav: Nav) -> Nav {{ nav.route(\"/issues/:id\", item()) }}"),
+        ),
+        (
+            "no Axum in the file",
+            "fn menu(nav: Nav) -> Nav { nav.route(\"/issues/:id\", item()) }".to_owned(),
+        ),
+        (
+            "Axum of an unknown version, outside a Proa package",
+            "use axum::{routing::get, Router};\nfn app() -> Router { Router::new().route(\"/issues/:id\", get(show)) }".to_owned(),
+        ),
+        (
+            "the author opted out of the check",
+            format!("{proa}fn app() -> Router {{ Router::new().without_v07_checks().route(\"/:literal\", get(show)) }}"),
+        ),
+        (
+            // `proa_framework_core::route_spec` rewrites both spellings to
+            // braces, so these routes are served.
+            "Proa route specs accept the old spelling",
+            format!("{proa}fn specs() -> Vec<Route<()>> {{ vec![Route::endpoint(\"/issues/:id\", get(show)), Route::page(\"/files/*path\", \"Files\", get(show)), proa::axum::Route::layout(\"/docs/:section\", DOCS, vec![])] }}"),
+        ),
+        (
+            "a path that is not a literal argument",
+            format!("{proa}const ISSUE: &str = \"/issues/:id\";\nfn app() -> Router {{ Router::new().route(ISSUE, get(show)).route(&format!(\"/{{}}/:id\", base()), get(show)) }}"),
+        ),
+        (
+            "a literal that is not the path argument",
+            format!("{proa}fn app() -> Router {{ Router::new().route(path(), label(\"/issues/:id\")).fallback(\"/missing/:id\") }}"),
+        ),
+        (
+            "colons and stars inside a segment",
+            format!("{proa}fn app() -> Router {{ Router::new().route(\"/time/12:30/a*b\", get(show)).route(\"/issues/{{id}}\", get(show)).route(\"/files/{{*path}}\", get(show)) }}"),
+        ),
+        (
+            "a relative path, which Axum rejects for a different reason",
+            format!("{proa}fn app() -> Router {{ Router::new().route(\":id\", get(show)) }}"),
+        ),
+        (
+            "test code",
+            format!("{proa}#[cfg(test)]\nmod tests {{\n    #[test]\n    fn old_syntax_panics() {{ let _ = Router::<()>::new().route(\"/issues/:id\", get(show)); }}\n}}"),
+        ),
+    ] {
+        let diagnostics = route_path_diagnostics(Path::new("/nowhere/src/routes.rs"), &source);
+        assert!(diagnostics.is_empty(), "{why}: {diagnostics:#?}");
+    }
+    let test_file =
+        format!("{proa}fn app() -> Router {{ Router::new().route(\"/issues/:id\", get(show)) }}");
+    assert!(route_path_diagnostics(Path::new("tests/routes.rs"), &test_file).is_empty());
+    assert_eq!(
+        route_path_diagnostics(Path::new("/nowhere/src/routes.rs"), &test_file).len(),
+        1
+    );
+}
+
+#[test]
+fn express_route_fix_preserves_quoted_path_segments_and_router_aliases() {
+    let source = r##"use axum::Router as Routes;
+use proa::axum::FrameworkBuilder;
+fn router() -> Routes { Routes::new().route(r#"/say/"hello"/:id"#, get(show)) }
+"##;
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    assert_eq!(diagnostics.len(), 1);
+    let fixed: syn::LitStr = syn::parse_str(&diagnostics[0].suggestions[0].replacement).unwrap();
+    assert_eq!(fixed.value(), r#"/say/"hello"/{id}"#);
+}
+
+#[test]
+fn express_route_syntax_uses_the_package_to_prove_axum_0_8() {
+    let source = "use axum::{routing::get, Router};\npub fn api() -> Router { Router::new().route(\"/api/issues/:id\", get(show)) }\n";
+    let lint_in = |files: &[(&str, &str)]| {
+        let tmp = tempfile::tempdir().unwrap();
+        for (name, contents) in files {
+            std::fs::write(tmp.path().join(name), contents).unwrap();
+        }
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+        let path = tmp.path().join("src/api.rs");
+        std::fs::write(&path, source).unwrap();
+        route_path_diagnostics(&path, source).len()
+    };
+    let proa_app = "[package]\nname = \"app\"\n\n[dependencies]\naxum = \"0.8.9\"\nproa = { version = \"0.4.2\", features = [\"axum\"] }\n";
+    assert_eq!(lint_in(&[("Cargo.toml", proa_app)]), 1);
+    let legacy = "[package]\nname = \"legacy\"\n\n[dependencies]\naxum = \"0.7\"\n";
+    assert_eq!(lint_in(&[("Cargo.toml", legacy)]), 0);
+    assert_eq!(
+        lint_in(&[("Cargo.toml", legacy), ("proa.config.rs", "")]),
+        1
+    );
+    assert_eq!(lint_in(&[]), 0);
+}
+
+#[test]
+fn express_route_syntax_without_a_name_is_not_machine_fixable() {
+    let source = "use proa::axum::FrameworkBuilder;\nfn mount(app: axum::Router) -> axum::Router {\n    app.route_service(r\"/files/*\", files())\n        .nest_service(\"/*path\", files())\n}\n";
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+    // A raw literal is underlined whole.
+    assert_eq!(underlined(source, &diagnostics[0]), "r\"/files/*\"");
+    assert_eq!(
+        diagnostics[0].suggestions[0].replacement,
+        "\"/files/{*rest}\""
+    );
+    assert_eq!(
+        diagnostics[0].suggestions[0].applicability,
+        crate::diagnostic::SuggestionApplicability::MaybeIncorrect
+    );
+    assert!(diagnostics[1].suggestions.is_empty());
+    assert!(diagnostics[1]
+        .help
+        .as_deref()
+        .unwrap()
+        .contains("cannot be nested at `/`"));
+}
+
+#[test]
+fn documented_rules_end_with_one_link_to_their_guide() {
+    let source = r####"use axum::Router;
+use proa::axum::RouteResponse;
+use proa::{html_sync, md_sync, MdRenderSync, WebContext, WebRender, WebRenderSync, WriteError};
+use proa::stream::Suspense;
+
+struct Product { title: String, price: u32 }
+impl WebRenderSync for Product {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        html_sync! { <h1>{self.title}</h1><p>{self.price}</p> }.render(cx)
+    }
+}
+impl MdRenderSync for Product {
+    fn render_md(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        md_sync! { "# {self.title}" }.render_md(cx)
+    }
+}
+struct Home;
+impl WebRenderSync for Home {
+    const ROLE: proa::ComponentRole = proa::ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        cx.head_mut().title("Home")?;
+        html_sync! { <main>{Suspense::new(Home, ())}{Home}</main> }.render(cx)
+    }
+}
+struct Untitled;
+impl WebRenderSync for Untitled {
+    fn render_head(&self, cx: &mut WebContext) -> impl proa::SyncHeadOperation { proa::NoHead }
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let label = String::new();
+        html_sync! { <main>{label}</main> }.render(cx)
+    }
+}
+fn api() -> Router { Router::new().route("/issues/:id", axum::routing::get(show)) }
+"####;
+    let guides = [
+        (
+            "render/head-role-required",
+            "https://proa.so/docs/framework/layouts-and-pages#roles-are-explicit",
+        ),
+        (
+            "render/head-mutation-in-body",
+            "https://proa.so/docs/framework/layouts-and-pages#roles-are-explicit",
+        ),
+        (
+            "render/head-role-in-suspense",
+            "https://proa.so/docs/framework/layouts-and-pages#roles-are-explicit",
+        ),
+        (
+            "render/head-role-in-page",
+            "https://proa.so/docs/framework/layouts-and-pages#roles-are-explicit",
+        ),
+        (
+            "render/content-coverage",
+            "https://proa.so/docs/cli/format-lint-check#content-coverage",
+        ),
+        (
+            "route/express-path-syntax",
+            "https://proa.so/docs/framework/routing#register-a-route",
+        ),
+    ];
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(tmp.path().join("src")).unwrap();
+    let path = tmp.path().join("src/lib.rs");
+    std::fs::write(&path, source).unwrap();
+    let from_paths = lint_paths(std::slice::from_ref(&path), LintOptions::default()).unwrap();
+    for diagnostics in [lint_file(&path, source), from_paths] {
+        for (code, guide) in guides {
+            let diagnostic = diagnostics
+                .iter()
+                .find(|d| d.code == code)
+                .unwrap_or_else(|| panic!("{code}: {diagnostics:#?}"));
+            let links: Vec<_> = diagnostic
+                .notes
+                .iter()
+                .filter(|note| note.contains("https://"))
+                .collect();
+            assert_eq!(
+                links,
+                [&format!("for more information, see {guide}")],
+                "{code}"
+            );
+            assert_eq!(diagnostic.notes.last(), Some(links[0]), "{code}");
+        }
+        // A rule without a guide of its own carries no link.
+        let unlinked = diagnostics
+            .iter()
+            .find(|d| d.code == "perf/string-new")
+            .unwrap_or_else(|| panic!("{diagnostics:#?}"));
+        assert!(unlinked.notes.is_empty(), "{:?}", unlinked.notes);
+    }
+}
+
+#[test]
+fn a_managed_layout_requires_a_page_in_its_sole_body_slot() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    std::fs::create_dir_all(root.join("src/layouts")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/layouts/mod.rs"),
+        "mod root; pub use root::Shell;",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/layouts/root.rs"), r#"
+pub struct Shell<C> { pub content: C }
+impl<C: WebRender> WebRender for Shell<C> {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+    fn render(self, cx: &mut WebContext) -> RenderOutcome<impl Future<Output = Result<(), WriteError>>> {
+        RenderOutcome::pending(async move {
+            let path = cx.url("public/logo.svg");
+            html! { <head>{cx.head()}</head><body><img src={path}>{self.content}</body> }.render(cx).resolve().await
+        })
+    }
+}
+"#).unwrap();
+    let path = root.join("src/pages.rs");
+    std::fs::write(&path, r#"
+use crate::layouts::Shell;
+struct Leaf;
+impl WebRenderSync for Leaf {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> { html_sync! { <p>"body"</p> }.render(cx) }
+}
+struct Page;
+impl WebRenderSync for Page {
+    const ROLE: ComponentRole = ComponentRole::PAGE;
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> { html_sync! { <p/> }.render(cx) }
+}
+fn routes() {
+    RouteResponse::ssr(Shell { content: Leaf });
+    RouteResponse::ssr(Shell { content: Page });
+    RouteResponse::ssr(Leaf);
+}
+"#).unwrap();
+    let diagnostics = lint_paths(&[path], LintOptions::default()).unwrap();
+    assert_eq!(
+        codes_at(&diagnostics, "render/head-page-missing"),
+        [13],
+        "{diagnostics:#?}"
+    );
+}
+
+#[test]
+fn rsjs_requests_explain_origin_paths_and_dynamic_cache_keys() {
+    let source = r#"
+struct Counter { id: String }
+#[rsjs(component, client)]
+impl WebRenderSync for Counter {
+    fn render(self, cx: &mut WebContext) -> Result<(), WriteError> {
+        let a = rsjs::query_with_initial(QueryKey::new(("issue", self.id)), 0, rsjs::FetchRequest { url: "/api/issues", ..Default::default() }, Default::default());
+        let b = rsjs::query_with_initial(QueryKey::new("all"), 0, rsjs::FetchRequest { url: "/api/all", apply_base_path: false, ..Default::default() }, Default::default());
+        let c = rsjs::mutation(QueryKey::new("update"), rsjs::FetchRequest { url: "https://other.example/", ..Default::default() }, &[]);
+        html_sync! { <main/> }.render(cx)
+    }
+}
+"#;
+    let diagnostics = lint_file(Path::new("src/components.rs"), source);
+    for code in ["rsjs/fetch-base-path", "rsjs/query-key-static-url"] {
+        assert_eq!(codes_at(&diagnostics, code), [6], "{diagnostics:#?}");
+        assert!(diagnostics
+            .iter()
+            .filter(|d| d.code == code)
+            .all(|d| d.severity == Severity::Info));
+    }
 }
