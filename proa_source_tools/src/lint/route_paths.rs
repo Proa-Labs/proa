@@ -8,8 +8,9 @@
 //!
 //! Precision comes before recall. A literal is checked only when it is the
 //! path argument of `route`, `route_service`, `nest` or `nest_service`, in a
-//! file that names Axum, and only when that Axum is the 0.8 Proa builds on:
-//! the file goes through `proa::axum`, or its package depends on `proa`.
+//! file where the receiver can be traced to an Axum router. The check targets
+//! the Axum version used by Proa.
+//! The file goes through `proa::axum`, or its package depends on `proa`.
 //! Paths held in constants or built at runtime are not followed, and a file
 //! that opts out of Axum's check with `without_v07_checks` is never reported.
 //!
@@ -41,7 +42,11 @@ pub(super) fn lint_route_paths(
     if !usage.axum {
         return;
     }
-    let mut calls = RouteCalls { found: Vec::new() };
+    let mut calls = RouteCalls {
+        usage: &usage,
+        routers: Default::default(),
+        found: Vec::new(),
+    };
     calls.visit_file(file);
     calls.found.retain(|(literal, _)| {
         !line_in_ranges(literal.span().start().line, ignored_ranges)
@@ -67,6 +72,8 @@ struct AxumUsage {
     axum: bool,
     /// Some path or import goes through `proa::axum` or `proa_framework_axum`.
     proa_axum: bool,
+    router_types: std::collections::BTreeSet<String>,
+    spec_functions: std::collections::BTreeSet<String>,
 }
 
 impl AxumUsage {
@@ -86,6 +93,19 @@ impl AxumUsage {
             }
             syn::UseTree::Name(_) | syn::UseTree::Rename(_) | syn::UseTree::Glob(_) => {
                 self.record(prefix);
+                let (name, alias) = match tree {
+                    syn::UseTree::Name(item) => (&item.ident, &item.ident),
+                    syn::UseTree::Rename(item) => (&item.ident, &item.rename),
+                    _ => return,
+                };
+                if name == "Router"
+                    && matches!(prefix.join("::").as_str(), "axum" | "axum::routing")
+                {
+                    self.router_types.insert(alias.to_string());
+                }
+                if name == "router_from_spec" && through_proa_axum(prefix) {
+                    self.spec_functions.insert(alias.to_string());
+                }
             }
             syn::UseTree::Group(group) => {
                 for tree in &group.items {
@@ -124,7 +144,9 @@ impl<'ast> Visit<'ast> for AxumUsage {
 }
 
 /// Collects `(path literal, is a nest prefix)` for every `Router` call.
-struct RouteCalls {
+struct RouteCalls<'a> {
+    usage: &'a AxumUsage,
+    routers: std::collections::BTreeSet<String>,
     found: Vec<(syn::LitStr, bool)>,
 }
 
@@ -140,10 +162,136 @@ fn string_literal(expr: &Expr) -> Option<&syn::LitStr> {
     }
 }
 
-impl<'ast> Visit<'ast> for RouteCalls {
+impl RouteCalls<'_> {
+    fn router_type(&self, path: &[String]) -> bool {
+        match path {
+            [name] => self.usage.router_types.contains(name),
+            [krate, name] => krate == "axum" && name == "Router",
+            [krate, module, name] => krate == "axum" && module == "routing" && name == "Router",
+            _ => false,
+        }
+    }
+
+    fn is_router(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Path(expr) => expr
+                .path
+                .get_ident()
+                .is_some_and(|name| self.routers.contains(&name.to_string())),
+            Expr::Call(call) => {
+                let Expr::Path(function) = call.func.as_ref() else {
+                    return false;
+                };
+                let path = path_segments(&function.path);
+                path.split_last().is_some_and(|(method, ty)| {
+                    matches!(method.as_str(), "new" | "default") && self.router_type(ty)
+                })
+            }
+            Expr::MethodCall(call) => {
+                matches!(
+                    call.method.to_string().as_str(),
+                    "route"
+                        | "route_service"
+                        | "nest"
+                        | "nest_service"
+                        | "merge"
+                        | "layer"
+                        | "route_layer"
+                        | "with_state"
+                        | "fallback"
+                        | "fallback_service"
+                ) && self.is_router(&call.receiver)
+            }
+            Expr::Paren(expr) => self.is_router(&expr.expr),
+            Expr::Group(expr) => self.is_router(&expr.expr),
+            _ => false,
+        }
+    }
+
+    fn spec_result(&self, expr: &Expr) -> bool {
+        let Expr::Call(call) = expr else { return false };
+        let Expr::Path(function) = call.func.as_ref() else {
+            return false;
+        };
+        let path = path_segments(&function.path);
+        match path.as_slice() {
+            [name] => self.usage.spec_functions.contains(name),
+            [prefix @ .., name] => name == "router_from_spec" && through_proa_axum(prefix),
+            _ => false,
+        }
+    }
+
+    fn bind(&mut self, pattern: &syn::Pat, is_router: bool) {
+        match pattern {
+            syn::Pat::Type(typed) => {
+                let router_type = matches!(typed.ty.as_ref(), syn::Type::Path(ty) if self.router_type(&path_segments(&ty.path)));
+                self.bind(&typed.pat, router_type);
+            }
+            syn::Pat::Ident(binding) => {
+                let name = binding.ident.to_string();
+                if is_router {
+                    self.routers.insert(name);
+                } else {
+                    self.routers.remove(&name);
+                }
+            }
+            syn::Pat::Tuple(tuple) => {
+                for field in &tuple.elems {
+                    self.bind(field, false);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for RouteCalls<'_> {
+    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        let previous = std::mem::take(&mut self.routers);
+        for input in &node.sig.inputs {
+            if let syn::FnArg::Typed(argument) = input {
+                let typed = matches!(argument.ty.as_ref(), syn::Type::Path(ty) if self.router_type(&path_segments(&ty.path)));
+                self.bind(&argument.pat, typed);
+            }
+        }
+        self.visit_block(&node.block);
+        self.routers = previous;
+    }
+
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        let previous = self.routers.clone();
+        visit::visit_block(self, block);
+        self.routers = previous;
+    }
+
+    fn visit_expr_closure(&mut self, node: &'ast syn::ExprClosure) {
+        let previous = self.routers.clone();
+        for pattern in &node.inputs {
+            self.bind(pattern, false);
+        }
+        self.visit_expr(&node.body);
+        self.routers = previous;
+    }
+
+    fn visit_local(&mut self, local: &'ast syn::Local) {
+        visit::visit_local(self, local);
+        let init = local.init.as_ref().map(|init| init.expr.as_ref());
+        self.bind(&local.pat, init.is_some_and(|expr| self.is_router(expr)));
+        if let syn::Pat::Tuple(tuple) = &local.pat {
+            if init.is_some_and(|expr| self.spec_result(expr)) {
+                if let Some(router) = tuple.elems.first() {
+                    self.bind(router, true);
+                }
+            }
+        }
+    }
+
     fn visit_expr_method_call(&mut self, node: &'ast ExprMethodCall) {
         let method = node.method.to_string();
-        if ROUTER_METHODS.contains(&method.as_str()) && node.args.len() == 2 {
+        if ROUTER_METHODS.contains(&method.as_str())
+            && node.args.len() == 2
+            && self.is_router(&node.receiver)
+        {
             if let Some(literal) = string_literal(&node.args[0]) {
                 self.found
                     .push((literal.clone(), method.starts_with("nest")));
@@ -259,7 +407,7 @@ fn diagnostic(path: &Path, source: &str, literal: &syn::LitStr, nested: bool) ->
                 "name the segment and write the path as".to_owned()
             },
             range: whole,
-            replacement: format!("\"{corrected}\""),
+            replacement: quote::ToTokens::to_token_stream(&syn::LitStr::new(&corrected, literal.span())).to_string(),
             applicability: if named {
                 SuggestionApplicability::MachineApplicable
             } else {

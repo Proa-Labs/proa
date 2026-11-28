@@ -7778,6 +7778,10 @@ fn express_route_syntax_stays_quiet_without_proof_of_an_axum_0_8_panic() {
     let proa = "use axum::{routing::get, Router};\nuse proa::axum::{router_from_spec, FrameworkBuilder, Route};\n";
     for (why, source) in [
         (
+            "an unrelated receiver in an Axum application",
+            format!("{proa}fn menu(nav: Nav) -> Nav {{ nav.route(\"/issues/:id\", item()) }}"),
+        ),
+        (
             "no Axum in the file",
             "fn menu(nav: Nav) -> Nav { nav.route(\"/issues/:id\", item()) }".to_owned(),
         ),
@@ -7826,6 +7830,18 @@ fn express_route_syntax_stays_quiet_without_proof_of_an_axum_0_8_panic() {
         route_path_diagnostics(Path::new("/nowhere/src/routes.rs"), &test_file).len(),
         1
     );
+}
+
+#[test]
+fn express_route_fix_preserves_quoted_path_segments_and_router_aliases() {
+    let source = r##"use axum::Router as Routes;
+use proa::axum::FrameworkBuilder;
+fn router() -> Routes { Routes::new().route(r#"/say/"hello"/:id"#, get(show)) }
+"##;
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    assert_eq!(diagnostics.len(), 1);
+    let fixed: syn::LitStr = syn::parse_str(&diagnostics[0].suggestions[0].replacement).unwrap();
+    assert_eq!(fixed.value(), r#"/say/"hello"/{id}"#);
 }
 
 #[test]
