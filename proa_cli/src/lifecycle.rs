@@ -45,16 +45,18 @@ use crate::{
     },
     diagnostic::Severity,
     rsjs::build::{
-        DescriptorCargoRequest, DESCRIPTOR_TARGET_POLICY_VERSION,
+        CargoCompilerArtifact, DescriptorCargoRequest, DESCRIPTOR_TARGET_POLICY_VERSION,
         DESCRIPTOR_UNIT_SIDECAR_SCHEMA_VERSION, TOOL_NAMESPACE_DIR,
     },
     rsjs::cache::DESCRIPTOR_CACHE_SCHEMA_VERSION,
-    rsjs::final_compile::{prune_final_artifact_snapshot, FinalSnapshotLease},
+    rsjs::final_compile::{prune_final_artifact_snapshot, FinalCargoOutput, FinalSnapshotLease},
     rsjs::pipeline::{
         run_linked_cargo_cached, run_linked_cargo_cached_with_progress,
         try_run_optimistic_empty_linked_cargo, DescriptorRootSelector, LinkedCargoOutput,
         LinkedCargoRequest, LinkedCargoStage, OptimisticLinkedCargoOutcome,
+        OptimisticLinkedCargoOutput,
     },
+    rsjs::semantic_link::SemanticLinkPlan,
     scaffold,
 };
 
@@ -1361,8 +1363,7 @@ pub fn build(mut options: BuildOptions) -> Result<()> {
     }
 
     println!("running linked RSJS Cargo build: {}", shellish(&command));
-    let output = run_linked_cargo_cached(&prepared.request, &prepared.descriptor_cache_directory)
-        .context("linked RSJS build failed")?;
+    let output = run_linked_build(&prepared).context("linked RSJS build failed")?;
     print_linked_cache_reuse(LinkedCargoAction::Build, &output);
     print_linked_cargo_output(LinkedCargoAction::Build, &prepared.request, &output);
     // An explicit export carries its own catalog beside the executable, so
@@ -1496,8 +1497,7 @@ pub fn check(mut options: CheckOptions) -> Result<()> {
     )?;
 
     println!("running linked RSJS Cargo check: {}", shellish(&command));
-    let output = run_linked_cargo_cached(&prepared.request, &prepared.descriptor_cache_directory)
-        .context("linked RSJS check failed")?;
+    let output = run_linked_build(&prepared).context("linked RSJS check failed")?;
     print_linked_cache_reuse(LinkedCargoAction::Check, &output);
     print_linked_cargo_output(LinkedCargoAction::Check, &prepared.request, &output);
     Ok(())
@@ -1976,7 +1976,7 @@ fn run_linked_execute_with_environment(
         action.command_name(),
         shellish(command)
     );
-    let output = run_linked_cargo_cached(&prepared.request, &prepared.descriptor_cache_directory)
+    let output = run_linked_build(&prepared)
         .with_context(|| format!("linked RSJS {} failed", action.command_name()))?;
     print_linked_cache_reuse(action, &output);
     print_linked_cargo_output(action, &prepared.request, &output);
@@ -2003,25 +2003,32 @@ fn run_linked_execute_with_environment(
     Ok(())
 }
 
-fn print_linked_cache_reuse(action: LinkedCargoAction, output: &LinkedCargoOutput) {
-    let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
-    let reused_descriptor_artifacts = output
-        .descriptor
+fn print_linked_cache_reuse(action: LinkedCargoAction, build: &LinkedBuild) {
+    let final_artifacts = build.final_cargo().cargo_artifacts.len();
+    let reused_final_artifacts = build
+        .final_cargo()
         .cargo_artifacts
         .iter()
         .filter(|artifact| artifact.fresh)
         .count();
-    let final_artifacts = output.final_cargo.cargo_artifacts.len();
-    let reused_final_artifacts = output
-        .final_cargo
-        .cargo_artifacts
-        .iter()
-        .filter(|artifact| artifact.fresh)
-        .count();
-    println!(
-        "linked RSJS {} cache: descriptor {reused_descriptor_artifacts}/{descriptor_artifacts} Cargo artifacts reused; final {reused_final_artifacts}/{final_artifacts} reused",
-        action.command_name(),
-    );
+    let command = action.command_name();
+    match build {
+        LinkedBuild::SinglePass(_) => println!(
+            "linked RSJS {command} cache: single pass; final {reused_final_artifacts}/{final_artifacts} reused"
+        ),
+        LinkedBuild::Full(output) => {
+            let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
+            let reused_descriptor_artifacts = output
+                .descriptor
+                .cargo_artifacts
+                .iter()
+                .filter(|artifact| artifact.fresh)
+                .count();
+            println!(
+                "linked RSJS {command} cache: descriptor {reused_descriptor_artifacts}/{descriptor_artifacts} Cargo artifacts reused; final {reused_final_artifacts}/{final_artifacts} reused"
+            );
+        }
+    }
 }
 
 /// Hot-template scanning parses every source file with syn, whose syntax
@@ -2041,12 +2048,44 @@ fn hot_scan_or_rustc_diagnostics<T>(
     })
 }
 
-enum DevCargoBuild {
-    SinglePass(crate::rsjs::pipeline::OptimisticLinkedCargoOutput),
+/// One finished linked Cargo build.
+enum LinkedBuild {
+    /// One final Cargo pass against the empty plan: no compiled unit expanded
+    /// an RSJS macro, so there was nothing for a descriptor pass to collect.
+    SinglePass(OptimisticLinkedCargoOutput),
+    /// The descriptor pass, the link, and the final pass.
     Full(LinkedCargoOutput),
 }
 
-impl DevCargoBuild {
+impl LinkedBuild {
+    fn semantic(&self) -> &SemanticLinkPlan {
+        match self {
+            Self::SinglePass(output) => &output.semantic,
+            Self::Full(output) => &output.semantic,
+        }
+    }
+
+    fn semantic_plan_path(&self) -> &Path {
+        match self {
+            Self::SinglePass(output) => &output.semantic_plan_path,
+            Self::Full(output) => &output.semantic_plan_path,
+        }
+    }
+
+    fn final_cargo(&self) -> &FinalCargoOutput {
+        match self {
+            Self::SinglePass(output) => &output.final_cargo,
+            Self::Full(output) => &output.final_cargo,
+        }
+    }
+
+    fn final_root_artifact(&self) -> &CargoCompilerArtifact {
+        match self {
+            Self::SinglePass(output) => &output.final_root_artifact,
+            Self::Full(output) => &output.final_root_artifact,
+        }
+    }
+
     fn final_root_inputs(&self) -> Option<&[PathBuf]> {
         match self {
             Self::SinglePass(output) => output.final_root_inputs.as_deref(),
@@ -2055,10 +2094,54 @@ impl DevCargoBuild {
     }
 
     fn executable(&self) -> Option<&Path> {
-        match self {
-            Self::SinglePass(output) => output.final_root_artifact.executable.as_deref(),
-            Self::Full(output) => output.final_root_artifact.executable.as_deref(),
+        self.final_root_artifact().executable.as_deref()
+    }
+}
+
+/// Run one linked `build`, `check`, `run`, or `test`.
+///
+/// A project in which no unit expands an RSJS macro has nothing for the
+/// descriptor pass to collect, so the final Cargo pass runs alone against the
+/// empty plan. Both hints below only schedule that attempt. `rsjs_macros`
+/// fails closed on an unmapped unit, and a rejected attempt falls back to the
+/// full pipeline, which reuses every dependency the attempt compiled.
+fn run_linked_build(prepared: &PreparedLinkedCargo) -> Result<LinkedBuild> {
+    let hint = &prepared.full_pass_hint;
+    if !hint.exists() && !project_mentions_rsjs_macros(&prepared.package_source_root) {
+        match try_run_optimistic_empty_linked_cargo(&prepared.request)? {
+            OptimisticLinkedCargoOutcome::Succeeded(output) => {
+                return Ok(LinkedBuild::SinglePass(output));
+            }
+            OptimisticLinkedCargoOutcome::NeedsFullLinkedPass => {
+                println!("RSJS macros found; running the full two-pass linked build");
+                record_full_pass_hint(hint, true);
+            }
         }
+    }
+    let output = run_linked_cargo_cached(&prepared.request, &prepared.descriptor_cache_directory)?;
+    record_full_pass_hint(hint, !output.semantic.is_empty());
+    Ok(LinkedBuild::Full(output))
+}
+
+/// Remember whether this invocation's last full build linked any RSJS unit.
+///
+/// A rejected single pass costs more than its own time: Cargo drops the
+/// fingerprint of the unit that failed, so the full pipeline then recompiles
+/// that unit and its dependents even when nothing changed. The source scan
+/// cannot see a macro expanded by a dependency, so without this record such a
+/// project would pay that on every command. The record is a scheduling hint
+/// like the scan, and failing to write it is harmless.
+fn record_full_pass_hint(hint: &Path, needs_full_pass: bool) {
+    if needs_full_pass == hint.exists() {
+        return;
+    }
+    if needs_full_pass {
+        if let Some(parent) = hint.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::write(hint, b"");
+    } else {
+        let _ = fs::remove_file(hint);
     }
 }
 
@@ -2067,7 +2150,7 @@ impl DevCargoBuild {
 fn run_dev_cargo(
     prepared: &PreparedLinkedCargo,
     mut session: Option<&mut DevSessionCache>,
-) -> Result<DevCargoBuild> {
+) -> Result<LinkedBuild> {
     let try_optimistic = session
         .as_deref()
         .is_some_and(|cache| cache.allow_optimistic_empty);
@@ -2078,7 +2161,7 @@ fn run_dev_cargo(
             .context("linked RSJS dev build failed")?
         {
             OptimisticLinkedCargoOutcome::Succeeded(output) => {
-                return Ok(DevCargoBuild::SinglePass(output));
+                return Ok(LinkedBuild::SinglePass(output));
             }
             OptimisticLinkedCargoOutcome::NeedsFullLinkedPass => {
                 if let Some(cache) = session.as_deref_mut() {
@@ -2110,7 +2193,7 @@ fn run_dev_cargo(
     if let Some(cache) = session {
         cache.allow_optimistic_empty = output.semantic.is_empty();
     }
-    Ok(DevCargoBuild::Full(output))
+    Ok(LinkedBuild::Full(output))
 }
 
 fn run_linked_dev_cycle(
@@ -2187,16 +2270,10 @@ fn run_linked_dev_cycle_with_assets(
         }
     }
 
+    let executable =
+        select_final_root_executable(&prepared.request, &build, LinkedCargoAction::Dev)?;
     match build {
-        DevCargoBuild::SinglePass(output) => {
-            let executable = select_attested_root_executable(
-                &prepared.request,
-                output.final_cargo.plan_id,
-                output.semantic.plan_id,
-                &output.semantic_plan_path,
-                &output.final_root_artifact,
-                LinkedCargoAction::Dev,
-            )?;
+        LinkedBuild::SinglePass(output) => {
             let public_assets =
                 public_assets::publish(root, public_source, &prepared.public_output_directory)?;
             let reused_final_artifacts = output
@@ -2225,9 +2302,7 @@ fn run_linked_dev_cycle_with_assets(
                 _snapshot_lease: output.final_root_lease,
             })
         }
-        DevCargoBuild::Full(output) => {
-            let executable =
-                select_final_root_executable(&prepared.request, &output, LinkedCargoAction::Dev)?;
+        LinkedBuild::Full(output) => {
             let public_assets =
                 public_assets::publish(root, public_source, &prepared.public_output_directory)?;
             let descriptor_artifacts = output.descriptor.cargo_artifacts.len();
@@ -2321,27 +2396,13 @@ impl Drop for DevBuildProgress {
 
 fn select_final_root_executable(
     request: &LinkedCargoRequest,
-    output: &LinkedCargoOutput,
+    build: &LinkedBuild,
     action: LinkedCargoAction,
 ) -> Result<PathBuf> {
-    select_attested_root_executable(
-        request,
-        output.final_cargo.plan_id,
-        output.semantic.plan_id,
-        &output.semantic_plan_path,
-        &output.final_root_artifact,
-        action,
-    )
-}
-
-fn select_attested_root_executable(
-    request: &LinkedCargoRequest,
-    final_plan_id: rsjs_ir::abi::PlanId,
-    semantic_plan_id: rsjs_ir::abi::PlanId,
-    semantic_plan_path: &Path,
-    artifact: &crate::rsjs::build::CargoCompilerArtifact,
-    action: LinkedCargoAction,
-) -> Result<PathBuf> {
+    let final_plan_id = build.final_cargo().plan_id;
+    let semantic_plan_id = build.semantic().plan_id;
+    let semantic_plan_path = build.semantic_plan_path();
+    let artifact = build.final_root_artifact();
     if final_plan_id != semantic_plan_id {
         bail!(
             "linked {} final Cargo consumed plan {}, but the semantic linker produced {}",
@@ -2935,6 +2996,8 @@ struct PreparedLinkedCargo {
     target_triple: Option<String>,
     runtime_args: Vec<OsString>,
     descriptor_cache_directory: PathBuf,
+    /// Exists while this invocation is known to need the full pipeline.
+    full_pass_hint: PathBuf,
     package_source_root: PathBuf,
     public_output_directory: PathBuf,
     // Windows cannot safely relocate arbitrary PE executables without a
@@ -3172,6 +3235,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment_and_session(
     } else {
         format!("descriptor-cache-v{DESCRIPTOR_CACHE_SCHEMA_VERSION}")
     });
+    let full_pass_hint = build_root.join("needs-full-pass");
     let plan_directory = namespace.join(if cfg!(windows) { "p" } else { "plans" });
     let final_target_root = namespace
         .join(if cfg!(windows) { "f" } else { "final-target" })
@@ -3224,6 +3288,7 @@ fn prepare_linked_cargo_with_wrapper_and_environment_and_session(
         target_triple: parsed.target,
         runtime_args: parsed.runtime_args,
         descriptor_cache_directory,
+        full_pass_hint,
         package_source_root,
         public_output_directory,
         _wrapper_lock: wrapper_lock,
@@ -4025,32 +4090,35 @@ fn fresh_build_nonce() -> String {
 fn print_linked_cargo_output(
     action: LinkedCargoAction,
     request: &LinkedCargoRequest,
-    output: &LinkedCargoOutput,
+    build: &LinkedBuild,
 ) {
+    let output = build.final_cargo();
     println!(
         "linked RSJS plan {} for package `{}` binary `{}`",
-        output.semantic.plan_id, request.root.package_id, request.root.target_name
+        build.semantic().plan_id,
+        request.root.package_id,
+        request.root.target_name
     );
     match action {
         LinkedCargoAction::Build => println!(
             "final Cargo artifacts: {}",
-            output.final_cargo.target_directory.display()
+            output.target_directory.display()
         ),
         LinkedCargoAction::Check => println!(
             "final Cargo check artifacts: {}",
-            output.final_cargo.target_directory.display()
+            output.target_directory.display()
         ),
         LinkedCargoAction::Dev => println!(
             "final Cargo dev artifacts: {}",
-            output.final_cargo.target_directory.display()
+            output.target_directory.display()
         ),
         LinkedCargoAction::Run => println!(
             "final Cargo run artifacts: {}",
-            output.final_cargo.target_directory.display()
+            output.target_directory.display()
         ),
         LinkedCargoAction::Test => println!(
             "final Cargo test artifacts: {}",
-            output.final_cargo.target_directory.display()
+            output.target_directory.display()
         ),
     }
 }

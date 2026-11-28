@@ -782,10 +782,7 @@ fn main() {
     build();
     assert_eq!(run().trim(), "1");
     let warm = build();
-    assert!(
-        warm.contains("descriptor 1/1 Cargo artifacts reused; final 1/1 reused"),
-        "{warm}"
-    );
+    assert!(warm.contains("single pass; final 1/1 reused"), "{warm}");
     assert_eq!(run().trim(), "1");
 
     fs::write(
@@ -831,10 +828,7 @@ fn build_then_run_refreshes_assets_without_rebinding_the_binary_and_keeps_failur
     let run = success(&cli(root, &["run", "--offline", "--", "--probe"]));
     assert_eq!(published(&run), output);
     assert_eq!(&main_manifest(&run), old.manifest());
-    assert!(
-        run.contains("descriptor 1/1 Cargo artifacts reused; final 1/1 reused"),
-        "{run}"
-    );
+    assert!(run.contains("single pass; final 1/1 reused"), "{run}");
 
     fs::write(root.join("public/logo.svg"), b"other").unwrap();
     let edited = success(&cli(root, &["run", "--offline", "--", "--probe"]));
@@ -844,10 +838,7 @@ fn build_then_run_refreshes_assets_without_rebinding_the_binary_and_keeps_failur
         current.assets["logo.svg"].public_path,
         old.manifest().assets["logo.svg"].public_path
     );
-    assert!(
-        edited.contains("descriptor 1/1 Cargo artifacts reused; final 1/1 reused"),
-        "{edited}"
-    );
+    assert!(edited.contains("single pass; final 1/1 reused"), "{edited}");
     assert_eq!(fs::read(&old_object).unwrap(), b"first");
     let loaded = AssetCatalog::load(&output).unwrap();
     assert_eq!(
