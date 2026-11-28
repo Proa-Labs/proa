@@ -60,10 +60,21 @@ impl<L: DataLoader, B: WriteBuf, C: WebRenderSync<L, B>, S: WebRenderSync<L, B>>
                     {self.section}
                 </div>
                 <div class="docs-sidebar-content">{self.content}</div>
-                <div class="docs-sidebar-footer">
-                    <a href={routes::HOME} class="docs-sidebar-footer-link">"Back to site"</a>
-                    {ThemeToggle::new()}
-                </div>
+                {ReadingSidebarFooter}
+            </div>
+        }
+        .render(cx)
+    }
+}
+
+pub(crate) struct ReadingSidebarFooter;
+
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReadingSidebarFooter {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        html_sync! {
+            <div class="docs-sidebar-footer" data-component="reading-sidebar-footer">
+                <a href={routes::HOME} class="docs-sidebar-footer-link">"Back to site"</a>
+                {ThemeToggle::new()}
             </div>
         }
         .render(cx)

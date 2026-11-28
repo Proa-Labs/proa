@@ -64,8 +64,8 @@ fn article_actions_insert_at(html: &'static str) -> Option<usize> {
     Some(after_intro)
 }
 
-struct DocsArticleActions {
-    page: &'static DocPage,
+pub(crate) struct DocsArticleActions {
+    pub(crate) page: &'static DocPage,
 }
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsArticleActions {

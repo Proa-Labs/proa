@@ -12,13 +12,13 @@ use proa_core::{
     ComponentRole, DataLoader, HeadMetadata, MdRenderSync, StaticRaw, WebContext, WebRenderSync,
     WriteBuf, WriteError,
 };
-use proa_docs::{DocPage, Docs, DocsToc};
+use proa_docs::{DocPage, Docs};
 use proa_macros::{html_sync, md_sync};
 
 use crate::{
     components::{
         brand::ProaLogoMark,
-        docs::{DocsHeader, ReadingSidebar},
+        docs::{DocsArticleActions, DocsHeader, ReadingSidebar, ReadingSidebarFooter},
         icons::PanelLeftIcon,
         search_trigger::SearchIconButton,
         theme_toggle::ThemeToggle,
@@ -175,9 +175,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for BlogPage {
                     </button>
                     <div id="blog-posts-menu" popover="auto" class="blog-mobile-menu">
                         {PostNav { current }}
-                        <a class="blog-mobile-home docs-sidebar-footer-link" href={routes::HOME}>
-                            "Back to site"
-                        </a>
+                        {ReadingSidebarFooter}
                     </div>
                 </div>
             </header>
@@ -299,23 +297,15 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Article {
                     <a class="blog-back" href={routes::BLOG}><span aria-hidden="true">"←"</span>{ALL_POSTS}</a>
                     <h1 class="blog-heading">{page.title}</h1>
                     <p class="blog-intro">{page.description}</p>
-                    <div class="blog-byline">
-                        <span>{self.post.author}</span>
-                        <time datetime={self.post.date}>{self.post.date}</time>
-                        <a class="docs-article-action" href={page.markdown_path}>"Open Markdown"</a>
-                    </div>
+                    {DocsArticleActions { page }}
                 </header>
-                {if page.frontmatter.toc != Some(false) && !page.toc.is_empty() {
-                    html_sync! {
-                        <aside class="docs-toc docs-toc-nav blog-toc" aria-label="Article contents">
-                            <p class="docs-toc-title">"On this page"</p>
-                            {DocsToc { items: page.toc }}
-                        </aside>
-                    }
-                }}
                 <div class="docs-article prose blog-prose">
                     // The MDX compiler renders and escapes the authored source at build time.
                     {StaticRaw(page.article_html)}
+                    <footer class="blog-article-credit">
+                        <span>{self.post.author}</span>
+                        <time datetime={self.post.date}>{self.post.date}</time>
+                    </footer>
                 </div>
             </article>
         }

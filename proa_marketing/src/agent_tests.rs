@@ -69,6 +69,10 @@ async fn blog_links_compiled_posts_and_negotiates_their_representations() {
         assert!(article.contains("rel=\"canonical\""));
         assert!(article.contains(page.article_html));
         assert!(article.contains("<time datetime="));
+        assert!(article.contains(&format!(
+            "data-docs-markdown-src=\"{}\"",
+            page.markdown_path
+        )));
 
         let (_, headers, markdown) = fetch(&app, page.route_path, "text/markdown").await;
         assert_eq!(
