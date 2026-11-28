@@ -227,6 +227,30 @@ fn site_routes_in_library(root: &Path) -> bool {
             .is_ok_and(|source| source.contains("router_from_spec("))
 }
 
+fn has_rsjs_impl(source: &str) -> bool {
+    use syn::visit::Visit;
+
+    struct Finder(bool);
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
+            self.0 |= item.attrs.iter().any(|attr| {
+                attr.path()
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "rsjs")
+            });
+            syn::visit::visit_item_impl(self, item);
+        }
+    }
+
+    source.contains("rsjs")
+        && syn::parse_file(source).is_ok_and(|file| {
+            let mut finder = Finder(false);
+            finder.visit_file(&file);
+            finder.0
+        })
+}
+
 pub(crate) fn site_check_with_config(
     root: PathBuf,
     config: &crate::config::ProjectConfig,
@@ -289,7 +313,7 @@ pub(crate) fn site_check_with_config(
         // `src/main.rs`. Cargo builds that binary alongside every `tests/`
         // target, and the linked plan for a test target has no entry for an
         // RSJS component compiled into the binary.
-        if !root.join("src/lib.rs").is_file() && has_source("#[rsjs(") {
+        if !root.join("src/lib.rs").is_file() && sources.iter().any(|src| has_rsjs_impl(src)) {
             let crate_name = crate::util::cargo_package_name(&root)
                 .map_or_else(|| "<crate_name>".to_string(), |name| name.replace('-', "_"));
             report.warnings.push(format!(

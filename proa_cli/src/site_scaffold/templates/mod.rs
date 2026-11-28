@@ -43,7 +43,10 @@ pub fn populate(
     let library = app::library_path(&crate_ident);
 
     plan.write("Cargo.toml", manifest)?;
-    plan.write(".env.example", env_example(package, has_database))?;
+    plan.write(
+        ".env.example",
+        env_example(package, &crate_ident, has_database),
+    )?;
     plan.write(".gitignore", gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
     plan.write("README.md", readme(package, title, selection, &crate_ident))?;
@@ -258,13 +261,15 @@ codegen-units = 16
     )
 }
 
-fn env_example(package: &str, has_database: bool) -> String {
+fn env_example(package: &str, crate_ident: &str, has_database: bool) -> String {
     let database = if has_database {
         format!("DATABASE_URL=sqlite://data/{package}.db\n")
     } else {
         String::new()
     };
-    format!("{database}PROA_HOST=127.0.0.1\nPORT=3000\nRUST_LOG={package}=debug,tower_http=info\n")
+    format!(
+        "{database}PROA_HOST=127.0.0.1\nPORT=3000\nRUST_LOG={crate_ident}=debug,tower_http=info\n"
+    )
 }
 
 fn gitignore() -> &'static str {

@@ -712,6 +712,19 @@ mod tests {
                     toml::from_str(&std::fs::read_to_string(root.join("Cargo.toml")).unwrap())
                         .unwrap();
                 assert_eq!(manifest["lib"]["name"].as_str(), Some("proa_site_app"));
+                let env = std::fs::read_to_string(root.join(".env.example")).unwrap();
+                assert!(
+                    env.lines()
+                        .any(|line| line.starts_with("RUST_LOG=proa_site_app=")),
+                    "{env}"
+                );
+                if template == "app" {
+                    assert!(
+                        env.lines()
+                            .any(|line| line == format!("DATABASE_URL=sqlite://data/{name}.db")),
+                        "{env}"
+                    );
+                }
                 for path in [
                     "src/main.rs",
                     if template == "app" {
@@ -796,18 +809,29 @@ mod tests {
         );
 
         // Its first island is the point where `proa test` stops working.
+        let counter = root.join("src/components/counter.rs");
         std::fs::write(
-            root.join("src/components/counter.rs"),
-            "#[rsjs(component, client)]\nimpl<L: DataLoader> WebRenderSync<L> for Counter {}\n",
+            &counter,
+            "// #[rsjs(component, client)]\nconst EXAMPLE: &str = \"#[rsjs(component)]\";",
         )
         .unwrap();
-        let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
-        assert!(report.errors.is_empty(), "{:?}", report.errors);
-        let [warning] = report.warnings.as_slice() else {
-            panic!("expected one warning: {:?}", report.warnings);
-        };
-        assert!(warning.contains("`src/lib.rs`"), "{warning}");
-        assert!(warning.contains("use earlier::"), "{warning}");
+        assert!(crate::scaffold::site_check(Some(root.clone()))
+            .unwrap()
+            .warnings
+            .is_empty());
+        for attr in [
+            "#[rsjs(component, client)]",
+            "#[rsjs::rsjs (component, client)]",
+        ] {
+            std::fs::write(&counter, format!("mod nested {{ {attr}\nimpl<L: DataLoader> WebRenderSync<L> for Counter {{}} }}")).unwrap();
+            let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
+            assert!(report.errors.is_empty(), "{:?}", report.errors);
+            let [warning] = report.warnings.as_slice() else {
+                panic!("expected one warning: {:?}", report.warnings);
+            };
+            assert!(warning.contains("`src/lib.rs`"), "{warning}");
+            assert!(warning.contains("use earlier::"), "{warning}");
+        }
 
         // The same island in a library-crate site needs no warning.
         let current = temp.path().join("current");
