@@ -137,6 +137,10 @@ latest published crate, as does a fallback when binary metadata is unavailable.
 A failed pinned build stops rather than retrying another version. Main snapshots
 require a prebuilt archive; choose a published version to build from source.
 
+## Documentation examples
+
+Run `python3 scripts/check_docs_examples.py --cli target/debug/proa` after building the CLI. It parses every Rust fence, including expressions and partial configuration fields, and checks dependency declarations against the candidate manifest versions. Fences with `check="name"` are compiled together as a module. The RSJS examples also go through descriptor generation and final linking. Use the same name across fences that form one example.
+
 ## Quickstart acceptance
 
 Build both local CLI binaries, then verify the Basic app using the examples
@@ -165,6 +169,13 @@ by a release workflow with an exact candidate version. That provides a place to
 verify public installation after publication without changing the docs.
 
 ## crates.io releases
+
+Before publishing, the release wrapper verifies that `https://proa.so/readyz`
+serves the candidate commit in `X-Proa-Revision`. Main CI builds, smoke-tests,
+and deploys the marketing site. If the public revision lags, inspect the
+**Deploy verified image to Railway** job and rerun publication once the candidate
+is live.
+
 
 The CLI and reusable libraries support crates.io installation. Normal releases
 use [`scripts/release-plz.sh`](release-plz.sh), both locally and through the
@@ -200,7 +211,10 @@ Only after those checks pass and the source still matches current `main` does
 it publish the CLI. Stable CLI binary releases run the same standalone check
 before publishing their archives. Experimental main snapshots instead run
 ORIGIN acceptance against workspace libraries, allowing snapshots of APIs
-that have not been released to crates.io yet.
+that have not been released to crates.io yet. Both checks add a first RSJS
+island to the default `app` template before they test and build it: that
+edit is where a site whose binary declares the modules stops passing
+`proa test`.
 
 Registry resolution retries unavailable Proa/RSJS versions up to three times,
 waiting 5 then 10 seconds for index propagation. Build, test, and HTTP failures

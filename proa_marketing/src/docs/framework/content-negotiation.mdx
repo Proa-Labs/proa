@@ -97,6 +97,95 @@ vary: Accept
 
 Sites generated with Markdown representations use these functions in their page handlers. Add them to an existing site with `proa add representation markdown`; `proa generate page` then writes both handlers.
 
+## Dynamic routes
+
+`MarkdownAlternate::new` takes a route pattern, not a finished URL. Write the route's captures into it and Proa fills them in from the current request:
+
+```rust filename="src/pages/issue.rs"
+use axum::extract::Path;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
+use proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};
+
+const ISSUE_MARKDOWN: MarkdownAlternate = MarkdownAlternate::new("/issues/{id}/index.md");
+
+/// `GET /issues/{id}`: HTML, or Markdown when the client prefers it.
+pub async fn issue(
+    Path(id): Path<u32>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    let page = IssuePage { id };
+    negotiate(&headers, RouteResponse::ssr(page), page, ISSUE_MARKDOWN)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// `GET /issues/{id}/index.md`: always Markdown.
+pub async fn issue_markdown(Path(id): Path<u32>) -> Result<impl IntoResponse, StatusCode> {
+    explicit_markdown(IssuePage { id }).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+```
+
+`IssuePage` is a `Copy` struct with an `id: u32` field and the same two render implementations as `GuidePage`. Register both patterns:
+
+```rust filename="src/routes.rs"
+let routes = Router::new()
+    .route("/issues/{id}", get(issue))
+    .route("/issues/{id}/index.md", get(issue_markdown));
+```
+
+A request for `/issues/42` advertises the concrete URL:
+
+```http
+GET /issues/42
+
+HTTP/1.1 200 OK
+content-type: text/html; charset=utf-8
+vary: Accept
+link: </issues/42/index.md>; rel="alternate"; type="text/markdown"
+```
+
+The path is a `&'static str` because it is the pattern. When the `Link` header is written, each `{name}` in it is replaced with the request's route parameter of that name, percent-encoded as one path segment, so the handler builds no URL string. A `{name}` the route does not capture is left as written. Under a [URL path prefix](/docs/framework/deployment#serving-behind-a-url-path-prefix) the prefix is added: the same handler mounted at `/tracker` advertises `</tracker/issues/42/index.md>`.
+
+`proa generate page issues/{id}` writes the suffix form, `MarkdownAlternate::new("/issues/{id}.md")`. Axum matches a whole path segment, so one route serves both `/issues/42` and `/issues/42.md`: the generated `handler_with_markdown_alias` checks the request path for the `.md` suffix, and `MARKDOWN_ALTERNATE.render_explicit(page)` removes the suffix from the capture before the Markdown renders.
+
+## Pages that load data
+
+When the Markdown representation awaits loader data, the page implements `MdRender<L>` and the handler passes one request-scoped resolver to both representations. This is the home page handler `proa new site` writes for a site with a database:
+
+```rust filename="src/pages/home.rs"
+use axum::{extract::State, http::HeaderMap, response::IntoResponse};
+use proa::axum::{
+    explicit_markdown_async_with_loader, negotiate_async_with_loader, MarkdownAlternate,
+    RouteResponse,
+};
+use proa::stream::DataResolver;
+
+use crate::{app::AppState, error::AppError, layouts::RootDocument};
+
+pub async fn handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, AppError> {
+    let resolver = DataResolver::request_scope(state.loader.clone());
+    let html =
+        RouteResponse::ssr_async_with_loader(RootDocument { content: HomePage }, resolver.clone());
+    Ok(negotiate_async_with_loader(
+        &headers,
+        html,
+        HomePage,
+        resolver,
+        MarkdownAlternate::new("/index.md"),
+    ))
+}
+
+pub async fn markdown(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
+    let resolver = DataResolver::request_scope(state.loader.clone());
+    Ok(explicit_markdown_async_with_loader(HomePage, resolver))
+}
+```
+
+`negotiate_async_with_loader` returns a response plan rather than a `Result`: it picks the representation from the headers, and the selected renderer runs when the response is finalized. See [Data loading and streaming](/docs/framework/data-loading) for the loader and resolver.
+
 ## The API
 
 All of these live in `proa::axum`:
@@ -105,9 +194,9 @@ All of these live in `proa::axum`:
 |---|---|
 | `negotiate(&headers, html, markdown, alternate)` | Canonical URL. Returns the HTML response with a `Link: rel="alternate"` header, or the Markdown body when the client prefers it. Both add `Vary: Accept`. |
 | `explicit_markdown(markdown)` | Stable `.md` URL. Always Markdown, with no negotiation and no `Vary`. |
-| `MarkdownAlternate::new(path)` | The advertised Markdown path. A `{name}` capture such as `/guides/{slug}.md` expands to the current route parameter, percent-encoded. |
+| `MarkdownAlternate::new(path)` | The advertised Markdown path. A `{name}` capture such as `/guides/{slug}.md` expands to the current route parameter, percent-encoded. See [Dynamic routes](#dynamic-routes). |
 | `MarkdownAlternate::render_explicit(markdown)` | Serves a captured alias such as `/guides/{slug}.md` with `.md` removed from the final capture, so the renderer sees the same `slug` as the HTML page. |
-| `negotiate_async_with_loader` / `explicit_markdown_async_with_loader` | The same two responses for an `MdRender<L>` that awaits loader data. The handler stays `Send`; rendering runs when the response is finalized. |
+| `negotiate_async_with_loader` / `explicit_markdown_async_with_loader` | The same two responses for an `MdRender<L>` that awaits loader data. The handler stays `Send`; rendering runs when the response is finalized. See [Pages that load data](#pages-that-load-data). |
 
 The Markdown representation renders without the HTML document shell. See [Markdown rendering](/docs/core/markdown) for `MdRenderSync`, `MdRender`, and `md_sync!`.
 

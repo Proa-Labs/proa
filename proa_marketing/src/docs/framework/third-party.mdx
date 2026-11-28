@@ -17,7 +17,7 @@ application state and interactive application components can continue using RSJS
 Add the optional crate and enable only the providers you need:
 
 ```toml
-proa_third_party = { version = "0.2.0", default-features = false, features = ["google-analytics", "youtube"] }
+proa_third_party = { version = "0.2", default-features = false, features = ["google-analytics", "youtube"] }
 ```
 
 The default features include both providers. Disable defaults and select just
@@ -154,3 +154,7 @@ needs `frame-src https://www.youtube-nocookie.com` and, for default posters,
 Inline YouTube styles carry the same nonce, which must also be permitted by
 `style-src`. Alternatively serve `YOUTUBE_CSS` from your own allowed origin.
 The crate never relaxes your response's security headers.
+
+## Server-side analytics
+
+Record a purchase or signup only after its database transaction commits. A durable job can forward the event ID, event name, timestamp, and consented account identifier to your analytics provider. Reuse that ID on retries. Keep the provider token in server configuration and exclude cookies, session IDs, emails, and raw URLs from event properties. For request duration and error rates, use [Error monitoring and tracing](/docs/guides/observability).

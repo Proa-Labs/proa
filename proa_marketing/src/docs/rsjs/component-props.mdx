@@ -7,9 +7,8 @@ A child component receives parent state through ordinary struct fields, and the 
 
 Include these imports in each component module below:
 
-```rust
+```rust check="component_props"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa::html_sync;
 use rsjs::{rsjs, signal};
 ```
 
@@ -19,7 +18,7 @@ Use callback props when a child component owns markup but the parent owns state.
 
 Child component:
 
-```rust filename="src/components/search_input.rs"
+```rust check="component_props" filename="src/components/search_input.rs"
 pub struct SearchInput {
     pub label: &'static str,
     pub value: String,
@@ -35,7 +34,7 @@ impl<L: DataLoader> WebRenderSync<L> for SearchInput {
             },
         );
 
-        html_sync! {
+        proa::html_sync! {
             <label class="grid gap-2">
                 <span>{self.label}</span>
                 <input
@@ -52,7 +51,7 @@ impl<L: DataLoader> WebRenderSync<L> for SearchInput {
 
 Parent component:
 
-```rust filename="src/components/search_panel.rs"
+```rust check="component_props" filename="src/components/search_panel.rs"
 pub struct SearchPanel;
 
 #[rsjs(component, client)]
@@ -63,7 +62,7 @@ impl<L: DataLoader> WebRenderSync<L> for SearchPanel {
             query.set(next);
         });
 
-        html_sync! {
+        proa::html_sync! {
             <section>
                 {SearchInput {
                     label: "Search",
@@ -89,7 +88,7 @@ Direct component syntax uses normal Rust name resolution. Ordinary imports, rena
 ```rust filename="src/components/status_row.rs"
 use crate::ui::StatusBadge as Badge;
 
-html_sync! {
+proa::html_sync! {
     <div>
         {Badge {
             value: status.get(),
@@ -106,7 +105,7 @@ Name resolution decides which type renders; the next section decides when that t
 
 A direct inbound read participates in the parent graph without originating browser state:
 
-```rust filename="src/components/status_badge.rs"
+```rust check="component_props" filename="src/components/status_badge.rs"
 pub struct StatusBadge {
     pub value: String,
 }
@@ -114,7 +113,7 @@ pub struct StatusBadge {
 #[rsjs(component)]
 impl<L: DataLoader> WebRenderSync<L> for StatusBadge {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        html_sync! {
+        proa::html_sync! {
             <span>{self.value}</span>
         }
         .render(cx)
@@ -144,9 +143,7 @@ A child that runs without a parent callback declares that field as optional.
 
 Use `Option<rsjs::Handler<T>>` when the child can run without a parent callback.
 
-```rust filename="src/components/clear_button.rs"
-use rsjs::OptionalHandlerExt;
-
+```rust check="component_props" filename="src/components/clear_button.rs"
 pub struct ClearButton {
     pub on_clear: Option<rsjs::Handler<()>>,
 }
@@ -154,7 +151,7 @@ pub struct ClearButton {
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRenderSync<L> for ClearButton {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        html_sync! {
+        proa::html_sync! {
             <button type="button" on_click={|_| self.on_clear.call_if_some(())}>"Clear"</button>
         }
         .render(cx)
@@ -165,7 +162,7 @@ impl<L: DataLoader> WebRenderSync<L> for ClearButton {
 ```rust filename="src/components/search_panel.rs"
 let on_clear = rsjs::handler(|_: ()| query.set(String::new()));
 
-html_sync! {
+proa::html_sync! {
     <div>{ClearButton { on_clear: Some(on_clear) }}{ClearButton { on_clear: None }}</div>
 }
 ```
@@ -176,7 +173,7 @@ When the browser event and a per-node value both matter, build the handler insid
 
 Use `rsjs::event_handler(...)` inside the child when the browser event and a per-node payload both matter.
 
-```rust filename="src/components/date_picker.rs"
+```rust check="component_props" filename="src/components/date_picker.rs"
 pub struct DatePicker {
     pub selected: u32,
     pub on_change: rsjs::Handler<u32>,
@@ -193,10 +190,10 @@ impl<L: DataLoader> WebRenderSync<L> for DatePicker {
             self.on_change.call(day);
         });
 
-        html_sync! {
+        proa::html_sync! {
             <div class="grid grid-cols-7 gap-1">
                 {for day in 1_u32..=31_u32 {
-                    html_sync! {
+                    proa::html_sync! {
                         <button
                             type="button"
                             data_selected={selected.get() == day}
@@ -219,7 +216,7 @@ Parent:
 let selected_day = signal(15_u32);
 let on_change = rsjs::handler(|day: u32| selected_day.set(day));
 
-html_sync! {
+proa::html_sync! {
     <div>
         {DatePicker {
             selected: selected_day.get(),
@@ -236,7 +233,7 @@ Callbacks carry values up to the parent; a node ref hands a DOM handle down to t
 
 A static direct child can bind a parent-owned `NodeRef<T>`. The child consumes the handle as a participant, so it does not need `client` permission for the ref alone:
 
-```rust filename="src/components/focus_input.rs"
+```rust check="component_props" filename="src/components/focus_input.rs"
 pub struct FocusInput {
     pub input_ref: rsjs::NodeRef<rsjs::HtmlInputElement>,
 }
@@ -244,7 +241,7 @@ pub struct FocusInput {
 #[rsjs(component)]
 impl<L: DataLoader> WebRenderSync<L> for FocusInput {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        html_sync! {
+        proa::html_sync! {
             <input ref={self.input_ref} />
         }
         .render(cx)
@@ -257,7 +254,7 @@ The origin-capable parent creates and uses the same handle:
 ```rust filename="src/components/account_form.rs"
 let input_ref = rsjs::node_ref::<rsjs::HtmlInputElement>();
 
-html_sync! {
+proa::html_sync! {
     <div>
         {FocusInput { input_ref }}
         <button type="button" on_click={|_| input_ref.focus()}>"Focus"</button>

@@ -38,7 +38,8 @@ proa site check --json
 - `src/routes.rs`, `src/app.rs`, `src/config.rs`, `src/error.rs`, `src/static_assets.rs`
 - the SQLite files, `proa.lock.json` component hashes, and paired `.up.sql` / `.down.sql` migrations when those capabilities are enabled
 - the Markdown representation contract when representations are enabled
-- empty `src/models` and `src/services` directories, reported as warnings
+- empty `src/models` and `src/services` directories, reported as errors
+- a site without `src/lib.rs` that has RSJS components, reported as a warning: its modules are compiled into the binary, so `proa test` cannot build its `tests/` targets
 
 Older sites without an `application` section are checked for `src/pages/mod.rs`, `src/components/mod.rs`, `src/layouts/mod.rs`, and `src/data/mod.rs`, and the `origin` template has its own list.
 

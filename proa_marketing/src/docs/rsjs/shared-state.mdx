@@ -7,11 +7,14 @@ description: Share typed synchronous browser state across independent RSJS owner
 
 ## Defining a schema
 
-Use typed SharedState when independent owners on the same page must
+The three examples below form one `src/components/workbench.rs` module. Use typed SharedState when independent owners on the same page must
 synchronously read and write the same UI state. Derive `rsjs::SharedState` on an
 owned struct with named fields and assign a stable, namespaced protocol key:
 
-```rust filename="src/state/workbench.rs"
+```rust check="workbench" filename="src/components/workbench.rs"
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use rsjs::rsjs;
+
 #[derive(rsjs::SharedState)]
 #[rsjs(type_key = "acme.workbench")]
 pub struct WorkbenchState {
@@ -45,28 +48,41 @@ A schema reaches the browser only through a provider, which you place next.
 wrapper and is not itself a client origin. A provider that has no reachable
 consumer emits no browser state.
 
-```rust filename="src/pages/workbench.rs"
+```rust check="workbench" filename="src/components/workbench.rs"
 pub struct WorkbenchPage;
-// Its `#[rsjs(component)]` WebRenderSync impl renders the consumer components.
 pub struct WorkbenchChildren {}
+
+#[rsjs(component)]
+impl<L: DataLoader> WebRenderSync<L> for WorkbenchChildren {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        proa::html_sync! { <div>{ThemePanel {}}</div> }.render(cx)
+    }
+}
 
 #[rsjs(component)]
 impl<L: DataLoader> WebRenderSync<L> for WorkbenchPage {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        html_sync! {
-            {rsjs::SharedStateProvider {
-                state: WorkbenchState {
-                    mode: "select".to_string(),
-                    button_bg: "#3366cc".to_string(),
-                    show_grid: true,
-                },
-                children: WorkbenchChildren {},
-            }}
+        proa::html_sync! {
+            <main data-workbench-page>
+                {rsjs::SharedStateProvider {
+                    state: WorkbenchState {
+                        mode: "select".to_string(),
+                        button_bg: "#3366cc".to_string(),
+                        show_grid: true,
+                    },
+                    children: WorkbenchChildren {},
+                }}
+            </main>
         }
         .render(cx)
     }
 }
 ```
+
+The provider sits inside the component's own root element. An analyzed
+template needs a single top-level element, and the provider renders none, so
+a template whose root is the provider expression fails to compile with
+`` `#[rsjs]` body must contain a top-level element ``.
 
 `WorkbenchChildren` can render several consumer components inside its own
 analyzed render body. Keeping the provider's direct edge explicit lets the
@@ -80,7 +96,9 @@ Each of those consumers reaches the store by acquiring it.
 Acquisition is the client origin. Call `shared::<T>()` in an origin-capable
 `#[rsjs(component, client)]` prelude, then keep field handles in named locals:
 
-```rust filename="src/components/theme_panel.rs"
+```rust check="workbench" filename="src/components/workbench.rs"
+pub struct ThemePanel {}
+
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRenderSync<L> for ThemePanel {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -98,7 +116,7 @@ impl<L: DataLoader> WebRenderSync<L> for ThemePanel {
             },
         );
 
-        html_sync! {
+        proa::html_sync! {
             <section>
                 <input type="color" bind_value={button_bg} />
                 <input type="checkbox" bind_checked={show_grid} />
@@ -206,6 +224,7 @@ template:
 
 | Rule | Required shape |
 |------|----------------|
+| Placement | Inside the component's single root element, such as `<main>{rsjs::SharedStateProvider { ... }}</main>`. The provider expression cannot be the template root. |
 | State | One named `#[derive(rsjs::SharedState)]` struct literal. The compiler rejects constructor calls, opaque values, nested providers, and struct-update syntax. |
 | Children | Exactly one direct component struct literal, such as `children: WorkbenchChildren {}`. Put multi-child markup inside that component. |
 | Topology | The provider must be an unconditional static lexical site. RSJS does not support providers inside loops, reactive conditionals, repeated/keyed regions, or deferred boundaries. |

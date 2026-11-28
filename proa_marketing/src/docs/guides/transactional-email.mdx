@@ -1,0 +1,45 @@
+---
+title: Transactional email
+description: Deliver mail from a durable job with a stable idempotency key.
+---
+
+When an account is created, insert a welcome-email job in the same database transaction. A worker claims the committed job and sends it. The handler can respond as soon as the transaction commits, and restarting the web process preserves pending mail.
+
+```toml check="dependencies" filename="Cargo.toml"
+[dependencies]
+reqwest = { version = "0.13", features = ["json", "form"] }
+serde = { version = "1", features = ["derive"] }
+```
+
+```rust check="mail" filename="src/mail.rs"
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+#[derive(Serialize)]
+pub struct Email<'a> {
+    pub from: &'a str,
+    pub to: &'a [&'a str],
+    pub subject: &'a str,
+    pub text: &'a str,
+}
+
+#[derive(Deserialize)]
+pub struct Delivery {
+    pub id: String,
+}
+
+pub async fn deliver(
+    client: &Client, api_key: &str, job_key: &str, email: &Email<'_>,
+) -> Result<Delivery, reqwest::Error> {
+    client.post("https://api.resend.com/emails")
+        .bearer_auth(api_key)
+        .header("Idempotency-Key", job_key)
+        .timeout(Duration::from_secs(10))
+        .json(email).send().await?.error_for_status()?.json().await
+}
+```
+
+Create one `Client` per worker. Read `RESEND_API_KEY` from server-side configuration and send from a verified domain. Store the recipient and message as a snapshot on the job. Use the same key, such as `welcome/<job-id>`, and the same payload on every attempt.
+
+On success, record the returned delivery ID before acknowledging the job. On a timeout or 5xx, release the claim with backoff. Honor `Retry-After` on rate limits, and surface permanent address or configuration failures in the job table. Resend retains idempotency keys for 24 hours. Reconcile an ambiguous older job against delivery records before resending. A crash after provider acceptance is the important retry case to test. [Send Email API](https://resend.com/docs/api-reference/emails/send-email) · [Resend idempotency](https://resend.com/docs/dashboard/emails/idempotency-keys)

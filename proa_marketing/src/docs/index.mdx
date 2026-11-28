@@ -4,30 +4,23 @@ description: Create a Proa site, run it, and edit your first route in five minut
 sidebar_title: Quickstart
 ---
 
-This quickstart gets you from an empty directory to a hello world Proa. It should take about five minutes once Rust and the Proa CLI are ready.
-
-<Callout type="info">
-Building with an AI agent? The complete documentation is served at [/llms-full.txt](/llms-full.txt) for agent consumption. [LLM docs](/docs/llms) lists the other machine-readable interfaces.
-</Callout>
-
 ## 1. Install Proa
 
-Requires Rust `1.98` or newer. On macOS and Linux, install Proa with:
+Install Rust 1.98 or newer with `rustfmt` and a C linker. On macOS, Xcode Command Line Tools provides `cc`. On Linux, install your distribution’s C build tools. On Windows, use Visual Studio Build Tools with the C++ workload.
 
 ```bash
 curl -fsSL https://proa.so/install.sh | sh
 ```
 
-The installer uses Tailwind CSS v4 from your `PATH` if available. If it’s
-missing, the installer asks in a terminal and installs it automatically
-in non-interactive runs.
-You can also install the Proa CLI directly from crates.io:
+The installer reuses Tailwind CSS v4 from your `PATH` when available. If it's missing, interactive installs prompt and non-interactive installs include the standalone binary. That download accounts for most of the installer payload. Pass `--no-tailwind` for a CLI-only install if your site uses plain CSS.
+
+You can also install the CLI from crates.io:
 
 ```bash
 cargo install proa-cli --locked
 ```
 
-Proa is public; no GitHub credential or Cargo token is needed. On Windows or if you installed via Cargo, see [Tailwind prerequisite](/docs/cli/new-site#tailwind-prerequisite) and [Troubleshooting](/docs/guides/troubleshooting).
+Coding agents can start at the [documentation index](/docs/llms.txt). See [Troubleshooting](/docs/guides/troubleshooting) for toolchain setup.
 
 ## 2. Create A Site
 
@@ -52,6 +45,7 @@ src/
   layouts/
   pages/
   app.rs
+  lib.rs
   main.rs
   routes.rs
 migrations/
@@ -63,7 +57,7 @@ styles/
 tests/
 ```
 
-Checkpoint: `Cargo.toml`, `src/main.rs`, `src/pages/home.rs`, and
+Checkpoint: `Cargo.toml`, `src/lib.rs`, `src/pages/home.rs`, and
 `src/layouts/root.rs` should exist.
 
 </Tab>
@@ -118,6 +112,11 @@ cd hello-proa && proa run dev --open
 `proa dev` builds configured assets, runs the linked RSJS pipeline, starts the
 Axum server on [http://localhost:3000](http://localhost:3000), and restarts
 when Rust, style, or config files change.
+
+It compiles the site with your local Rust toolchain, and the generated
+`Cargo.toml` declares `rust-version = "1.98"`. If the build stops with a Cargo
+error about the Rust version, check `rustc --version` and run
+`rustup update stable`.
 
 The first build downloads dependencies and compiles the Rust crates, which can
 take several minutes. The terminal reports each build stage; `--open` waits

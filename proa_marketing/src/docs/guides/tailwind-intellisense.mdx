@@ -64,7 +64,8 @@ By default the extension only triggers inside `class` or `className` attributes 
 
 ```rust
 html! {
-    <div class="flex gap-2 items-center">  // autocomplete here
+    <div class="flex gap-2 items-center"></div>
+}
 ```
 
 **Pattern 2**, the `[container, classlist]` array matches `tw_join!()`:

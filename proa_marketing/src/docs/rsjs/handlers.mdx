@@ -8,8 +8,6 @@ RSJS treats every `on_*` attribute as a browser origin, so the render-trait impl
 
 ## Attaching a handler
 
-RSJS analyzes the `WebRenderSync` or `WebRender` method you author. It does not generate an inherent `fn render(self)` shorthand, and it does not invent the method's return type.
-
 A small control can use an inline closure:
 
 ```rust filename="src/components/disclosure.rs"
@@ -22,24 +20,35 @@ html_sync! {
 }
 ```
 
+RSJS analyzes the `WebRenderSync` or `WebRender` method you author. It does not generate an inherent `fn render(self)` shorthand, and it does not invent the method's return type.
+
 For production components, declare a named typed `event_handler(...)` before the template. The template stays readable, Rust tooling can inspect a normal closure, and the event's `currentTarget` capabilities stay explicit.
 
-```rust filename="src/components/shipping_picker.rs"
-use rsjs::elem;
+```rust check="shipping" filename="src/components/shipping_picker.rs"
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use rsjs::{elem, rsjs, signal};
 
-let selected = signal("standard");
-let pick = rsjs::event_handler(
-    |event: rsjs::MouseEvent<elem::Button>, value: &'static str| {
-        event.prevent_default();
-        selected.set(value);
-    },
-);
+pub struct ShippingPicker;
 
-html_sync! {
-    <div>
-        <button type="button" on_click={pick("standard")}>"Standard"</button>
-        <button type="button" on_click={pick("express")}>"Express"</button>
-    </div>
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for ShippingPicker {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let selected = signal("standard");
+        let pick = rsjs::event_handler(
+            |event: rsjs::MouseEvent<elem::Button>, value: &'static str| {
+                event.prevent_default();
+                selected.set(value);
+            },
+        );
+
+        proa::html_sync! {
+            <div>
+                <button type="button" on_click={pick("standard")}>"Standard"</button>
+                <button type="button" on_click={pick("express")}>"Express"</button>
+            </div>
+        }
+        .render(cx)
+    }
 }
 ```
 
@@ -68,6 +77,14 @@ on the first call. Pending work is canceled when the island is disposed.
 The analyzed form requires a closure as the first argument and an integer
 literal delay as the second; wrapping a previously declared named handler is
 not currently supported.
+
+> **Good to know**: the linked build does not generate browser code for a
+> debounced handler yet. A component that uses `rsjs::debounce` passes plain
+> `cargo check`, then `proa check` stops at link time with
+> `unsupported_shapes` and names the component; `proa dev` and `proa build`
+> run the same link step. Attach the closure without `rsjs::debounce` until
+> that support lands. See
+> [RSJS unsupported shapes at link time](/docs/guides/troubleshooting#rsjs-unsupported-shapes-at-link-time).
 
 ## Typing events
 
@@ -122,9 +139,8 @@ On local bindings these methods read the element the handler runs on; a callback
 
 Use `rsjs::Handler<T>` when a reusable child owns markup but notifies state its direct parent owns. The child declares the DOM handler, and the parent creates the typed callback edge.
 
-```rust filename="src/components/search_input.rs"
+```rust check="handlers_search_input" filename="src/components/search_input.rs"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa::html_sync;
 use rsjs::rsjs;
 
 pub struct SearchInput {
@@ -141,7 +157,7 @@ impl<L: DataLoader> WebRenderSync<L> for SearchInput {
             },
         );
 
-        html_sync! {
+        proa::html_sync! {
             <input value={self.value} on_input={on_input()} />
         }
         .render(cx)

@@ -1,0 +1,55 @@
+---
+title: Authentication and sessions
+description: Carry a verified account from an Axum login callback into protected Proa routes.
+---
+
+Mount a server-side session store on the router returned by `FrameworkBuilder::try_build`. Each request then has a `Session` extractor. The browser holds an opaque cookie, and every replica reads account IDs from the same store.
+
+```toml check="dependencies" filename="Cargo.toml"
+[dependencies]
+tower-sessions = "0.15"
+time = "0.3"
+```
+
+```rust check="sessions" filename="src/auth.rs"
+use axum::{http::StatusCode, Router};
+use time::Duration;
+use tower_sessions::{cookie::SameSite, Expiry, Session, SessionManagerLayer, SessionStore};
+
+pub fn with_sessions(app: Router, store: impl SessionStore + Clone) -> Router {
+    app.layer(SessionManagerLayer::new(store)
+        .with_name("__Host-session")
+        .with_path("/")
+        .with_secure(true)
+        .with_http_only(true)
+        .with_same_site(SameSite::Lax)
+        .with_expiry(Expiry::OnInactivity(Duration::hours(8))))
+}
+
+// Only the callback that has verified the identity calls this function.
+pub async fn finish_login(session: &Session, account_id: i64) -> Result<(), StatusCode> {
+    session.cycle_id().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    session.insert("account_id", account_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub async fn require_account(session: &Session) -> Result<i64, StatusCode> {
+    session.get("account_id").await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)
+}
+
+pub async fn logout(session: Session) -> Result<StatusCode, StatusCode> {
+    session.flush().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+```
+
+For local HTTPS, a `MemoryStore` is sufficient. In production, initialize a shared Postgres or Redis store before serving, apply its migration if required, and arrange expiry cleanup. Register logout with `post(logout)`. Keep the framework’s cross-origin protection enabled for cookie-authenticated writes. If your client supports browsers without Fetch Metadata headers, verify the request Origin against your configured public origin or validate a session-bound CSRF token on those writes. [Session store setup](https://docs.rs/tower-sessions/0.15/tower_sessions/)
+
+## Sign in with an identity provider
+
+1. Generate a random state, nonce, and PKCE verifier for each login. Save them in the initiating session and redirect to the provider with the challenge. Register the exact HTTPS callback URL, including any public mount prefix.
+2. At the callback, consume the saved state once and compare it with the returned state. Exchange the code server-side using the verifier. Use your OpenID Connect library to verify the ID token signature, issuer, audience, expiry, and nonce.
+3. Look up the local account by the verified issuer and subject and pass its ID to `finish_login`. Redirect to a fixed application path using `app_url`. [OpenID Connect implementation for Rust](https://docs.rs/openidconnect/)
+
+Call `require_account` in both the HTML and explicit Markdown handlers before loading private data. Authorize access to the requested resource using the returned account ID. Keep personalized pages out of shared page caches. To test this boundary, request the same route anonymously, as its owner, as another account, and after logging out. [Testing](/docs/guides/testing)

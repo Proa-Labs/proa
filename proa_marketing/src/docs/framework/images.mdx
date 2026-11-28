@@ -59,6 +59,12 @@ html_sync! {
 }
 ```
 
+## Hosting responsive variants outside the application
+
+For bundled images, export the immutable files alongside the release and configure `PROA_ASSET_PREFIX` to point at the bucket or CDN that serves them. Upload the entire immutable tree before switching HTML traffic, and retain earlier hashes while old pages can still reference them. [Static assets](/docs/framework/static-assets)
+
+For user uploads, keep object identifiers in your database and generate delivery URLs from a server-owned host and approved variant sizes. Create 400, 800, and 1600 pixel variants on upload in S3 or R2, or request those widths through a service such as Cloudflare Images. Render the corresponding absolute HTTPS URLs in `srcset`, provide the intrinsic width and height, and set `sizes` to the actual layout width. For private media, issue short-lived signed delivery URLs only after checking access. [Cloudflare image transformations](https://developers.cloudflare.com/images/transform-images/transform-via-url/)
+
 ## Serving them
 
 Images live under the directory your static service points at, `public/` in scaffolded sites. See [Static assets](/docs/framework/static-assets) for mounting and cache headers.

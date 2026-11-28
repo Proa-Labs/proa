@@ -33,6 +33,7 @@
     "framework/content-negotiation",
     "framework/page-caching",
     "guides/error-handling",
+    "guides/observability",
     "framework/errors",
     "framework/metadata",
     "framework/metadata-reference",
@@ -42,6 +43,9 @@
     },
     "framework/data-loading",
     "framework/databases",
+    "guides/authentication",
+    "guides/billing",
+    "guides/transactional-email",
     "framework/caching",
     {
       "separator": "Interactivity (RSJS)",

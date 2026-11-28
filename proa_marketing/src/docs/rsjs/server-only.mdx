@@ -7,8 +7,8 @@ description: Keep ordinary Rust values and renderables outside an RSJS client gr
 
 This island renders a trusted SVG on the server and updates the button label in the browser.
 
-```rust filename="src/components/icon_button.rs"
-use proa::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteError, html_sync};
+```rust check="server_only" filename="src/components/icon_button.rs"
+use proa::{DataLoader, StaticRaw, WebContext, WebRenderSync, WriteError};
 use rsjs::{rsjs, signal};
 
 pub struct IconButton;
@@ -26,7 +26,7 @@ impl<L: DataLoader> WebRenderSync<L> for IconButton {
             </svg>"#,
         );
 
-        html_sync! {
+        proa::html_sync! {
             <button type="button" on_click={toggle()}>
                 {icon}
                 {if pressed.get() { "Saved" } else { "Save" }}
@@ -56,7 +56,7 @@ An ordinary server renderable may emit zero, one, or many DOM nodes. RSJS keeps 
 
 Use `server_attr(...)` for static-per-render attributes that must **not** update after hydration.
 
-```rust filename="src/components/decorated_button.rs"
+```rust check="server_only" filename="src/components/decorated_button.rs"
 pub struct DecoratedButton {
     pub label: &'static str,
     pub class: &'static str,
@@ -66,7 +66,7 @@ pub struct DecoratedButton {
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRenderSync<L> for DecoratedButton {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        html_sync! {
+        proa::html_sync! {
             <button
                 type="button"
                 class={rsjs::server_attr(self.class)}
@@ -96,7 +96,7 @@ Do not wrap `selected.get()` in `server_attr(...)`. RSJS rejects that capture at
 
 Descriptor-backed RSJS child components can mix reactive props, callback props, and server-only props.
 
-```rust filename="src/components/parent.rs"
+```rust check="server_only" filename="src/components/parent.rs"
 pub struct Parent;
 
 #[rsjs(component, client)]
@@ -105,7 +105,7 @@ impl<L: DataLoader> WebRenderSync<L> for Parent {
         let pressed = signal(0_i64);
         let on_press = rsjs::handler(|_| pressed.set(1_i64));
 
-        html_sync! {
+        proa::html_sync! {
             <section>
                 {DecoratedButton {
                     label: "Press",

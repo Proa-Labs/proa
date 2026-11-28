@@ -420,6 +420,38 @@ after the `200` status is sent and abort the body.
 
 ---
 
+## Routing (proa::axum)
+
+### "Path segments must not start with `:`" at startup, or `route/express-path-syntax`
+
+**Triggered by:** an Express-style capture or wildcard in the path of an
+`axum::Router` call: `.route("/issues/:id", ..)`,
+`.route_service("/media/*file", ..)`, `.nest("/api/:version", ..)` or
+`.nest_service("/static/*path", ..)`. The code compiles, and Axum 0.8 panics
+while the router is built, so the server exits at startup instead of serving
+requests.
+
+**Fix:** write captures as `{id}` and wildcards as `{*path}`. A nest prefix
+cannot contain a wildcard; `nest` already matches every path under it.
+
+```rust
+Router::new()
+    .route("/issues/{id}", get(issue))
+    .route_service("/media/{*file}", media())
+    .nest_service("/static", static_assets::service())
+```
+
+`cargo proa lint` reports the literal as `route/express-path-syntax` and prints
+the corrected path. It checks string literals passed directly to those four
+`Router` methods in a file that names Axum, when that file goes through
+`proa::axum` or its package depends on `proa`. Paths held in constants or built
+at runtime are not followed, and a file that calls `without_v07_checks` is not
+checked.
+`proa::axum::Route::endpoint` and the other `Route` constructors accept both
+spellings: the route spec rewrites them to braces before the path reaches Axum.
+
+---
+
 ## Markdown render traits (proa_core)
 
 ### "`AsyncMdFn<...>: MdRenderSync<L>` is not satisfied"

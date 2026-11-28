@@ -49,9 +49,11 @@ The linter checks template formatting, accessibility-sensitive markup, render-pa
 Use logical public paths in URL-bearing attributes and component URL fields.
 
 ```rust
-<a href={cx.url("public/catalog.pdf")}>"Catalog"</a>
-<img src={cx.url("public/images/cover.png")} alt="Book cover" />
-{Image { src: cx.url("public/images/cover.png") }}
+html_sync! {
+    <a href={cx.url("public/catalog.pdf")}>"Catalog"</a>
+    <img src={cx.url("public/images/cover.png")} alt="Book cover" />
+    {Image { src: cx.url("public/images/cover.png") }}
+}
 ```
 
 - `asset/public-url` flags literal public paths in these positions, including
@@ -341,7 +343,7 @@ For an item-level suppression, put the scoped marker directly above the item:
 
 ```rust
 // proa-perf-ok(scope): integration shim allocates outside request render paths
-fn render_legacy_fragment(...) { ... }
+fn export_legacy_fragment(fragment: &str) -> String { fragment.to_owned() }
 ```
 
 Use suppressions for intentional low-level cases only. Prefer restructuring the component when the lint points to render-path allocation or avoidable copying.

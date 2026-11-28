@@ -2,11 +2,57 @@
 title: Routing
 sidebar_title: Routing
 description: Register an Axum route, render a Page, and read request parameters through cx.
+keywords: [routes.rs, router_from_spec, "Route::endpoint", "proa:route-specs", "file-based routing", "filesystem routing", "src/pages", "path parameters"]
 ---
+
+Routing is explicit Rust. A URL exists once `src/routes.rs` registers it. Files under `src/pages/` hold handlers and Page components by convention; a file's name or location never creates a route.
+
+```rust filename="src/routes.rs"
+use axum::routing::get;
+use proa::axum::{router_from_spec, Route};
+
+let (router, metadata) = router_from_spec(vec![
+    // proa:route-specs:start
+    Route::endpoint("/", get(pages::home::handler)),
+    Route::endpoint("/issues/{id}", get(pages::issue::handler)),
+    // proa:route-specs:end
+]);
+```
+
+A site from `proa new site` registers its pages in this block; the starter ships the `/` line. `Route::endpoint(path, handler)` pairs a URL pattern with an Axum method router, and `router_from_spec` turns the list into an ordinary Axum `Router` plus the route metadata that `FrameworkBuilder::with_dynamic_routes_and_metadata` takes. Nothing scans `src/pages/`.
+
+The two `proa:route-specs` lines are ordinary comments. `proa generate page` and `proa generate endpoint` insert their `Route::endpoint(...)` line directly above the `:end` comment, and that is their only job: the compiler and the running server ignore them. Add, reorder, and remove the lines between them by hand. If the `:end` comment is missing, the generators stop with `generated ownership marker ... is missing` and change nothing. The `proa:explicit-routes` pair lower in the same file marks where `proa generate page` adds the `.route("/about.md", ...)` line for an explicit Markdown URL.
+
+## Give a new page a URL
+
+The generator does every step:
+
+```bash
+proa generate page about
+```
+
+By hand, a new file under `src/pages/` needs three edits, and a fourth for a Markdown URL:
+
+1. Declare the module in `src/pages/mod.rs`: `pub mod about;`.
+2. Write the Page component and its `handler` function in `src/pages/about.rs`. The Page declares `const ROLE: ComponentRole = ComponentRole::PAGE`.
+3. Register the route in `src/routes.rs`, between the `proa:route-specs` comments: `Route::endpoint("/about", get(pages::about::handler)),`.
+4. Optional: register the explicit Markdown URL between the `proa:explicit-routes` comments: `.route("/about.md", get(pages::about::markdown))`.
+
+[Add A Route](/docs#5-add-a-route) in the Quickstart has the complete code for steps 1 to 3, and [Content negotiation](/docs/framework/content-negotiation) covers the Markdown handler. Run `proa site routes` to list every route the site registers. See [proa generate](/docs/cli/generators#pages) for the generator's flags.
+
+## Path syntax
+
+Paths use Axum 0.8 syntax: `{id}` captures one segment and `{*rest}` captures the rest of the path. The colon form from Axum 0.7 no longer captures:
+
+| You write | What happens |
+| --- | --- |
+| `.route("/issues/{id}", get(issue))` | Captures `id`. |
+| `.route("/issues/:id", get(issue))` | Panics while the router is built, before the server accepts a request: ``Path segments must not start with `:`. For capture groups, use `{capture}`.`` |
+| `Route::endpoint("/issues/:id", get(issue))` | Registered as `/issues/{id}`. Route specifications still accept `:id` and `*rest` written for earlier versions; write braces in new code. |
 
 ## Register a route
 
-Start with an Axum `Router`. This route sends `/shop/products/42` to the `product` handler:
+`router_from_spec` builds on plain Axum, and a plain Axum `Router` works too. This route sends `/shop/products/42` to the `product` handler:
 
 ```rust filename="Routes"
 use axum::{routing::get, Router};
@@ -140,7 +186,7 @@ This registers `/about`, `/shop`, and `/shop/products/{id}`; Axum maps the neste
 
 ### Route specifications
 
-Use Proa's `Route::endpoint` when you also need route modes, static-path declarations, or route-specification metadata. It produces an Axum router you can merge with the rest of the app:
+`Route::endpoint` is the form the starter uses, shown at the top of this page. Use it when you also need route modes, static-path declarations, page-cache policy, or route-specification metadata. A single specification also produces an Axum router you can merge with the rest of the app:
 
 ```rust filename="Route specification"
 use proa::axum::{Route, RouteMode};

@@ -151,7 +151,7 @@ keeps origin-root URLs; a trailing slash is normalized away. The framework does
 not infer the prefix from forwarded headers.
 
 The APIs are also covered in
-[FrameworkBuilder configuration](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
+[Runtime configuration](/docs/framework/configuration#frameworkbuilder-base-paths-and-rsjs-assets)
 and [linked island asset serving](/docs/framework/static-assets#serving-linked-island-assets).
 
 `FrameworkBuilder` serves the linked runtime and generated modules by default at
@@ -195,6 +195,13 @@ async fn go_home() -> Redirect {
     Redirect::to(&app_url("/").to_string())
 }
 ```
+
+A redirect is the easiest of these to miss, because it works at the origin
+root. Under `/apps/demo`, `Redirect::permanent("/issues")` sends
+`Location: /issues` and the browser leaves the mount, while
+`Redirect::permanent(&app_url("/issues").to_string())` sends
+`Location: /apps/demo/issues`. `proa::axum::app_url(path: &str)` reads the base
+path of the current request, so call it inside the handler.
 
 Pass unprefixed application paths to these helpers. `BasePath::url` produces an
 attribute value without allocating an intermediate string. External URLs and

@@ -23,10 +23,11 @@ proa --help
 ```
 
 Cargo installs both `proa` and `cargo-proa`. Select an exact published version
-for reproducible installation:
+for reproducible installation. Replace `<version>` with a release from
+[crates.io](https://crates.io/crates/proa-cli/versions), such as `0.2.2`:
 
 ```bash
-cargo install proa-cli --version '=0.2.0' --locked --force
+cargo install proa-cli --version '=<version>' --locked --force
 ```
 
 Generated project builds resolve Proa crates from crates.io and use `Cargo.lock` for reproducibility. Follow [Installation](/docs) if Cargo cannot download dependencies. When working from this repository, use:
@@ -44,11 +45,12 @@ proa update
 ```
 
 Preview the latest stable version without changing files, or select an exact
-stable release:
+stable release. `--check` prints the installed version and the latest stable
+one; replace `<version>` with the release you want:
 
 ```bash
 proa update --check
-proa update --version 0.1.3
+proa update --version <version>
 proa update --build-from-source
 ```
 
@@ -86,8 +88,9 @@ Use `--build-from-source` when a prebuilt binary cannot run on your system,
 such as a Linux distribution with an older glibc. This bypasses archive
 downloads and builds the selected release with your local toolchain.
 
-Older CLIs without `update` need one upgrade through the installer or
-`cargo install proa-cli --locked` before this command is available.
+Older CLIs without `update` (releases before `0.2.0`) need one upgrade through
+the installer or `cargo install proa-cli --locked` before this command is
+available.
 
 New standalone installations keep releases in a sibling directory named
 `<bin-directory>.proa`. On Unix, the two public commands are symlinks through

@@ -281,6 +281,30 @@ class RailwayCutoverTests(unittest.TestCase):
         self.assertEqual(api.call_args_list[9].args[1], {"id": "new-deployment"})
         verify.assert_called_once_with("https://example.com/readyz", revision)
 
+    def test_failed_deployment_reports_the_step_railway_failed_at(self):
+        image = "ghcr.io/proa-labs/proa-marketing@sha256:" + "a" * 64
+        current = self.current | {"source": {"image": image, "repo": None}}
+        triggers = {"deploymentTriggers": {"edges": []}}
+        events = {"deploymentEvents": {"edges": [
+            {"node": {"step": "SNAPSHOT_CODE", "payload": {"error": None}}},
+            {"node": {"step": "CREATE_CONTAINER", "payload": {"error": "unable to connect to the registry"}}},
+        ]}}
+        submitted = [
+            self.config({"username": "*****", "password": "*****"}), triggers,
+            {"serviceInstance": self.previous}, True, {"serviceInstance": current},
+            {"serviceInstanceDeployV2": "new-deployment"}, triggers,
+            {"deployment": {"status": "FAILED", "meta": {}}},
+        ]
+        with patch.object(release, "api", side_effect=submitted + [events]):
+            with self.assertRaisesRegex(
+                RuntimeError, "new-deployment: FAILED\n  CREATE_CONTAINER: unable to connect to the registry$",
+            ):
+                release.deploy(image, "service", "production", "b" * 40, "https://example.com/readyz")
+        # The status stays the reported failure when its explanation cannot be read.
+        with patch.object(release, "api", side_effect=submitted + [TimeoutError("events unavailable")]):
+            with self.assertRaisesRegex(RuntimeError, "new-deployment: FAILED$"):
+                release.deploy(image, "service", "production", "b" * 40, "https://example.com/readyz")
+
     def test_readiness_waits_for_the_expected_commit(self):
         revision = "b" * 40
         old, new = MagicMock(), MagicMock()

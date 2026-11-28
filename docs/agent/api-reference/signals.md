@@ -80,6 +80,12 @@ The first argument must be a closure and the delay must be an integer literal.
 A named-handler reference or runtime delay expression is not supported in this
 analyzed form. `rsjs::interval(ms, || ...)` keeps its delay-first order.
 
+Both type-check under plain `cargo check`, but the linked build does not
+generate browser code for them yet: `cargo proa check` and `cargo proa build`
+reject a component that uses `rsjs::debounce` with `unsupported_shapes`, and
+one that uses `rsjs::interval` with `intervals`. To poll server data, set
+`interval_ms` in `QueryOptions`.
+
 ## Initial-value rules
 
 The value passed to `signal(...)` is evaluated during SSR and encoded into the
@@ -217,16 +223,22 @@ pub struct WorkbenchState {
 }
 
 html_sync! {
-    {rsjs::SharedStateProvider {
-        state: WorkbenchState {
-            mode: "select".into(),
-            button_bg: "#2f6b4f".into(),
-            selected_node: None,
-        },
-        children: WorkbenchChildren {},
-    }}
+    <main data-workbench>
+        {rsjs::SharedStateProvider {
+            state: WorkbenchState {
+                mode: "select".into(),
+                button_bg: "#2f6b4f".into(),
+                selected_node: None,
+            },
+            children: WorkbenchChildren {},
+        }}
+    </main>
 }
 ```
+
+The provider sits inside the component's root element. In an analyzed impl a
+bare provider expression as the template root is rejected with
+`#[rsjs] body must contain a top-level element`.
 
 `WorkbenchChildren` is one direct analyzed component that may render the three
 consumer components internally. In v1, `state` must be a named `SharedState`

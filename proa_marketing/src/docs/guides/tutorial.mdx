@@ -450,19 +450,19 @@ above.
 <CodeFile name="Cargo.toml">
 
 ```toml
-rsjs = "0.3.0"
+rsjs = "0.3"
 ```
 
-`rsjs` re-exports the `#[rsjs]` attribute, so no separate macro crate is
-needed, and the scaffold already depends on `serde`.
+Cargo resolves `"0.3"` to the newest `0.3` release. `rsjs` re-exports the
+`#[rsjs]` attribute, so no separate macro crate is needed, and the scaffold
+already depends on `serde`.
 
 </CodeFile>
 
 <CodeFile name="src/components/quantity_stepper.rs">
 
-```rust
+```rust check="tutorial_quantity_stepper"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa::{html_sync, text};
 use rsjs::{rsjs, signal};
 
 pub struct QuantityStepper {
@@ -476,12 +476,12 @@ impl<L: DataLoader> WebRenderSync<L> for QuantityStepper {
         let unit_price: rsjs::Signal<i64> = signal(self.unit_price);
         let subtotal = rsjs::memo(|| qty.get() * unit_price.get());
 
-        html_sync! {
+        proa::html_sync! {
             <div>
                 <div class="flex items-center justify-between">
                     <span class="text-base font-medium text-zinc-950">"Quantity"</span>
                     <span class="text-sm text-zinc-500" aria-live="polite">
-                        {text!("Subtotal ${}", subtotal.get())}
+                        {proa::text!("Subtotal ${}", subtotal.get())}
                     </span>
                 </div>
                 <div class="mt-3 flex items-center gap-2">
@@ -538,18 +538,18 @@ pub use card::Card;
 ```rust
 use crate::components::quantity_stepper::QuantityStepper;
 
-// ...
-
-<form method="post" action={cx.url("/cart")} class="mt-8">
-    <input type="hidden" name="sku" value={product.slug} />
-    {QuantityStepper { unit_price: product.price_usd }}
-    <button
-        class="mt-6 flex h-[60px] w-full items-center justify-center rounded-full bg-zinc-950 text-lg font-medium text-white transition hover:opacity-80"
-        type="submit"
-    >
-        "Add to Bag"
-    </button>
-</form>
+html_sync! {
+    <form method="post" action={cx.url("/cart")} class="mt-8">
+        <input type="hidden" name="sku" value={product.slug} />
+        {QuantityStepper { unit_price: product.price_usd }}
+        <button
+            class="mt-6 flex h-[60px] w-full items-center justify-center rounded-full bg-zinc-950 text-lg font-medium text-white transition hover:opacity-80"
+            type="submit"
+        >
+            "Add to Bag"
+        </button>
+    </form>
+}
 ```
 
 </CodeFile>

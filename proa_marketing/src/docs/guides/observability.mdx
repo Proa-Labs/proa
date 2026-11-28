@@ -1,0 +1,43 @@
+---
+title: Error monitoring and tracing
+description: Send application errors to Sentry and request spans to an OpenTelemetry collector.
+---
+
+Keep the generated request tracing and install one subscriber at startup. Sentry can capture errors from `tracing::error!`, and OpenTelemetry can send the same request tree to a collector. Set `SENTRY_DSN` and `OTEL_EXPORTER_OTLP_ENDPOINT` in the server environment.
+
+```toml check="dependencies" filename="Cargo.toml"
+[dependencies]
+sentry = { version = "0.49", features = ["tracing", "tower"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-opentelemetry = "0.34"
+opentelemetry = "0.33"
+opentelemetry_sdk = "0.33"
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
+```
+
+```rust check="telemetry" filename="src/telemetry.rs"
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_otlp::SpanExporter;
+use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+// Call inside the Tokio runtime, before serving requests.
+pub fn install_tracing() -> Result<SdkTracerProvider, Box<dyn std::error::Error>> {
+    let exporter = SpanExporter::builder().with_tonic().build()?;
+    let provider = SdkTracerProvider::builder()
+        .with_resource(Resource::builder().with_service_name("proa-site").build())
+        .with_batch_exporter(exporter)
+        .build();
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(tracing_subscriber::fmt::layer())
+        .with(sentry::integrations::tracing::ErrorLayer::new().with_filter(LevelFilter::ERROR))
+        .with(tracing_opentelemetry::layer().with_tracer(provider.tracer("http")))
+        .try_init()?;
+    Ok(provider)
+}
+```
+
+In a synchronous `main`, call `let _sentry = sentry::init(());` before starting Tokio. Keep the guard alive until the server has drained. Replace the generated `tracing_subscriber` initialization with `install_tracing()`. Add `sentry::integrations::tower::NewSentryLayer::<axum::http::Request<axum::body::Body>>::new_from_top()` to the completed router to isolate each request’s Sentry scope. After graceful shutdown, call `provider.shutdown()` before dropping the runtime.
+
+Use the matched route template, response status, and request ID as trace fields. Exclude authorization headers, cookies, request bodies, and raw query strings. Exercise a controlled application error in staging and confirm one Sentry event and a completed request span at the collector. [Sentry for Axum](https://docs.sentry.io/platforms/rust/guides/axum/) · [OpenTelemetry exporters](https://opentelemetry.io/docs/languages/rust/exporters/)

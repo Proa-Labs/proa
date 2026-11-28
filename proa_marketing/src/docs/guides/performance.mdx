@@ -96,10 +96,10 @@ use proa::SafeText;
 use proa::safe_text;
 
 // Compile-time verified literal
-safe_text!("Hello world")
+let greeting = safe_text!("Hello world");
 
 // Runtime: a label whose allowed characters were validated before rendering
-SafeText::from_trusted(validated_label)
+let label = SafeText::from_trusted(validated_label);
 ```
 
 `SafeText` copies verified text directly into the output buffer. Regular `&str` rendering checks every byte for unsafe characters as it copies it. For strings with a proven safe character set, `SafeText` eliminates that check. A value is not trusted merely because it came from a database; keep ordinary escaped strings as the default.

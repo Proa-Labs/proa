@@ -5,8 +5,8 @@ description: Reach browser capabilities through the analyzed RSJS surface.
 
 RSJS exposes browser APIs through typed events, node refs, and helpers. This island displays the search input's current value as you type.
 
-```rust filename="src/components/search_preview.rs"
-use proa::{DataLoader, WebContext, WebRenderSync, WriteError, html_sync};
+```rust check="search_preview" filename="src/components/search_preview.rs"
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
 use rsjs::{rsjs, signal};
 
 pub struct SearchPreview;
@@ -20,7 +20,7 @@ impl<L: DataLoader> WebRenderSync<L> for SearchPreview {
             query.set(event.current_value());
         });
 
-        html_sync! {
+        proa::html_sync! {
             <div>
                 <label>
                     "Search"
@@ -49,7 +49,7 @@ Use the analyzed surface: event attributes, event accessors, node refs, `rsjs::`
 | Clipboard | `write_text(...)`, `read_text_into(&signal)`, `read_text_into_or(&signal, fallback)` inside user-gesture handlers. |
 | Fetch | Use `query_with_initial(...)` and `mutation(...)`; RSJS rejects raw `fetch` and XHR. |
 | Encoding | `utf8_bytes`, `utf8_string`, `base64_*`, `base64url_*`. |
-| Timers | `rsjs::interval(...)` and `rsjs::debounce(...)`; RSJS does not expose raw `setTimeout`. |
+| Timers | `rsjs::interval(...)` and `rsjs::debounce(...)`; RSJS does not expose raw `setTimeout`. The linked build does not generate browser code for either yet, so a component that uses one fails `proa check` and `proa build` at link time. To poll server data, set [`interval_ms`](/docs/rsjs/queries-mutations#polling-on-an-interval) on a query. |
 | WebAuthn | JSON ceremony helpers: `create_json_into(...)`, `get_json_into(...)`, and fallback variants. |
 
 ## Handling events
@@ -76,7 +76,7 @@ html_sync! {
 
 Common event attributes:
 
-```rust filename="src/components/events.rs"
+```text
 on_click
 on_input
 on_change
@@ -186,7 +186,7 @@ html_sync! {
 
 Useful helpers:
 
-```rust filename="src/components/filter_bar.rs"
+```text
 rsjs::window::{inner_width, inner_height, scroll_x, scroll_y, scroll_to, scroll_by, print}
 rsjs::navigator::language
 rsjs::location::{href, origin, pathname, search, hash, set_hash, assign, replace, reload}
@@ -240,13 +240,12 @@ Network work has its own typed surface, described next.
 
 Use queries and mutations for browser fetch work. A query can stay synchronous when its serializable initial value already exists. Mutations use the async `WebRender` + `html!` surface, even when the browser performs the eventual request:
 
-```rust filename="src/components/cart_updater.rs"
+```rust check="browser_apis_cart_updater" filename="src/components/cart_updater.rs"
 use std::future::Future;
 
 use proa::{
     DataLoader, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa::html;
 use rsjs::rsjs;
 
 pub struct CartUpdater;
@@ -276,7 +275,7 @@ impl<L: DataLoader> WebRender<L> for CartUpdater {
                 },
             );
 
-            html! {
+            proa::html! {
                 <button type="button" on_click={save_quantity()}>"Save"</button>
             }
             .render(cx)

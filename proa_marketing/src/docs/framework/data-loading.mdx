@@ -4,8 +4,6 @@ description: Dedupe server loads, seed the browser query cache, apply cache poli
 keywords: [DataLoader, DataResolver, loader]
 ---
 
-Data loading is simple when a route owns one query. It becomes an architectural problem when a page grows into a tree of independent components: several components may need the same record, parent components start plumbing data they do not use, and uncoordinated fetches create duplicate database work or request waterfalls.
-
 Proa's opinionated model lets components declare data by stable identity while one request-scoped resolver shares repeated reads. Independent `Suspense` boundaries can load concurrently, and origin and cache policy stay behind one `DataLoader` interface.
 
 ## Server Data Pipeline
@@ -52,7 +50,7 @@ impl DataLoader for AppLoader {
 
 <CodeFile name="src/data/product.rs">
 
-```rust
+```rust check="data/product"
 use proa::LoadKey;
 use serde::{Deserialize, Serialize};
 
@@ -142,6 +140,8 @@ pub async fn product_handler() -> impl axum::response::IntoResponse {
 
 ![Three components that read the same product:42 key share one origin load through a request-scoped DataResolver instead of making three.](/static/images/docs/data-loader-request-dedupe.svg)
 
+Data loading is simple when a route owns one query. It becomes an architectural problem when a page grows into a tree of independent components: several components may need the same record, parent components start plumbing data they do not use, and uncoordinated fetches create duplicate database work or request waterfalls.
+
 **Prefer keyed loading through `WebContext`.** It keeps data requirements beside the components that own them while preventing repeated database or API work. Loading in the handler remains useful when one fetch has one clear owner and rendering cannot begin without it.
 
 | Pattern | Use it when |
@@ -174,7 +174,7 @@ Keep the same logical namespace and id on both sides—for example, `product` pl
 
 <CodeFile name="src/components/product_price.rs">
 
-```rust
+```rust check="data_loading_product_price"
 use std::future::Future;
 
 use proa::{
@@ -234,7 +234,7 @@ impl<L: DataLoader> WebRender<L> for ProductPrice {
 
 <CodeFile name="src/components/product_editor.rs">
 
-```rust
+```rust check="data_loading_product_editor"
 use std::future::Future;
 
 use proa::{

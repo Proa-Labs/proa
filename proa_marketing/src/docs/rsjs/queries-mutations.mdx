@@ -1,7 +1,7 @@
 ---
 title: Queries and mutations
 description: Seed browser queries from server-rendered data, refetch them, and run invalidating mutations.
-keywords: [query, mutation, fetch]
+keywords: [query, mutation, fetch, interval_ms, polling, poll, refetch, QueryOptions, stale_time_ms]
 ---
 
 ## Seeding a query from server data
@@ -10,10 +10,9 @@ Pass a serializable server value to `query_with_initial(...)`. This synchronous
 island shows that value on first render, polls for a fresh one every 10 seconds,
 and refetches immediately when you click **Refresh**.
 
-```rust filename="src/components/stock_tile.rs"
+```rust check="components/stock_tile" filename="src/components/stock_tile.rs"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa::html_sync;
-use rsjs::{event_handler, rsjs, QueryKey};
+use rsjs::{event_handler, rsjs};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct StockPrice {
@@ -29,7 +28,7 @@ pub struct StockTile {
 impl<L: DataLoader> WebRenderSync<L> for StockTile {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
         let price: rsjs::Query<StockPrice> = rsjs::query_with_initial(
-            QueryKey::new(("stock", "AAPL")),
+            rsjs::QueryKey::new(("stock", "AAPL")),
             self.initial,
             rsjs::FetchRequest {
                 url: "/api/stocks/AAPL",
@@ -50,7 +49,7 @@ impl<L: DataLoader> WebRenderSync<L> for StockTile {
             price.refetch();
         });
 
-        html_sync! {
+        proa::html_sync! {
             <article>
                 <span>{price.data().value}</span>
                 <span>{price.data().currency}</span>
@@ -83,14 +82,13 @@ Use `WebRender` and `html!` only when obtaining the initial value actually needs
 render trait and return `RenderOutcome::pending(async move { ... })`. RSJS does
 not support `async fn render` shorthand.
 
-```rust filename="src/components/async_stock_tile.rs"
+```rust check="queries_mutations_async_stock_tile" filename="src/components/async_stock_tile.rs"
 use std::future::Future;
 
 use proa::{
     DataLoader, LoadKey, RenderOutcome, WebContext, WebRender, WriteError,
 };
-use proa::html;
-use rsjs::{rsjs, QueryKey};
+use rsjs::rsjs;
 use crate::components::stock_tile::StockPrice;
 
 pub struct AsyncStockTile;
@@ -104,7 +102,7 @@ impl<L: DataLoader> WebRender<L> for AsyncStockTile {
         RenderOutcome::pending(async move {
             let initial: StockPrice = cx.load_json(LoadKey::named("stock", "AAPL")).await?;
             let price: rsjs::Query<StockPrice> = rsjs::query_with_initial(
-                QueryKey::new(("stock", "AAPL")),
+                rsjs::QueryKey::new(("stock", "AAPL")),
                 initial,
                 rsjs::FetchRequest {
                     url: "/api/stocks/AAPL",
@@ -115,7 +113,7 @@ impl<L: DataLoader> WebRender<L> for AsyncStockTile {
                 rsjs::QueryOptions::default(),
             );
 
-            html! {
+            proa::html! {
                 <span>{price.data().value}</span>
             }
             .render(cx)
@@ -141,9 +139,9 @@ Use `QueryKey::new((...))` with tuple parts. Tuples support mixed Rust types and
 serialize to the same structural array shape used by the browser cache.
 
 ```rust filename="src/components/product_reviews.rs"
-QueryKey::new(("stock", "AAPL"))
-QueryKey::new(("product", product_id, "reviews"))
-QueryKey::new(("search", query.get()))
+let stock = rsjs::QueryKey::new(("stock", "AAPL"));
+let reviews = rsjs::QueryKey::new(("product", product_id, "reviews"));
+let search = rsjs::QueryKey::new(("search", query.get()));
 ```
 
 The key identifies the cache entry. The `FetchRequest` describes the browser
@@ -162,6 +160,8 @@ subscriptions move to the new entry.
 The next section covers what belongs in the descriptor next to the key.
 
 ## Describing fetch requests
+
+Use `apply_base_path: true` for endpoints mounted with the app. Use `false` for an endpoint that always lives at the origin root. Changing a query key selects a new cache entry. Its parts never substitute into the request URL. Run `proa lint --min-severity info` to find literal requests that may need either decision.
 
 `FetchRequest` is the client request descriptor. Keep dynamic state in the key
 or mutation payload; keep the endpoint shape in the descriptor.
@@ -206,6 +206,59 @@ value must be a literal:
 | `retry_count: u32` | `0` | Extra attempts after a failed fetch, with increasing delay. |
 | `download_progress: bool` | `false` | Track `download_loaded()`, `download_total()`, and `download_percent()`. |
 | `stream_text: bool` | `false` | Update `data()` with the text received so far. Requires `ResponseKind::Text`. |
+
+The lead example sets three of these. The next section isolates polling.
+
+## Polling on an interval
+
+Set `interval_ms` to refetch on a timer. This badge renders the count the
+server already has, then asks the endpoint again every five seconds:
+
+```rust check="queue" filename="src/components/queue_badge.rs"
+use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
+use rsjs::rsjs;
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct QueueDepth {
+    pub waiting: i64,
+}
+
+pub struct QueueBadge {
+    pub initial: QueueDepth,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for QueueBadge {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let depth: rsjs::Query<QueueDepth> = rsjs::query_with_initial(
+            rsjs::QueryKey::new(("queue", "depth")),
+            self.initial,
+            cx.url("/api/queue/depth"),
+            rsjs::QueryOptions {
+                interval_ms: Some(5_000),
+                ..Default::default()
+            },
+        );
+
+        proa::html_sync! {
+            <span data-queue-badge>{depth.data().waiting}" waiting"</span>
+        }
+        .render(cx)
+    }
+}
+```
+
+Serve `GET /api/queue/depth` with JSON such as `{"waiting":3}`.
+
+While a rendered component observes the query, the runtime refetches every
+`interval_ms` milliseconds in the background, whether or not the data is stale.
+During a refetch `data()` keeps the previous value and `is_refetching()` is
+`true`. A tick that arrives while a request is still in flight is skipped.
+`None`, the default, never polls. Polling stops when the last observer is
+removed.
+
+The value must be an integer literal. A prop or a signal there fails to compile
+with `` `#[rsjs]` option values must be integer literals ``.
 
 Once a query exists, components read it reactively, which the next section shows.
 
@@ -266,11 +319,10 @@ future and render with `html!`. The mutation key identifies the write operation;
 the invalidation list names the query keys the runtime refreshes after a
 successful run.
 
-```rust filename="src/components/cart_editor.rs"
+```rust check="cart" filename="src/components/cart_editor.rs"
 use std::future::Future;
 use proa::{DataLoader, RenderOutcome, WebContext, WebRender, WriteError};
-use proa::html;
-use rsjs::{rsjs, QueryKey};
+use rsjs::rsjs;
 
 pub struct CartEditor;
 
@@ -283,7 +335,7 @@ impl<L: DataLoader> WebRender<L> for CartEditor {
         RenderOutcome::pending(async move {
             let draft = rsjs::signal(String::new());
             let save = rsjs::mutation::<String, ()>(
-                QueryKey::new(("cart", "update")),
+                rsjs::QueryKey::new(("cart", "update")),
                 rsjs::FetchRequest {
                     url: "/api/cart",
                     apply_base_path: true,
@@ -293,7 +345,7 @@ impl<L: DataLoader> WebRender<L> for CartEditor {
                     timeout_ms: Some(2_500),
                     ..Default::default()
                 },
-                &[QueryKey::new(("cart", "summary"))],
+                &[rsjs::QueryKey::new(("cart", "summary"))],
             );
             let update_draft = rsjs::event_handler(
                 |event: rsjs::InputEvent<rsjs::elem::Input>| {
@@ -306,7 +358,7 @@ impl<L: DataLoader> WebRender<L> for CartEditor {
                 },
             );
 
-            html! {
+            proa::html! {
                 <div>
                     <input value={draft.get()} on_input={update_draft()} />
                     <button
