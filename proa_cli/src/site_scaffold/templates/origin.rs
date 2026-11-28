@@ -16,6 +16,7 @@ const CRATE_IDENT_PLACEHOLDER: &str = "__CRATE_IDENT__";
 /// `templates/origin/`. `__CRATE_IDENT__` marks the spots that name the crate.
 pub const SOURCE_FILES: &[(&str, &str)] = &[
     ("build.rs", include_str!("origin/build.rs")),
+    ("proa-fonts.lock", include_str!("origin/proa-fonts.lock")),
     ("proa.lock.json", include_str!("origin/proa.lock.json")),
     (
         "public/favicon.svg",
@@ -395,6 +396,59 @@ pub const SOURCE_FILES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The vendored fonts that `proa-fonts.lock` records, with their licenses.
+/// The build regenerates them offline, so a new project builds without the
+/// `fetch` feature of `proa_fonts_build`. Each weight of these variable fonts
+/// is the same file under its own name, so each family's bytes are embedded
+/// once.
+pub const VENDORED_FILES: &[(&str, &[u8])] = &[
+    (
+        "public/fonts/OFL-AzeretMono.txt",
+        include_bytes!("origin/public/fonts/OFL-AzeretMono.txt"),
+    ),
+    (
+        "public/fonts/OFL-InstrumentSans.txt",
+        include_bytes!("origin/public/fonts/OFL-InstrumentSans.txt"),
+    ),
+    (
+        "public/fonts/azeret-mono-latin-400-normal.d090ca8b9080094d.woff2",
+        AZERET_MONO,
+    ),
+    (
+        "public/fonts/azeret-mono-latin-500-normal.d090ca8b9080094d.woff2",
+        AZERET_MONO,
+    ),
+    (
+        "public/fonts/azeret-mono-latin-600-normal.d090ca8b9080094d.woff2",
+        AZERET_MONO,
+    ),
+    (
+        "public/fonts/azeret-mono-latin-700-normal.d090ca8b9080094d.woff2",
+        AZERET_MONO,
+    ),
+    (
+        "public/fonts/instrument-sans-latin-400-normal.2ee17598a98d8a59.woff2",
+        INSTRUMENT_SANS,
+    ),
+    (
+        "public/fonts/instrument-sans-latin-500-normal.2ee17598a98d8a59.woff2",
+        INSTRUMENT_SANS,
+    ),
+    (
+        "public/fonts/instrument-sans-latin-600-normal.2ee17598a98d8a59.woff2",
+        INSTRUMENT_SANS,
+    ),
+    (
+        "public/fonts/instrument-sans-latin-700-normal.2ee17598a98d8a59.woff2",
+        INSTRUMENT_SANS,
+    ),
+];
+
+const AZERET_MONO: &[u8] =
+    include_bytes!("origin/public/fonts/azeret-mono-latin-400-normal.d090ca8b9080094d.woff2");
+const INSTRUMENT_SANS: &[u8] =
+    include_bytes!("origin/public/fonts/instrument-sans-latin-400-normal.2ee17598a98d8a59.woff2");
+
 pub fn populate(
     plan: &mut SitePlan,
     package: &str,
@@ -419,6 +473,9 @@ pub fn populate(
 
     for (path, source) in SOURCE_FILES {
         plan.write(*path, render_source(source, &ident))?;
+    }
+    for (path, bytes) in VENDORED_FILES {
+        plan.write_binary(*path, bytes)?;
     }
 
     if vscode {
@@ -493,6 +550,7 @@ remain unprefixed.
 | `src/components/` | One directory per component: `mod.rs`, `recipe.rs`, the component, and `md.rs` |
 | `src/components/_proa/` | Vendored proa-ui foundation (owned source, edit like any file) |
 | `src/layouts/root.rs` | Document shell: fonts, theme bootstrap, cache-busted assets |
+| `public/fonts/`, `proa-fonts.lock` | Vendored fonts (SIL OFL-1.1). Builds regenerate them offline; after adding or changing a `google_font!`, run `proa font sync` |
 | `styles/input.css` | Tailwind v4 entry: ORIGIN palette tokens, keyframes, responsive layer |
 | `public/origin.js` | Progressive engine: RIS Live socket, feeds, render lab |
 
@@ -568,7 +626,7 @@ tracing = {{ version = "0.1" }}
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 
 [build-dependencies]
-proa_fonts_build = {{ version = "{proa_fonts_build}" }}
+proa_fonts_build = {{ version = "{proa_fonts_build}", default-features = false }}
 
 [dev-dependencies]
 http-body-util = {{ version = "0.1" }}
@@ -587,6 +645,41 @@ codegen-units = 16
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every file under `templates/origin/` reaches a generated project, and
+    /// each vendored entry holds the bytes of the file it is named after.
+    #[test]
+    fn every_template_file_is_scaffolded_verbatim() {
+        let template = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/site_scaffold/templates/origin");
+        let planned: std::collections::BTreeSet<_> = SOURCE_FILES
+            .iter()
+            .map(|(path, _)| *path)
+            .chain(VENDORED_FILES.iter().map(|(path, _)| *path))
+            .collect();
+        for entry in walkdir::WalkDir::new(&template)
+            .into_iter()
+            .filter_entry(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+        {
+            let entry = entry.unwrap();
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let relative = entry.path().strip_prefix(&template).unwrap();
+            let relative = relative.to_str().unwrap().replace('\\', "/");
+            assert!(
+                planned.contains(relative.as_str()),
+                "`templates/origin/{relative}` is never written to a generated project"
+            );
+        }
+        for (path, bytes) in VENDORED_FILES {
+            assert_eq!(
+                std::fs::read(template.join(path)).unwrap(),
+                *bytes,
+                "{path} does not match its template file"
+            );
+        }
+    }
 
     #[test]
     fn crate_ident_replaces_hyphens() {

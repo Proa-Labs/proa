@@ -55,7 +55,7 @@ pub fn commit(plan: &SitePlan) -> Result<()> {
                 fs::create_dir_all(parent)
                     .with_context(|| format!("create {}", parent.display()))?;
             }
-            fs::write(&target, &file.content)
+            fs::write(&target, file.content.as_bytes())
                 .with_context(|| format!("write {}", target.display()))?;
         }
         format_rust(&staging, plan)?;

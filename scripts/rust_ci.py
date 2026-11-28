@@ -41,7 +41,7 @@ FEATURE_CHECKS = [
     (["proa_stream"], []),
     (["proa_framework_axum"], []),
     (["proa_framework_core"], ["--no-default-features"]),
-    (["proa_fonts", "rsjs_transport"], ["--no-default-features"]),
+    (["proa_fonts", "proa_fonts_build", "rsjs_transport"], ["--no-default-features"]),
     (["proa_macros", "proa_dsl"], ["--no-default-features"]),
 ]
 

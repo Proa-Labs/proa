@@ -12,7 +12,23 @@ pub struct PlannedFile {
     pub path: PathBuf,
     pub bytes: usize,
     #[serde(skip)]
-    pub content: String,
+    pub content: PlannedContent,
+}
+
+/// Generated text, or a vendored file such as a font copied byte for byte.
+#[derive(Debug, Clone)]
+pub enum PlannedContent {
+    Text(String),
+    Binary(&'static [u8]),
+}
+
+impl PlannedContent {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Text(text) => text.as_bytes(),
+            Self::Binary(bytes) => bytes,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -33,15 +49,27 @@ impl SitePlan {
     }
 
     pub fn write(&mut self, relative: impl AsRef<Path>, content: impl Into<String>) -> Result<()> {
-        let relative = relative.as_ref();
+        self.push(relative.as_ref(), PlannedContent::Text(content.into()))
+    }
+
+    /// Plan a file whose bytes are written verbatim and never validated as
+    /// source.
+    pub fn write_binary(
+        &mut self,
+        relative: impl AsRef<Path>,
+        content: &'static [u8],
+    ) -> Result<()> {
+        self.push(relative.as_ref(), PlannedContent::Binary(content))
+    }
+
+    fn push(&mut self, relative: &Path, content: PlannedContent) -> Result<()> {
         validate_relative(relative)?;
         if self.files.iter().any(|file| file.path == relative) {
             bail!("scaffold planned `{}` more than once", relative.display());
         }
-        let content = content.into();
         self.files.push(PlannedFile {
             path: relative.to_path_buf(),
-            bytes: content.len(),
+            bytes: content.as_bytes().len(),
             content,
         });
         Ok(())
@@ -64,9 +92,12 @@ impl SitePlan {
             }
         }
         for file in &self.files {
-            if file.content.contains("__PACKAGE__")
-                || file.content.contains("__TITLE__")
-                || file.content.contains("__DATABASE_URL__")
+            let PlannedContent::Text(content) = &file.content else {
+                continue;
+            };
+            if content.contains("__PACKAGE__")
+                || content.contains("__TITLE__")
+                || content.contains("__DATABASE_URL__")
             {
                 bail!(
                     "scaffold template placeholder remained in `{}`",
@@ -74,11 +105,11 @@ impl SitePlan {
                 );
             }
             if file.path.extension().and_then(|value| value.to_str()) == Some("json") {
-                serde_json::from_str::<serde_json::Value>(&file.content)
+                serde_json::from_str::<serde_json::Value>(content)
                     .with_context(|| format!("validate generated {}", file.path.display()))?;
             }
             if file.path.extension().and_then(|value| value.to_str()) == Some("rs") {
-                syn::parse_file(&file.content)
+                syn::parse_file(content)
                     .with_context(|| format!("parse generated {}", file.path.display()))?;
             }
         }

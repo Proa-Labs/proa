@@ -234,11 +234,13 @@ fn resolve_google(req: &FontRequest) -> Result<Vec<FaceInput>, BuildError> {
 }
 
 #[cfg(not(feature = "fetch"))]
-fn resolve_google(_req: &FontRequest) -> Result<Vec<FaceInput>, BuildError> {
-    Err(BuildError::InvalidFont(
-        "google_font! needs the `fetch` feature of proa_fonts_build (on by default), \
-         or a fetcher injected via `run_with_resolver`",
-    ))
+fn resolve_google(req: &FontRequest) -> Result<Vec<FaceInput>, BuildError> {
+    Err(BuildError::Fetch(format!(
+        "font `{}` needs vendoring, but this build has the `fetch` feature of \
+         proa_fonts_build turned off; run `cargo proa font sync` and commit \
+         proa-fonts.lock together with the vendored files, or enable the feature",
+        req.family
+    )))
 }
 
 fn cargo_net_offline() -> bool {

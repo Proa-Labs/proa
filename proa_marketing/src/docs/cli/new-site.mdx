@@ -162,7 +162,7 @@ What each directory holds:
 | `migrations/`, `data/` | SQL migrations and the local SQLite database location. |
 | `public/` | Pre-built browser assets: CSS output, images, downloads. |
 | `tests/` | Integration tests, including the representation and data-loading contracts. |
-| `build.rs` | Build-time wiring. The `origin` template also runs the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
+| `build.rs` | Build-time wiring. The `origin` template also runs the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations, with fetching turned off: after adding or changing a `google_font!`, run `proa font sync` (see [Fonts](/docs/framework/fonts)). |
 
 `proa.config.rs` controls the `proa run dev` and `proa run build` scripts
 and records component registry aliases. `proa.lock.json` records the scaffold

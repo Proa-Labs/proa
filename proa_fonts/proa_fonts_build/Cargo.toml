@@ -14,8 +14,9 @@ homepage.workspace = true
 
 [features]
 default = ["fetch"]
-# Fetch Google-sourced declarations from the collector. Without it, only
-# local_font! declarations resolve; google_font! needs `run_with_resolver`.
+# Fetch Google-sourced declarations from the collector. Without it, locked
+# google_font! declarations still regenerate from their vendored files, and a
+# new or changed one needs `cargo proa font sync` or `run_with_resolver`.
 fetch = ["dep:reqwest"]
 
 [dependencies]
