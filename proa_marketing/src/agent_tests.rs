@@ -47,6 +47,9 @@ async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     );
     assert_eq!(headers[header::VARY], "Accept");
     assert!(markdown.starts_with("# "));
+    let title = markdown.lines().next().unwrap();
+    assert!(!title.contains(r"\.") && !title.contains(r"\-"), "{title}");
+    assert!(markdown.lines().any(|line| line == "```rust"));
     assert!(!markdown.contains("<html"));
     assert_eq!(markdown, fetch(&app, "/index.md", "*/*").await.2);
     assert_eq!(markdown, fetch(&app, "/llms.txt", "*/*").await.2);

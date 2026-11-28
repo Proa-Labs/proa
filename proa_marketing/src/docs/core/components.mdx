@@ -96,9 +96,11 @@ where
 A component that wraps caller content is generic over its children, and the bound is the same render trait the parent implements:
 
 ```rust
-impl<L, C> WebRenderSync<L> for Button<C>
-where
-    C: WebRenderSync<L>,
+impl<L: DataLoader, C: WebRenderSync<L>> WebRenderSync<L> for Button<C> {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! { <button type="button">{self.children}</button> }.render(cx)
+    }
+}
 ```
 
 `C = ()` supplies the default child type when you write a type such as `let button: Button = Button::default()`. A child like `Some("Save")` infers its own `C`; for an otherwise unconstrained empty button, write `Button::<()>::default()`. The manual `Default` implementation does not require `C: Default`.

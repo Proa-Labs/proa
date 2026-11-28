@@ -71,9 +71,12 @@ or newer installed, run these commands from the repository root:
 ```bash
 cd editors/vscode
 pnpm test
-pnpm dlx @vscode/vsce package --no-dependencies
-code --install-extension ./proa-0.2.0.vsix
+pnpm dlx @vscode/vsce package --no-dependencies --out proa.vsix
+code --install-extension ./proa.vsix
 ```
+
+`--out` fixes the file name. Without it, `vsce` names the file after the
+extension's own version, which is independent of the CLI and crate versions.
 
 You can also install the resulting file through **Extensions: Install from
 VSIX...** in the Command Palette. Reload the VS Code window after installing.

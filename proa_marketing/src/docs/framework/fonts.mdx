@@ -6,8 +6,6 @@ keywords: [google_font!, local_font!, font-display]
 
 `proa_fonts` brings the valuable part of Next.js' `next/font` to Proa's SSR pipeline: fonts are **self-hosted**, **content-hashed**, **preloaded**, and given **metric-compatible fallbacks**, all at build time, with **no runtime request to a third party** and **no JavaScript**.
 
-Fonts are declared in code, next to the code that uses them. `google_font!` fetches and vendors a family from Google Fonts; `local_font!` vendors font files you already have. Both are driven by an ordinary `build.rs`, and both produce the same self-hosted, metric-matched result, pinned in `proa-fonts.lock` so rebuilds are offline and reproducible.
-
 ## Declare fonts in code
 
 Write the font in Rust and let the build vendor it:
@@ -20,6 +18,8 @@ static SANS: Font = google_font!("Geist", subsets = [latin], weights = [400, 700
 static MONO: Font = google_font!("Geist Mono", variable_font = true, generic = mono, variable = "--font-mono");
 static BRAND: Font = local_font!("Brand", files = ["fonts/Brand.woff2"], variable = "--font-brand");
 ```
+
+Fonts are declared in code, next to the code that uses them. `google_font!` fetches and vendors a family from Google Fonts; `local_font!` vendors font files you already have. Both are driven by an ordinary `build.rs`, and both produce the same self-hosted, metric-matched result, pinned in `proa-fonts.lock` so rebuilds are offline and reproducible.
 
 The macro performs no I/O; it expands to a reference to a `FONT_<id>` const that the build step generates, and the `static` binding gives it whatever name you like. The macro and the build collector parse the call through the same grammar, so the reference and the generated definition always agree. Identical declarations anywhere in the crate share one const and one set of vendored files; distinct declarations get distinct consts.
 

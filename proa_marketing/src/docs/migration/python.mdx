@@ -202,7 +202,12 @@ where
 // Usage in handler:
 AppLayout {
     title: listing.title,
-    children: ListingDetail { ... },
+    children: ListingDetail {
+        title: listing.title,
+        location: listing.location,
+        price: listing.price,
+        image_url: listing.image_url,
+    },
 }
 ```
 

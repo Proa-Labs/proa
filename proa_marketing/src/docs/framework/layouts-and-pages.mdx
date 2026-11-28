@@ -287,6 +287,8 @@ These rules apply equally to sync, async, Send, `to_async`, and `to_send` render
 
 A head override with a missing role or an explicit `COMPONENT` role fails `cargo build` with `render_head requires an explicit role`, for sync and async hooks alike (`cargo check` does not instantiate the assertion). Run `cargo proa lint <changed-paths> --deny warnings` too: it reports the same mistake without a build, and also flags `cx.head_mut()` setters inside `render`, and layouts or Pages rendered inside `Suspense` or inside another Page.
 
+`proa check` also reports `render/head-page-missing` when a managed layout forwards its only body slot directly to a component with no Page boundary and a static body. It follows named imports and re-exports. For dynamically selected children, test the rendered route and its status.
+
 Proa also has a route-metadata `Layout` trait and `Route::layout` constructor. They describe metadata in a route specification; they do not compose the rendered HTML or replace these component roles. [Route specifications](/docs/framework/routing#route-specifications) explains when to use them.
 
 ## Next steps

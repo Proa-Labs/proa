@@ -4,13 +4,7 @@ description: Serve static files and embedded assets safely.
 keywords: [cx.url, "cx.url()", public assets, fingerprint, AppUrl, MdRender, static]
 ---
 
-Proa supports both managed public assets published by the CLI under `/_proa/immutable` and `/_proa/mutable` and custom static routers nested at `/static` through `FrameworkBuilder`. This page covers [managed public assets](#managed-public-assets), [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [linked island assets](#serving-linked-island-assets), [linking stylesheets](#linking-the-application-stylesheet), and [external apps](#mounting-external-apps).
-
-## Managed public assets
-
-By default, `proa build`, `proa dev`, `proa run`, and `proa test` publish `public/` into a verified asset catalog. `proa dev`, `proa run`, and `proa test` pass its path to the app through `PROA_PUBLIC_ASSETS`; `proa build --artifact-out <path>` writes it beside the exported executable, where the app finds it on its own. `FrameworkBuilder::try_build()` loads that catalog automatically and mounts its routes under `/_proa/immutable` and `/_proa/mutable`.
-
-Reference files in templates by their logical `public/...` path with `cx.url(...)`:
+Proa supports both managed public assets published by the CLI under `/_proa/immutable` and `/_proa/mutable` and custom static routers nested at `/static` through `FrameworkBuilder`. Reference a managed file in a template by its logical `public/...` path with `cx.url(...)`:
 
 ```rust filename="src/layouts/root.rs"
 let favicon = cx.url("public/favicon.svg");
@@ -21,6 +15,14 @@ html_sync! {
     <link rel="stylesheet" href={stylesheet} />
 }
 ```
+
+This page covers [managed public assets](#managed-public-assets), [disk-backed assets](#serving-assets-from-disk), [embedded assets](#embedding-assets-in-the-binary), [linked island assets](#serving-linked-island-assets), [linking stylesheets](#linking-the-application-stylesheet), and [external apps](#mounting-external-apps).
+
+## Managed public assets
+
+By default, `proa build`, `proa dev`, `proa run`, and `proa test` publish `public/` into a verified asset catalog. `proa dev`, `proa run`, and `proa test` pass its path to the app through `PROA_PUBLIC_ASSETS`; `proa build --artifact-out <path>` writes it beside the exported executable, where the app finds it on its own. `FrameworkBuilder::try_build()` loads that catalog automatically and mounts its routes under `/_proa/immutable` and `/_proa/mutable`.
+
+Templates reference those files by logical path, as in the example at the top of this page.
 
 The same `cx.url(...)` call works directly inside Markdown (`MdRenderSync` / `MdRender` with `md_sync!` / `md!`) and preserves query strings, fragments, and deployment base paths:
 

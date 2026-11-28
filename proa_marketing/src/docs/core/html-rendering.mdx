@@ -8,16 +8,7 @@ Proa lets you use ordinary Rust for dynamic values,
 components, conditions, matches, and loops. You write templates with `html!` or
 `html_sync!`, then implement a render trait to turn the template into a component.
 
-Everything on this page renders on the server. That is not a mode you select per
-route or per component: a component writes bytes into the response, the reader
-gets a complete page, and nothing on it needs JavaScript to appear. There is no
-hydration pass by default, and a page ships no client JavaScript at all until you
-add an [island](/docs/guides/islands), which is opt-in per component.
-
 ## Writing templates
-
-`html_sync!` and `html!` share the same template syntax. The examples in this
-section use `html_sync!` because most components do not need to await anything.
 
 ### DOM Elements
 
@@ -32,6 +23,9 @@ html_sync! {
     </section>
 }
 ```
+
+`html_sync!` and `html!` share the same template syntax. The examples in this
+section use `html_sync!` because most components do not need to await anything.
 
 Write attribute names with their HTML spelling: `aria-label`,
 `aria-labelledby`, and `data-component` stay kebab-case in the template and
@@ -204,6 +198,14 @@ html_sync! {
     <div>"content"</div>
 }
 ```
+
+## Rendering happens on the server
+
+Everything on this page renders on the server. That is not a mode you select per
+route or per component: a component writes bytes into the response, the reader
+gets a complete page, and nothing on it needs JavaScript to appear. There is no
+hydration pass by default, and a page ships no client JavaScript at all until you
+add an [island](/docs/guides/islands), which is opt-in per component.
 
 ## Choosing a render trait
 

@@ -5,7 +5,13 @@ sidebar_title: AI / LLMs
 keywords: [llms.txt, llms-full.txt, Markdown]
 ---
 
-Proa serves its docs as plain text and Markdown, so a coding agent never executes client JavaScript to read them. This page covers [fetching the full corpus](#fetching-the-full-corpus), [fetching a single page](#fetching-a-single-page), [how much context an agent needs](#how-much-context-does-an-agent-need), and [keeping the corpus stable](#keeping-the-corpus-stable).
+Proa serves its docs as plain text and Markdown, so a coding agent never executes client JavaScript to read them. Append `.md` to any docs URL:
+
+```bash filename="Terminal"
+curl https://proa.so/docs/framework/routing.md
+```
+
+This page covers [fetching the full corpus](#fetching-the-full-corpus), [fetching a single page](#fetching-a-single-page), [how much context an agent needs](#how-much-context-does-an-agent-need), and [keeping the corpus stable](#keeping-the-corpus-stable).
 
 ## Start with the index
 
@@ -25,11 +31,12 @@ The whole corpus is a large amount of context. Most tasks need one page.
 
 ## Fetching a single page
 
-Every docs page also exposes its Markdown source:
+Every docs page also exposes its Markdown source, at its `.md` URL and through content negotiation on the page URL:
 
 ```bash filename="Terminal"
 curl https://proa.so/docs/index.md
 curl https://proa.so/docs/proa-docs/configuration.md
+curl -H "Accept: text/markdown" https://proa.so/docs/framework/routing
 ```
 
 Use page Markdown when an agent needs focused context. Use the full corpus when the agent answers questions across Core, CLI, Framework, Proa Docs, FFI, Migration, and RSJS.

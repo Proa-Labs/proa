@@ -1,9 +1,11 @@
 ---
-title: FrameworkBuilder configuration
-description: Configure FrameworkBuilder, security defaults, static mounts, and response behavior.
+title: Runtime configuration (FrameworkBuilder)
+sidebar_title: "Runtime: FrameworkBuilder"
+description: Configure the running server with FrameworkBuilder, security defaults, static mounts, and response behavior.
+keywords: [FrameworkBuilder, "FrameworkBuilder configuration", "runtime configuration", "server configuration", with_base_path, try_build]
 ---
 
-`FrameworkBuilder` turns routes, static services, and hardening layers into the Axum router you run in production.
+`FrameworkBuilder` turns routes, static services, and hardening layers into the Axum router you run in production. It configures the running server from your application's Rust code. The CLI's build, dev, and asset settings live in `proa.config.rs` instead; see [Project configuration](/docs/framework/project-config).
 
 Use this page when you need the complete setup surface in one place. Use [Routing](/docs/framework/routing), [Responses](/docs/framework/responses), [Static assets](/docs/framework/static-assets), and [Deployment](/docs/framework/deployment) for deeper workflow examples.
 

@@ -3,21 +3,7 @@ title: Route handlers
 description: Build JSON, form, and webhook endpoints with Route::endpoint.
 ---
 
-Proa does not invent a second request-handler model: a route handler is an Axum handler, and `Route::endpoint` registers routes that need no page metadata. This page covers [registering an endpoint](#registering-an-endpoint), [returning JSON](#returning-json), [handling forms](#handling-forms), [sharing application state](#sharing-application-state), and [the security defaults](#what-do-endpoints-inherit-from-the-framework) every endpoint inherits.
-
-## Registering an endpoint
-
-Use route handlers for:
-
-- JSON APIs consumed by islands or external clients
-- form submissions and mutations
-- webhooks and machine-to-machine callbacks
-- health checks, [robots.txt](/docs/framework/robots), [sitemaps](/docs/framework/sitemaps), and downloads
-- redirects and canonical URL handlers
-
-Use ordinary Axum `.route(...)` calls for handlers. Use `Route::endpoint` when you also need Proa route specifications, such as page-cache policy. Document layouts and metadata belong to the rendered components' `ROLE` and `render_head`, independently of route registration.
-
-`Route::endpoint` accepts an Axum `MethodRouter`, so compose methods exactly as you would in Axum:
+Proa does not invent a second request-handler model: a route handler is an Axum handler, and `Route::endpoint` registers routes that need no page metadata.
 
 ```rust filename="src/routes/mod.rs"
 use axum::{routing::{get, post}, Router};
@@ -32,6 +18,22 @@ let router = Router::new().route("/", get(home_page)).merge(router);
 ```
 
 Pass `router` and `metadata` to `FrameworkBuilder::with_dynamic_routes_and_metadata(...)`.
+
+This page covers [registering an endpoint](#registering-an-endpoint), [returning JSON](#returning-json), [handling forms](#handling-forms), [sharing application state](#sharing-application-state), and [the security defaults](#what-do-endpoints-inherit-from-the-framework) every endpoint inherits.
+
+## Registering an endpoint
+
+Use route handlers for:
+
+- JSON APIs consumed by islands or external clients
+- form submissions and mutations
+- webhooks and machine-to-machine callbacks
+- health checks, [robots.txt](/docs/framework/robots), [sitemaps](/docs/framework/sitemaps), and downloads
+- redirects and canonical URL handlers
+
+Use ordinary Axum `.route(...)` calls for handlers. Use `Route::endpoint` when you also need Proa route specifications, such as page-cache policy. Document layouts and metadata belong to the rendered components' `ROLE` and `render_head`, independently of route registration.
+
+`Route::endpoint` accepts an Axum `MethodRouter`, so compose methods exactly as you would in Axum. The example above registers `GET` and `POST` on `/api/search` with `get(search).post(search_post)`.
 
 What each of those handlers returns is plain Axum, starting with JSON.
 
