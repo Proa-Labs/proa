@@ -1203,57 +1203,11 @@ rsjs-island {
 
 .docs-sidebar-footer {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   border-top: 1px solid var(--docs-line-soft);
-  color: var(--docs-fg-dim);
-  font-size: 0.78rem;
   padding: 0.65rem 1rem;
-}
-
-.docs-sidebar-socials summary {
-  display: flex;
-  width: fit-content;
-  min-height: 2.25rem;
-  align-items: center;
-  gap: 0.5rem;
-  border-radius: 5px;
-  cursor: pointer;
-  list-style: none;
-  padding: 0 0.4rem;
-}
-
-.docs-sidebar-socials summary::-webkit-details-marker {
-  display: none;
-}
-
-.docs-sidebar-socials summary::after {
-  content: "";
-  width: 0.35rem;
-  height: 0.35rem;
-  border-right: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
-  transform: translateY(-1px) rotate(45deg);
-}
-
-.docs-sidebar-socials[open] summary::after {
-  transform: translateY(1px) rotate(225deg);
-}
-
-.docs-sidebar-socials summary:hover,
-.docs-sidebar-socials[open] summary {
-  background: var(--docs-surface-faint);
-  color: var(--docs-fg);
-}
-
-.docs-sidebar-socials summary:focus-visible {
-  outline: 2px solid var(--docs-accent-ink);
-  outline-offset: 2px;
-}
-
-.docs-sidebar-socials nav {
-  margin-top: 0.4rem;
 }
 
 .docs-article.prose {
