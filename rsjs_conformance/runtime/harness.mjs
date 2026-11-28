@@ -49,6 +49,13 @@ export async function assetIdFromSnapshot(snapshotRelativePath) {
   return match[1];
 }
 
+function attributeSelector(selector) {
+  const match = /^\[([a-zA-Z0-9-]+)(?:="([^"]*)")?\]$/.exec(selector);
+  if (!match) throw new Error(`unsupported selector in DOM shim: ${selector}`);
+  const [, attr, value] = match;
+  return (node) => node.hasAttribute?.(attr) && (value === undefined || node.getAttribute(attr) === value);
+}
+
 export function makeElement(tag, attrs = {}) {
   const node = {
     nodeType: 1,
@@ -192,24 +199,18 @@ export function makeElement(tag, attrs = {}) {
       }
       return false;
     },
+    matches(selector) {
+      return attributeSelector(selector)(this);
+    },
     querySelector(selector) {
       return this.querySelectorAll(selector)[0] ?? null;
     },
     querySelectorAll(selector) {
-      const exact = /^\[([a-zA-Z0-9-]+)="([^"]*)"\]$/.exec(selector);
-      const presence = /^\[([a-zA-Z0-9-]+)\]$/.exec(selector);
-      if (!exact && !presence) {
-        throw new Error(`unsupported selector in DOM shim: ${selector}`);
-      }
-      const attr = exact?.[1] ?? presence[1];
-      const value = exact?.[2];
+      const matchesSelector = attributeSelector(selector);
       const matches = [];
       const visit = (candidate) => {
         for (const child of candidate.children ?? []) {
-          if (
-            child.hasAttribute?.(attr) &&
-            (value === undefined || child.getAttribute(attr) === value)
-          ) {
+          if (matchesSelector(child)) {
             matches.push(child);
           }
           visit(child);

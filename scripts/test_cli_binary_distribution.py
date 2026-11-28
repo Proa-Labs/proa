@@ -619,6 +619,8 @@ print('404 0'); sys.exit(22)
         fixtures = {
             "cargo": "#!/bin/sh\necho 'cargo 1.98.0'\n",
             "rustc": "#!/bin/sh\necho 'rustc 1.98.0'\n",
+            # Exercise the default install with an available Tailwind v4, independent of the host.
+            "tailwindcss": "#!/bin/sh\nprintf '%s\\n' 'tailwindcss v4.2.0'\n",
             "uname": "#!/bin/sh\ncase \"$1\" in -s) echo Linux ;; -m) echo x86_64 ;; *) echo Linux ;; esac\n",
             "curl": """#!/usr/bin/env python3
 import os, pathlib, shutil, sys
