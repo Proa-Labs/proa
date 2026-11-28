@@ -647,7 +647,7 @@ impl WebRender for Product {
 "#,
     )
     .unwrap();
-    let diagnostics = lint_paths(&[pages.clone()], LintOptions::default()).unwrap();
+    let diagnostics = lint_paths(std::slice::from_ref(&pages), LintOptions::default()).unwrap();
     let found: Vec<_> = diagnostics
         .iter()
         .filter(|d| d.code == "render/head-role-in-page")
@@ -7672,6 +7672,72 @@ fn route_path_diagnostics(path: &Path, source: &str) -> Vec<Diagnostic> {
         .into_iter()
         .filter(|d| d.code == "route/express-path-syntax")
         .collect()
+}
+
+#[test]
+fn axum_route_receivers_follow_method_arguments_and_pattern_scopes() {
+    let source = r#"use axum::Router;
+use proa::axum::RouteResponse;
+struct Nav;
+impl Nav {
+    fn route(&self, path: &str, value: ()) {}
+    fn mount(&self, app: Router, navs: &[Option<Nav>]) {
+        if let Some(app) = &navs[0] {
+            app.route("/custom/:id", ());
+        } else {
+            app.clone().route("/missing/:id", get(show));
+        }
+        for app in navs.iter().flatten() { app.route("/nav/:id", ()); }
+        match &navs[0] {
+            Some(app) if is_visible(app) => app.route("/visible/:id", ()),
+            _ => (),
+        }
+        while let Some(app) = next_nav() { app.route("/next/:id", ()); }
+        {
+            let Some(app) = next_nav() else { return; };
+            app.route("/local/:id", ());
+        }
+        app.route("/method/:id", get(show));
+    }
+}
+trait Mount {
+    fn mount(app: axum::Router) { app.route("/trait/:id", get(show)); }
+}
+mod navigation {
+    struct Router;
+    impl Router {
+        fn new() -> Self { Self }
+        fn route(self, _: &str, _: ()) {}
+    }
+    fn mount() { Router::new().route("/navigation/:id", ()); }
+}
+fn local_import() {
+    use crate::nav::Router;
+    Router::new().route("/local-import/:id", ());
+}
+mod inherited {
+    use super::*;
+    fn mount(app: Router) { app.route("/inherited/:id", get(show)); }
+}
+mod renamed {
+    use super::Router as App;
+    fn mount(app: App) { app.route("/renamed/:id", get(show)); }
+}"#;
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    let lines: Vec<_> = diagnostics
+        .iter()
+        .map(|d| source.lines().nth(d.line - 1).unwrap().trim())
+        .collect();
+    assert_eq!(lines.len(), 5, "{lines:?}");
+    for (line, path) in lines.iter().zip([
+        "/missing/:id",
+        "/method/:id",
+        "/trait/:id",
+        "/inherited/:id",
+        "/renamed/:id",
+    ]) {
+        assert!(line.contains(path), "{lines:?}");
+    }
 }
 
 /// The text a diagnostic's primary label underlines.

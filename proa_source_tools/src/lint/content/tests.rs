@@ -819,8 +819,10 @@ fn actual_product_fixture_and_real_incident_report_deletions_are_caught() {
     let path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../proa_macros/tests/content_coverage.rs");
     let source = std::fs::read_to_string(&path).unwrap();
-    let mut options = ContentOptions::default();
-    options.root = Some(path.parent().unwrap().into());
+    let options = ContentOptions {
+        root: Some(path.parent().unwrap().into()),
+        ..Default::default()
+    };
     let reporting = BTreeSet::from([discover::absolute(&path)]);
     let pristine = lint_sources(
         &[(path.clone(), source.clone())],

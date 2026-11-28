@@ -43,10 +43,11 @@ pub(super) fn lint_route_paths(
         return;
     }
     let mut calls = RouteCalls {
-        usage: &usage,
+        usage: AxumUsage::default(),
         routers: Default::default(),
         found: Vec::new(),
     };
+    calls.usage.declarations(&file.items, None);
     calls.visit_file(file);
     calls.found.retain(|(literal, _)| {
         !line_in_ranges(literal.span().start().line, ignored_ranges)
@@ -66,7 +67,7 @@ pub(super) fn lint_route_paths(
 }
 
 /// How a file refers to Axum and to Proa's Axum adapter.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct AxumUsage {
     /// Some path or import goes through a crate or module named `axum`.
     axum: bool,
@@ -77,6 +78,31 @@ struct AxumUsage {
 }
 
 impl AxumUsage {
+    fn declarations<'a>(
+        &mut self,
+        items: impl IntoIterator<Item = &'a syn::Item>,
+        parent: Option<&Self>,
+    ) {
+        for item in items {
+            match item {
+                syn::Item::Use(import) => self.record_use(&import.tree, &mut Vec::new(), parent),
+                syn::Item::Fn(f) => {
+                    self.spec_functions.remove(&f.sig.ident.to_string());
+                }
+                syn::Item::Type(ty) => {
+                    self.router_types.remove(&ty.ident.to_string());
+                }
+                syn::Item::Struct(s) => {
+                    self.router_types.remove(&s.ident.to_string());
+                }
+                syn::Item::Enum(e) => {
+                    self.router_types.remove(&e.ident.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn record(&mut self, segments: &[String]) {
         self.axum |= segments
             .iter()
@@ -84,11 +110,11 @@ impl AxumUsage {
         self.proa_axum |= through_proa_axum(segments);
     }
 
-    fn record_use(&mut self, tree: &syn::UseTree, prefix: &mut Vec<String>) {
+    fn record_use(&mut self, tree: &syn::UseTree, prefix: &mut Vec<String>, parent: Option<&Self>) {
         match tree {
             syn::UseTree::Path(path) => {
                 prefix.push(path.ident.to_string());
-                self.record_use(&path.tree, prefix);
+                self.record_use(&path.tree, prefix, parent);
                 prefix.pop();
             }
             syn::UseTree::Name(_) | syn::UseTree::Rename(_) | syn::UseTree::Glob(_) => {
@@ -98,18 +124,24 @@ impl AxumUsage {
                     syn::UseTree::Rename(item) => (&item.ident, &item.rename),
                     _ => return,
                 };
-                if name == "Router"
-                    && matches!(prefix.join("::").as_str(), "axum" | "axum::routing")
+                self.router_types.remove(&alias.to_string());
+                self.spec_functions.remove(&alias.to_string());
+                let parent = parent.filter(|_| matches!(prefix.as_slice(), [p] if p == "super"));
+                if (name == "Router"
+                    && matches!(prefix.join("::").as_str(), "axum" | "axum::routing"))
+                    || parent.is_some_and(|p| p.router_types.contains(&name.to_string()))
                 {
                     self.router_types.insert(alias.to_string());
                 }
-                if name == "router_from_spec" && through_proa_axum(prefix) {
+                if (name == "router_from_spec" && through_proa_axum(prefix))
+                    || parent.is_some_and(|p| p.spec_functions.contains(&name.to_string()))
+                {
                     self.spec_functions.insert(alias.to_string());
                 }
             }
             syn::UseTree::Group(group) => {
                 for tree in &group.items {
-                    self.record_use(tree, prefix);
+                    self.record_use(tree, prefix, parent);
                 }
             }
         }
@@ -135,7 +167,7 @@ fn path_segments(path: &SynPath) -> Vec<String> {
 
 impl<'ast> Visit<'ast> for AxumUsage {
     fn visit_item_use(&mut self, node: &'ast syn::ItemUse) {
-        self.record_use(&node.tree, &mut Vec::new());
+        self.record_use(&node.tree, &mut Vec::new(), None);
     }
     fn visit_path(&mut self, node: &'ast SynPath) {
         self.record(&path_segments(node));
@@ -144,8 +176,8 @@ impl<'ast> Visit<'ast> for AxumUsage {
 }
 
 /// Collects `(path literal, is a nest prefix)` for every `Router` call.
-struct RouteCalls<'a> {
-    usage: &'a AxumUsage,
+struct RouteCalls {
+    usage: AxumUsage,
     routers: std::collections::BTreeSet<String>,
     found: Vec<(syn::LitStr, bool)>,
 }
@@ -162,7 +194,7 @@ fn string_literal(expr: &Expr) -> Option<&syn::LitStr> {
     }
 }
 
-impl RouteCalls<'_> {
+impl RouteCalls {
     fn router_type(&self, path: &[String]) -> bool {
         match path {
             [name] => self.usage.router_types.contains(name),
@@ -190,7 +222,8 @@ impl RouteCalls<'_> {
             Expr::MethodCall(call) => {
                 matches!(
                     call.method.to_string().as_str(),
-                    "route"
+                    "clone"
+                        | "route"
                         | "route_service"
                         | "nest"
                         | "nest_service"
@@ -222,55 +255,135 @@ impl RouteCalls<'_> {
     }
 
     fn bind(&mut self, pattern: &syn::Pat, is_router: bool) {
-        match pattern {
-            syn::Pat::Type(typed) => {
-                let router_type = matches!(typed.ty.as_ref(), syn::Type::Path(ty) if self.router_type(&path_segments(&ty.path)));
-                self.bind(&typed.pat, router_type);
-            }
-            syn::Pat::Ident(binding) => {
-                let name = binding.ident.to_string();
-                if is_router {
-                    self.routers.insert(name);
-                } else {
-                    self.routers.remove(&name);
-                }
-            }
-            syn::Pat::Tuple(tuple) => {
-                for field in &tuple.elems {
-                    self.bind(field, false);
-                }
-            }
-            _ => {}
+        if let syn::Pat::Type(typed) = pattern {
+            self.bind(&typed.pat, self.is_router_type(&typed.ty));
+            return;
         }
+        for name in pattern_bindings(pattern) {
+            self.routers.remove(&name);
+        }
+        if let syn::Pat::Ident(binding) = pattern {
+            if is_router {
+                self.routers.insert(binding.ident.to_string());
+            }
+        }
+    }
+
+    fn is_router_type(&self, ty: &syn::Type) -> bool {
+        matches!(ty, syn::Type::Path(ty) if self.router_type(&path_segments(&ty.path)))
+    }
+
+    fn scoped(&mut self, visit: impl FnOnce(&mut Self)) {
+        let previous = self.routers.clone();
+        visit(self);
+        self.routers = previous;
+    }
+
+    fn function(&mut self, signature: &syn::Signature, body: &syn::Block) {
+        let previous = std::mem::take(&mut self.routers);
+        for input in &signature.inputs {
+            if let syn::FnArg::Typed(arg) = input {
+                self.bind(&arg.pat, self.is_router_type(&arg.ty));
+            }
+        }
+        self.visit_block(body);
+        self.routers = previous;
     }
 }
 
-impl<'ast> Visit<'ast> for RouteCalls<'_> {
+impl<'ast> Visit<'ast> for RouteCalls {
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
-        let previous = std::mem::take(&mut self.routers);
-        for input in &node.sig.inputs {
-            if let syn::FnArg::Typed(argument) = input {
-                let typed = matches!(argument.ty.as_ref(), syn::Type::Path(ty) if self.router_type(&path_segments(&ty.path)));
-                self.bind(&argument.pat, typed);
-            }
+        self.function(&node.sig, &node.block);
+    }
+
+    fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
+        self.function(&node.sig, &node.block);
+    }
+
+    fn visit_trait_item_fn(&mut self, node: &'ast syn::TraitItemFn) {
+        if let Some(body) = &node.default {
+            self.function(&node.sig, body);
         }
-        self.visit_block(&node.block);
-        self.routers = previous;
+    }
+
+    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+        if let Some((_, items)) = &module.content {
+            // An inline module has its own import namespace.
+            let outer = std::mem::take(&mut self.usage);
+            if items.iter().any(|item| {
+                matches!(item, syn::Item::Use(import)
+                if matches!(&import.tree, syn::UseTree::Path(path)
+                    if path.ident == "super" && matches!(*path.tree, syn::UseTree::Glob(_))))
+            }) {
+                self.usage = outer.clone();
+            }
+            self.usage.declarations(items, Some(&outer));
+            visit::visit_item_mod(self, module);
+            self.usage = outer;
+        }
     }
 
     fn visit_block(&mut self, block: &'ast syn::Block) {
-        let previous = self.routers.clone();
-        visit::visit_block(self, block);
-        self.routers = previous;
+        let mut items = block
+            .stmts
+            .iter()
+            .filter_map(|stmt| match stmt {
+                syn::Stmt::Item(item) => Some(item),
+                _ => None,
+            })
+            .peekable();
+        let outer = items.peek().map(|_| self.usage.clone());
+        self.usage.declarations(items, None);
+        self.scoped(|this| visit::visit_block(this, block));
+        if let Some(outer) = outer {
+            self.usage = outer;
+        }
     }
 
     fn visit_expr_closure(&mut self, node: &'ast syn::ExprClosure) {
-        let previous = self.routers.clone();
-        for pattern in &node.inputs {
-            self.bind(pattern, false);
+        self.scoped(|this| {
+            for pattern in &node.inputs {
+                this.bind(pattern, false);
+            }
+            this.visit_expr(&node.body);
+        });
+    }
+
+    fn visit_arm(&mut self, arm: &'ast syn::Arm) {
+        self.scoped(|this| {
+            this.bind(&arm.pat, false);
+            visit::visit_arm(this, arm);
+        });
+    }
+
+    fn visit_expr_for_loop(&mut self, node: &'ast syn::ExprForLoop) {
+        self.visit_expr(&node.expr);
+        self.scoped(|this| {
+            this.bind(&node.pat, false);
+            this.visit_block(&node.body);
+        });
+    }
+
+    fn visit_expr_let(&mut self, node: &'ast syn::ExprLet) {
+        self.visit_expr(&node.expr);
+        self.bind(&node.pat, self.is_router(&node.expr));
+    }
+
+    fn visit_expr_if(&mut self, node: &'ast syn::ExprIf) {
+        self.scoped(|this| {
+            this.visit_expr(&node.cond);
+            this.visit_block(&node.then_branch);
+        });
+        if let Some((_, otherwise)) = &node.else_branch {
+            self.visit_expr(otherwise);
         }
-        self.visit_expr(&node.body);
-        self.routers = previous;
+    }
+
+    fn visit_expr_while(&mut self, node: &'ast syn::ExprWhile) {
+        self.scoped(|this| {
+            this.visit_expr(&node.cond);
+            this.visit_block(&node.body);
+        });
     }
 
     fn visit_local(&mut self, local: &'ast syn::Local) {
