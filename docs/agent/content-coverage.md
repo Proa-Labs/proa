@@ -42,6 +42,28 @@ create content obligations. `cx.write_md_inline_code(value)` and
 value or child's coverage. Standard `Some(value)`, optional field presence,
 and `if let Some(value)` bindings are understood without annotations.
 
+A slot renders only the last expression of its block. In a loop, end the body
+with the nested template:
+
+```rust
+md_sync! { r###"
+    {for issue in &payload.issues {
+        md_sync! { "- {issue.title.as_str()}\n" }
+    }}
+    "###
+}
+```
+
+A render call written as a statement there, such as
+`md_sync! { ... }.render_md(cx)?;`, renders nothing through the template. The
+diagnostic points at the call to remove.
+
+A `proa::stream::Suspense::new(child, fallback)` boundary contributes only its
+child. The fallback is a loading placeholder: HTML replaces it with the child,
+and Markdown renders the child inline and never the fallback. A skeleton
+component or an inline `html_sync!` fallback therefore needs no `omit!`; the
+child still has to be rendered in Markdown.
+
 Direct writes and opaque helpers that receive the output context can remain
 unchecked. These analysis limitations are informational and need no annotation.
 The exemptions apply to recognized Proa APIs, rather than arbitrary methods named `load` or
@@ -142,6 +164,28 @@ A targeted marker is checked for stale, redundant, ambiguous, and unresolved
 selectors. Whole-view exemptions suppress pair checks, including marker checks.
 An omitted child in a parent does not exempt that child's own paired views.
 
+## RSJS islands and browser-only controls
+
+An `#[rsjs(component, client)]` island is compared like any other component.
+Every island renders HTML on the server, and that HTML can carry data, so the
+checker never assumes an island is browser-only.
+
+When a page renders an island that has no Markdown view, the diagnostic says
+so. Write what the island shows in the page's Markdown view, or acknowledge it
+inside `render_md`:
+
+```rust
+omit!(IssueFilter, "Browser-only controls");
+```
+
+When an island has both views and its Markdown leaves the controls out on
+purpose, exempt the whole view once instead of adding a marker per label:
+
+```rust
+#[proa::content(skip, reason = "Browser controls only")]
+impl<L: DataLoader> MdRenderSync<L> for StatusPanel { /* ... */ }
+```
+
 ## Helpers and shared inputs
 
 Render ordinary fields, constants, and child components directly. The checker
@@ -200,7 +244,9 @@ not a substitute for declaring correspondence when you want ongoing checks.
 ## Diagnostics and enforcement
 
 Diagnostics identify the component, source target, checked target, and specific
-value, child, or literal. Terminal output includes source frames in both files, a direct
+value, child, or literal. A loaded value is named by its loader call and field
+path, such as `cx.load_typed(crate::loader::issues_key()).issues[].title`, where
+`[]` marks each item of an iterated collection. Terminal output includes source frames in both files, a direct
 cause, and a repair. Suggested omissions are scoped to an actual value or
 resolvable child. They are suggestions requiring author judgment; the linter
 never inserts an exception automatically.

@@ -126,13 +126,38 @@ pub enum ContentKey {
     },
     Literal(String),
 }
+/// Identity prefixes that keep a loaded payload and an enum variant distinct
+/// from a local path with the same spelling. They never reach a diagnostic.
+const LOAD_SIGIL: &str = "@load:";
+/// Presence guard on content that a render call written as a statement inside
+/// a template slot was meant to render. No source contribution carries it.
+const STATEMENT_RENDER: &str = "@statement-render";
+const STATEMENT_RENDER_NOTE: &str = "a template slot renders only the last expression of its block; a render call followed by `;` is an ordinary statement, and it cannot write through the context the enclosing template has borrowed";
+const VARIANT_SIGIL: &str = "@variant:";
+
 impl ContentKey {
+    /// The name a diagnostic prints: the expression the author wrote, such as
+    /// `cx.load_typed(crate::issues_key()).issues[].id`, where `[]` marks
+    /// each item of an iterated collection.
     fn label(&self) -> String {
         match self {
-            Self::Value(v) => v.clone(),
+            Self::Value(v) => v.replace(LOAD_SIGIL, "").replace(VARIANT_SIGIL, ""),
             Self::Child { ty, .. } => ty.rsplit("::").next().unwrap_or(ty).into(),
             Self::Literal(v) => format!("text {v:?}"),
         }
+    }
+    /// The collection and field of a value rendered once per loop item:
+    /// `payload.issues[].id` is `("payload.issues", "id")`.
+    fn element_path(&self) -> Option<(String, String)> {
+        let Self::Value(_) = self else {
+            return None;
+        };
+        let label = self.label();
+        let (collection, field) = label.rsplit_once("[]")?;
+        Some((
+            collection.to_owned(),
+            field.trim_start_matches('.').to_owned(),
+        ))
     }
     fn inputs(&self) -> BTreeSet<String> {
         match self {
@@ -268,6 +293,20 @@ fn matching_contributions<'a>(
     matched
 }
 
+/// A child component with render views, none of them for `target`: whether it
+/// is an RSJS island. `None` when the child could be rendered in that view.
+fn unrenderable_child(
+    key: &ContentKey,
+    target: &ViewSummary,
+    components: &Components,
+) -> Option<bool> {
+    let ContentKey::Child { ty, .. } = key else {
+        return None;
+    };
+    let views = components.views.get(ty)?;
+    (!views.contains(&target.target)).then(|| components.islands.contains(ty))
+}
+
 fn covered(required: &Contribution, candidates: &[Contribution]) -> bool {
     !matching_contributions(required, candidates, true).is_empty()
 }
@@ -375,14 +414,37 @@ fn omission_macro_namespace(source: &str) -> &'static str {
     }
 }
 
+/// What discovery knows about a crate's components beyond one pair of
+/// summaries. It only sharpens the repair a diagnostic offers; it never
+/// changes which contributions are required.
+#[derive(Debug, Default)]
+pub(super) struct Components {
+    /// Component type path to the targets it has a render view for.
+    pub views: BTreeMap<String, BTreeSet<String>>,
+    /// Component type paths whose render impl is an `#[rsjs(...)]` island.
+    pub islands: BTreeSet<String>,
+}
+
 /// Compare summaries without depending on their parsers. Absence is confirmed
 /// only inside the supported subset; any opaque output prevents that assertion.
 pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnostic> {
+    compare(source, target, &Components::default(), false)
+}
+
+/// [`compare_views`] with discovery facts: `source_island` says the source
+/// view itself is an RSJS island.
+pub(super) fn compare(
+    source: &ViewSummary,
+    target: &ViewSummary,
+    components: &Components,
+    source_island: bool,
+) -> Vec<Diagnostic> {
     if source.skip || target.skip {
         return Vec::new();
     }
     let mut diagnostics = Vec::new();
     let mut omission_namespace = None;
+    let mut island_explained = false;
     let mut waived = BTreeSet::new();
     for marker in &target.omissions {
         if marker
@@ -505,12 +567,44 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
         if !seen.insert((part.key.clone(), guard_key)) {
             continue;
         }
+        let hidden_output = target.boundaries.iter().any(|b| b.may_hide_content);
+        // Every candidate sits behind a render call written as a statement.
+        let statement_calls: Option<Vec<_>> = matches
+            .iter()
+            .map(|m| m.presence.iter().find(|p| p.expression == STATEMENT_RENDER))
+            .collect();
+        if let Some(call) = statement_calls
+            .as_deref()
+            .and_then(|calls| calls.first())
+            .filter(|_| !hidden_output)
+        {
+            let label = part.key.label();
+            diagnostics.push(
+                diag(
+                    target,
+                    call.range.clone(),
+                    "render/content-coverage",
+                    format!(
+                        "`{}`'s {} view does not render `{label}` from its {} view",
+                        target.component, target.target_label, source.target_label
+                    ),
+                    "this call is a statement, so the template does not render its output",
+                )
+                .with_label(SourceLabel::new(
+                    part.range.clone(),
+                    &source.source,
+                    format!("`{label}` rendered in {}", source.target_label),
+                    false,
+                ))
+                .with_note(STATEMENT_RENDER_NOTE)
+                .with_help("remove this call and its `;` so the nested template is the last expression of the block"),
+            );
+            continue;
+        }
         let changed_child=target.contributions.iter().find(|c|matches!((&part.key,&c.key),(ContentKey::Child{ty:source,..},ContentKey::Child{ty:target,..}) if source==target));
         let forwarded=target.contributions.iter().find(|c|matches!(&part.key,ContentKey::Value(value) if matches!(&c.key,ContentKey::Child{inputs,..} if inputs.contains(value))));
-        let uncertain = changed_child.is_some()
-            || forwarded.is_some()
-            || !matches.is_empty()
-            || target.boundaries.iter().any(|b| b.may_hide_content);
+        let uncertain =
+            changed_child.is_some() || forwarded.is_some() || !matches.is_empty() || hidden_output;
         let code = if uncertain {
             "render/content-coverage-unchecked"
         } else {
@@ -579,6 +673,8 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             format!("`{label}` rendered in {}", source.target_label),
             false,
         ));
+        let macro_namespace =
+            *omission_namespace.get_or_insert_with(|| omission_macro_namespace(&target.source));
         if !matches.is_empty() {
             d = d.with_note("the checker has not established that these conditions select the same input states")
                 .with_help("decide presence once in shared preparation, or acknowledge this contribution with a targeted omission");
@@ -613,10 +709,37 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                 .find(|(name, keys)| name.as_str() != "self" && keys.contains(&part.key))
             {
                 d = d.with_help(format!("add `{{{name}}}` to the {} template; constructing or testing a value does not render it", target.target_label));
+            } else if let Some((collection, field)) = part.key.element_path() {
+                let what = if field.is_empty() {
+                    "each item".to_owned()
+                } else {
+                    format!("`{field}` for each item")
+                };
+                d = d.with_help(format!(
+                    "render {what} of `{collection}` in the {} view: loop over the same collection, and end the loop body with the expression or nested template that renders it",
+                    target.target_label
+                ));
+            } else if let Some(island) = unrenderable_child(&part.key, target, components) {
+                // `render X in the Markdown view` cannot compile for a child
+                // that has no view for this target.
+                let view = &target.target_label;
+                d = if island {
+                    d.with_note(format!("`{label}` is an RSJS island. Every island renders HTML on the server, so the checker counts it as content and cannot tell browser-only controls from data"))
+                        .with_help(format!("`{label}` has no {view} view to render. If this {view} view already covers what the island shows, or the island is only controls, add the `omit!` below with a reason; otherwise write that content in this {view} view"))
+                } else {
+                    d.with_help(format!("`{label}` has no {view} view to render: write the content it shows in this {view} view, or give `{label}` a {view} view and render it here"))
+                };
             } else {
                 d = d.with_help(format!(
                     "render `{label}` in the {} view",
                     target.target_label
+                ));
+            }
+            if source_island && !island_explained {
+                island_explained = true;
+                d.notes.push(format!(
+                    "`{}`'s {} view is an RSJS island: control labels, form values and client state are compared like any other content. If its {} view leaves the controls out on purpose, `#[{macro_namespace}::content(skip, reason = \"...\")]` on the {} impl exempts the whole view instead of one `omit!` per label",
+                    source.component, source.target_label, target.target_label, target.target_label
                 ));
             }
         }
@@ -627,8 +750,6 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
                 .then(|| local_marker_range(target, name).map(|range| (name, range)))
                 .flatten()
         });
-        let macro_namespace =
-            *omission_namespace.get_or_insert_with(|| omission_macro_namespace(&target.source));
         let omit = if let Some((name, _)) = &local {
             Some(format!("{macro_namespace}::omit!(&{name});"))
         } else {
@@ -698,31 +819,44 @@ pub fn compare_views(source: &ViewSummary, target: &ViewSummary) -> Vec<Diagnost
             diagnostics.push(diagnostic);
         }
     }
+    // One opaque boundary, or one statement render, explains every
+    // contribution it affects; report it once with all of them labelled.
     let mut grouped: Vec<Diagnostic> = Vec::new();
-    let mut opaque_groups = BTreeMap::new();
+    let mut groups = BTreeMap::new();
     for diagnostic in diagnostics {
         let opaque = diagnostic.code == "render/content-coverage-unchecked"
             && diagnostic
                 .notes
                 .iter()
                 .any(|n| n.contains("no omission is confirmed"));
-        let location = (diagnostic.path.clone(), diagnostic.line, diagnostic.column);
-        if opaque {
-            if let Some(index) = opaque_groups.get(&location).copied() {
+        let statement = diagnostic.notes.iter().any(|n| n == STATEMENT_RENDER_NOTE);
+        if opaque || statement {
+            let group = (
+                statement,
+                diagnostic.path.clone(),
+                diagnostic.line,
+                diagnostic.column,
+            );
+            if let Some(index) = groups.get(&group).copied() {
                 let previous: &mut Diagnostic = &mut grouped[index];
                 previous
                     .labels
                     .extend(diagnostic.labels.into_iter().filter(|label| !label.primary));
-                previous.message = format!(
-                    "`{}`'s {} coverage of {} {} contributions could not be checked",
-                    target.component,
-                    target.target_label,
-                    previous.labels.len() - 1,
-                    source.target_label
-                );
+                let count = previous.labels.len() - 1;
+                previous.message = if statement {
+                    format!(
+                        "`{}`'s {} view does not render {count} contributions from its {} view",
+                        target.component, target.target_label, source.target_label
+                    )
+                } else {
+                    format!(
+                        "`{}`'s {} coverage of {count} {} contributions could not be checked",
+                        target.component, target.target_label, source.target_label
+                    )
+                };
                 continue;
             }
-            opaque_groups.insert(location, grouped.len());
+            groups.insert(group, grouped.len());
         }
         grouped.push(diagnostic);
     }

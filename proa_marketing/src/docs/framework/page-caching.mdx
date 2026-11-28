@@ -4,11 +4,7 @@ description: Cache pages at the edge and refresh them after deployment.
 keywords: [ETag, Cache-Control, "cache control"]
 ---
 
-By default, Proa renders pages on every request; it does not enable page caching. Use your CDN for [static pages](#caching-static-pages) and [ISR](#enabling-isr), and configure [RSJS bundles](#caching-rsjs-bundles) separately.
-
-A `RouteResponse` document or Markdown representation without a cache policy is sent with `Cache-Control: private, no-store`, so neither a browser's heuristic freshness nor a CDN default stores dynamic output. Proa uses `no-store` rather than `no-cache` because a dynamic page has no validator to revalidate against and may be personalized.
-
-Proa adds this default in `RouteContextLayer`, which `FrameworkBuilder` installs around your routes, and never replaces a policy that reaches it. A `Cache-Control`, `Expires`, or CDN cache header from your handler, your page, a `render_head` hook, or middleware on the router you pass to `with_dynamic_routes` is kept. Await buffered responses in their handlers so that middleware sees the page's own policy; see [Route responses](/docs/framework/responses#async-ssr). Middleware layered on the built router runs after the default is in place, so a layer that only adds `Cache-Control` when it is missing, such as `SetResponseHeaderLayer::if_not_present`, changes nothing there. Add that layer to your dynamic router instead, or replace the header with `SetResponseHeaderLayer::overriding`. A `PageCacheLayer` on the built router is the exception: the framework leaves the default off the requests that cache may store, and the cache sets its own policy on every response.
+By default, Proa renders pages on every request; it does not enable page caching, and [an uncached page is sent with `no-store`](#what-an-uncached-page-sends). Use your CDN for [static pages](#caching-static-pages) and [ISR](#enabling-isr), and configure [RSJS bundles](#caching-rsjs-bundles) separately.
 
 ## Caching static pages
 
@@ -208,6 +204,12 @@ Success means the provider accepted the request or its configured command succee
 A bare build, restart, or deployment outside this workflow does not invoke Proa's invalidation integration. Without an integration, pages can remain cached until expiry or eviction.
 
 Page invalidation is separate from JavaScript bundle versioning. When managed public assets are attached to the router, `PageCacheLayer` automatically includes `PublicAssets::cache_key()` in its cache key so a catalog replacement does not serve stale HTML asset URLs. The key also covers the base path and `PROA_ASSET_PREFIX`.
+
+## What an uncached page sends
+
+A `RouteResponse` document or Markdown representation without a cache policy is sent with `Cache-Control: private, no-store`, so neither a browser's heuristic freshness nor a CDN default stores dynamic output. Proa uses `no-store` rather than `no-cache` because a dynamic page has no validator to revalidate against and may be personalized.
+
+Proa adds this default in `RouteContextLayer`, which `FrameworkBuilder` installs around your routes, and never replaces a policy that reaches it. A `Cache-Control`, `Expires`, or CDN cache header from your handler, your page, a `render_head` hook, or middleware on the router you pass to `with_dynamic_routes` is kept. Await buffered responses in their handlers so that middleware sees the page's own policy; see [Route responses](/docs/framework/responses#async-ssr). Middleware layered on the built router runs after the default is in place, so a layer that only adds `Cache-Control` when it is missing, such as `SetResponseHeaderLayer::if_not_present`, changes nothing there. Add that layer to your dynamic router instead, or replace the header with `SetResponseHeaderLayer::overriding`. A `PageCacheLayer` on the built router is the exception: the framework leaves the default off the requests that cache may store, and the cache sets its own policy on every response.
 
 ## Caching RSJS bundles
 

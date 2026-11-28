@@ -135,6 +135,32 @@ mod tests {
     }
 
     #[test]
+    fn facade_root_names_the_streaming_types_a_page_imports() {
+        // `DataResolver` and `Suspense` are imported next to `DataLoader` by
+        // routes and pages, so all three resolve from the root. Returning a
+        // root type as its `proa::stream` path proves they are one type, not a
+        // second definition, so existing `proa::stream` imports keep working.
+        use proa::{DataResolver, NoLoader, Suspense};
+
+        fn resolver(value: DataResolver<NoLoader>) -> proa::stream::DataResolver<NoLoader> {
+            value
+        }
+        fn boundary<C, F>(value: Suspense<C, F>) -> proa::stream::Suspense<C, F> {
+            value
+        }
+        let _: fn(DataResolver<NoLoader>) -> _ = resolver;
+
+        // A buffered render is in document order, so the child replaces the
+        // fallback inline.
+        let html = RouteResponse::ssr_async(proa::html! {
+            <main>{boundary(Suspense::new("ready", "loading"))}</main>
+        })
+        .render_to_string()
+        .unwrap();
+        assert_eq!(html, "<main>ready</main>");
+    }
+
+    #[test]
     fn facade_templates_escape_dynamic_values() {
         let html = proa::render_to_string(Greeting { name: "<Ada>" });
         assert_eq!(html, "<p>Hello, &lt;Ada&gt;</p>");

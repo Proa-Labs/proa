@@ -552,7 +552,7 @@ impl Analyzer<'_> {
                     return value;
                 }
                 if self.resolver.unit_variants.contains(&path) {
-                    let symbol = format!("@variant:{path}");
+                    let symbol = format!("{VARIANT_SIGIL}{path}");
                     let mut value =
                         self.part(ContentKey::Value(symbol.clone()), expr, override_range);
                     value.symbol = Some(symbol);
@@ -632,6 +632,12 @@ impl Analyzer<'_> {
                         return self.expr(&c.args[0], env, override_range);
                     }
                     if self.target.adapters.contains(&path) && c.args.len() == 1 {
+                        return self.expr(&c.args[0], env, override_range);
+                    }
+                    // A Suspense fallback is a placeholder: HTML replaces it
+                    // with the child, and Markdown renders the child inline
+                    // and never the fallback. Only the child is content.
+                    if path == "proa_stream::Suspense::new" && c.args.len() == 2 {
                         return self.expr(&c.args[0], env, override_range);
                     }
                     let mut child = function.path.clone();
@@ -752,7 +758,15 @@ impl Analyzer<'_> {
                                     .collect::<Vec<_>>()
                             })
                             .unwrap_or_default();
-                        let symbol = format!("@load:typed:{types:?}:{key:?}");
+                        // The identity doubles as the name diagnostics
+                        // print, so it reads as the call the author wrote.
+                        let turbofish = if types.is_empty() {
+                            String::new()
+                        } else {
+                            format!("::<{}>", types.join(", "))
+                        };
+                        let symbol =
+                            format!("{LOAD_SIGIL}cx.load_typed{turbofish}({})", key.join(", "));
                         return Value {
                             symbol: Some(symbol.clone()),
                             deps: BTreeSet::from([symbol]),
@@ -871,7 +885,7 @@ impl Analyzer<'_> {
                 if !v
                     .symbol
                     .as_deref()
-                    .is_some_and(|symbol| symbol.starts_with("@load:"))
+                    .is_some_and(|symbol| symbol.starts_with(LOAD_SIGIL))
                 {
                     v.boundaries.push(Boundary {
                         may_hide_content: true,
@@ -965,7 +979,20 @@ impl Analyzer<'_> {
                         override_range,
                     ));
                 }
-                Stmt::Expr(_, _) | Stmt::Macro(_) | Stmt::Item(_) => {}
+                // A render call written as a statement in a Markdown slot is
+                // not slot output. Keep what it was meant to render under a
+                // guard nothing else carries, so the diagnostic can point at
+                // the call instead of reporting the content as plainly absent.
+                Stmt::Expr(expr, _) => {
+                    if let Some((rendered, call)) = self.statement_render(expr, &env) {
+                        let guard = Presence {
+                            expression: STATEMENT_RENDER.into(),
+                            range: call,
+                        };
+                        result.append(self.expr(rendered, &env, override_range).guarded(&[guard]));
+                    }
+                }
+                Stmt::Macro(_) | Stmt::Item(_) => {}
             }
         }
         if has_early_exit(block) {
@@ -976,6 +1003,64 @@ impl Analyzer<'_> {
             });
         }
         result
+    }
+    /// A registered render call on the output context, written as a statement
+    /// inside a Markdown slot: the value it was meant to render, and the range
+    /// of the call. The Markdown macros keep their own context hygienic, so
+    /// such a statement never writes into the enclosing template.
+    fn statement_render<'e>(
+        &self,
+        statement: &'e Expr,
+        env: &Env,
+    ) -> Option<(&'e Expr, SourceRange)> {
+        if self.slots.is_empty() || !matches!(self.target.syntax, TemplateSyntax::Markdown) {
+            return None;
+        }
+        let mut expr = statement;
+        loop {
+            expr = match expr {
+                Expr::Try(inner) => &inner.expr,
+                Expr::Await(inner) => &inner.base,
+                Expr::Paren(inner) => &inner.expr,
+                Expr::Group(inner) => &inner.expr,
+                Expr::MethodCall(call) if call.method == "resolve" && call.args.is_empty() => {
+                    &call.receiver
+                }
+                _ => break,
+            };
+        }
+        let whole = self.range(statement.span(), None);
+        match expr {
+            Expr::MethodCall(call)
+                if self.target.methods.contains(&call.method.to_string())
+                    && call.args.len() == 1
+                    && self.output_arg(&call.args[0], env) =>
+            {
+                // Point at `.render_md(cx)?`, the part to remove.
+                let dot = self.range(call.dot_token.span(), None);
+                Some((
+                    &call.receiver,
+                    SourceRange {
+                        line: dot.line,
+                        column: dot.column,
+                        ..whole
+                    },
+                ))
+            }
+            Expr::Call(call) => {
+                let Expr::Path(function) = call.func.as_ref() else {
+                    return None;
+                };
+                let mut path = function.path.clone();
+                let method = path.segments.pop().map(|s| s.ident.to_string());
+                (method.is_some_and(|method| self.target.methods.contains(&method))
+                    && self.target.traits.contains(&self.resolver.path(&path))
+                    && call.args.len() == 2
+                    && self.output_arg(&call.args[1], env))
+                .then(|| (&call.args[0], whole))
+            }
+            _ => None,
+        }
     }
     fn loop_value(
         &mut self,
