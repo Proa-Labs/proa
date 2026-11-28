@@ -6,6 +6,12 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
 
 ## Unreleased
 
+- Generated sites declare application modules in `src/lib.rs`. Their binary and integration tests share the same RSJS component definitions when the first island is added.
+- `proa build`, `check`, `run`, and `test` use one Cargo pass for applications that expand no RSJS macros. Projects with islands retain the linked build.
+- RSJS linker diagnostics name unsupported expressions and include a source location when available. Failed queries and mutations remain observable through their state and returned promises.
+- Content coverage recognizes Suspense fallbacks and nested Markdown loops. Managed-head, route-path, and request diagnostics identify common application mistakes.
+- The Unix installer accepts an explicit destination with no home directory. Raw health probes and server errors receive a default `no-store` policy.
+
 ## 0.4.0
 
 - Breaking: the minimum supported Rust version is 1.98 (was 1.93).

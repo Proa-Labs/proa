@@ -248,6 +248,19 @@ def verify_revision(url, revision):
     raise RuntimeError(f"Railway /readyz did not serve commit {revision}; last response: {last}")
 
 
+def failure_reason(deployment):
+    """Name the step Railway failed at; a bare status hides causes such as rejected registry credentials."""
+    try:
+        events = api("""query($id:String!) {
+            deploymentEvents(id:$id,first:50) { edges { node { step payload { error } } } }
+        }""", {"id": deployment})["deploymentEvents"]["edges"]
+    except Exception:
+        return ""  # The status is the failure; its explanation is best effort.
+    errors = [f"{edge['node']['step']}: {edge['node']['payload']['error']}" for edge in events
+              if (edge["node"].get("payload") or {}).get("error")]
+    return "".join(f"\n  {error}" for error in errors)
+
+
 def deploy(image, service, environment, revision, ready_url):
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("Deploy requires a complete source commit ID")
@@ -288,7 +301,7 @@ def deploy(image, service, environment, revision, ready_url):
             verify_revision(ready_url, revision)
             return {"deployment": deployment, "image": image, "revision": revision, "seconds": round(time.monotonic() - started, 3)}
         if data["status"] in ("FAILED", "CRASHED", "REMOVED", "SKIPPED"):
-            raise RuntimeError(f"Railway deployment {deployment}: {data['status']}")
+            raise RuntimeError(f"Railway deployment {deployment}: {data['status']}{failure_reason(deployment)}")
         time.sleep(5)
     raise TimeoutError(f"Railway deployment {deployment} did not finish within ten minutes")
 
@@ -306,7 +319,8 @@ def deploy_image():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("build", "deploy"))
+    parser.add_argument("command", choices=("build", "deploy", "verify-docs"))
+    parser.add_argument("--revision", help="candidate commit to verify on the public docs site")
     args = parser.parse_args()
 
     def cancel(signum, _frame):
@@ -314,7 +328,11 @@ def main():
 
     signal.signal(signal.SIGTERM, cancel)
     signal.signal(signal.SIGINT, cancel)
-    if args.command == "build":
+    if args.command == "verify-docs":
+        if not re.fullmatch(r"[0-9a-f]{40}", args.revision or ""):
+            parser.error("verify-docs requires --revision with a full commit ID")
+        verify_revision("https://proa.so/readyz", args.revision)
+    elif args.command == "build":
         build_image()
     else:
         deploy_image()

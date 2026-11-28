@@ -166,6 +166,13 @@ verify public installation after publication without changing the docs.
 
 ## crates.io releases
 
+Before publishing, the release wrapper verifies that `https://proa.so/readyz`
+serves the candidate commit in `X-Proa-Revision`. Main CI builds, smoke-tests,
+and deploys the marketing site. If the public revision lags, inspect the
+**Deploy verified image to Railway** job and rerun publication once the candidate
+is live.
+
+
 The CLI and reusable libraries support crates.io installation. Normal releases
 use [`scripts/release-plz.sh`](release-plz.sh), both locally and through the
 manually dispatched **Release crates** workflow. Both entry points use the
