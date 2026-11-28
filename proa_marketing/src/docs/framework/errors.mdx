@@ -120,6 +120,19 @@ pub async fn old_docs_path() -> Redirect {
 }
 ```
 
+`Redirect` sends its argument as the `Location` header unchanged. When the app runs under a [URL path prefix](/docs/framework/deployment#serving-behind-a-url-path-prefix), `Redirect::permanent("/docs/framework")` still sends `Location: /docs/framework`, which leaves the mount. Build the target with `proa::axum::app_url`, which adds the configured base path:
+
+```rust filename="src/routes/legacy.rs"
+use axum::response::Redirect;
+use proa::axum::app_url;
+
+pub async fn old_issues_path() -> Redirect {
+    Redirect::permanent(&app_url("/issues").to_string())
+}
+```
+
+Mounted at `/tracker`, this sends `Location: /tracker/issues`. At the origin root it sends `Location: /issues`, so one handler is correct in both deployments. Pass the unprefixed application path. Inside a component, `cx.url(path)` composes application paths the same way.
+
 When a handler may either redirect or render, return `Response`:
 
 ```rust filename="src/routes/account.rs"
@@ -190,7 +203,7 @@ Before shipping:
 - Render a full error page only when it needs the site shell.
 - Set streaming HTTP decisions in the handler or, for managed documents, in a layout/Page head hook before publication.
 - Check the `bool` returned from response-context mutations in streaming code.
-- Use Axum `Redirect` for redirects instead of rendering meta-refresh pages.
+- Use Axum `Redirect` for redirects instead of rendering meta-refresh pages, and build same-site targets with `app_url(...)` if the app can run under a URL path prefix.
 - Test `404`, redirect, validation, timeout, and upstream-error paths.
 
 ## Next steps

@@ -156,7 +156,7 @@ impl DataLoader for AppLoader {
 }
 
 pub fn error_rs() -> &'static str {
-    r#"use axum::{http::StatusCode, response::{IntoResponse, Response}};
+    r#"use axum::{http::{header, StatusCode}, response::{IntoResponse, Response}};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
@@ -167,7 +167,13 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         tracing::error!(error = %self, "request failed");
-        (StatusCode::INTERNAL_SERVER_ERROR, "request failed").into_response()
+        // A failure describes this one request, so no cache may store it.
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [(header::CACHE_CONTROL, "no-store")],
+            "request failed",
+        )
+            .into_response()
     }
 }
 "#
