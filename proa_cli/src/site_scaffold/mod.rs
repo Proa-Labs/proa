@@ -823,7 +823,12 @@ mod tests {
             "#[rsjs(component, client)]",
             "#[rsjs::rsjs (component, client)]",
         ] {
-            std::fs::write(&counter, format!("mod nested {{ {attr}\nimpl<L: DataLoader> WebRenderSync<L> for Counter {{}} }}")).unwrap();
+            let implementation = "impl<L: DataLoader> WebRenderSync<L> for Counter {}";
+            std::fs::write(
+                &counter,
+                format!("mod nested {{\n{attr}\n{implementation}\n}}"),
+            )
+            .unwrap();
             let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
             assert!(report.errors.is_empty(), "{:?}", report.errors);
             let [warning] = report.warnings.as_slice() else {
