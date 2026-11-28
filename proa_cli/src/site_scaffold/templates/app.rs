@@ -319,8 +319,12 @@ pub fn home_rs(
     blank: bool,
     title: &str,
 ) -> String {
+    // Only the guided page renders components that await the database. A
+    // blank page with a database keeps the loader-aware handler and lifts a
+    // sync page into it.
+    let async_page = has_database && !blank;
     let mut imports = Vec::new();
-    if has_database {
+    if async_page {
         imports.push("use std::future::Future;");
         imports.push("");
     }
@@ -342,14 +346,13 @@ pub fn home_rs(
     if has_database {
         imports.push("use proa::stream::DataResolver;");
     }
-    imports.push(match (has_database, blank) {
-        (true, true) => "use proa::{html, ComponentRole, DataLoader, RenderOutcome, WebContext, WebRender, WriteError};",
-        (true, false) => "use proa::{html, ComponentRole, DataLoader, HeadMetadata, RenderOutcome, WebContext, WebRender, WriteError};",
+    imports.push(match (async_page, blank) {
+        (true, _) => "use proa::{html, ComponentRole, DataLoader, HeadMetadata, RenderOutcome, WebContext, WebRender, WriteError};",
         (false, true) => "use proa::{html_sync, ComponentRole, DataLoader, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
         (false, false) => "use proa::{html_sync, ComponentRole, DataLoader, HeadMetadata, SyncHeadOperation, WebContext, WebRenderSync, WriteError};",
     });
     if markdown {
-        if has_database {
+        if async_page {
             imports.push("use proa::{md, MdRender};");
         } else {
             imports.push("use proa::{md_sync, MdRenderSync, WriteBuf};");
@@ -415,7 +418,7 @@ pub fn home_rs(
         }
     }
 
-    let html_macro = if has_database { "html" } else { "html_sync" };
+    let html_macro = if async_page { "html" } else { "html_sync" };
     let body = if blank {
         r#"__HTML_MACRO__! {
             <main class="blank-page">
@@ -506,7 +509,7 @@ pub fn home_rs(
     };
 
     let markdown_impl = if markdown {
-        home_markdown_impl(has_database, has_ui, blank)
+        home_markdown_impl(async_page, has_ui, blank)
     } else {
         String::new()
     };
@@ -520,7 +523,7 @@ pub fn home_rs(
             ..Default::default()
         })"
     };
-    let render_impl = if has_database {
+    let render_impl = if async_page {
         r#"impl<L: DataLoader> WebRender<L> for HomePage {
     const ROLE: ComponentRole = ComponentRole::PAGE;
 
@@ -555,15 +558,21 @@ pub fn home_rs(
         (false, true) => "headers: HeaderMap",
         (false, false) => "",
     };
+    // The loader-aware responses take async values.
+    let (page, markdown_page) = if async_page {
+        ("HomePage", "HomePage")
+    } else {
+        ("proa::to_async(HomePage)", "proa::to_md_async(HomePage)")
+    };
     let html_response = if has_database {
         r#"let resolver = DataResolver::request_scope(state.loader.clone());
-    let html = RouteResponse::ssr_async_with_loader(RootDocument { content: HomePage }, resolver.clone());"#
+    let html = RouteResponse::ssr_async_with_loader(RootDocument { content: __PAGE__ }, resolver.clone());"#
     } else {
         r#"let html = RouteResponse::ssr_async(RootDocument { content: proa::to_async(HomePage) });"#
     };
     let response = if markdown {
         if has_database {
-            r#"Ok(negotiate_async_with_loader(&headers, html, HomePage, resolver, MarkdownAlternate::new("/index.md")))"#
+            r#"Ok(negotiate_async_with_loader(&headers, html, __MARKDOWN_PAGE__, resolver, MarkdownAlternate::new("/index.md")))"#
         } else {
             r#"Ok(negotiate(&headers, html, HomePage, MarkdownAlternate::new("/index.md"))?)"#
         }
@@ -575,7 +584,7 @@ pub fn home_rs(
             r#"
 pub async fn markdown(State(state): State<AppState>) -> Result<impl IntoResponse, AppError> {
     let resolver = DataResolver::request_scope(state.loader.clone());
-    Ok(explicit_markdown_async_with_loader(HomePage, resolver))
+    Ok(explicit_markdown_async_with_loader(__MARKDOWN_PAGE__, resolver))
 }
 "#
         } else {
@@ -596,6 +605,10 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
     let render_impl = render_impl
         .replace("__HEAD__", head)
         .replace("__BODY__", &body);
+    let html_response = html_response.replace("__PAGE__", page);
+    let response = response.replace("__MARKDOWN_PAGE__", markdown_page);
+    let md_handler = md_handler.replace("__MARKDOWN_PAGE__", markdown_page);
+    // proa-perf-ok: the scaffold generates Rust source during project creation
     format!(
         r#"{imports}
 
@@ -803,11 +816,63 @@ pub async fn ready() -> impl IntoResponse {
     }
 }
 
-pub fn main_rs(has_database: bool) -> String {
-    let modules = if has_database {
-        "mod db;\nmod loader;\n"
+/// `src/lib.rs`: the application's module tree as a library crate.
+pub fn lib_rs(has_database: bool) -> String {
+    let (db, loader) = if has_database {
+        ("pub mod db;\n", "pub mod loader;\n")
     } else {
-        ""
+        ("", "")
+    };
+    format!(
+        r#"//! The application's modules. `src/main.rs` and the targets under `tests/`
+//! import them from this library crate. Declare new modules here, never in
+//! `src/main.rs`: once the binary itself contains an RSJS component,
+//! `proa test` cannot build the `tests/` targets.
+
+pub mod app;
+pub mod components;
+pub mod config;
+{db}pub mod endpoints;
+pub mod error;
+pub mod layouts;
+{loader}pub mod pages;
+pub mod routes;
+pub mod static_assets;
+"#
+    )
+}
+
+/// How `src/main.rs` and `tests/` name the site's library crate.
+///
+/// A site called `app` or `routes` imports its own module of that name, and
+/// the import would then shadow the crate. Such a site names the crate from
+/// the root of the crate namespace instead.
+pub fn library_path(crate_ident: &str) -> String {
+    const MODULES: [&str; 11] = [
+        "app",
+        "components",
+        "config",
+        "db",
+        "endpoints",
+        "error",
+        "layouts",
+        "loader",
+        "pages",
+        "routes",
+        "static_assets",
+    ];
+    if MODULES.contains(&crate_ident) {
+        format!("::{crate_ident}")
+    } else {
+        crate_ident.to_owned()
+    }
+}
+
+pub fn main_rs(library: &str, has_database: bool) -> String {
+    let modules = if has_database {
+        "app, config, db, loader, routes"
+    } else {
+        "app, config, routes"
     };
     let state = if has_database {
         r#"    let db = db::connect(&config.database_url).await?;
@@ -822,15 +887,7 @@ pub fn main_rs(has_database: bool) -> String {
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
-mod app;
-mod components;
-mod config;
-__MODULES__mod endpoints;
-mod error;
-mod layouts;
-mod pages;
-mod routes;
-mod static_assets;
+use __LIBRARY__::{__MODULES__};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -851,6 +908,7 @@ __STATE__    let app = routes::router(state, config.base_path)?;
             "use std::time::Duration;"
         },
     )
+    .replace("__LIBRARY__", library)
     .replace("__MODULES__", modules)
     .replace("__STATE__", state)
 }

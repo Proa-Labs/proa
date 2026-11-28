@@ -312,6 +312,85 @@ fn generated_pages_and_documents_follow_an_older_manual_head_site() {
     assert!(!document.contains("cx.head()"), "{document}");
 }
 
+/// Rewrite a fresh site into the layout proa-cli 0.2.2 generated: no
+/// `src/lib.rs`, and the binary declares every module.
+fn make_binary_only(root: &Path) {
+    let library = fs::read_to_string(root.join("src/lib.rs")).unwrap();
+    let modules: String = library
+        .lines()
+        .filter_map(|line| line.strip_prefix("pub "))
+        .map(|declaration| format!("{declaration}\n"))
+        .collect();
+    let main = fs::read_to_string(root.join("src/main.rs")).unwrap();
+    let import = main
+        .lines()
+        .find(|line| line.starts_with("use demo::"))
+        .expect("the binary imports the library")
+        .to_string();
+    fs::write(root.join("src/main.rs"), main.replace(&import, &modules)).unwrap();
+    fs::remove_file(root.join("src/lib.rs")).unwrap();
+}
+
+#[test]
+fn generators_and_capabilities_follow_where_a_site_declares_its_modules() {
+    let temp = tempfile::tempdir().unwrap();
+    for binary_only in [false, true] {
+        let parent = temp
+            .path()
+            .join(if binary_only { "earlier" } else { "current" });
+        fs::create_dir(&parent).unwrap();
+        let root = new_minimal_site(&parent);
+        if binary_only {
+            make_binary_only(&root);
+        }
+        let main = fs::read(root.join("src/main.rs")).unwrap();
+        let library = fs::read(root.join("src/lib.rs")).ok();
+        assert_eq!(library.is_none(), binary_only);
+
+        generate(&["generate", "page", "about"], &root);
+        generate(
+            &[
+                "generate",
+                "endpoint",
+                "status",
+                "--method",
+                "get",
+                "--response",
+                "json",
+            ],
+            &root,
+        );
+        generate(&["generate", "component", "notice"], &root);
+        generate(&["site", "check"], &root);
+        let routes = proa(&["site", "routes"], &root);
+        assert!(routes.status.success(), "{}", stderr(&routes));
+        assert!(stdout(&routes).contains("/about"), "{}", stdout(&routes));
+        assert!(stdout(&routes).contains("/status"), "{}", stdout(&routes));
+
+        // The database capability leaves the module declaration to the
+        // author and says where this site keeps them.
+        let added = proa(&["add", "database", "sqlite", "--yes"], &root);
+        assert!(added.status.success(), "{}", stderr(&added));
+        let declaration = if binary_only {
+            "add `mod db;` to `src/main.rs`"
+        } else {
+            "add `pub mod db;` to `src/lib.rs`"
+        };
+        assert!(stderr(&added).contains(declaration), "{}", stderr(&added));
+        let checked = proa(&["site", "check"], &root);
+        assert!(checked.status.success(), "{}", stderr(&checked));
+        assert!(
+            stderr(&checked).contains(declaration),
+            "{}",
+            stderr(&checked)
+        );
+
+        // No command rewrote or created the crate roots.
+        assert_eq!(fs::read(root.join("src/main.rs")).unwrap(), main);
+        assert_eq!(fs::read(root.join("src/lib.rs")).ok(), library);
+    }
+}
+
 #[test]
 fn route_generators_reject_collisions_before_writing_files() {
     let temp = tempfile::tempdir().unwrap();

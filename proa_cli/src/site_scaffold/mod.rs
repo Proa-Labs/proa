@@ -407,6 +407,7 @@ mod tests {
         let root = temp.path().join("journal");
         new_site(options(root.clone())).unwrap();
         for path in [
+            "src/lib.rs",
             "src/db.rs",
             "src/loader.rs",
             "src/components/database_badge.rs",
@@ -575,15 +576,253 @@ mod tests {
         }
     }
 
+    /// Every capability combination `proa new site` accepts for the presets
+    /// that share the application templates.
+    fn application_variants() -> Vec<(&'static str, CapabilityOverrides)> {
+        let with = |database: Option<DatabaseChoice>, starter: Option<StarterChoice>| {
+            CapabilityOverrides {
+                database,
+                starter,
+                ..Default::default()
+            }
+        };
+        let mut variants = Vec::new();
+        for template in ["app", "marketing", "docs", "minimal"] {
+            for database in [DatabaseChoice::Sqlite, DatabaseChoice::None] {
+                for starter in [StarterChoice::Guided, StarterChoice::Blank] {
+                    variants.push((template, with(Some(database), Some(starter))));
+                }
+            }
+        }
+        variants
+    }
+
+    fn module_names(source: &str) -> Vec<String> {
+        syn::parse_file(source)
+            .unwrap()
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Mod(module) => Some(module.ident.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
-    fn agents_md_states_the_head_role_contract() {
+    fn sites_are_library_crates_that_the_binary_and_tests_import() {
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("agents");
-        new_site(options(root.clone())).unwrap();
-        let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
-        assert!(agents.contains("const ROLE: ComponentRole = ComponentRole::PAGE;"));
-        assert!(agents.contains("ComponentRole::LAYOUT"));
-        assert!(agents.contains("render_head"));
+        for (index, (template, overrides)) in application_variants().into_iter().enumerate() {
+            let label = format!("{template} {overrides:?}");
+            // A hyphenated package name is imported with underscores.
+            let root = temp.path().join(format!("site-{index}"));
+            let mut value = options(root.clone());
+            value.template = template.to_string();
+            value.overrides = overrides;
+            new_site(value).unwrap();
+            let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap();
+
+            // The library declares every module under `src/`, and nothing else does.
+            let mut sources = std::fs::read_dir(root.join("src"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "rs") || path.is_dir())
+                .filter(|path| !path.is_dir() || path.join("mod.rs").is_file())
+                .map(|path| path.file_stem().unwrap().to_str().unwrap().to_string())
+                .filter(|name| name != "lib" && name != "main")
+                .collect::<Vec<_>>();
+            sources.sort();
+            assert_eq!(module_names(&read("src/lib.rs")), sources, "{label}");
+            let main = read("src/main.rs");
+            assert!(module_names(&main).is_empty(), "{label}: {main}");
+            assert!(
+                main.contains(&format!("use site_{index}::{{")),
+                "{label}: {main}"
+            );
+
+            let tests = root.join("tests");
+            for entry in std::fs::read_dir(&tests).into_iter().flatten() {
+                let path = entry.unwrap().path();
+                let source = std::fs::read_to_string(&path).unwrap();
+                assert!(!source.contains("#[path"), "{label}: {}", path.display());
+                assert!(
+                    module_names(&source).is_empty(),
+                    "{label}: {}",
+                    path.display()
+                );
+                assert!(
+                    source.contains(&format!("use site_{index}::")),
+                    "{label}: {}",
+                    path.display()
+                );
+            }
+            // The page each test renders exists in this variant.
+            let home = read("src/pages/home.rs");
+            if tests.join("dataloader.rs").exists() {
+                let dataloader = read("tests/dataloader.rs");
+                assert!(home.contains("{DatabaseBadge}"), "{label}");
+                assert_eq!(
+                    dataloader.contains("render_md"),
+                    home.contains("fn render_md"),
+                    "{label}"
+                );
+            } else {
+                assert!(!home.contains("{DatabaseBadge}"), "{label}");
+            }
+            assert_eq!(
+                tests.join("database.rs").exists(),
+                root.join("src/db.rs").exists(),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_site_named_after_one_of_its_modules_still_imports_its_library() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["app", "db", "routes"] {
+            let root = temp.path().join(name);
+            new_site(options(root.clone())).unwrap();
+            // `use app::{app, ...}` would import a module over the crate name.
+            let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+            assert!(
+                main.contains(&format!(
+                    "use ::{name}::{{app, config, db, loader, routes}};"
+                )),
+                "{main}"
+            );
+            for test in ["database", "dataloader", "representations"] {
+                let source =
+                    std::fs::read_to_string(root.join(format!("tests/{test}.rs"))).unwrap();
+                assert!(source.contains(&format!("use ::{name}::")), "{source}");
+            }
+        }
+    }
+
+    #[test]
+    fn site_library_imports_avoid_keywords_and_dependency_names() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["async", "test", "proa", "tower-http"] {
+            for template in ["app", "origin"] {
+                let root = temp.path().join(template).join(name);
+                let mut value = options(root.clone());
+                value.template = template.to_string();
+                new_site(value).unwrap();
+                let manifest: toml::Table =
+                    toml::from_str(&std::fs::read_to_string(root.join("Cargo.toml")).unwrap())
+                        .unwrap();
+                assert_eq!(manifest["lib"]["name"].as_str(), Some("proa_site_app"));
+                for path in [
+                    "src/main.rs",
+                    if template == "app" {
+                        "tests/database.rs"
+                    } else {
+                        "tests/atlas/origin.rs"
+                    },
+                ] {
+                    assert!(
+                        std::fs::read_to_string(root.join(path))
+                            .unwrap()
+                            .contains("proa_site_app"),
+                        "{root:?}/{path}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn agents_md_states_the_head_role_and_island_contracts() {
+        let temp = tempfile::tempdir().unwrap();
+        for template in ["app", "origin"] {
+            let root = temp.path().join(template);
+            let mut value = options(root.clone());
+            value.template = template.to_string();
+            new_site(value).unwrap();
+            let agents = std::fs::read_to_string(root.join("AGENTS.md")).unwrap();
+            for contract in [
+                "const ROLE: ComponentRole = ComponentRole::PAGE;",
+                "ComponentRole::LAYOUT",
+                "render_head",
+                // Where modules are declared, and which command runs which tests.
+                "Declare each new top-level module in `src/lib.rs`",
+                "`cargo test --lib`",
+                // What an island body may contain, and where to read more.
+                "#[rsjs(component, client)]",
+                "use proa::rsjs::{self, event_handler, rsjs, signal};",
+                "exactly one top-level element",
+                "#[rsjs::client]",
+                "unsupported_shapes",
+                "https://proa.so/docs/llms.txt",
+                "Accept: text/markdown",
+            ] {
+                assert!(agents.contains(contract), "{template}: missing {contract}");
+            }
+            assert!(root.join("src/lib.rs").is_file(), "{template}");
+        }
+    }
+
+    /// A site as proa-cli 0.2.2 generated it: the binary declares the modules.
+    fn binary_only_site(root: &Path) {
+        new_site(options(root.to_path_buf())).unwrap();
+        let library = std::fs::read_to_string(root.join("src/lib.rs")).unwrap();
+        let modules = module_names(&library)
+            .iter()
+            .map(|module| format!("mod {module};\n"))
+            .collect::<String>();
+        let main = std::fs::read_to_string(root.join("src/main.rs")).unwrap();
+        let import = main
+            .lines()
+            .find(|line| line.starts_with("use earlier::"))
+            .unwrap()
+            .to_string();
+        std::fs::write(root.join("src/main.rs"), main.replace(&import, &modules)).unwrap();
+        std::fs::remove_file(root.join("src/lib.rs")).unwrap();
+    }
+
+    #[test]
+    fn a_binary_only_site_from_an_earlier_release_still_checks() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("earlier");
+        binary_only_site(&root);
+        let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        let routes = crate::scaffold::site_routes(Some(root.clone())).unwrap();
+        assert!(routes.iter().any(|route| route.path == "/index.md"));
+        assert_eq!(
+            crate::scaffold::module_declaration(&root, "db"),
+            "`mod db;` to `src/main.rs`"
+        );
+
+        // Its first island is the point where `proa test` stops working.
+        std::fs::write(
+            root.join("src/components/counter.rs"),
+            "#[rsjs(component, client)]\nimpl<L: DataLoader> WebRenderSync<L> for Counter {}\n",
+        )
+        .unwrap();
+        let report = crate::scaffold::site_check(Some(root.clone())).unwrap();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        let [warning] = report.warnings.as_slice() else {
+            panic!("expected one warning: {:?}", report.warnings);
+        };
+        assert!(warning.contains("`src/lib.rs`"), "{warning}");
+        assert!(warning.contains("use earlier::"), "{warning}");
+
+        // The same island in a library-crate site needs no warning.
+        let current = temp.path().join("current");
+        new_site(options(current.clone())).unwrap();
+        std::fs::copy(
+            root.join("src/components/counter.rs"),
+            current.join("src/components/counter.rs"),
+        )
+        .unwrap();
+        let report = crate::scaffold::site_check(Some(current.clone())).unwrap();
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        assert_eq!(
+            crate::scaffold::module_declaration(&current, "db"),
+            "`pub mod db;` to `src/lib.rs`"
+        );
     }
 
     #[test]
