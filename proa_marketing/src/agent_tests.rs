@@ -68,8 +68,12 @@ async fn blog_links_compiled_posts_and_negotiates_their_representations() {
         assert_eq!(article.matches("<h1").count(), 1);
         assert!(article.contains("rel=\"canonical\""));
         assert!(article.contains(page.article_html));
-        assert!(article.contains("<time datetime="));
-        assert!(article.contains(&format!(
+        let (_, after_header_start) = article
+            .split_once("<header class=\"blog-article-header\">")
+            .unwrap();
+        let (article_header, _) = after_header_start.split_once("</header>").unwrap();
+        assert!(article_header.contains("<time datetime="));
+        assert!(article_header.contains(&format!(
             "data-docs-markdown-src=\"{}\"",
             page.markdown_path
         )));

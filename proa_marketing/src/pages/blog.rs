@@ -296,16 +296,16 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for Article {
                 <header class="blog-article-header">
                     <a class="blog-back" href={routes::BLOG}><span aria-hidden="true">"←"</span>{ALL_POSTS}</a>
                     <h1 class="blog-heading">{page.title}</h1>
+                    <p class="blog-article-credit">
+                        <span>{self.post.author}</span>
+                        <time datetime={self.post.date}>{self.post.date}</time>
+                    </p>
                     <p class="blog-intro">{page.description}</p>
                     {DocsArticleActions { page }}
                 </header>
                 <div class="docs-article prose blog-prose">
                     // The MDX compiler renders and escapes the authored source at build time.
                     {StaticRaw(page.article_html)}
-                    <footer class="blog-article-credit">
-                        <span>{self.post.author}</span>
-                        <time datetime={self.post.date}>{self.post.date}</time>
-                    </footer>
                 </div>
             </article>
         }

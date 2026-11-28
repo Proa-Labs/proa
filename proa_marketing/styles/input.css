@@ -2689,10 +2689,8 @@ rsjs-island {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.85rem;
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--docs-line);
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.6rem;
   color: var(--docs-fg-dim);
   font-size: 0.875rem;
 }
