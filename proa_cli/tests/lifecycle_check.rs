@@ -298,4 +298,164 @@ fn main() {
     let stderr = String::from_utf8_lossy(&plain_final.stderr);
     assert!(stderr.contains("RSJS_PLAN_ID"), "{stderr}");
     assert!(stderr.contains("cargo proa build"), "{stderr}");
+
+    // A real proc macro under the linked rustc wrapper must point back into the authored file.
+    let unsupported = initial_source.replace(
+        "on_input={update()}",
+        "on_input={rsjs::debounce(|event| value.set(event.value()), 300)}",
+    );
+    let (line, expression) = unsupported
+        .lines()
+        .enumerate()
+        .find(|(_, text)| text.contains("rsjs::debounce"))
+        .unwrap();
+    let column = expression.find("rsjs::debounce").unwrap() + 1;
+    fs::write(&source, &unsupported).unwrap();
+    let check = run_check(temp.path(), &target);
+    assert!(!check.status.success());
+    let stderr = String::from_utf8_lossy(&check.stderr).replace('\\', "/");
+    assert!(
+        stderr.contains(&format!("src/main.rs:{}:{column}:", line + 1)),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("rsjs::debounce") && !stderr.contains("CargoUnitId(["),
+        "{stderr}"
+    );
+}
+
+/// The source scan reads only the selected package, so it cannot see an RSJS
+/// macro that a dependency expands. A single pass rejected for that reason
+/// must be remembered: Cargo drops the fingerprint of the unit that failed,
+/// so repeating the attempt would recompile the dependency on every command.
+#[test]
+fn cargo_proa_check_remembers_a_single_pass_rejected_by_a_dependency() {
+    let temp = tempfile::tempdir().unwrap();
+    let app = temp.path().join("app");
+    let ui = temp.path().join("ui");
+    fs::create_dir_all(app.join("src")).unwrap();
+    fs::create_dir_all(ui.join("src")).unwrap();
+    let proa_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    fs::write(
+        ui.join("Cargo.toml"),
+        format!(
+            "[package]\n\
+             name = \"proa_linked_check_ui\"\n\
+             version = \"0.0.0\"\n\
+             edition = \"2021\"\n\n\
+             [dependencies]\n\
+             proa_core = {{ path = {:?} }}\n\
+             proa_macros = {{ path = {:?} }}\n\
+             rsjs = {{ path = {:?} }}\n",
+            proa_root.join("proa_core"),
+            proa_root.join("proa_macros"),
+            proa_root.join("rsjs"),
+        ),
+    )
+    .unwrap();
+    fs::write(
+        ui.join("src/lib.rs"),
+        r#"
+use proa_core::{DataLoader, WebContext, WebRenderSync, WriteBuf, WriteError};
+use rsjs::rsjs;
+use rsjs::web::dom;
+
+pub struct StatusBadge {
+    pub label: &'static str,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for StatusBadge {
+    fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
+        let value = rsjs::signal(String::new());
+        let update = rsjs::event_handler(|event: rsjs::InputEvent<dom::HtmlInputElement>| {
+            let input = event.current_target();
+            let next = input.value();
+            value.set(next);
+        });
+        proa_macros::html_sync! {
+            <section>
+                <input on_input={update()} />
+                <strong>{self.label}{value.get()}</strong>
+            </section>
+        }
+        .render(cx)
+    }
+}
+"#,
+    )
+    .unwrap();
+    let manifest = app.join("Cargo.toml");
+    let package = "[package]\n\
+                   name = \"proa_linked_check_fixture\"\n\
+                   version = \"0.0.0\"\n\
+                   edition = \"2021\"\n\n\
+                   [workspace]\n";
+    fs::write(
+        &manifest,
+        format!("{package}\n[dependencies]\nproa_linked_check_ui = {{ path = \"../ui\" }}\n"),
+    )
+    .unwrap();
+    let source = app.join("src/main.rs");
+    fs::write(
+        &source,
+        "fn main() {\n    let _ = proa_linked_check_ui::StatusBadge { label: \"ready\" };\n}\n",
+    )
+    .unwrap();
+
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let fetched = Command::new(cargo)
+        .current_dir(&app)
+        .arg("fetch")
+        .output()
+        .unwrap();
+    assert_success(&fetched);
+
+    const FALLBACK: &str = "RSJS macros found; running the full two-pass linked build";
+    let target = temp.path().join("target");
+    let first = run_check(&app, &target);
+    assert_success(&first);
+    assert!(stdout(&first).contains(FALLBACK), "{}", stdout(&first));
+    let first_cache = cache_reuse(&first);
+    assert!(first_cache.descriptor_total > 0, "{first_cache:?}");
+    // The full pipeline keeps what the rejected attempt compiled.
+    assert!(first_cache.final_reused > 0, "{first_cache:?}");
+
+    let unchanged = run_check(&app, &target);
+    assert_success(&unchanged);
+    assert!(
+        !stdout(&unchanged).contains(FALLBACK),
+        "the rejected single pass was attempted again:\n{}",
+        stdout(&unchanged)
+    );
+    let unchanged_cache = cache_reuse(&unchanged);
+    assert_eq!(
+        unchanged_cache.descriptor_reused, unchanged_cache.descriptor_total,
+        "{unchanged_cache:?}"
+    );
+    assert_eq!(
+        unchanged_cache.final_reused, unchanged_cache.final_total,
+        "{unchanged_cache:?}"
+    );
+
+    // Dropping the dependency leaves nothing to link. The next full build
+    // observes the empty plan, and the build after it runs in a single pass.
+    fs::write(&manifest, package).unwrap();
+    fs::write(&source, "fn main() {}\n").unwrap();
+    let emptied = run_check(&app, &target);
+    assert_success(&emptied);
+    assert!(
+        stdout(&emptied).contains("linked RSJS check cache: descriptor "),
+        "{}",
+        stdout(&emptied)
+    );
+    let single_pass = run_check(&app, &target);
+    assert_success(&single_pass);
+    assert!(
+        stdout(&single_pass).contains("linked RSJS check cache: single pass; "),
+        "{}",
+        stdout(&single_pass)
+    );
 }

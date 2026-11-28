@@ -486,17 +486,15 @@ fn main() {
     let source = root.join("src/main.rs");
     let valid_source = fs::read(&source).unwrap();
     let config_builds = cargo_calls();
-    fs::write(
-        &source,
-        b"compile_error!(\"broken while output is missing\");",
-    )
-    .unwrap();
+    // An editor can keep the truncated file open while Cargo observes an incomplete write.
+    // Finish the same write after the failed rebuild, without renaming or reopening the file.
+    let mut save = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&source)
+        .unwrap();
     let failed = "linked dev rebuild failed";
-    let broken = wait(failed, 1);
-    assert!(
-        broken.contains("broken while output is missing"),
-        "{broken}"
-    );
+    wait(failed, 1);
     assert_eq!(
         cargo_calls(),
         config_builds,
@@ -511,7 +509,8 @@ fn main() {
     assert_eq!(idle.matches(failed).count(), 1, "{idle}");
     assert!(!output.join("manifest.json").exists(), "{idle}");
 
-    fs::write(&source, &valid_source).unwrap();
+    std::io::Write::write_all(&mut save, &valid_source).unwrap();
+    drop(save);
     let recovered = wait(ready, 8);
     assert_eq!(recovered.matches(build_started).count(), 5, "{recovered}");
     assert!(output.join("manifest.json").is_file(), "{recovered}");
@@ -782,10 +781,7 @@ fn main() {
     build();
     assert_eq!(run().trim(), "1");
     let warm = build();
-    assert!(
-        warm.contains("descriptor 1/1 Cargo artifacts reused; final 1/1 reused"),
-        "{warm}"
-    );
+    assert!(warm.contains("single pass; final 1/1 reused"), "{warm}");
     assert_eq!(run().trim(), "1");
 
     fs::write(
@@ -831,10 +827,7 @@ fn build_then_run_refreshes_assets_without_rebinding_the_binary_and_keeps_failur
     let run = success(&cli(root, &["run", "--offline", "--", "--probe"]));
     assert_eq!(published(&run), output);
     assert_eq!(&main_manifest(&run), old.manifest());
-    assert!(
-        run.contains("descriptor 1/1 Cargo artifacts reused; final 1/1 reused"),
-        "{run}"
-    );
+    assert!(run.contains("single pass; final 1/1 reused"), "{run}");
 
     fs::write(root.join("public/logo.svg"), b"other").unwrap();
     let edited = success(&cli(root, &["run", "--offline", "--", "--probe"]));
@@ -844,10 +837,7 @@ fn build_then_run_refreshes_assets_without_rebinding_the_binary_and_keeps_failur
         current.assets["logo.svg"].public_path,
         old.manifest().assets["logo.svg"].public_path
     );
-    assert!(
-        edited.contains("descriptor 1/1 Cargo artifacts reused; final 1/1 reused"),
-        "{edited}"
-    );
+    assert!(edited.contains("single pass; final 1/1 reused"), "{edited}");
     assert_eq!(fs::read(&old_object).unwrap(), b"first");
     let loaded = AssetCatalog::load(&output).unwrap();
     assert_eq!(
