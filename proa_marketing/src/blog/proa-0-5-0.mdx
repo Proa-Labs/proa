@@ -1,0 +1,30 @@
+---
+title: Proa 0.5.0 preview
+description: Try the site, rendering, and deployment workflows ahead of Proa 0.5.0.
+author: Proa Labs
+date: 2026-11-27
+---
+
+We’re preparing Proa 0.5.0. Ahead of the release, you can try the workflows already available in Proa: go from a new Rust project to a running site, add server-rendered pages with interactive islands, and package the result for deployment.
+
+## Start a site
+
+The CLI scaffolds a Rust project with Proa dependencies from crates.io. Create a project and start its development server with live reload:
+
+```bash
+proa new site my-app --yes
+cd my-app
+proa run dev --open
+```
+
+For a smaller starting point, choose the `minimal` template. The `origin` template is a complete example with streamed sections, a request-scoped data loader, and interactive islands. See the [site templates](/docs/cli/new-site#templates) for the available options.
+
+## Render pages in Rust
+
+Proa compiles Rust-authored templates ahead of time. A page can declare metadata such as its title and description through a managed head hook. Use RSJS islands when part of that page needs browser-side state or event handlers. The [islands guide](/docs/guides/islands) walks through adding one to a page.
+
+## Build for deployment
+
+Run `proa build --locked --artifact-out ./out/app` to produce the server executable and its adjacent asset bundle. Deploy `out/app` and `out/app.assets/` together so the server can serve the stylesheet, linked island modules, and other assets from the same build. The [deployment guide](/docs/framework/deployment) shows how to package both for Docker and other hosts.
+
+We’ll update this post with what’s new and how to upgrade when Proa 0.5.0 ships.
