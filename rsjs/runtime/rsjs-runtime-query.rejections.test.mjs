@@ -13,6 +13,7 @@ import {
     register_mutation,
     register_query,
     rsjs,
+    set_data,
 } from './rsjs-runtime-query.js';
 
 let failed = 0;
@@ -405,6 +406,11 @@ try {
     // mutation records it and stays usable.
     {
         let fail_optimistic = true;
+        const list = rsjs.query(['rejections', 'list']);
+        routes.set('/api/rejections/list', () => json_response(503));
+        await list.refetch().catch(() => {});
+        const previous_error = list.error();
+        const previous_timestamp = list.data_updated_at();
         routes.set('/api/rejections/optimistic', () => json_response(200, { ok: true }));
         const optimistic = register_mutation({
             island: 'rejections',
@@ -435,6 +441,13 @@ try {
         );
 
         fail_optimistic = false;
+        assert(list.status() === 'error' && list.error() === previous_error &&
+            list.data_updated_at() === previous_timestamp, 'a throwing callback must leave the query untouched');
+        routes.set('/api/rejections/optimistic', () => json_response(422));
+        await optimistic.run('rejected').catch(() => {});
+        assert(list.status() === 'error' && list.error() === previous_error &&
+            list.data_updated_at() === previous_timestamp, 'a failed optimistic write must restore query state');
+        routes.set('/api/rejections/optimistic', () => json_response(200, { ok: true }));
         routes.set('/api/rejections/list', () => json_response(200, { items: [] }));
         const result = await optimistic.run('second');
         assert(
@@ -443,6 +456,38 @@ try {
         );
         await settle(() => true);
         take_unhandled();
+    }
+
+    // Overlapping writes roll back to the last durable value, even when an
+    // earlier mutation fails while a later optimistic value is still visible.
+    {
+        const key = ['rejections', 'list'];
+        const list = rsjs.query(key);
+        set_data(key, 'original');
+        function pending_write(id, value) {
+            let finish;
+            const response = new Promise((resolve) => { finish = resolve; });
+            const url = '/api/rejections/write-' + id;
+            routes.set(url, () => response);
+            const mutation = register_mutation({
+                island: 'rejections', mutation_id: id, key: ['write', id],
+                runner: { url, method: 'POST' }, invalidates: [key],
+                options: { retry_count: 0, optimistic_update: () => value },
+            });
+            const result = mutation.run().catch(() => {});
+            return async () => { finish(json_response(422)); await result; };
+        }
+        const fail_first = pending_write(20, 'first');
+        const fail_second = pending_write(21, 'second');
+        await fail_first();
+        assert(list.data() === 'second', 'an earlier rejection must preserve a newer optimistic write');
+        await fail_second();
+        assert(list.data() === 'original', 'two rejections must restore the original value');
+
+        const fail_again = pending_write(22, 'pending');
+        set_data(key, 'updated independently');
+        await fail_again();
+        assert(list.data() === 'updated independently', 'rollback must preserve a newer cache write');
     }
 
     // Page teardown aborts requests that are still in flight. The abort is the

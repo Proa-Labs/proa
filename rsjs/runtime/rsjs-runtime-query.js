@@ -1048,6 +1048,7 @@ function set_stream_text(entry, text) {
 }
 
 function claim_client_query_entry(entry) {
+    entry.optimistic_write = undefined;
     // Once browser work has touched this cache slot, asynchronously arriving
     // SSR fragments may still improve the page-level seed registry for future
     // consumers but must not roll this live entry backward.
@@ -1127,6 +1128,7 @@ function refetch(entry) {
             if (entry.disposed || generation !== QUERY_GENERATION) {
                 return data;
             }
+            claim_client_query_entry(entry);
             entry.data = data;
             entry.error = undefined;
             entry.status = 'success';
@@ -1142,6 +1144,7 @@ function refetch(entry) {
             if (entry.disposed || generation !== QUERY_GENERATION) {
                 throw error;
             }
+            claim_client_query_entry(entry);
             entry.error = error;
             entry.status = 'error';
             entry.error_updated_at = Date.now();
@@ -1940,16 +1943,41 @@ function __iter_entries() {
  * subscriber side.
  */
 export function set_data(key, data) {
+    write_query_data(key, data);
+}
+
+function write_query_data(key, data, changes) {
     const skey = stringify_key(key);
     let entry = CACHE.get(skey);
-    if (!entry) {
-        entry = make_entry({ data, data_updated_at: Date.now() });
-        claim_client_query_entry(entry);
+    const created = !entry;
+    if (created) {
+        entry = make_entry();
         CACHE.set(skey, entry);
+    }
+    // Record the exact fields this write changes before notifying subscribers.
+    let change;
+    if (changes) {
+        change = {
+            skey, entry, created, previous: entry.optimistic_write,
+            before: {
+                data: entry.data,
+                status: entry.status,
+                data_updated_at: entry.data_updated_at,
+                _rsjs_seed_rank: entry._rsjs_seed_rank,
+            },
+        };
+        changes.push(change);
+    }
+    claim_client_query_entry(entry);
+    entry.optimistic_write = change;
+    if (created) {
+        entry.data = data;
+        entry.status = data !== undefined ? 'success' : 'idle';
+        entry.data_updated_at = Date.now();
+        entry.fetch_count = data !== undefined ? 1 : 0;
         notify(entry);
         return;
     }
-    claim_client_query_entry(entry);
     // Short-circuit when the new value is structurally equal to the
     // previous value. This matters most for optimistic-update
     // rollback: if `prev === optimistic_value` (e.g. the user set
@@ -1967,6 +1995,31 @@ export function set_data(key, data) {
     entry.status = 'success';
     entry.data_updated_at = Date.now();
     notify(entry);
+}
+
+// Concurrent mutations may touch the same query. Only its current writer can
+// change it back, and a later failed write must skip any earlier failed writes.
+function finish_optimistic_writes(changes, failed) {
+    for (const write of changes.reverse()) {
+        write.finished = true;
+        write.failed = failed;
+        const entry = write.entry;
+        if (entry.optimistic_write !== write) continue;
+        if (!failed) {
+            entry.optimistic_write = undefined;
+            continue;
+        }
+        let restore = write;
+        while (restore.previous?.failed) restore = restore.previous;
+        entry.optimistic_write = restore.previous?.finished ? undefined : restore.previous;
+        if (restore.created && !entry.fetch_semantics && !entry.subscribers.size && !entry.observers.size) {
+            if (CACHE.get(write.skey) === entry) CACHE.delete(write.skey);
+            continue;
+        }
+        Object.assign(entry, restore.before);
+        if (restore.created) entry.fetch_count = 0;
+        notify(entry);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2281,13 +2334,6 @@ function run_mutation_entry(entry, args) {
         const rollback = [];
         try {
             if (entry.options && entry.options.optimistic_update !== undefined) {
-                for (const target of entry.invalidates || []) {
-                    const tk = typeof target === 'string' ? [target] : target;
-                    const cache_entry = get_entry(tk);
-                    if (cache_entry) {
-                        rollback.push({ key: tk, prev: cache_entry.data });
-                    }
-                }
                 // Apply the optimistic update to every invalidation target.
                 // The optimistic value can be a function (called with args)
                 // or a literal value the runtime substitutes verbatim. A
@@ -2296,11 +2342,12 @@ function run_mutation_entry(entry, args) {
                 const opt_value = typeof opt === 'function' ? opt(args) : opt;
                 for (const target of entry.invalidates || []) {
                     const tk = typeof target === 'string' ? [target] : target;
-                    set_data(tk, opt_value);
+                    write_query_data(tk, opt_value, rollback);
                 }
             }
 
             const data = await execute_mutation(entry.runner, args, entry.options || {});
+            finish_optimistic_writes(rollback, false);
             entry.status = 'success';
             entry.data = data;
             entry.error = undefined;
@@ -2315,9 +2362,7 @@ function run_mutation_entry(entry, args) {
             return data;
         } catch (err) {
             // Roll back optimistic updates on rejection.
-            for (const { key, prev } of rollback) {
-                set_data(key, prev);
-            }
+            finish_optimistic_writes(rollback, true);
             entry.status = 'error';
             entry.error = err;
             notify_mutation(entry);
