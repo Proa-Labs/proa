@@ -52,7 +52,7 @@ set_defaults() {
     # Bump this when the installer itself changes. It is the only thing in a
     # pasted log that identifies which installer produced it, since the script
     # is served from a URL and carries no other version.
-    INSTALLER_REVISION="2026-10-26"
+    INSTALLER_REVISION="2026-11-27"
 
     # Tailwind is an optional companion install. Keep the version and hashes
     # pinned together: changing the version without updating every hash below
@@ -69,7 +69,7 @@ set_defaults() {
     NO_MODIFY_PATH="${PROA_NO_MODIFY_PATH:-}"
     BUILD_FROM_SOURCE="${PROA_BUILD_FROM_SOURCE:-}"
     PREBUILT_ONLY="${PROA_PREBUILT_ONLY:-}"
-    TAILWIND_CHOICE="${PROA_TAILWIND:-ask}"
+    TAILWIND_CHOICE="${PROA_TAILWIND:-install}"
     TAILWIND_ONLY=""
     ASSUME_YES="${PROA_YES:-}"
     VERBOSE="${PROA_VERBOSE:-}"
@@ -1045,9 +1045,7 @@ usage() {
 "                          Requires cargo and takes several minutes." \
 "    --prebuilt-only       Fail if the matching release archive cannot be" \
 "                          downloaded. Never fall back to a source build." \
-"    --with-tailwind       Also install the pinned Tailwind CSS CLI" \
-"                          v$TAILWIND_VERSION standalone binary." \
-"    --no-tailwind         Do not ask about or install the Tailwind CSS CLI." \
+"    --no-tailwind         Install only the Proa CLI." \
 "    --tailwind-only       Install only Tailwind CSS CLI v$TAILWIND_VERSION." \
 "                          Skips Proa downloads and Rust toolchain checks." \
 "    --verbose             Also print to the terminal the detail that normally" \
@@ -1064,7 +1062,7 @@ usage() {
 "    PROA_NO_MODIFY_PATH     Any non-empty value behaves like --no-modify-path." \
 "    PROA_BUILD_FROM_SOURCE  Any non-empty value behaves like --build-from-source." \
 "    PROA_PREBUILT_ONLY      Any non-empty value behaves like --prebuilt-only." \
-"    PROA_TAILWIND           Tailwind choice: ask (default), install, or skip." \
+"    PROA_TAILWIND           Tailwind choice: install (default), skip, or ask." \
 "    PROA_YES                Any non-empty value behaves like --yes." \
 "    PROA_VERBOSE            Any non-empty value behaves like --verbose." \
 "    PROA_LOG                Write the log here instead of the default path." \
@@ -1111,8 +1109,8 @@ usage() {
 "       --version already named one." \
 "    4. Downloads the archive and its SHA256SUMS file over HTTPS and verifies" \
 "       the checksum before anything is unpacked. A mismatch installs nothing." \
-"    5. Installs 'proa' and 'cargo-proa', then optionally downloads the pinned" \
-"       Tailwind CSS CLI v$TAILWIND_VERSION binary from its official release." \
+"    5. Installs 'proa' and 'cargo-proa'. If Tailwind CSS v4 is missing from" \
+"       PATH, it installs the verified v$TAILWIND_VERSION standalone binary." \
 "    6. Adds the bin directory to your shell profile if it is not already on" \
 "       PATH." \
 "" \
@@ -1126,7 +1124,7 @@ usage() {
 "" \
 "EXAMPLES" \
 "    curl -fsSL https://proa.so/install.sh | sh -s -- --yes" \
-"    curl -fsSL https://proa.so/install.sh | sh -s -- --with-tailwind" \
+"    curl -fsSL https://proa.so/install.sh | sh -s -- --no-tailwind" \
 "    curl -fsSL https://proa.so/install.sh | sh -s -- --tailwind-only" \
 "    curl -fsSL https://proa.so/install.sh | PROA_VERSION=0.1.0 sh" \
 "    curl -fsSL https://proa.so/install.sh | PROA_PREBUILT_ONLY=1 sh" \
@@ -2183,23 +2181,22 @@ select_tailwind_asset() {
     return 0
 }
 
-# Returns success when the first tailwindcss on PATH is already the exact
-# pinned version. `--help` works across the standalone v4 binaries and prints
-# the version without requiring an input stylesheet.
-tailwind_is_current() {
+# `--help` prints the version without requiring an input stylesheet.
+tailwind_on_path() {
+    local version="$1"
     local bin
     local out
 
     check_cmd tailwindcss || return 1
     bin=$(command -v tailwindcss)
-    out=$(tailwindcss --help 2>&1 || true)
+    out=$(tailwindcss --help 2>&1) || return 1
     case "$out" in
-        *"v$TAILWIND_VERSION"*)
-            log_info "existing Tailwind CLI at $bin is the pinned v$TAILWIND_VERSION"
+        *"tailwindcss v$version"*)
+            log_info "existing Tailwind CLI at $bin matches version v$version"
             return 0
             ;;
         *)
-            log_info "existing Tailwind CLI at $bin is not the pinned v$TAILWIND_VERSION"
+            log_info "existing Tailwind CLI at $bin does not match version v$version"
             return 1
             ;;
     esac
@@ -2264,6 +2261,11 @@ install_tailwind() {
 }
 
 maybe_install_tailwind() {
+    if [ "$SRC_TAILWIND" = default ] && tailwind_on_path '4.'; then
+        step_ok "tailwind" "Tailwind CSS v4 is already on PATH"
+        return 0
+    fi
+
     case "$TAILWIND_CHOICE" in
         skip)
             log_info "Tailwind install skipped by explicit configuration"
@@ -2271,7 +2273,7 @@ maybe_install_tailwind() {
             return 0
             ;;
         ask)
-            if tailwind_is_current; then
+            if tailwind_on_path "$TAILWIND_VERSION"; then
                 step_ok "tailwind" "v$TAILWIND_VERSION is already on PATH"
                 return 0
             fi
@@ -2284,7 +2286,7 @@ maybe_install_tailwind() {
                 fi
             else
                 log_info "Tailwind prompt skipped because this run is non-interactive"
-                step_run "tailwind" "skipped (use --with-tailwind to install)"
+                step_run "tailwind" "skipped (set PROA_TAILWIND=install to install)"
                 return 0
             fi
             ;;
@@ -2615,7 +2617,7 @@ print_summary() {
             ;;
     esac
 
-    cmd_line "proa new site hello-proa --template marketing --tailwind --yes"
+    cmd_line "proa new site hello-proa --yes"
     blank
     link "Docs" "https://proa.so/docs"
 }

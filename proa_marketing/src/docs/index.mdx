@@ -12,13 +12,14 @@ Building with an AI agent? The complete documentation is served at [/llms-full.t
 
 ## 1. Install Proa
 
-Requires Rust `1.98` or newer. Install the CLI and standalone Tailwind CSS binary:
+Requires Rust `1.98` or newer. On macOS and Linux, install Proa with:
 
 ```bash
-curl -fsSL https://proa.so/install.sh | sh -s -- --with-tailwind
+curl -fsSL https://proa.so/install.sh | sh
 ```
 
-Or install the CLI directly from crates.io:
+The installer uses Tailwind CSS v4 from your `PATH` if available and installs it otherwise.
+You can also install the Proa CLI directly from crates.io:
 
 ```bash
 cargo install proa-cli --locked
