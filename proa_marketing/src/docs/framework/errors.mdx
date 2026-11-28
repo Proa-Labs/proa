@@ -5,6 +5,8 @@ description: Set status codes, return redirects, and render error pages.
 
 A Proa route is an Axum handler: return an Axum response to decide early, or `RouteResponse` to let the Proa finalizer render a page. This page covers [status in the handler](#setting-status-in-the-handler), [rendered 404 pages](#rendering-a-404-page), [redirects](#redirecting), and [framework errors](#handling-framework-errors).
 
+For component-level recovery and fallback UI, see [Error handling](/docs/guides/error-handling).
+
 ## Setting status in the handler
 
 Return ordinary Axum responses when the handler can decide before rendering:

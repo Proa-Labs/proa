@@ -22,6 +22,8 @@ html! {
 
 Ready shell bytes can flush while the boundary remains pending. If the child suspends in out-of-order mode, the fallback appears until its content arrives. Managed documents first complete their metadata preparation.
 
+To show a fallback when the child fails, see [Error handling](/docs/guides/error-handling#stream-a-section-with-a-fallback).
+
 ## When streaming helps
 
 Streaming can reduce time to the first useful content while independent work continues. It helps when one section is meaningfully slower than the rest of the page, and hurts when you split a page that was already fast.

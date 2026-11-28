@@ -32,6 +32,7 @@
     "framework/robots",
     "framework/content-negotiation",
     "framework/page-caching",
+    "guides/error-handling",
     "framework/errors",
     "framework/metadata",
     "framework/metadata-reference",

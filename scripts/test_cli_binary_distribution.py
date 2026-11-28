@@ -289,6 +289,48 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("--prebuilt-only", result.stdout)
         self.assertIn("PROA_PREBUILT_ONLY", result.stdout)
 
+    def test_unix_tailwind_defaults_keep_the_terminal_prompt(self) -> None:
+        definitions = (ROOT / "scripts/install.sh").read_text().rsplit('\nmain "$@"', 1)[0]
+        harness = r'''
+install_tailwind() { printf '%s\n' install; }
+step_ok() { :; }
+step_run() { :; }
+is_interactive() { [ -n "${FIXTURE_TTY:-}" ]; }
+prompt_yes_no() { printf '%s\n' prompt; [ "$FIXTURE_TTY" = yes ]; }
+set_defaults
+parse_args "$@"
+maybe_install_tailwind
+'''
+        cases = [
+            (None, [], {}, "install"),
+            (None, [], {"FIXTURE_TTY": "yes"}, "prompt\ninstall"),
+            (None, [], {"FIXTURE_TTY": "no"}, "prompt"),
+            (None, ["--yes"], {"FIXTURE_TTY": "no"}, "install"),
+            ("4.2.0", [], {}, ""),
+            ("4.2.0", [], {"FIXTURE_TTY": "no"}, ""),
+            ("3.4.17", [], {}, "install"),
+            (None, ["--no-tailwind"], {}, ""),
+            (None, [], {"PROA_TAILWIND": "skip"}, ""),
+            (None, [], {"PROA_TAILWIND": "ask"}, ""),
+            ("4.2.0", ["--with-tailwind"], {}, "install"),
+        ]
+        shell = shutil.which("sh")
+        self.assertIsNotNone(shell)
+        for version, flags, settings, expected in cases:
+            with self.subTest(version=version, flags=flags, settings=settings):
+                with tempfile.TemporaryDirectory() as directory:
+                    if version:
+                        tailwind = Path(directory) / "tailwindcss"
+                        tailwind.write_text(f"#!/bin/sh\nprintf '%s\\n' 'tailwindcss v{version}'\n")
+                        tailwind.chmod(0o755)
+                    result = subprocess.run(
+                        [shell, "-c", definitions + harness, "--", *flags],
+                        env={"HOME": directory, "PATH": directory, **settings},
+                        capture_output=True, text=True, timeout=10,
+                    )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), expected)
+
     def test_unix_source_install_needs_no_private_cargo_index(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
