@@ -649,6 +649,14 @@ fn bound_key(item: &ItemImpl, resolver: &Resolver, options: &ContentOptions) -> 
     constraints.extend(other_constraints);
     constraints.into_iter().collect::<Vec<_>>().join(";")
 }
+fn is_island(item: &ItemImpl) -> bool {
+    item.attrs.iter().any(|attr| {
+        attr.path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "rsjs")
+    })
+}
 fn content_attr(attr: &syn::Attribute, resolver: &Resolver) -> bool {
     resolver.path(attr.path()) == "proa_macros::content"
 }
@@ -1063,6 +1071,7 @@ pub(super) fn lint_parsed(
                 "proa".to_owned(),
                 "proa_core".to_owned(),
                 "proa_macros".to_owned(),
+                "proa_stream".to_owned(),
                 "std".to_owned(),
                 "core".to_owned(),
             ]
@@ -1260,6 +1269,29 @@ pub(super) fn lint_parsed(
             }
         }
     }
+    // Which targets each component has a view for, and which are islands.
+    // An `#[rsjs(...)]` render impl is an island wherever the linter looks.
+    let mut components = HashMap::<String, Components>::new();
+    for view in &views {
+        let mut ty = view.item.self_ty.as_ref();
+        while let Type::Reference(reference) = ty {
+            ty = &reference.elem;
+        }
+        let Type::Path(ty) = ty else { continue };
+        let Some(component) = view.resolver.known_type(&ty.path) else {
+            continue;
+        };
+        let crate_components = components.entry(view.context.crate_id.clone()).or_default();
+        if is_island(&view.item) {
+            crate_components.islands.insert(component.clone());
+        }
+        crate_components
+            .views
+            .entry(component)
+            .or_default()
+            .insert(view.target.name.clone());
+    }
+    let no_components = Components::default();
     let summaries: Vec<_> = views
         .iter()
         .map(|view| {
@@ -1432,7 +1464,14 @@ pub(super) fn lint_parsed(
                 }
             }
             let target_summary = &summaries[target_index];
-            diagnostics.extend(compare_views(&source_summary, target_summary));
+            diagnostics.extend(compare(
+                &source_summary,
+                target_summary,
+                components
+                    .get(&target.context.crate_id)
+                    .unwrap_or(&no_components),
+                exact.iter().any(|(_, view)| is_island(&view.item)),
+            ));
         }
         if reporting.contains(&target.context.path) {
             for omission in &summaries[target_index].omissions {
