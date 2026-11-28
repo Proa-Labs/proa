@@ -113,17 +113,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", type=Path, required=True)
     args = parser.parse_args()
-    groups = {name: defaultdict(list) for name in ("doc-islands", "doc-framework", "doc-services")}
-    dependencies = []
+    groups = {name: defaultdict(list) for name in ("doc-islands", "doc-framework")}
     for page in sorted(DOCS.rglob("*.mdx")):
         for language, name, body in FENCE.findall(page.read_text()):
-            if language == "toml":
-                if name != "dependencies" or not body.startswith("[dependencies]\n"):
-                    raise ValueError(f"expected a dependencies table in {page}")
-                dependencies.append(body.removeprefix("[dependencies]\n"))
-            elif page.stem in {"authentication", "transactional-email", "observability", "billing"}:
-                groups["doc-services"][name].append(body)
-            elif page.stem in {"routing", "content-negotiation"}:
+            if name.startswith("service/"):
+                continue  # Each service guide compiles with its own documented dependencies.
+            if language != "rust":
+                raise ValueError(f"{page}: {name} must be a Rust example")
+            if page.stem in {"routing", "content-negotiation"}:
                 groups["doc-framework"][name].append(body)
             else:
                 groups["doc-islands"][name].append(body)
@@ -132,10 +129,6 @@ def main():
                             ("doc-framework", {"product"})]:
         if missing := expected.difference(groups[group]):
             raise ValueError(f"{group} missing checked examples: {sorted(missing)}")
-    for guide, module in [("authentication", "sessions"), ("transactional-email", "mail"),
-                          ("billing", "billing"), ("observability", "telemetry")]:
-        if (DOCS / "guides" / f"{guide}.mdx").is_file() and module not in groups["doc-services"]:
-            raise ValueError(f"{guide}.mdx must supply the checked {module} example")
 
     libraries = "".join(f'{name} = {{ path = {json.dumps(str(ROOT / name))} }}\n'
                         for name in ("proa", "rsjs"))
@@ -160,9 +153,6 @@ def main():
         groups["doc-framework"].update(hooks)
         check(project / "framework", "doc-framework", groups["doc-framework"], framework_deps, args.cli.resolve(), env)
         check(project / "islands", "doc-islands", groups["doc-islands"], libraries, args.cli.resolve(), env, config_imports)
-        if groups["doc-services"]:
-            check(project / "services", "doc-services", groups["doc-services"],
-                  'axum = "0.8"\n' + "\n".join(dependencies), args.cli.resolve(), env)
 
 
 if __name__ == "__main__":

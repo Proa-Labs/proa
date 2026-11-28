@@ -14,6 +14,25 @@ struct Imports {
 }
 
 impl Imports {
+    fn visit_html_nodes(&mut self, nodes: &[proa_dsl::Node]) {
+        use proa_dsl::{Attribute, Node};
+        for node in nodes {
+            match node {
+                Node::Element(element) => {
+                    for attr in &element.attrs {
+                        if let Attribute::Dynamic { value, .. } = attr {
+                            self.visit_expr(value);
+                        }
+                    }
+                    self.visit_html_nodes(&element.children);
+                }
+                Node::Fragment(children) => self.visit_html_nodes(children),
+                Node::Block(expr) => self.visit_expr(expr),
+                _ => {}
+            }
+        }
+    }
+
     fn collect(&mut self, path: &mut Vec<String>, tree: &UseTree) {
         match tree {
             UseTree::Group(group) => {
@@ -60,13 +79,17 @@ impl<'ast> Visit<'ast> for Imports {
         let Some(name) = node.path.segments.last() else {
             return;
         };
-        if matches!(
-            name.ident.to_string().as_str(),
-            "html" | "html_sync" | "html_send" | "html_hot_sync"
-        ) {
-            if let Err(error) = syn::parse2::<proa_dsl::HtmlRoot>(node.tokens.clone()) {
-                self.template_error = Some(error);
+        let root = match name.ident.to_string().as_str() {
+            "html" | "html_sync" | "html_send" => {
+                syn::parse2::<proa_dsl::HtmlRoot>(node.tokens.clone())
             }
+            "html_hot_sync" => syn::parse2::<proa_dsl::dev_hot::HotInput>(node.tokens.clone())
+                .map(|input| input.root),
+            _ => return,
+        };
+        match root {
+            Ok(root) => self.visit_html_nodes(&root.nodes),
+            Err(error) => self.template_error = Some(error),
         }
     }
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
@@ -142,6 +165,21 @@ mod tests {
     fn partial_rust_excerpts_validate_template_markup() {
         let mut context = Imports::default();
         assert!(check_excerpt("let page = proa::html_sync! { <div> };", &mut context).is_err());
+        assert!(
+            check_excerpt(
+                "let page = html! { <div>{html_sync! { <p> }}</div> };",
+                &mut context
+            )
+            .is_err()
+        );
+        assert!(
+            check_excerpt(
+                r#"let page = html_hot_sync! { "page"; <p>"Hello"</p> };"#,
+                &mut context
+            )
+            .is_ok()
+        );
+        assert!(check_excerpt("let page = html_hot_sync! { <p/> };", &mut context).is_err());
         assert!(
             check_excerpt(
                 "let page = proa::html_sync! { <div>{name}</div> };",
