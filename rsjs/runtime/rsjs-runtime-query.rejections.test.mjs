@@ -464,18 +464,18 @@ try {
         const key = ['rejections', 'list'];
         const list = rsjs.query(key);
         set_data(key, 'original');
-        function pending_write(id, value) {
+        function pending_write(id, value, target = key) {
             let finish;
             const response = new Promise((resolve) => { finish = resolve; });
             const url = '/api/rejections/write-' + id;
             routes.set(url, () => response);
             const mutation = register_mutation({
                 island: 'rejections', mutation_id: id, key: ['write', id],
-                runner: { url, method: 'POST' }, invalidates: [key],
+                runner: { url, method: 'POST' }, invalidates: [target],
                 options: { retry_count: 0, optimistic_update: () => value },
             });
             const result = mutation.run().catch(() => {});
-            return async () => { finish(json_response(422)); await result; };
+            return async (status = 422) => { finish(json_response(status)); await result; };
         }
         const fail_first = pending_write(20, 'first');
         const fail_second = pending_write(21, 'second');
@@ -488,6 +488,41 @@ try {
         set_data(key, 'updated independently');
         await fail_again();
         assert(list.data() === 'updated independently', 'rollback must preserve a newer cache write');
+
+        const commit_first = pending_write(23, 'accepted');
+        const reject_second = pending_write(24, 'rejected');
+        await commit_first(204);
+        assert(list.data() === 'rejected' && list.is_stale(), 'invalidation should leave the later optimistic value pending');
+        await reject_second();
+        assert(list.data() === 'accepted' && list.is_stale(), 'an unsubscribed query must roll back and remain stale');
+
+        const reject_after_fetch = pending_write(25, 'temporary');
+        routes.set('/api/rejections/list', () => json_response(503));
+        await list.refetch().catch(() => {});
+        const fetch_error = list.error();
+        await reject_after_fetch();
+        assert(list.data() === 'accepted' && list.status() === 'error' && list.error() === fetch_error,
+            'a failed refetch must keep its error and roll back the rejected data');
+
+        const reject_during_fetch = pending_write(26, 'temporary');
+        let finish_fetch;
+        routes.set('/api/rejections/list', () => new Promise((resolve) => { finish_fetch = resolve; }));
+        const fetching = list.refetch();
+        await reject_during_fetch();
+        assert(list.data() === 'accepted' && list.status() === 'refetching', 'rollback must preserve an ongoing refetch');
+        finish_fetch(json_response(200, 'fresh'));
+        await fetching;
+        assert(list.data() === 'fresh', 'the refetch should still publish its result');
+
+        const fresh_key = ['rejections', 'created-by-mutation'];
+        const discard_initial = pending_write(27, 'initial guess', fresh_key);
+        const registered = register_query({
+            island: 'rejections', query_id: 27, key: fresh_key, fetcher: '/api/rejections/flaky', options: {},
+        });
+        await registered.refetch().catch(() => {});
+        await discard_initial();
+        assert(registered.data() === undefined && registered.status() === 'error' && registered.fetch_count() === 1,
+            'a query registered during the mutation must retain only its real fetch count');
     }
 
     // Page teardown aborts requests that are still in flight. The abort is the

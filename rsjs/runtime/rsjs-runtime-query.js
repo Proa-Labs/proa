@@ -1039,16 +1039,17 @@ function set_download_progress(entry, loaded, total) {
 
 function reset_stream_text(entry) {
     if (!entry.options || !entry.options.stream_text) return;
+    entry.optimistic_write = undefined;
     entry.data = '';
 }
 
 function set_stream_text(entry, text) {
+    entry.optimistic_write = undefined;
     entry.data = String(text ?? '');
     notify(entry);
 }
 
 function claim_client_query_entry(entry) {
-    entry.optimistic_write = undefined;
     // Once browser work has touched this cache slot, asynchronously arriving
     // SSR fragments may still improve the page-level seed registry for future
     // consumers but must not roll this live entry backward.
@@ -1129,6 +1130,7 @@ function refetch(entry) {
                 return data;
             }
             claim_client_query_entry(entry);
+            entry.optimistic_write = undefined;
             entry.data = data;
             entry.error = undefined;
             entry.status = 'success';
@@ -1475,6 +1477,7 @@ function resolve_query_registration(
         } else if (initial !== undefined) {
             const seeded = entry.data === undefined && initial.data !== undefined;
             if (seeded) {
+                entry.optimistic_write = undefined;
                 entry.data = initial.data;
                 entry.status = 'success';
                 entry.fetch_count = 1;
@@ -1959,11 +1962,11 @@ function write_query_data(key, data, changes) {
     if (changes) {
         change = {
             skey, entry, created, previous: entry.optimistic_write,
+            counted_initial_data: created && data !== undefined,
             before: {
                 data: entry.data,
                 status: entry.status,
                 data_updated_at: entry.data_updated_at,
-                _rsjs_seed_rank: entry._rsjs_seed_rank,
             },
         };
         changes.push(change);
@@ -2016,8 +2019,15 @@ function finish_optimistic_writes(changes, failed) {
             if (CACHE.get(write.skey) === entry) CACHE.delete(write.skey);
             continue;
         }
-        Object.assign(entry, restore.before);
-        if (restore.created) entry.fetch_count = 0;
+        entry.data = restore.before.data;
+        entry.data_updated_at = restore.before.data_updated_at;
+        // A refetch can update its status or error while still showing optimistic data.
+        if (entry.status === 'loading' || entry.status === 'refetching') {
+            entry.status = entry.data === undefined ? 'loading' : 'refetching';
+        } else if (entry.status !== 'error') {
+            entry.status = restore.before.status;
+        }
+        if (restore.counted_initial_data) entry.fetch_count -= 1;
         notify(entry);
     }
 }
@@ -2147,6 +2157,7 @@ function invalidate_keys(targets, strategy) {
         if (any_prefix_matches(target_keys, entry_key)) {
             if (strategy === 'reset') {
                 claim_client_query_entry(entry);
+                entry.optimistic_write = undefined;
                 entry.data = undefined;
                 entry.status = 'idle';
                 entry.fetch_count = 0;
