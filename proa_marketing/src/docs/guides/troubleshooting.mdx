@@ -1,6 +1,7 @@
 ---
 title: Troubleshooting
 description: Fix the most common Proa setup, registry, template, component, island, routing, and CI failures.
+keywords: [unsupported_shapes, "unsupported shapes", "linked RSJS check failed", "command not found"]
 ---
 
 Start with the fastest checks. They separate environment problems from template and runtime problems:
@@ -146,8 +147,35 @@ the failure can be distinguished from a compiler error or file-lock race.
 
 `unsupported_shapes` means the linked backend cannot represent a client
 expression or dependency in the selected component graph. It can appear after
-Rust compilation because the graph is only complete at link time. The error
-includes a Rust-resolved component name when one is available.
+Rust compilation because the graph is only complete at link time. Open the
+source location printed beside the unsupported expression and apply the
+suggested change. When the compiler cannot recover an exact location, use the
+path it prints after `component`, such as
+`my_site::components::search::Search`.
+
+The same error lists other feature names in place of `unsupported_shapes`.
+These constructs pass plain `cargo check` and are rejected when `proa check`,
+`proa dev`, or `proa build` links the browser graph:
+
+| Construct in the named component | Feature reported | Write instead |
+| --- | --- | --- |
+| `rsjs::debounce(\|event\| ..., 300)` in an event attribute | `unsupported_shapes` | Attach the closure, or a named `rsjs::event_handler(...)`, without `rsjs::debounce`. |
+| `rsjs::interval(ms, \|\| ...)` | `intervals` | To poll server data, set [`interval_ms`](/docs/rsjs/queries-mutations#polling-on-an-interval) on a query. |
+
+Several other rejected constructs fail earlier, at compile time, with a
+message that names the construct. Plain `cargo check` reports them, so clear
+these first:
+
+| Compile error | Cause | Write instead |
+| --- | --- | --- |
+| `` does not recognise the method `.to_string` in a reactive expression `` | `.to_string()` on a value that is not a string literal, such as a handler payload. | Keep the value a `&'static str` end to end (`signal("standard")`, then `selected.set(value)`), or call `.to_string()` on a literal: `mode.set("edit".to_string())`. |
+| `` `#[rsjs]` body must contain a top-level element `` | The template root is an expression, such as a bare `{rsjs::SharedStateProvider { ... }}`, or text. | Wrap the root in one element. See [Shared state](/docs/rsjs/shared-state#providing-state-to-a-subtree). |
+| `rsjs/integer-domain-unproven` | Arithmetic on a signal seeded from a prop, such as `signal(self.start)`, whose integer type the macro cannot see. | Annotate the signal: `let count: rsjs::Signal<i64> = signal(self.start);`. |
+| `` `#[rsjs]` option values must be integer literals `` | A prop or signal inside `QueryOptions`. | Write the number as a literal. |
+
+If the construct is not listed, remove handlers, bindings, queries, and
+mutations from the named component one at a time and rerun `proa check` until
+it links.
 
 Run `proa lint <component-source.rs>` while editing, then `proa check` for the
 whole project. Source lint does not prove every cross-component constraint.
@@ -348,6 +376,8 @@ impl<L: DataLoader> WebRenderSync<L> for MyComponent {
 ```
 
 If you place a sync component inside an async `html!` tree, wrap it with `proa::to_async(...)`. If the component awaits data or uses async loaders, implement `WebRender` and render with `html!`. See [Render traits](/docs/core/html-rendering).
+
+If one file imports both `WebRender` and `WebRenderSync`, `.render(cx)` on a fully static template is ambiguous and rustc reports `E0034: multiple applicable items in scope`. Name the trait in the call, as in `WebRenderSync::render(html_sync! { ... }, cx)`, or keep sync and async components in separate modules so each imports one trait.
 
 ## Classes Disappear Or `ClassList` Fails
 

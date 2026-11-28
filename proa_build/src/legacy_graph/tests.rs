@@ -1572,3 +1572,339 @@ fn rejects_disconnected_view_tree_cycle_before_reachability() {
     let error = parse_legacy_client_graph(&descriptor, &BTreeSet::new()).unwrap_err();
     assert!(error.contains("contains a cycle"), "{error}");
 }
+
+/// The single recorded construct of a graph that reports `unsupported_shapes`.
+fn only_shape(descriptor: &Map<String, Value>) -> UnsupportedClientShape {
+    let graph = parse_legacy_client_graph(descriptor, &BTreeSet::new()).unwrap();
+    assert!(
+        graph
+            .unsupported_features
+            .iter()
+            .any(|feature| feature == "unsupported_shapes"),
+        "the feature label must stay beside the recorded construct"
+    );
+    assert_eq!(
+        graph.unsupported_shapes.len(),
+        1,
+        "{:#?}",
+        graph.unsupported_shapes
+    );
+    graph.unsupported_shapes[0].clone()
+}
+
+fn anchor(start_line: usize, start_column: usize) -> Option<SourceAnchor> {
+    Some(SourceAnchor {
+        start_line,
+        start_column,
+    })
+}
+
+#[test]
+fn supported_graphs_record_no_unsupported_shape() {
+    let graph = parse_legacy_client_graph(&base_descriptor(), &BTreeSet::new()).unwrap();
+    assert!(graph.unsupported_features.is_empty());
+    assert!(graph.unsupported_shapes.is_empty());
+}
+
+#[test]
+fn untyped_signal_shape_names_the_binding_and_the_annotation_to_add() {
+    let mut descriptor = base_descriptor();
+    descriptor["signals"][0]["ty"] = type_json(&ClientType::Unknown);
+    descriptor["signals"][0]["source_name"] = json!("total");
+    descriptor["signals"][0]["source_anchor"] = json!({"start_line": 12, "start_column": 21});
+
+    let shape = only_shape(&descriptor);
+
+    assert_eq!(
+        shape.construct,
+        "signal `total` is initialized from a server expression and has no client type"
+    );
+    assert!(
+        shape
+            .help
+            .contains("`let total: rsjs::Signal<i64> = rsjs::signal(...);`"),
+        "{}",
+        shape.help
+    );
+    assert_eq!(shape.source_anchor, anchor(12, 21));
+}
+
+#[test]
+fn undescribed_signal_initializer_shape_names_the_signal() {
+    let mut descriptor = base_descriptor();
+    descriptor["signals"][0]["init"] = json!({"kind": "unknown", "value": null});
+    descriptor["signals"][0]["source_name"] = json!("draft");
+
+    let shape = only_shape(&descriptor);
+
+    assert_eq!(
+        shape.construct,
+        "signal `draft` has an initial value the RSJS compiler could not describe"
+    );
+    assert_eq!(shape.source_anchor, None);
+}
+
+#[test]
+fn debounced_handler_shape_names_the_wrapper_and_its_position() {
+    let mut descriptor = base_descriptor();
+    descriptor["handlers"][0]["debounce_ms"] = json!(300);
+    descriptor["handlers"][0]["source_anchor"] = json!({"start_line": 21, "start_column": 28});
+
+    let inline = only_shape(&descriptor);
+    assert_eq!(
+        inline.construct,
+        "an inline event handler is wrapped in `rsjs::debounce(.., 300)`"
+    );
+    assert!(
+        inline.help.contains("without `rsjs::debounce`"),
+        "{}",
+        inline.help
+    );
+    assert_eq!(inline.source_anchor, anchor(21, 28));
+
+    descriptor["handlers"][0]["source_name"] = json!("on_search");
+    assert_eq!(
+        only_shape(&descriptor).construct,
+        "event handler `on_search` is wrapped in `rsjs::debounce(.., 300)`"
+    );
+}
+
+#[test]
+fn nested_node_ref_shape_names_both_calls() {
+    let mut descriptor = base_descriptor();
+    add_node_ref(&mut descriptor, 4, Some("input"), None);
+    descriptor["exprs"][0]["expr"] =
+        expression_json(&ClientExpr::BrowserRead(ClientBrowserRead::Storage {
+            area: rsjs_ir::BrowserStorageArea::Local,
+            value_type: rsjs_ir::StorageValueType::String,
+            key: Box::new(ClientExpr::NodeRefRead {
+                id: NodeRefId(4),
+                accessor: NodeRefAccessor::Value,
+            }),
+            fallback: None,
+        }));
+
+    let shape = only_shape(&descriptor);
+
+    assert_eq!(
+        shape.construct,
+        "a read of node ref `input` is nested in the arguments of a browser read, in a template \
+         expression"
+    );
+    assert!(shape.help.contains("`rsjs::memo`"), "{}", shape.help);
+}
+
+#[test]
+fn nested_query_read_shape_names_the_query_the_mutation_and_the_handler() {
+    let mut descriptor = base_descriptor();
+    add_query(&mut descriptor, 8);
+    for (id, expression) in [
+        (10, ClientExpr::string("mutation-key")),
+        (11, ClientExpr::string("server-runner")),
+        (12, ClientExpr::string("client-runner")),
+    ] {
+        descriptor["exprs"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id": id, "expr": expression_json(&expression)}));
+    }
+    descriptor["counts"]["exprs"] = json!(7);
+    descriptor["mutations"] = json!([{
+        "id": 11,
+        "source_name": "save",
+        "key_expr": 10,
+        "server_runner": 11,
+        "client_runner": 12,
+        "invalidates": [],
+        "options": {"retry_count": 0, "on_success_invalidate_strategy": "refetch"}
+    }]);
+    let run_with_query_data = block_json(&ClientBlock::from_stmts(vec![ClientStmt::RunMutation {
+        mutation: MutationId(11),
+        args: vec![ClientExpr::QueryRead {
+            id: QueryId(8),
+            accessor: QueryAccessor::Data,
+        }],
+    }]));
+    descriptor["handlers"][0]["body_ir"] = run_with_query_data.clone();
+    descriptor["handlers"][0]["source_name"] = json!("on_save");
+    descriptor["handlers"][0]["source_anchor"] = json!({"start_line": 30, "start_column": 17});
+
+    let shape = only_shape(&descriptor);
+
+    assert_eq!(
+        shape.construct,
+        "a read of query `user_query` is nested in the arguments of a `run` of mutation `save`, \
+         in event handler `on_save`"
+    );
+    assert!(shape.help.contains("bind it with `let`"), "{}", shape.help);
+    assert_eq!(shape.source_anchor, anchor(30, 17));
+
+    // The same body in a handler no element binds can never run, so it is
+    // not a reason to reject the component.
+    descriptor["bindings"]["events"] = json!([]);
+    let graph = parse_legacy_client_graph(&descriptor, &BTreeSet::new()).unwrap();
+    assert!(
+        graph.unsupported_shapes.is_empty(),
+        "{:#?}",
+        graph.unsupported_shapes
+    );
+}
+
+#[test]
+fn loop_value_shape_quotes_the_authored_expression_and_its_position() {
+    let mut descriptor = make_payload_descriptor();
+    descriptor["view_tree"]["nodes"][2]["node"]["payload_attrs"][0]["source_anchor"] =
+        json!({"start_line": 44, "start_column": 33});
+    // A derived signal consumes the row value without an element to read it from.
+    descriptor["signals"][1]["derived"] = json!(3);
+    descriptor["bindings"]["inputs"] = json!([{"node": 2, "kind": "value", "signal": 7}]);
+
+    let shape = only_shape(&descriptor);
+
+    assert!(
+        shape
+            .construct
+            .starts_with("the `for` loop value `item.label` is read by reactive code"),
+        "{}",
+        shape.construct
+    );
+    assert!(
+        shape.help.contains("read `item.label` directly"),
+        "{}",
+        shape.help
+    );
+    assert_eq!(shape.source_anchor, anchor(44, 33));
+}
+
+#[test]
+fn undescribed_descriptor_kinds_each_record_their_own_shape() {
+    let mut strategy = base_descriptor();
+    for (id, expression) in [
+        (10, ClientExpr::string("mutation-key")),
+        (11, ClientExpr::string("server-runner")),
+        (12, ClientExpr::string("client-runner")),
+    ] {
+        strategy["exprs"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id": id, "expr": expression_json(&expression)}));
+    }
+    strategy["counts"]["exprs"] = json!(4);
+    strategy["mutations"] = json!([{
+        "id": 11,
+        "source_name": "save",
+        "source_anchor": {"start_line": 18, "start_column": 9},
+        "key_expr": 10,
+        "server_runner": 11,
+        "client_runner": 12,
+        "invalidates": [],
+        "options": {"retry_count": 0, "on_success_invalidate_strategy": "unknown"}
+    }]);
+    let shape = only_shape(&strategy);
+    assert!(
+        shape
+            .construct
+            .starts_with("mutation `save` uses an `on_success_invalidate_strategy`"),
+        "{}",
+        shape.construct
+    );
+    assert!(shape.help.contains("`rsjs::InvalidationStrategy::Refetch`"));
+    assert_eq!(shape.source_anchor, anchor(18, 9));
+
+    let mut attribute = base_descriptor();
+    attribute["bindings"]["attrs"][0]["kind"] = json!("unknown");
+    assert!(only_shape(&attribute)
+        .construct
+        .starts_with("attribute `aria-label` is bound with a kind"));
+
+    let mut input = base_descriptor();
+    input["bindings"]["inputs"][0]["kind"] = json!("unknown");
+    let shape = only_shape(&input);
+    assert!(shape.construct.starts_with("an input binding uses a kind"));
+    assert!(shape.help.contains("`bind_value`"));
+
+    let mut event = base_descriptor();
+    event["bindings"]["events"][0]["event"] = json!("unknown");
+    assert!(only_shape(&event)
+        .construct
+        .starts_with("an element binds an event"));
+
+    let mut node = base_descriptor();
+    node["view_tree"]["nodes"][1]["node"] = json!({"kind": "unknown"});
+    node["bindings"]["text"] = json!([]);
+    assert!(only_shape(&node)
+        .construct
+        .starts_with("the template contains a node"));
+}
+
+#[test]
+fn misplaced_payload_and_interval_shapes_name_their_owner() {
+    let mut handler = base_descriptor();
+    handler["handlers"][0]["body_ir"] =
+        block_json(&ClientBlock::from_stmts(vec![ClientStmt::Expr(
+            ClientExpr::NodePayload {
+                attr: "data-rsjs-payload-p0".to_owned(),
+                tokens: "item.label".to_owned(),
+            },
+        )]));
+    handler["handlers"][0]["source_name"] = json!("on_pick");
+    assert_eq!(
+        only_shape(&handler).construct,
+        "event handler `on_pick` reads a `for` loop value that only a template binding can \
+         receive"
+    );
+
+    let mut expression = base_descriptor();
+    expression["exprs"][0]["expr"] =
+        expression_json(&ClientExpr::EventRead(EventValue::CurrentTargetValue));
+    assert_eq!(
+        only_shape(&expression).construct,
+        "a template expression reads event data outside an event handler"
+    );
+
+    let mut interval = base_descriptor();
+    interval.insert(
+        "intervals".to_owned(),
+        json!([{
+            "ms": 1000,
+            "body_ir_version": CLIENT_IR_SCHEMA,
+            "body_ir": block_json(&ClientBlock::from_stmts(vec![ClientStmt::BrowserEffect(
+                ClientBrowserEffect::DocumentSetTitle {
+                    title: ClientExpr::string("tick"),
+                },
+            )])),
+        }]),
+    );
+    let graph = parse_legacy_client_graph(&interval, &BTreeSet::new()).unwrap();
+    assert_eq!(
+        graph.unsupported_features,
+        vec!["intervals", "unsupported_shapes"]
+    );
+    assert_eq!(
+        graph.unsupported_shapes[0].construct,
+        "the `rsjs::interval` callback that runs every 1000 ms calls a browser API"
+    );
+}
+
+#[test]
+fn unsupported_shapes_are_deduplicated_and_ordered_by_source_position() {
+    let mut descriptor = base_descriptor();
+    // Two constructs with positions, declared out of source order, and one
+    // without a position.
+    descriptor["handlers"][0]["debounce_ms"] = json!(250);
+    descriptor["handlers"][0]["source_anchor"] = json!({"start_line": 40, "start_column": 5});
+    descriptor["signals"][0]["ty"] = type_json(&ClientType::Unknown);
+    descriptor["signals"][0]["source_name"] = json!("total");
+    descriptor["signals"][0]["source_anchor"] = json!({"start_line": 9, "start_column": 13});
+    descriptor["bindings"]["events"][0]["event"] = json!("unknown");
+
+    let graph = parse_legacy_client_graph(&descriptor, &BTreeSet::new()).unwrap();
+    let positions = graph
+        .unsupported_shapes
+        .iter()
+        .map(|shape| shape.source_anchor.map(|anchor| anchor.start_line))
+        .collect::<Vec<_>>();
+
+    assert_eq!(positions, vec![Some(9), Some(40), None]);
+    assert_eq!(graph.unsupported_features, vec!["unsupported_shapes"]);
+}

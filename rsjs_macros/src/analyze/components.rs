@@ -373,7 +373,7 @@ impl Analyzer {
                     name.clone(),
                     ComponentInlineProp {
                         expr: value,
-                        source_anchor: component_source_anchor(field.expr.span()),
+                        source_anchor: super::rsjs_source_anchor(field.expr.span()),
                     },
                 );
             }
@@ -2045,14 +2045,6 @@ pub(super) fn direct_self_field_name(field: &syn::ExprField) -> Option<String> {
     match &field.member {
         syn::Member::Named(ident) => Some(ident.to_string()),
         syn::Member::Unnamed(_) => None,
-    }
-}
-
-fn component_source_anchor(span: proc_macro2::Span) -> rsjs_ir::SourceAnchor {
-    let start = span.start();
-    rsjs_ir::SourceAnchor {
-        start_line: start.line,
-        start_column: start.column + 1,
     }
 }
 

@@ -88,6 +88,66 @@ pub(crate) struct LegacyClientGraph {
     ///
     /// Values use [`UNSUPPORTED_FEATURE_ORDER`] rather than discovery order.
     pub(crate) unsupported_features: Vec<String>,
+    /// The authored constructs behind the `unsupported_shapes` feature, one
+    /// per site, ordered by source position.
+    pub(crate) unsupported_shapes: Vec<UnsupportedClientShape>,
+}
+
+/// One authored construct the linked browser build cannot lower.
+///
+/// The `unsupported_shapes` feature label only says that a descriptor is
+/// outside the supported subset. Every site that raises it also records one
+/// of these, so a diagnostic can name the construct in terms of the Rust the
+/// author wrote and say what to write instead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct UnsupportedClientShape {
+    /// What the component does, in authored terms.
+    pub construct: String,
+    /// What to write instead.
+    pub help: String,
+    /// Source file identified from the defining Cargo unit, when available.
+    pub source_file: Option<std::path::PathBuf>,
+    /// One-based line and column of the construct in the file that defines
+    /// the component, when the descriptor records them. A descriptor carries
+    /// no file path.
+    pub source_anchor: Option<SourceAnchor>,
+}
+
+impl UnsupportedClientShape {
+    fn new(construct: impl Into<String>, help: impl Into<String>) -> Self {
+        Self {
+            construct: construct.into(),
+            source_file: None,
+            help: help.into(),
+            source_anchor: None,
+        }
+    }
+
+    fn at(mut self, source_anchor: Option<SourceAnchor>) -> Self {
+        self.source_anchor = source_anchor.filter(|anchor| anchor.start_line != 0);
+        self
+    }
+}
+
+/// Shared advice for descriptor kinds the producing macro wrote as `unknown`.
+///
+/// The macro uses that spelling when it has no descriptor name for a form, so
+/// the gap is in the compiler, not in a CLI and crate version mismatch.
+const COMPILER_GAP_HELP: &str = "the RSJS compiler has no browser lowering for this form; \
+     rewrite it with a documented form and report the original as a compiler gap";
+
+/// Shared advice for a client call nested in another client call's arguments.
+const NESTED_CALL_HELP: &str = "give the inner value its own step: in an event handler, bind it \
+     with `let` on the line before and pass the local; in a template expression, compute it in \
+     an `rsjs::memo` and read the memo";
+
+/// Name a declared item the way its author wrote it.
+fn authored(kind: &str, source_name: Option<&str>) -> String {
+    match source_name {
+        Some(name) => format!("{kind} `{name}`"),
+        None => format!("an unnamed {kind}"),
+    }
 }
 
 /// One compiler-declared keyed collection and its reactive source.
@@ -219,6 +279,9 @@ pub(crate) struct LegacyExpression {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LegacyBoundHandler {
     pub(crate) id: u32,
+    /// Authored binding name, for a handler declared with `let`.
+    pub(crate) source_name: Option<String>,
+    pub(crate) source_anchor: Option<SourceAnchor>,
     pub(crate) debounce_ms: Option<u64>,
     pub(crate) body: ClientBlock,
     pub(crate) dependencies: ClientBlockExternalDependencies,
@@ -453,27 +516,6 @@ pub(crate) fn parse_legacy_client_graph_with_inbound_signals(
 
     let expressions = parse_expressions(descriptor, &shared_fields)?;
     let handlers = parse_handlers(descriptor, &shared_fields, &mut unsupported)?;
-    if expressions
-        .iter()
-        .flat_map(|expression| &expression.client_operations)
-        .chain(
-            handlers
-                .iter()
-                .flat_map(|handler| &handler.client_operations),
-        )
-        .any(|operation| {
-            matches!(
-                &operation.kind,
-                LegacyClientOperationKind::NodeRefRead { .. }
-                    | LegacyClientOperationKind::NodeRefWrite { .. }
-            ) && !matches!(operation.consumer, LegacyClientOperationConsumer::Enclosing)
-        })
-    {
-        // Cross-kind operation nesting needs one unified canonical operation
-        // preorder. Keep it closed until the adapter can preserve the exact
-        // consumer instead of attaching the ref to the enclosing expression.
-        unsupported.insert("unsupported_shapes");
-    }
     let mut queries = parse_queries(descriptor, &mut unsupported)?;
     join_query_initializers(descriptor, &mut queries)?;
     let mutations = parse_mutations(descriptor, &mut unsupported)?;
@@ -511,6 +553,7 @@ pub(crate) fn parse_legacy_client_graph_with_inbound_signals(
     for expression in &expressions {
         validate_external_dependencies(
             &format!("expression {}", expression.id),
+            &ShapeOwner::template_expression(),
             &expression.dependencies,
             DependencyContext::Expression,
             &declarations,
@@ -520,6 +563,7 @@ pub(crate) fn parse_legacy_client_graph_with_inbound_signals(
     for handler in &handlers {
         validate_external_dependencies(
             &format!("handler {}", handler.id),
+            &ShapeOwner::handler(handler),
             &handler.dependencies,
             DependencyContext::EventHandler,
             &declarations,
@@ -567,6 +611,7 @@ pub(crate) fn parse_legacy_client_graph_with_inbound_signals(
         &bindings,
         &keyed_collections,
         &resource_reachability,
+        &payload_source_anchors(descriptor),
         &mut unsupported,
     )?;
     let bound_handlers = bindings
@@ -574,32 +619,30 @@ pub(crate) fn parse_legacy_client_graph_with_inbound_signals(
         .iter()
         .map(|binding| binding.handler)
         .collect::<BTreeSet<_>>();
-    if expressions
-        .iter()
-        .filter(|expression| resource_reachability.expressions.contains(&expression.id))
-        .flat_map(|expression| &expression.client_operations)
-        .chain(
-            handlers
-                .iter()
-                .filter(|handler| bound_handlers.contains(&handler.id))
-                .flat_map(|handler| &handler.client_operations),
-        )
-        .any(|operation| {
-            matches!(
-                operation.kind,
-                LegacyClientOperationKind::QueryRead { .. }
-                    | LegacyClientOperationKind::QueryRefetch { .. }
-                    | LegacyClientOperationKind::QueryInvalidate { .. }
-                    | LegacyClientOperationKind::MutationRead { .. }
-                    | LegacyClientOperationKind::MutationRun { .. }
-            ) && !matches!(operation.consumer, LegacyClientOperationConsumer::Enclosing)
-        })
-    {
-        // Canonical query/mutation lowering currently preserves direct reads
-        // and handler operations. Cross-kind nesting needs a single operation
-        // preorder shared with browser, node-ref, and SharedState effects.
-        unsupported.insert("unsupported_shapes");
+    let names = OperationNames {
+        node_refs: &node_refs,
+        queries: &queries,
+        mutations: &mutations,
+    };
+    for expression in &expressions {
+        record_nested_client_operations(
+            &ShapeOwner::template_expression(),
+            &expression.client_operations,
+            resource_reachability.expressions.contains(&expression.id),
+            &names,
+            &mut unsupported,
+        );
     }
+    for handler in &handlers {
+        record_nested_client_operations(
+            &ShapeOwner::handler(handler),
+            &handler.client_operations,
+            bound_handlers.contains(&handler.id),
+            &names,
+            &mut unsupported,
+        );
+    }
+    let (unsupported_features, unsupported_shapes) = unsupported.into_parts();
 
     Ok(LegacyClientGraph {
         shared_stores,
@@ -618,8 +661,177 @@ pub(crate) fn parse_legacy_client_graph_with_inbound_signals(
         keyed_collections,
         node_count: u32::try_from(view.kinds.len())
             .map_err(|_| "view_tree.nodes exceeds u32::MAX".to_string())?,
-        unsupported_features: unsupported.ordered(),
+        unsupported_features,
+        unsupported_shapes,
     })
+}
+
+/// Where an unsupported construct lives, in authored terms.
+struct ShapeOwner {
+    label: String,
+    source_anchor: Option<SourceAnchor>,
+}
+
+impl ShapeOwner {
+    /// Arena expressions carry no authored name or position.
+    fn template_expression() -> Self {
+        Self {
+            label: "a template expression".to_owned(),
+            source_anchor: None,
+        }
+    }
+
+    fn handler(handler: &LegacyBoundHandler) -> Self {
+        Self {
+            label: match &handler.source_name {
+                Some(name) => format!("event handler `{name}`"),
+                None => "an inline event handler".to_owned(),
+            },
+            source_anchor: handler.source_anchor,
+        }
+    }
+}
+
+/// Authored names for the declarations a client operation can refer to.
+struct OperationNames<'a> {
+    node_refs: &'a [LegacyNodeRef],
+    queries: &'a [LegacyQuery],
+    mutations: &'a [LegacyMutation],
+}
+
+impl OperationNames<'_> {
+    fn node_ref(&self, id: u32) -> String {
+        let declared = self.node_refs.iter().find(|node_ref| node_ref.id == id);
+        authored(
+            "node ref",
+            declared.and_then(|node_ref| node_ref.source_name.as_deref()),
+        )
+    }
+
+    fn query(&self, id: u32) -> String {
+        let declared = self.queries.iter().find(|query| query.id == id);
+        authored(
+            "query",
+            declared.and_then(|query| query.source_name.as_deref()),
+        )
+    }
+
+    fn mutation(&self, id: u32) -> String {
+        let declared = self.mutations.iter().find(|mutation| mutation.id == id);
+        authored(
+            "mutation",
+            declared.and_then(|mutation| mutation.source_name.as_deref()),
+        )
+    }
+
+    fn describe(&self, kind: &LegacyClientOperationKind) -> String {
+        match kind {
+            LegacyClientOperationKind::BrowserRead => "a browser read".to_owned(),
+            LegacyClientOperationKind::BrowserWrite => "a browser effect".to_owned(),
+            LegacyClientOperationKind::NodeRefRead { node_ref } => {
+                format!("a read of {}", self.node_ref(*node_ref))
+            }
+            LegacyClientOperationKind::NodeRefWrite { node_ref } => {
+                format!("a write to {}", self.node_ref(*node_ref))
+            }
+            LegacyClientOperationKind::QueryRead { query, .. } => {
+                format!("a read of {}", self.query(*query))
+            }
+            LegacyClientOperationKind::QueryRefetch { query } => {
+                format!("a refetch of {}", self.query(*query))
+            }
+            LegacyClientOperationKind::QueryInvalidate { query } => {
+                format!("an invalidation of {}", self.query(*query))
+            }
+            LegacyClientOperationKind::MutationRead { mutation, .. } => {
+                format!("a read of {}", self.mutation(*mutation))
+            }
+            LegacyClientOperationKind::MutationRun { mutation } => {
+                format!("a `run` of {}", self.mutation(*mutation))
+            }
+            LegacyClientOperationKind::SharedRead { .. } => "a shared-state read".to_owned(),
+            LegacyClientOperationKind::SharedSet { .. } => "a shared-state `set`".to_owned(),
+            LegacyClientOperationKind::SharedUpdate { .. } => "a shared-state `update`".to_owned(),
+        }
+    }
+}
+
+/// Record client calls nested in the arguments of another client call.
+///
+/// Canonical lowering preserves an operation whose value goes to its
+/// enclosing expression or statement. Cross-kind nesting needs one operation
+/// preorder shared by browser, node-ref, query, mutation, and SharedState
+/// effects, so it stays closed until the adapter can preserve the exact
+/// consumer. A nested node-ref operation is rejected wherever it appears. A
+/// nested query or mutation operation is rejected only in code that can run:
+/// a reachable expression or a bound handler.
+fn record_nested_client_operations(
+    owner: &ShapeOwner,
+    operations: &[LegacyClientOperation],
+    owner_is_live: bool,
+    names: &OperationNames<'_>,
+    unsupported: &mut UnsupportedFeatures,
+) {
+    for operation in operations {
+        let LegacyClientOperationConsumer::Operation(consumer) = operation.consumer else {
+            continue;
+        };
+        let rejected = match operation.kind {
+            LegacyClientOperationKind::NodeRefRead { .. }
+            | LegacyClientOperationKind::NodeRefWrite { .. } => true,
+            LegacyClientOperationKind::QueryRead { .. }
+            | LegacyClientOperationKind::QueryRefetch { .. }
+            | LegacyClientOperationKind::QueryInvalidate { .. }
+            | LegacyClientOperationKind::MutationRead { .. }
+            | LegacyClientOperationKind::MutationRun { .. } => owner_is_live,
+            _ => false,
+        };
+        if !rejected {
+            continue;
+        }
+        let outer = operations
+            .get(consumer as usize)
+            .map(|outer| names.describe(&outer.kind))
+            .unwrap_or_else(|| "another client call".to_owned());
+        unsupported.shape(
+            UnsupportedClientShape::new(
+                format!(
+                    "{inner} is nested in the arguments of {outer}, in {owner}",
+                    inner = names.describe(&operation.kind),
+                    owner = owner.label,
+                ),
+                NESTED_CALL_HELP,
+            )
+            .at(owner.source_anchor),
+        );
+    }
+}
+
+/// Source positions of the per-row payload attributes, by attribute name.
+///
+/// Diagnostic data only: the view tree is validated separately, so a record
+/// this reader cannot make sense of is skipped.
+fn payload_source_anchors(descriptor: &Map<String, Value>) -> BTreeMap<String, SourceAnchor> {
+    let mut anchors = BTreeMap::new();
+    let nodes = descriptor
+        .get("view_tree")
+        .and_then(|tree| tree.get("nodes"))
+        .and_then(Value::as_array);
+    for attr in nodes
+        .into_iter()
+        .flatten()
+        .filter_map(|node| node.get("node")?.get("payload_attrs")?.as_array())
+        .flatten()
+        .filter_map(Value::as_object)
+    {
+        if let (Some(name), Ok(Some(anchor))) = (
+            attr.get("name").and_then(Value::as_str),
+            parse_optional_source_anchor(attr, "source_anchor"),
+        ) {
+            anchors.entry(name.to_owned()).or_insert(anchor);
+        }
+    }
+    anchors
 }
 
 fn validate_descriptor_shell(descriptor: &Map<String, Value>) -> Result<(), String> {
@@ -847,24 +1059,49 @@ fn parse_signals(
         )?;
         let id = required_u32(signal, "id")?;
         require_increasing_id(&mut previous, id, "signals")?;
-        if signal.contains_key("source_name") {
-            required_string(signal, "source_name")?;
-        }
-        validate_optional_source_anchor(signal, "source_anchor")?;
-        validate_signal_initializer(
+        let source_name = signal
+            .contains_key("source_name")
+            .then(|| required_string(signal, "source_name"))
+            .transpose()?;
+        let source_anchor = parse_optional_source_anchor(signal, "source_anchor")?;
+        let initializer_is_unknown = validate_signal_initializer(
             signal
                 .get("init")
                 .ok_or_else(|| format!("signal {id} is missing `init`"))?,
-            unsupported,
         )?;
-        let _ = parse_canonical_client_type(
-            signal
-                .get("ty")
-                .ok_or_else(|| format!("signal {id} is missing `ty`"))?,
-            &format!("signal {id} type"),
-            unsupported,
-            authenticated_inbound_signals.contains(&id),
-        )?;
+        if initializer_is_unknown {
+            unsupported.shape(
+                UnsupportedClientShape::new(
+                    format!(
+                        "{} has an initial value the RSJS compiler could not describe",
+                        authored("signal", source_name)
+                    ),
+                    COMPILER_GAP_HELP,
+                )
+                .at(source_anchor),
+            );
+        }
+        let ty = signal
+            .get("ty")
+            .ok_or_else(|| format!("signal {id} is missing `ty`"))?;
+        parse_canonical_client_type(ty, &format!("signal {id} type"))?;
+        if is_unknown_client_type(ty) && !authenticated_inbound_signals.contains(&id) {
+            unsupported.shape(
+                UnsupportedClientShape::new(
+                    format!(
+                        "{} is initialized from a server expression and has no client type",
+                        authored("signal", source_name)
+                    ),
+                    // proa-perf-ok: compiler help prints a Rust type annotation
+                    format!(
+                        "annotate the binding with the value type, for example \
+                         `let {}: rsjs::Signal<i64> = rsjs::signal(...);`",
+                        source_name.unwrap_or("value")
+                    ),
+                )
+                .at(source_anchor),
+            );
+        }
         if let Some(domain) = signal.get("integer_domain") {
             match domain.as_str() {
                 Some("i32" | "u32" | "i64" | "u64") => {}
@@ -903,10 +1140,9 @@ fn parse_signals(
     Ok(signals)
 }
 
-fn validate_signal_initializer(
-    value: &Value,
-    unsupported: &mut UnsupportedFeatures,
-) -> Result<(), String> {
+/// Validate a signal initializer. `Ok(true)` reports the `unknown` kind, which
+/// is valid schema-v9 but has no canonical lowering.
+fn validate_signal_initializer(value: &Value) -> Result<bool, String> {
     let init = object_value(value, "signal initializer")?;
     require_known_fields("signal initializer", init, &["kind", "value"])?;
     let kind = required_string(init, "kind")?;
@@ -914,27 +1150,24 @@ fn validate_signal_initializer(
         .get("value")
         .ok_or_else(|| "signal initializer is missing `value`".to_string())?;
     match kind {
-        "bool" if value.is_boolean() => Ok(()),
-        "int" if value.as_i64().is_some() => Ok(()),
+        "bool" if value.is_boolean() => Ok(false),
+        "int" if value.as_i64().is_some() => Ok(false),
         "bigint" => value
             .as_str()
             .ok_or_else(|| "bigint signal initializer must be a string".to_string())?
             .parse::<i128>()
-            .map(|_| ())
+            .map(|_| false)
             .map_err(|error| format!("invalid bigint signal initializer: {error}")),
-        "float" if value.as_f64().is_some() => Ok(()),
+        "float" if value.as_f64().is_some() => Ok(false),
         "float" => value
             .as_str()
             .ok_or_else(|| "float signal initializer must be a number or string".to_string())?
             .parse::<f64>()
-            .map(|_| ())
+            .map(|_| false)
             .map_err(|error| format!("invalid float signal initializer: {error}")),
-        "string" if value.is_string() => Ok(()),
-        "null" if value.is_null() => Ok(()),
-        "unknown" if value.is_null() => {
-            unsupported.insert("unsupported_shapes");
-            Ok(())
-        }
+        "string" if value.is_string() => Ok(false),
+        "null" if value.is_null() => Ok(false),
+        "unknown" if value.is_null() => Ok(true),
         "bool" | "int" | "string" | "null" | "unknown" => Err(format!(
             "signal initializer kind `{kind}` has an invalid `value`"
         )),
@@ -942,12 +1175,7 @@ fn validate_signal_initializer(
     }
 }
 
-fn parse_canonical_client_type(
-    value: &Value,
-    label: &str,
-    unsupported: &mut UnsupportedFeatures,
-    allow_unknown: bool,
-) -> Result<ClientType, String> {
+fn parse_canonical_client_type(value: &Value, label: &str) -> Result<ClientType, String> {
     let client_type = parse_client_type_json(value).map_err(|error| format!("{label}: {error}"))?;
     let mut canonical = String::new();
     write_client_type_json(&mut canonical, &client_type);
@@ -956,10 +1184,12 @@ fn parse_canonical_client_type(
     if canonical != *value {
         return Err(format!("{label} is not canonical Client IR v3 JSON"));
     }
-    if !allow_unknown && value.get("kind").and_then(Value::as_str) == Some("unknown") {
-        unsupported.insert("unsupported_shapes");
-    }
     Ok(client_type)
+}
+
+/// Whether a canonical client type is the unresolved `unknown` type.
+fn is_unknown_client_type(value: &Value) -> bool {
+    value.get("kind").and_then(Value::as_str) == Some("unknown")
 }
 
 fn parse_callback_slots(
@@ -1071,14 +1301,12 @@ fn parse_handlers(
         let id = required_u32(record, "id")?;
         require_increasing_id(&mut previous, id, "handlers")?;
         require_exact_u64(record, "body_ir_version", CLIENT_IR_SCHEMA)?;
-        if record.contains_key("source_name") {
-            required_string(record, "source_name")?;
-        }
-        validate_optional_source_anchor(record, "source_anchor")?;
+        let source_name = record
+            .contains_key("source_name")
+            .then(|| required_string(record, "source_name").map(str::to_owned))
+            .transpose()?;
+        let source_anchor = parse_optional_source_anchor(record, "source_anchor")?;
         let debounce_ms = optional_u64(record, "debounce_ms")?;
-        if debounce_ms.is_some() {
-            unsupported.insert("unsupported_shapes");
-        }
         let body = parse_canonical_block(
             record
                 .get("body_ir")
@@ -1091,14 +1319,32 @@ fn parse_handlers(
             .map_err(|error| format!("handler {id} browser operations: {error}"))?;
         let client_operations = collect_handler_client_operations(&body, shared_fields)
             .map_err(|error| format!("handler {id} client operations: {error}"))?;
-        handlers.push(LegacyBoundHandler {
+        let handler = LegacyBoundHandler {
             id,
+            source_name,
+            source_anchor,
             debounce_ms,
             body,
             dependencies,
             browser_operations,
             client_operations,
-        });
+        };
+        if let Some(debounce_ms) = debounce_ms {
+            let owner = ShapeOwner::handler(&handler);
+            unsupported.shape(
+                UnsupportedClientShape::new(
+                    format!(
+                        "{} is wrapped in `rsjs::debounce(.., {debounce_ms})`",
+                        owner.label
+                    ),
+                    "the browser build cannot generate debounced handlers yet; pass the \
+                     handler to the event attribute without `rsjs::debounce`, and it then runs \
+                     on every event",
+                )
+                .at(owner.source_anchor),
+            );
+        }
+        handlers.push(handler);
     }
     Ok(handlers)
 }
@@ -1133,14 +1379,27 @@ fn parse_queries(
             .then(|| required_string(query, "source_name").map(str::to_owned))
             .transpose()?;
         let source_anchor = parse_optional_source_anchor(query, "source_anchor")?;
-        let data_type = parse_canonical_client_type(
-            query
-                .get("data_ty")
-                .ok_or_else(|| format!("query {id} is missing `data_ty`"))?,
-            &format!("query {id} data_ty"),
-            unsupported,
-            false,
-        )?;
+        let data_ty = query
+            .get("data_ty")
+            .ok_or_else(|| format!("query {id} is missing `data_ty`"))?;
+        let data_type = parse_canonical_client_type(data_ty, &format!("query {id} data_ty"))?;
+        if is_unknown_client_type(data_ty) {
+            unsupported.shape(
+                UnsupportedClientShape::new(
+                    format!(
+                        "{} has no client data type",
+                        authored("query", source_name.as_deref())
+                    ),
+                    // proa-perf-ok: compiler help prints a Rust type annotation
+                    format!(
+                        "annotate the binding with the data type, for example \
+                         `let {}: rsjs::Query<YourData> = rsjs::query_with_initial(...);`",
+                        source_name.as_deref().unwrap_or("query")
+                    ),
+                )
+                .at(source_anchor),
+            );
+        }
         let options = parse_query_options(required_object(query, "options")?, id)?;
         queries.push(LegacyQuery {
             id,
@@ -1220,8 +1479,22 @@ fn parse_mutations(
             .then(|| required_string(mutation, "source_name").map(str::to_owned))
             .transpose()?;
         let source_anchor = parse_optional_source_anchor(mutation, "source_anchor")?;
-        let options =
-            validate_mutation_options(required_object(mutation, "options")?, id, unsupported)?;
+        let (options, strategy_is_unknown) =
+            validate_mutation_options(required_object(mutation, "options")?, id)?;
+        if strategy_is_unknown {
+            unsupported.shape(
+                UnsupportedClientShape::new(
+                    format!(
+                        "{} uses an `on_success_invalidate_strategy` the RSJS compiler could \
+                         not describe",
+                        authored("mutation", source_name.as_deref())
+                    ),
+                    "use `rsjs::InvalidationStrategy::Refetch` or \
+                     `rsjs::InvalidationStrategy::Reset`",
+                )
+                .at(source_anchor),
+            );
+        }
         let invalidates = required_array(mutation, "invalidates")?
             .iter()
             .enumerate()
@@ -1254,23 +1527,25 @@ fn parse_mutations(
     Ok(mutations)
 }
 
+/// Validate mutation options. The flag reports the `unknown` invalidation
+/// strategy, which is valid schema-v9 but has no canonical lowering.
 fn validate_mutation_options(
     options: &Map<String, Value>,
     id: u32,
-    unsupported: &mut UnsupportedFeatures,
-) -> Result<LegacyMutationOptions, String> {
+) -> Result<(LegacyMutationOptions, bool), String> {
     require_known_fields(
         "mutation options",
         options,
         &["on_success_invalidate_strategy", "retry_count"],
     )?;
     let retry_count = required_u32(options, "retry_count")?;
+    let mut strategy_is_unknown = false;
     let on_success_invalidate_strategy =
         match required_string(options, "on_success_invalidate_strategy")? {
             "refetch" => LegacyInvalidationStrategy::Refetch,
             "reset" => LegacyInvalidationStrategy::Reset,
             "unknown" => {
-                unsupported.insert("unsupported_shapes");
+                strategy_is_unknown = true;
                 // Preserve validation progress while the enclosing unsupported
                 // report keeps this descriptor out of canonical linking.
                 LegacyInvalidationStrategy::Refetch
@@ -1281,10 +1556,13 @@ fn validate_mutation_options(
                 ));
             }
         };
-    Ok(LegacyMutationOptions {
-        retry_count,
-        on_success_invalidate_strategy,
-    })
+    Ok((
+        LegacyMutationOptions {
+            retry_count,
+            on_success_invalidate_strategy,
+        },
+        strategy_is_unknown,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1778,7 +2056,10 @@ fn parse_view_node(
         }
         "unknown" => {
             require_known_fields("unknown view node", node, &["kind"])?;
-            unsupported.insert("unsupported_shapes");
+            unsupported.shape(UnsupportedClientShape::new(
+                "the template contains a node the RSJS compiler could not describe",
+                COMPILER_GAP_HELP,
+            ));
             Ok((ViewNodeKind::Unknown, Vec::new(), BTreeMap::new()))
         }
         other => Err(format!("view node {id} has unsupported kind `{other}`")),
@@ -1904,6 +2185,7 @@ fn validate_payload_crossings(
     bindings: &LegacyDomBindings,
     keyed_collections: &[LegacyKeyedCollection],
     reachability: &ResourceReachability,
+    payload_anchors: &BTreeMap<String, SourceAnchor>,
     unsupported: &mut UnsupportedFeatures,
 ) -> Result<(), String> {
     for binding in &bindings.attributes {
@@ -2003,7 +2285,23 @@ fn validate_payload_crossings(
             // resource input, keyed source, or other node-less value would
             // lower to `null`. Keep valid-but-unrepresentable legacy shapes
             // closed without rejecting unrelated latent declarations.
-            unsupported.insert("unsupported_shapes");
+            for (attr, tokens) in &reads {
+                unsupported.shape(
+                    UnsupportedClientShape::new(
+                        format!(
+                            "the `for` loop value `{tokens}` is read by reactive code that is \
+                             not a text, attribute, or `if` binding on an element inside the \
+                             loop (for example a memo, a query or mutation input, or a keyed \
+                             list source)"
+                        ),
+                        format!(
+                            "read `{tokens}` directly in a binding on an element inside the \
+                             loop, or keep the value in a signal instead of a loop local"
+                        ),
+                    )
+                    .at(payload_anchors.get(attr).copied()),
+                );
+            }
         }
         let Some(targets) = targets else {
             continue;
@@ -2135,7 +2433,13 @@ fn parse_attribute_bindings(
             "boolean" => LegacyAttributeBindingKind::Boolean,
             "url" => LegacyAttributeBindingKind::Url,
             "unknown" => {
-                unsupported.insert("unsupported_shapes");
+                unsupported.shape(UnsupportedClientShape::new(
+                    format!(
+                        "attribute `{name}` is bound with a kind the RSJS compiler could not \
+                         describe"
+                    ),
+                    COMPILER_GAP_HELP,
+                ));
                 LegacyAttributeBindingKind::Value
             }
             other => return Err(format!("unsupported attribute binding kind `{other}`")),
@@ -2175,7 +2479,10 @@ fn parse_input_bindings(
             "checked" => LegacyInputBindingKind::Checked,
             "selected" => LegacyInputBindingKind::Selected,
             "unknown" => {
-                unsupported.insert("unsupported_shapes");
+                unsupported.shape(UnsupportedClientShape::new(
+                    "an input binding uses a kind the RSJS compiler could not describe",
+                    "use `bind_value`, `bind_checked`, or `bind_selected`",
+                ));
                 LegacyInputBindingKind::Value
             }
             other => return Err(format!("unsupported input binding kind `{other}`")),
@@ -2206,7 +2513,10 @@ fn parse_event_bindings(
         require_node_kind(view, node, ViewNodeKind::Element, "event binding")?;
         let event = required_string(binding, "event")?.to_owned();
         if event == "unknown" {
-            unsupported.insert("unsupported_shapes");
+            unsupported.shape(UnsupportedClientShape::new(
+                "an element binds an event the RSJS compiler could not describe",
+                COMPILER_GAP_HELP,
+            ));
         } else if !is_known_event(&event) {
             return Err(format!("unsupported event binding name `{event}`"));
         }
@@ -2832,7 +3142,7 @@ fn validate_intervals(
     for (index, value) in values.iter().enumerate() {
         let interval = object_value(value, &format!("intervals[{index}]"))?;
         require_known_fields("interval", interval, &["body_ir", "body_ir_version", "ms"])?;
-        required_u64(interval, "ms")?;
+        let ms = required_u64(interval, "ms")?;
         require_exact_u64(interval, "body_ir_version", CLIENT_IR_SCHEMA)?;
         let body = parse_canonical_block(
             interval
@@ -2844,6 +3154,10 @@ fn validate_intervals(
             .map_err(|error| format!("interval {index} is not dependency-closed: {error:?}"))?;
         validate_external_dependencies(
             &format!("interval {index}"),
+            &ShapeOwner {
+                label: format!("the `rsjs::interval` callback that runs every {ms} ms"),
+                source_anchor: None,
+            },
             &dependencies,
             DependencyContext::Interval,
             declarations,
@@ -2873,6 +3187,7 @@ struct DeclaredIds<'a> {
 
 fn validate_external_dependencies(
     label: &str,
+    owner: &ShapeOwner,
     dependencies: &ClientBlockExternalDependencies,
     context: DependencyContext,
     declarations: &DeclaredIds<'_>,
@@ -2922,13 +3237,42 @@ fn validate_external_dependencies(
     if matches!(context, DependencyContext::Interval)
         && (dependencies.uses_browser_read || dependencies.uses_browser_write)
     {
-        unsupported.insert("unsupported_shapes");
+        unsupported.shape(
+            UnsupportedClientShape::new(
+                format!("{} calls a browser API", owner.label),
+                "the browser build cannot generate `rsjs::interval` timers yet; remove the \
+                 interval",
+            )
+            .at(owner.source_anchor),
+        );
     }
-    if dependencies.uses_callback_payload
-        || (dependencies.uses_node_payload && !matches!(context, DependencyContext::Expression))
-        || (dependencies.uses_event_payload && !matches!(context, DependencyContext::EventHandler))
-    {
-        unsupported.insert("unsupported_shapes");
+    // Each payload is supplied by one kind of caller, so a read anywhere else
+    // has no value to lower.
+    const MISPLACED_PAYLOAD_HELP: &str = "move the read into the closure that receives the \
+         value: event data and loop values in an event handler bound inside the loop, a \
+         callback argument in that callback's closure";
+    let misplaced_payloads = [
+        (
+            dependencies.uses_callback_payload,
+            "reads a component callback argument outside a callback closure",
+        ),
+        (
+            dependencies.uses_node_payload && !matches!(context, DependencyContext::Expression),
+            "reads a `for` loop value that only a template binding can receive",
+        ),
+        (
+            dependencies.uses_event_payload && !matches!(context, DependencyContext::EventHandler),
+            "reads event data outside an event handler",
+        ),
+    ];
+    for (_, misuse) in misplaced_payloads.iter().filter(|(found, _)| *found) {
+        unsupported.shape(
+            UnsupportedClientShape::new(
+                format!("{} {misuse}", owner.label),
+                MISPLACED_PAYLOAD_HELP,
+            )
+            .at(owner.source_anchor),
+        );
     }
     Ok(())
 }
@@ -3780,20 +4124,41 @@ fn parse_canonical_block(value: &Value, label: &str) -> Result<ClientBlock, Stri
 #[derive(Default)]
 struct UnsupportedFeatures {
     values: BTreeSet<&'static str>,
+    shapes: Vec<UnsupportedClientShape>,
 }
 
 impl UnsupportedFeatures {
     fn insert(&mut self, feature: &'static str) {
         debug_assert!(UNSUPPORTED_FEATURE_ORDER.contains(&feature));
+        debug_assert!(
+            feature != "unsupported_shapes",
+            "record the construct with `shape` so the diagnostic can name it"
+        );
         self.values.insert(feature);
     }
 
-    fn ordered(self) -> Vec<String> {
-        UNSUPPORTED_FEATURE_ORDER
+    /// Record one authored construct outside the supported subset.
+    fn shape(&mut self, shape: UnsupportedClientShape) {
+        self.values.insert("unsupported_shapes");
+        if !self.shapes.contains(&shape) {
+            self.shapes.push(shape);
+        }
+    }
+
+    /// Feature labels in contract order, then constructs in source order.
+    fn into_parts(mut self) -> (Vec<String>, Vec<UnsupportedClientShape>) {
+        // The sort is stable, so constructs without a recorded position keep
+        // their discovery order after the positioned ones.
+        self.shapes.sort_by_key(|shape| match shape.source_anchor {
+            Some(anchor) => (0, anchor.start_line, anchor.start_column),
+            None => (1, 0, 0),
+        });
+        let features = UNSUPPORTED_FEATURE_ORDER
             .iter()
             .filter(|feature| self.values.contains(**feature))
             .map(|feature| (*feature).to_owned())
-            .collect()
+            .collect();
+        (features, self.shapes)
     }
 }
 

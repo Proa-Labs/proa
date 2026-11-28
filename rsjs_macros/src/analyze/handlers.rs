@@ -2033,7 +2033,7 @@ impl Analyzer {
             &attr,
             &tokens,
             Some(payload_label(expr)),
-            Some(source_anchor(expr.span())),
+            Some(super::rsjs_source_anchor(expr.span())),
         );
         (attr, tokens)
     }
@@ -2602,14 +2602,6 @@ fn handler_local_call_source<'a>(
     };
     let ident = path.get_ident()?;
     handlers.get(&ident.to_string())
-}
-
-fn source_anchor(span: proc_macro2::Span) -> rsjs_ir::SourceAnchor {
-    let start = span.start();
-    rsjs_ir::SourceAnchor {
-        start_line: start.line,
-        start_column: start.column + 1,
-    }
 }
 
 /// If `expr` is a method call shaped `<closure_param>.set(...)` or
