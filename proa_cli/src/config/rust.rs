@@ -581,7 +581,7 @@ fn host_target_and_version(root: &Path) -> Result<(String, String)> {
         .current_dir(root)
         .arg("-vV")
         .output()
-        .context("query host rustc for Rust config")?;
+        .context("run rustc for proa.config.rs; install the Rust toolchain with rustup")?;
     if !output.status.success() {
         bail!(
             "rustc -vV for Rust config failed: {}",
@@ -589,12 +589,27 @@ fn host_target_and_version(root: &Path) -> Result<(String, String)> {
         );
     }
     let version = String::from_utf8(output.stdout)?;
-    let host = version
+    let host = rustc_host_from_version(&version)?;
+    Ok((host, version))
+}
+
+fn rustc_host_from_version(version: &str) -> Result<String> {
+    if let Some(release) = version
+        .lines()
+        .find_map(|line| line.strip_prefix("release: "))
+    {
+        // A nightly or beta on the minimum version has the required compiler.
+        let numeric = release.split('-').next().unwrap_or(release);
+        let minimum = env!("CARGO_PKG_RUST_VERSION");
+        if semver::Version::parse(numeric)? < semver::Version::parse(minimum)? {
+            bail!("this project needs Rust {minimum} or newer; the selected rustc is {release}. Update the project toolchain or run `rustup update stable`.");
+        }
+    }
+    version
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .map(str::to_owned)
-        .context("rustc did not report its host target")?;
-    Ok((host, version))
+        .context("rustc did not report its host target")
 }
 
 fn write_changed(path: &Path, source: &str) -> Result<()> {
@@ -879,4 +894,31 @@ pub(super) fn with_capability_changes(
     patched.push_str("    Ok(configured)\n");
     patched.push_str(&source[end..]);
     Ok(patched)
+}
+
+#[cfg(test)]
+mod compiler_version_tests {
+    use super::rustc_host_from_version;
+
+    #[test]
+    fn checks_the_project_minimum_for_stable_beta_and_nightly() {
+        let min = env!("CARGO_PKG_RUST_VERSION");
+        let check = |release: &str| {
+            rustc_host_from_version(&format!("host: example-host\nrelease: {release}\n"))
+        };
+        for release in [
+            min.to_owned(),
+            format!("{min}-beta.1"),
+            format!("{min}-nightly"),
+            "999.0.0".into(),
+        ] {
+            assert_eq!(check(&release).unwrap(), "example-host");
+        }
+        let error = check("1.0.0-nightly").unwrap_err().to_string();
+        assert!(
+            error.contains(min)
+                && error.contains("1.0.0-nightly")
+                && error.contains("rustup update stable")
+        );
+    }
 }

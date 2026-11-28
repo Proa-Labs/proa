@@ -40,7 +40,7 @@ pub(super) fn run_named(
 ) -> Result<()> {
     let scripts = &project.scripts.named;
     if !scripts.contains_key(name) {
-        bail!("{}", unknown_script(name));
+        bail!("{}", unknown_script(project, name));
     }
     let order = dependency_order(scripts, [name])?;
     for task_name in order {
@@ -60,19 +60,82 @@ pub(super) fn run_named(
 /// but only project scripts live under `proa run`. Name the command they
 /// meant. The list comes from the CLI definition, so a new subcommand is
 /// covered without touching this file.
-fn unknown_script(name: &str) -> String {
+///
+/// Any other name is a typo or a guess at what the project defines, so the
+/// message offers the closest name `proa run` accepts and the command that
+/// lists them all.
+fn unknown_script(project: &config::ProjectConfig, name: &str) -> String {
     use clap::CommandFactory;
 
     let builtin = crate::cli::Cli::command()
         .get_subcommands()
         .any(|command| !command.is_hide_set() && command.get_name() == name);
     if builtin && name != "run" {
-        format!(
+        return format!(
             "unknown task `{name}`: `{name}` is a built-in command, so run `proa {name}` directly, or define a `{name}` task in `scripts.named` to make `proa run {name}` work"
-        )
-    } else {
-        format!("unknown task `{name}`")
+        );
     }
+    let scripts = &project.scripts;
+    let defined = super::script::shell_entries(scripts)
+        .map(|(script, _)| script)
+        .chain(scripts.named.keys().map(String::as_str));
+    format!(
+        "unknown task `{name}`: this project defines no script or task with that name. {}",
+        next_step(name, defined)
+    )
+}
+
+/// What to do about a name that matches nothing: the closest defined name when
+/// the input looks like a typo of one, then the command that lists them all.
+fn next_step<'a>(name: &str, defined: impl Iterator<Item = &'a str>) -> String {
+    const LIST: &str = "Run `proa run --list` to see every defined script and task";
+    match closest(name, defined) {
+        Some(near) => format!("Did you mean `{near}`? {LIST}"),
+        None => LIST.to_string(),
+    }
+}
+
+/// The defined name nearest to `name`, when it is near enough to be a typo.
+fn closest<'a>(name: &str, defined: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    // A third of the name may be wrong, the allowance rustc gives a misspelled
+    // identifier. Past that it is a different word, and suggesting it is noise.
+    let limit = (name.chars().count() / 3).max(1);
+    defined
+        .map(|candidate| (edit_distance(name, candidate), candidate))
+        .filter(|(distance, _)| *distance <= limit)
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, candidate)| candidate)
+}
+
+/// Single-character edits between two names: insert, delete, substitute, or
+/// swap two neighbours. Swaps count once because `dve` for `dev` is one slip.
+fn edit_distance(left: &str, right: &str) -> usize {
+    let left: Vec<char> = left.chars().collect();
+    let right: Vec<char> = right.chars().collect();
+    // Three rows of the edit table: two back (for swaps), one back, current.
+    let mut before_previous = vec![0; right.len() + 1];
+    let mut previous: Vec<usize> = (0..=right.len()).collect();
+    let mut current = vec![0; right.len() + 1];
+    for row in 1..=left.len() {
+        current[0] = row;
+        for column in 1..=right.len() {
+            let substitute = previous[column - 1] + usize::from(left[row - 1] != right[column - 1]);
+            let mut best = substitute
+                .min(previous[column] + 1)
+                .min(current[column - 1] + 1);
+            if row > 1
+                && column > 1
+                && left[row - 1] == right[column - 2]
+                && left[row - 2] == right[column - 1]
+            {
+                best = best.min(before_previous[column - 2] + 1);
+            }
+            current[column] = best;
+        }
+        std::mem::swap(&mut before_previous, &mut previous);
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[right.len()]
 }
 
 /// Run lifecycle-owned task roots with one dependency traversal and an exact
@@ -127,7 +190,7 @@ fn dependency_order<'a>(
     let mut visited = BTreeSet::new();
     let mut order = Vec::new();
     for name in names {
-        visit_dependency(name, scripts, &mut visiting, &mut visited, &mut order)?;
+        visit_dependency(name, None, scripts, &mut visiting, &mut visited, &mut order)?;
     }
     Ok(order)
 }
@@ -149,8 +212,11 @@ fn lifecycle_usage(project: &config::ProjectConfig, name: &str) -> String {
     }
 }
 
+/// `required_by` is the task whose `depends_on` named `name`, or `None` for a
+/// name the caller asked for directly.
 fn visit_dependency(
     name: &str,
+    required_by: Option<&str>,
     tasks: &BTreeMap<String, ScriptConfig>,
     visiting: &mut BTreeSet<String>,
     visited: &mut BTreeSet<String>,
@@ -164,14 +230,32 @@ fn visit_dependency(
     }
     let task = tasks
         .get(name)
-        .with_context(|| format!("unknown task `{name}`"))?;
+        .with_context(|| unknown_dependency(name, required_by, tasks))?;
     for dependency in &task.depends_on {
-        visit_dependency(dependency, tasks, visiting, visited, output)?;
+        visit_dependency(dependency, Some(name), tasks, visiting, visited, output)?;
     }
     visiting.remove(name);
     visited.insert(name.to_string());
     output.push(name.to_string());
     Ok(())
+}
+
+/// A `depends_on` entry or lifecycle hook that names no task. Only
+/// `scripts.named` can satisfy it, so a built-in command of the same name is
+/// not offered here: running `proa lint` by hand would not fix the config.
+fn unknown_dependency(
+    name: &str,
+    required_by: Option<&str>,
+    tasks: &BTreeMap<String, ScriptConfig>,
+) -> String {
+    let reference = match required_by {
+        Some(task) => format!("task `{task}` lists it in `depends_on`, but "),
+        None => String::new(),
+    };
+    format!(
+        "unknown task `{name}`: {reference}`scripts.named` defines no task with that name. {}",
+        next_step(name, tasks.keys().map(String::as_str))
+    )
 }
 
 fn execute(
@@ -275,16 +359,79 @@ mod tests {
             .contains("cycle"));
     }
 
+    fn project(named: &[&str]) -> config::ProjectConfig {
+        let mut project = config::ProjectConfig::default();
+        project.scripts.named = named
+            .iter()
+            .map(|name| ((*name).to_string(), task(&[])))
+            .collect();
+        project
+    }
+
     #[test]
     fn running_a_builtin_command_name_as_a_script_names_the_real_command() {
+        let project = project(&[]);
         // Every visible subcommand is covered, not a hand-kept subset.
         for builtin in ["lint", "fmt", "check", "test", "db", "deploy", "chunks"] {
-            let message = unknown_script(builtin);
+            let message = unknown_script(&project, builtin);
             assert!(message.contains(&format!("`proa {builtin}`")), "{message}");
             assert!(message.contains("scripts.named"), "{message}");
         }
         for other in ["custom", "run", "install-self", "Lint"] {
-            assert_eq!(unknown_script(other), format!("unknown task `{other}`"));
+            let message = unknown_script(&project, other);
+            assert!(!message.contains("built-in command"), "{message}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_name_says_how_to_list_what_the_project_defines() {
+        assert_eq!(
+            unknown_script(&project(&["generate-assets"]), "does-not-exist"),
+            "unknown task `does-not-exist`: this project defines no script or task with that name. \
+             Run `proa run --list` to see every defined script and task"
+        );
+    }
+
+    #[test]
+    fn a_near_miss_suggests_the_defined_script_or_task() {
+        let project = project(&["generate-assets", "seed"]);
+        for (typed, defined) in [
+            // A named task, with one character dropped and with two swapped.
+            ("generate-asets", "generate-assets"),
+            ("generate-assest", "generate-assets"),
+            ("sed", "seed"),
+            // The shell scripts `proa run` also accepts.
+            ("dve", "dev"),
+            ("biuld", "build"),
+        ] {
+            let message = unknown_script(&project, typed);
+            assert!(
+                message.contains(&format!("Did you mean `{defined}`? Run `proa run --list`")),
+                "{typed}: {message}"
+            );
+        }
+        // Too far from every defined name to be a typo of one.
+        for unrelated in ["deploy-preview", "generate", "x"] {
+            let message = unknown_script(&project, unrelated);
+            assert!(!message.contains("Did you mean"), "{message}");
+        }
+    }
+
+    #[test]
+    fn edit_distance_counts_single_character_slips() {
+        for (left, right, distance) in [
+            ("dev", "dev", 0),
+            ("dev", "dve", 1),
+            ("seed", "sed", 1),
+            ("seed", "seeds", 1),
+            ("build", "guild", 1),
+            ("ab", "ba", 1),
+            ("abc", "cab", 2),
+            ("", "dev", 3),
+            ("kitten", "sitting", 3),
+        ] {
+            assert_eq!(edit_distance(left, right), distance, "{left} -> {right}");
+            assert_eq!(edit_distance(right, left), distance, "{right} -> {left}");
         }
     }
 
@@ -294,6 +441,33 @@ mod tests {
         // hand would not satisfy it, so the advice stays out of this path.
         let tasks = BTreeMap::from([("ci".into(), task(&["lint"]))]);
         let error = dependency_order(&tasks, ["ci"]).unwrap_err().to_string();
-        assert_eq!(error, "unknown task `lint`");
+        assert_eq!(
+            error,
+            "unknown task `lint`: task `ci` lists it in `depends_on`, but `scripts.named` defines \
+             no task with that name. Run `proa run --list` to see every defined script and task"
+        );
+    }
+
+    #[test]
+    fn a_misspelled_dependency_or_hook_suggests_the_defined_task() {
+        let tasks = BTreeMap::from([
+            ("ci".into(), task(&["generate-asets"])),
+            ("generate-assets".into(), task(&[])),
+        ]);
+        let error = dependency_order(&tasks, ["ci"]).unwrap_err().to_string();
+        assert!(
+            error.contains("task `ci` lists it in `depends_on`"),
+            "{error}"
+        );
+        assert!(error.contains("Did you mean `generate-assets`?"), "{error}");
+        // A lifecycle hook names the task directly, so no dependent is blamed.
+        let error = dependency_order(&tasks, ["generate-asset"])
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "unknown task `generate-asset`: `scripts.named` defines no task with that name. \
+             Did you mean `generate-assets`? Run `proa run --list` to see every defined script and task"
+        );
     }
 }
