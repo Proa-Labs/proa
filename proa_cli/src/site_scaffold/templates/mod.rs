@@ -636,9 +636,9 @@ fn representation_test(library: &str, has_database: bool, starter: StarterChoice
         ""
     };
     let modules = if has_database {
-        "app, db, error, loader, routes"
+        "app, db, loader, routes"
     } else {
-        "app, error, routes"
+        "app, routes"
     };
     let state = if has_database {
         r#"let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
@@ -660,7 +660,7 @@ fn representation_test(library: &str, has_database: bool, starter: StarterChoice
     } else {
         ""
     };
-    r#"__ARC_IMPORT__use axum::{body::Body, http::{header, Request, StatusCode}, response::{IntoResponse, Response}};
+    r#"__ARC_IMPORT__use axum::{body::Body, http::{header, Request, StatusCode}, response::Response};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
@@ -714,22 +714,6 @@ __NAVIGATION_ASSERTIONS__
     let markdown = String::from_utf8(explicit).unwrap();
     assert!(!markdown.contains("<html"));
     assert!(!markdown.contains("/static/"));
-
-    __CLOSE__
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn probes_and_failures_are_never_stored() {
-    __STATE__
-
-    for path in ["/healthz", "/readyz"] {
-        let probe = app.clone().oneshot(Request::builder().uri(path).body(Body::empty()).unwrap()).await.unwrap();
-        assert_eq!(probe.status(), StatusCode::OK, "{path}");
-        assert_eq!(probe.headers()[header::CACHE_CONTROL], "no-store", "{path}");
-    }
-    let failure = error::AppError::Render(proa::WriteError::OutOfCapacity).into_response();
-    assert_eq!(failure.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(failure.headers()[header::CACHE_CONTROL], "no-store");
 
     __CLOSE__
 }

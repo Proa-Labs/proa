@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderName, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
     routing::get,
     Router,
@@ -93,14 +93,6 @@ where
 #[derive(Debug, Deserialize)]
 struct Lookup {
     q: Option<String>,
-}
-
-/// A failed lookup, answered with a bare status code.
-type Failure = (StatusCode, [(HeaderName, &'static str); 1]);
-
-/// A failure describes one request at one moment, so no cache may store it.
-fn failure(status: StatusCode) -> Failure {
-    (status, [(header::CACHE_CONTROL, "no-store")])
 }
 
 /// The request's Host header, for rendering copyable absolute URLs.
@@ -189,7 +181,7 @@ async fn index(
     State(state): State<AppState>,
     Query(query): Query<Lookup>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, Failure> {
+) -> Result<impl IntoResponse, StatusCode> {
     let host = request_host(&headers);
     let page = AtlasPage::resolve(query.q.as_deref()).with_host(host.clone());
     let lookup = page.query.clone();
@@ -217,14 +209,14 @@ async fn index(
         },
         MarkdownAlternate::new("/index.md"),
     )
-    .map_err(|_| failure(StatusCode::INTERNAL_SERVER_ERROR))
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn markdown(
     State(state): State<AppState>,
     Query(query): Query<Lookup>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, Failure> {
+) -> Result<impl IntoResponse, StatusCode> {
     let page = AtlasPage::resolve(query.q.as_deref());
     let dossier = fetch_dossier(&state, &page.query).await;
     explicit_markdown(AtlasMd {
@@ -232,7 +224,7 @@ async fn markdown(
         host: request_host(&headers),
         dossier,
     })
-    .map_err(|_| failure(StatusCode::INTERNAL_SERVER_ERROR))
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 /// The overlay advertises `GET /site/<host>.md`; serve exactly that.
@@ -240,10 +232,8 @@ async fn site_markdown(
     State(state): State<AppState>,
     Path(file): Path<String>,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, Failure> {
-    let host = file
-        .strip_suffix(".md")
-        .ok_or_else(|| failure(StatusCode::NOT_FOUND))?;
+) -> Result<impl IntoResponse, StatusCode> {
+    let host = file.strip_suffix(".md").ok_or(StatusCode::NOT_FOUND)?;
     let page = AtlasPage::resolve(Some(host));
     let (dossier, upstream_down) = match state.loader.cached_dossier(&page.query).await {
         Ok(dossier) => (Some(Arc::new(dossier)), false),
@@ -252,18 +242,18 @@ async fn site_markdown(
     if dossier.is_none() && model::site_for(host).is_none() {
         // A name that does not resolve is 404; an unreachable upstream is
         // 503, so agents can tell "does not exist" from "try again".
-        return Err(failure(if upstream_down {
+        return Err(if upstream_down {
             StatusCode::SERVICE_UNAVAILABLE
         } else {
             StatusCode::NOT_FOUND
-        }));
+        });
     }
     explicit_markdown(AtlasMd {
         query: page.query,
         host: request_host(&headers),
         dossier,
     })
-    .map_err(|_| failure(StatusCode::INTERNAL_SERVER_ERROR))
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 #[derive(Debug, Deserialize)]

@@ -123,24 +123,3 @@ async fn site_markdown_route_serves_the_dossier() {
         .unwrap()
         .starts_with("text/markdown"));
 }
-
-#[tokio::test]
-async fn probes_and_failures_are_never_stored() {
-    for (path, status) in [
-        ("/healthz", StatusCode::OK),
-        ("/readyz", StatusCode::OK),
-        // A `/site/` path without the `.md` suffix fails before any lookup.
-        ("/site/cloudflare.com", StatusCode::NOT_FOUND),
-    ] {
-        let response = __CRATE_IDENT__::app()
-            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(response.status(), status, "{path}");
-        assert_eq!(
-            response.headers()[header::CACHE_CONTROL],
-            "no-store",
-            "{path}"
-        );
-    }
-}
