@@ -115,6 +115,8 @@ jobs:
         with:
           node-version: "22"
           check-latest: true
+      - name: Test RSJS query and mutation runtime
+        run: node --test rsjs/runtime/rsjs-runtime-query*.test.mjs rsjs/runtime/rsjs-runtime-query.smoke.mjs
       - name: Test marketing with its linked island manifest
         run: |
           cargo run --locked -p proa-cli --bin proa -- \
