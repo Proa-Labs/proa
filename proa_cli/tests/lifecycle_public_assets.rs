@@ -353,6 +353,78 @@ fn page_inputs() {
 
 #[cfg(unix)]
 #[test]
+fn failed_build_retries_on_edits_that_normally_skip_cargo() {
+    use std::{net::TcpListener, os::unix::process::CommandExt};
+
+    let temp = fixture();
+    let root = temp.path();
+    fs::write(
+        root.join("proa.config.rs"),
+        PUBLIC_CONFIG.replace("public: Some(public)", "public: None"),
+    )
+    .unwrap();
+    fs::create_dir(root.join("styles")).unwrap();
+    let stylesheet = root.join("styles/input.css");
+    fs::write(&stylesheet, "p {}").unwrap();
+    let main = root.join("src/main.rs");
+    let server = r#"fn main() {
+        let port = std::env::var("PORT").unwrap();
+        let listener = std::net::TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
+        for stream in listener.incoming() { drop(stream.unwrap()); }
+    }"#;
+    fs::write(&main, server).unwrap();
+    let build_script = root.join("build.rs");
+    fs::write(&build_script, "fn main() {}").unwrap();
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let log = root.join("dev.log");
+    let output = fs::File::create(&log).unwrap();
+    let mut watch = Watcher(
+        Command::new(env!("CARGO_BIN_EXE_proa"))
+            .current_dir(root)
+            .env("CARGO_TARGET_DIR", root.join("target"))
+            .args([
+                "dev",
+                "--offline",
+                "--hot-static",
+                "--no-reload",
+                "--port",
+                &port.to_string(),
+            ])
+            .stdout(output.try_clone().unwrap())
+            .stderr(output)
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let ready = "Proa dev ready:";
+    let failed = "linked dev rebuild failed";
+    watch.wait_for(&log, ready, 1);
+    fs::write(&stylesheet, "p { color: blue; }").unwrap();
+    watch.wait_for(&log, "rebuilt assets without restarting", 1);
+    // Re-saving identical Rust is eligible for in-place static publication.
+    fs::write(&main, server).unwrap();
+    watch.wait_for(&log, "published without Cargo or restart", 1);
+
+    fs::write(
+        &build_script,
+        r#"compile_error!("unfinished edit"); fn main() {}"#,
+    )
+    .unwrap();
+    watch.wait_for(&log, failed, 1);
+    fs::write(&stylesheet, "p { color: red; }").unwrap();
+    watch.wait_for(&log, failed, 2);
+    fs::write(&main, server).unwrap();
+    watch.wait_for(&log, failed, 3);
+    fs::write(&build_script, "fn main() {}").unwrap();
+    watch.wait_for(&log, ready, 2);
+}
+
+#[cfg(unix)]
+#[test]
 fn watcher_recovers_output_and_rechecks_only_config_compile_inputs_on_asset_edits() {
     use std::{
         net::TcpListener,

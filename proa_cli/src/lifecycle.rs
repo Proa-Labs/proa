@@ -399,7 +399,8 @@ pub fn dev(options: DevOptions) -> Result<()> {
             hot_update,
             deferred_assets,
         } = inputs;
-        if css_only && !missing_catalog && !last_build_failed {
+        let can_hot_update = !last_build_failed && !missing_catalog;
+        if css_only && can_hot_update {
             dev_ui::detail!("stylesheet change stabilized; rebuilt assets without restarting");
             dev_ui::outcome("Styles updated");
             dev_ui::finish();
@@ -478,7 +479,7 @@ pub fn dev(options: DevOptions) -> Result<()> {
                 }
             }
         }
-        if let Some(mut update) = hot_update.filter(|_| !missing_catalog && !last_build_failed) {
+        if let Some(mut update) = hot_update.filter(|_| can_hot_update) {
             match update.activate() {
                 Ok(()) => {
                     dev_ui::detail!(
