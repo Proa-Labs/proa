@@ -8,7 +8,8 @@ use proa_docs::{DocPage, Docs, DocsNav, DocsSectionMenu};
 use proa_macros::html_sync;
 
 use crate::components::{
-    brand::ProaLogoMark, search_trigger::SearchTrigger, theme_toggle::ThemeToggle,
+    brand::ProaLogoMark, search_trigger::SearchTrigger, social_link::SocialLink,
+    theme_toggle::ThemeToggle,
 };
 
 pub(super) struct DocsSidebar {
@@ -73,7 +74,12 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ReadingSidebarFooter {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         html_sync! {
             <div class="docs-sidebar-footer" data-component="reading-sidebar-footer">
-                <a href={routes::HOME} class="docs-sidebar-footer-link">"Back to site"</a>
+                <nav aria-label="Social links" class="flex items-center gap-2">
+                    {SocialLink::GitHub}
+                    {SocialLink::YouTube}
+                    {SocialLink::Discord}
+                    {SocialLink::X}
+                </nav>
                 {ThemeToggle::new()}
             </div>
         }
