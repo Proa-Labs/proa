@@ -514,6 +514,27 @@ try {
         await fetching;
         assert(list.data() === 'fresh', 'the refetch should still publish its result');
 
+        for (const older_rejects_first of [true, false]) {
+            const refetch = list.refetch().catch(() => {});
+            const id = older_rejects_first ? 28 : 30;
+            const reject_older = pending_write(id, 'older');
+            finish_fetch(json_response(503));
+            await refetch;
+            const error = list.error();
+            const fetches = list.fetch_count();
+            const reject_newer = pending_write(id + 1, 'newer');
+            if (older_rejects_first) {
+                await reject_older();
+                await reject_newer();
+            } else {
+                await reject_newer();
+                await reject_older();
+            }
+            assert(list.data() === 'fresh' && list.is_error() && list.error() === error &&
+                list.fetch_count() === fetches,
+                'two rollbacks spanning a failed refetch must retain its completed error state');
+        }
+
         const fresh_key = ['rejections', 'created-by-mutation'];
         const discard_initial = pending_write(27, 'initial guess', fresh_key);
         const registered = register_query({

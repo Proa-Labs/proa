@@ -1967,6 +1967,7 @@ function write_query_data(key, data, changes) {
                 data: entry.data,
                 status: entry.status,
                 data_updated_at: entry.data_updated_at,
+                fetch_count: entry.fetch_count,
             },
         };
         changes.push(change);
@@ -2021,13 +2022,16 @@ function finish_optimistic_writes(changes, failed) {
         }
         entry.data = restore.before.data;
         entry.data_updated_at = restore.before.data_updated_at;
-        // A refetch can update its status or error while still showing optimistic data.
-        if (entry.status === 'loading' || entry.status === 'refetching') {
+        if (restore.counted_initial_data) entry.fetch_count -= 1;
+        if (entry.in_flight) {
             entry.status = entry.data === undefined ? 'loading' : 'refetching';
-        } else if (entry.status !== 'error') {
+        } else if (entry.fetch_count !== restore.before.fetch_count) {
+            // A completed success replaces the data and clears ownership. Only
+            // a failed fetch can advance the count while rollback still owns it.
+            entry.status = 'error';
+        } else {
             entry.status = restore.before.status;
         }
-        if (restore.counted_initial_data) entry.fetch_count -= 1;
         notify(entry);
     }
 }
