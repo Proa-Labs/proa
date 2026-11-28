@@ -176,6 +176,18 @@ impl IntoResponse for AppError {
             .into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_errors_are_never_stored() {
+        let response = AppError::Render(proa::WriteError::OutOfCapacity).into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+}
 "#
 }
 
