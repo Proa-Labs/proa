@@ -1,11 +1,11 @@
-import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial, bind_delegated_events, walk_path, hydrate, dispose_all } from "/rsjs-runtime.js";
+import { signal, bind_text, bind_conditional, read_signal_initials, signal_initial_float, bind_delegated_events, walk_path, hydrate, dispose_all } from "/rsjs-runtime.js";
 
 hydrate("numericf64specialsnapshot_771b0857", (root, __rsjs_disposers = []) => {
     const __rsjs_signal_initials = read_signal_initials(root);
-    const __sig_0 = signal(signal_initial(__rsjs_signal_initials, 0, 0.0));
-    const __sig_1 = signal(signal_initial(__rsjs_signal_initials, 1, 1.0));
-    const __sig_2 = signal(signal_initial(__rsjs_signal_initials, 2, 0.0));
-    const __sig_3 = signal(signal_initial(__rsjs_signal_initials, 3, 0.0));
+    const __sig_0 = signal(signal_initial_float(__rsjs_signal_initials, 0, 0.0));
+    const __sig_1 = signal(signal_initial_float(__rsjs_signal_initials, 1, 1.0));
+    const __sig_2 = signal(signal_initial_float(__rsjs_signal_initials, 2, 0.0));
+    const __sig_3 = signal(signal_initial_float(__rsjs_signal_initials, 3, 0.0));
 
     function __handler_0(event) {
         __sig_2.set((__sig_0.get() / __sig_0.get()));

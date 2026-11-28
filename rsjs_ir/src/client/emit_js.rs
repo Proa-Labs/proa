@@ -7,7 +7,7 @@
 //! through this backend. The isolated API remains useful for direct Client IR
 //! v3 tests and conformance snapshots.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::{self, Write};
 
 use super::expr::{
@@ -117,6 +117,7 @@ pub struct ClientEmitContext {
     pub callback_prefix: String,
     pub node_ref_prefix: String,
     pub node_name: Option<String>,
+    pub(crate) f32_signals: HashSet<SignalId>,
     pub(crate) linked_helper_calls:
         Option<BTreeMap<crate::abi::HelperCallEdgeId, LinkedHelperCallTarget>>,
 }
@@ -134,6 +135,7 @@ impl Default for ClientEmitContext {
             callback_prefix: "__callback_".to_string(),
             node_ref_prefix: "__ref_".to_string(),
             node_name: None,
+            f32_signals: HashSet::new(),
             linked_helper_calls: None,
         }
     }
@@ -303,6 +305,13 @@ pub fn emit_expr_with_context(
     expr: &ClientExpr,
     ctx: &ClientEmitContext,
 ) -> Result<(), ClientEmitError> {
+    if matches!(
+        expr,
+        ClientExpr::Binary { .. } | ClientExpr::Conditional { .. }
+    ) && has_f32_source(expr, ctx)
+    {
+        return emit_f32_expr(out, expr, ctx);
+    }
     match expr {
         ClientExpr::Unit => out.push_str("undefined"),
         ClientExpr::Literal(value) => emit_value(out, value),
@@ -447,6 +456,23 @@ pub fn emit_expr_with_context(
             out.push(')');
         }
         ClientExpr::Binary { op, left, right } => {
+            if matches!(
+                op,
+                ClientBinaryOp::Eq
+                    | ClientBinaryOp::Ne
+                    | ClientBinaryOp::Lt
+                    | ClientBinaryOp::Le
+                    | ClientBinaryOp::Gt
+                    | ClientBinaryOp::Ge
+            ) && (has_f32_source(left, ctx) || has_f32_source(right, ctx))
+            {
+                out.push('(');
+                emit_f32_expr(out, left, ctx)?;
+                let _ = write!(out, " {} ", binary_op_js(*op));
+                emit_f32_expr(out, right, ctx)?;
+                out.push(')');
+                return Ok(());
+            }
             if let ClientBinaryOp::Checked { domain, .. } = op {
                 out.push_str(
                     op.checked_helper_js()
@@ -682,13 +708,22 @@ fn emit_stmt_inner(
         ClientStmt::SignalSet { id, value } => {
             out.push_str(&ctx.signal_name(*id));
             out.push_str(".set(");
-            emit_expr_with_context(out, value, ctx)?;
+            if ctx.f32_signals.contains(id) {
+                emit_f32_expr(out, value, ctx)?;
+            } else {
+                emit_expr_with_context(out, value, ctx)?;
+            }
             out.push_str(");\n");
         }
         ClientStmt::SignalUpdate { id, closure } => {
             out.push_str(&ctx.signal_name(*id));
             out.push_str(".update(");
-            emit_closure(out, closure, ctx)?;
+            if ctx.f32_signals.contains(id) {
+                out.push_str("(__c0) => ");
+                emit_f32_expr(out, &closure.body, ctx)?;
+            } else {
+                emit_closure(out, closure, ctx)?;
+            }
             out.push_str(");\n");
         }
         ClientStmt::EventPreventDefault => {
@@ -1043,6 +1078,71 @@ fn emit_call(
     Ok(())
 }
 
+fn has_f32_source(expr: &ClientExpr, ctx: &ClientEmitContext) -> bool {
+    match expr {
+        ClientExpr::SignalRead(id) => ctx.f32_signals.contains(id),
+        ClientExpr::Binary { op, left, right } if op.is_float_arithmetic() => {
+            has_f32_source(left, ctx) || has_f32_source(right, ctx)
+        }
+        ClientExpr::Conditional {
+            then_expr,
+            else_expr,
+            ..
+        } => has_f32_source(then_expr, ctx) || has_f32_source(else_expr, ctx),
+        ClientExpr::Unary {
+            op: ClientUnaryOp::Neg,
+            expr,
+        } => has_f32_source(expr, ctx),
+        _ => false,
+    }
+}
+
+/// Rust rounds each f32 operation and each contextually f32 literal before
+/// it is consumed by the next operation or formatter.
+fn emit_f32_expr(
+    out: &mut String,
+    expr: &ClientExpr,
+    ctx: &ClientEmitContext,
+) -> Result<(), ClientEmitError> {
+    match expr {
+        ClientExpr::Literal(Value::Float(value)) => emit_float(out, f64::from(*value as f32)),
+        ClientExpr::Binary { op, left, right } if op.is_float_arithmetic() => {
+            out.push_str("Math.fround(");
+            emit_f32_expr(out, left, ctx)?;
+            let _ = write!(out, " {} ", binary_op_js(*op));
+            emit_f32_expr(out, right, ctx)?;
+            out.push(')');
+        }
+        ClientExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            out.push('(');
+            emit_expr_with_context(out, condition, ctx)?;
+            out.push_str(" ? ");
+            emit_f32_expr(out, then_expr, ctx)?;
+            out.push_str(" : ");
+            emit_f32_expr(out, else_expr, ctx)?;
+            out.push(')');
+        }
+        ClientExpr::Unary {
+            op: ClientUnaryOp::Neg,
+            expr,
+        } => {
+            out.push_str("(-");
+            emit_f32_expr(out, expr, ctx)?;
+            out.push(')');
+        }
+        _ => {
+            out.push_str("Math.fround(");
+            emit_expr_with_context(out, expr, ctx)?;
+            out.push(')');
+        }
+    }
+    Ok(())
+}
+
 /// Emit an expression in the exact Rust type context supplied by a linked
 /// helper parameter.
 ///
@@ -1064,6 +1164,7 @@ fn emit_expr_with_expected_type(
 ) -> Result<(), ClientEmitError> {
     let expected = option_inner_type(expected);
     match (expression, expected) {
+        (expression, ClientType::F32) => emit_f32_expr(out, expression, ctx),
         (ClientExpr::Literal(value), expected) => {
             emit_value_with_expected_type(out, value, expected)
         }

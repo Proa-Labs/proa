@@ -2475,6 +2475,11 @@ fn reactive_text_ssr_preserves_integer_formatting_and_escaping() {
             html.contains(&format!("title=\"Price {:.2}\"", quantity as f64 * 1.25)),
             "{html}"
         );
+        let size = quantity as f64 * 1.25;
+        assert!(
+            html.contains(&format!("Size {size:.1} MB {size:>+9.3}|{size:08.2}")),
+            "{html}"
+        );
         assert!(
             html.contains(&format!("ServerOnlyText {{ code: {quantity} }}")),
             "{html}"
@@ -2496,8 +2501,10 @@ fn reactive_text_js_matches_conformance_snapshot() {
         island.js_source,
         "rsjs_conformance/snapshots/expressions/reactive_text.island.js",
     );
+    // The fixture declares ten client signals (__sig_0..=__sig_9); the
+    // server-only `{:.2}` / `{:?}` formats of `self` fields must not add one.
     assert!(
-        !island.js_source.contains("__sig_9"),
+        !island.js_source.contains("__sig_10"),
         "server-only formatting must not allocate an unused client signal"
     );
 }
@@ -2517,5 +2524,61 @@ fn reactive_text_ir_matches_conformance_snapshot() {
         "ReactiveTextSnapshot",
         0,
         "rsjs_conformance/snapshots/client_ir/reactive_text.body-ir.json",
+    );
+}
+
+#[test]
+fn formatted_float_hydration_preserves_seed_values_and_f32_operation_boundaries() {
+    for (special, wire, rendered) in [
+        (f64::NAN, "NaN", "NaN"),
+        (f64::INFINITY, "inf", "+inf"),
+        (f64::NEG_INFINITY, "-inf", "-inf"),
+    ] {
+        let upper = 1.0000001_f32;
+        let lower = 1.0_f32;
+        let html = proa_core::render_to_string(reactive_text_fixture::FormattedFloatSnapshot {
+            upper,
+            lower,
+            special,
+            flag: true,
+        });
+        assert!(html.contains(&format!("{:+}", upper - lower)), "{html}");
+        assert!(
+            html.contains(&format!("{:.9}", upper * (0.1_f32 + 0.2_f32))),
+            "{html}"
+        );
+        assert!(html.contains(&format!("{rendered}</p>")), "{html}");
+        assert!(
+            html.contains(&format!(r#""signals":[1.0000001,1,"{wire}",true]"#)),
+            "{html}"
+        );
+    }
+
+    let manifest = rsjs::manifest();
+    let island = manifest
+        .islands
+        .iter()
+        .find(|entry| entry.struct_name == "FormattedFloatSnapshot")
+        .expect("formatted float fixture registered");
+    let js = island.js_source;
+    assert!(
+        js.contains("signal_initial_float(__rsjs_signal_initials, 0, null, true), Math.fround)"),
+        "{js}"
+    );
+    assert!(
+        js.contains("Math.fround(Math.fround(__sig_0.get()) - Math.fround(__sig_1.get()))"),
+        "{js}"
+    );
+    assert!(
+        js.contains("Math.fround(Math.fround(__sig_0.get()) + Math.fround(__sig_1.get()))"),
+        "{js}"
+    );
+    assert!(
+        js.contains("__sig_3.get() ? Math.fround(__sig_0.get()) : 0.0"),
+        "{js}"
+    );
+    assert!(
+        js.contains("Math.fround(Math.fround(Math.fround(__sig_0.get()) + "),
+        "{js}"
     );
 }

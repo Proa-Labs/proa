@@ -69,8 +69,25 @@ Typed integer literals retain their Rust width, including signed radix output
 such as `text!("{} {:x}", quantity.get(), -1_i32)`. Conditional string arguments
 borrow signal text and can also select owned string transforms. Bare float
 placeholders retain Rust's `inf` / `-inf` spelling, including opaque float seeds.
-Float precision, scientific, debug, pointer and custom formatting traits remain
-server-only and produce `rsjs/text-format-unsupported` when used reactively.
+Reactive `f32`/`f64` placeholders also support Display with literal precision,
+width, fill, alignment, sign and zero padding, for example
+`text!("{:.1} MB", mb.get())`. These render through core::fmt on the server, so
+the client matches it: precision rounds the exact binary value half-to-even
+(`{:.0}` of `2.5` is `2`), output without a precision is the shortest
+round-trip value in plain positional notation. Island-local `f32` signals and
+arithmetic use the Rust width in the browser, and scalar float seeds preserve
+`NaN` and both infinities. The width must come from a typed island signal,
+a typed prop seeded into a signal, or a memo, arithmetic expression, or conditional
+over one of those. Other float arguments produce `rsjs/text-format-unsupported`:
+shared-state seeds, which use the general JSON codec, and float literals
+(including a prelude alias, typed closure parameter or memo built from
+literals), because the client types every float literal as `f64` while Rust
+may type it `f32`; block and handler locals, because their type comes from an
+initializer; query data, because it reaches server rendering as JSON text; and
+DOM, event and browser reads. Format the expression inline
+(`text!("{:.2}", price.get() * 2.0)`) rather than through a local. Float scientific (`e`/`E`), radix, debug, pointer
+and custom formatting traits remain server-only and produce
+`rsjs/text-format-unsupported` when used reactively.
 Server-only `text!` invocations keep the full existing Rust fmt support.
 
 Bare native Rust boolean arguments write no bytes in ordinary attributes,

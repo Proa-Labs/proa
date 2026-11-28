@@ -95,6 +95,23 @@ Filed for M11+.
 
 ---
 
+## 2. Formatted floats need a typed source
+
+Island-local `f32` signals use their Rust width at hydration and writes. The
+island emitter rounds arithmetic at each operation when an `f32` signal or a
+typed write supplies the width. Give `f32` signals an explicit suffix or
+`Signal<f32>` annotation. The client treats an unannotated `signal(0.1)` as
+`f64`, even if Rust infers `f32` from a later use.
+
+Reactive float formatting requires a typed island signal, a memo over one, or
+an expression whose width such a signal establishes. A standalone float literal,
+block or handler local, query value, or browser read cannot prove the Rust width
+for formatting. Page-shared seeds use the general JSON codec, which represents
+non-finite floats as null. Use a typed island signal or format the value on the
+server for these cases.
+
+---
+
 ## Adding to this file
 
 When you hit a limitation that blocks a real use case, add a section

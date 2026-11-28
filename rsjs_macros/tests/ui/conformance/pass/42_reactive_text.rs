@@ -28,6 +28,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReactiveTextSnapshot {
         let one = signal(1.0_f64);
         let ratio = signal(0.0_f64);
         let sampled = signal(self.initial_sampled);
+        let size: rsjs::Signal<f64> = signal(self.price);
         let unknown_flag = signal(self.initial_flag);
         let active = text!("Active: {}", unknown_flag.get());
         html_sync! {
@@ -55,6 +56,7 @@ impl<L: DataLoader> WebRenderSync<L> for ReactiveTextSnapshot {
                 </p>
                 <p>{text!("{} {:02} {:x} {:#X}", quantity.get(), 5_u32, -1_i32, -1_i64)}</p>
                 <p>{text!("Ratio {}", ratio.get())}</p>
+                <p>{text!("Size {:.1} MB {:>+9.3}|{:08.2}", size.get(), size.get(), size.get())}</p>
                 <p title={text!("{:>16.8}", if flag.get() { label.get() } else { other.get().to_uppercase() })}>
                     {text!("{} {}", if flag.get() { label.get() } else { other.get().to_uppercase() }, label.get())}
                 </p>
@@ -69,6 +71,38 @@ impl<L: DataLoader> WebRenderSync<L> for ReactiveTextSnapshot {
                 </p>
                 <p title={text!("Price {:.2}", self.price)}>{text!("{:.2}", self.price)}</p>
                 <p>{text!("{:?}", self.server_only)}</p>
+            </section>
+        }
+        .render(cx)
+    }
+}
+
+pub struct FormattedFloatSnapshot {
+    pub upper: f32,
+    pub lower: f32,
+    pub special: f64,
+    pub flag: bool,
+}
+
+#[rsjs(component, client)]
+impl<L: DataLoader> WebRenderSync<L> for FormattedFloatSnapshot {
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        let upper: rsjs::Signal<f32> = signal(self.upper);
+        let lower: rsjs::Signal<f32> = signal(self.lower);
+        let special: rsjs::Signal<f64> = signal(self.special);
+        let flag: rsjs::Signal<bool> = signal(self.flag);
+        html_sync! {
+            <section>
+                <button type="button" on_click={|_| {
+                    upper.update(|value| value + 0.000000059604644775390625 + 0.000000059604644775390625);
+                    flag.update(|value| !value);
+                }}>"Change"</button>
+                <p>{text!("{:+}", upper.get() - lower.get())}</p>
+                <p>{text!("{:+}", upper.get() + lower.get())}</p>
+                <p>{text!("{:.2}", if flag.get() { upper.get() } else { 0.0 })}</p>
+                <p>{text!("{:.9}", upper.get() * (0.1 + 0.2))}</p>
+                <p>{text!("{:.9}", if flag.get() { upper.get() } else { 0.1 + 0.2 })}</p>
+                <p>{text!("{:+}", special.get())}</p>
             </section>
         }
         .render(cx)
