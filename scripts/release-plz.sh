@@ -152,6 +152,12 @@ run_release_plz() {
     verify_release_source "$release_git_token"
   fi
 
+  if [[ "$command" == "release" && "$dry_run" == false ]]; then
+    # Main CI deploys the tested marketing image and exposes its commit at /readyz.
+    # Check it before publishing even the first library.
+    python3 deploy/marketing/release.py verify-docs --revision "$(git rev-parse HEAD)"
+  fi
+
   if [[ -n "$release_git_token" ]]; then
     export GIT_TOKEN="$release_git_token"
   fi

@@ -66,6 +66,9 @@ elif tool == "rustup":
 elif tool.startswith("check_"):
     if os.environ.get("TEST_FAIL_PREFLIGHT") == tool:
         sys.exit(1)
+elif tool == "release.py":
+    assert args == ["verify-docs", "--revision", os.environ["TEST_HEAD"]]
+    sys.exit(int(bool(os.environ.get("TEST_DOCS_STALE"))))
 elif tool == "release-plz":
     config = tomllib.loads(Path(args[args.index("--config") + 1]).read_text())
     cli = next(package for package in config["package"] if package["name"] == "proa-cli")
@@ -89,6 +92,9 @@ class ReleaseFlowTests(unittest.TestCase):
         scripts = self.root / "scripts"
         scripts.mkdir()
         shutil.copy2(WRAPPER, scripts / WRAPPER.name)
+        marketing = self.root / "deploy" / "marketing"
+        marketing.mkdir(parents=True)
+        self.write_stub(marketing / "release.py")
         self.bin = self.root / "bin"
         self.bin.mkdir()
         for name in ("release-plz", "cargo-semver-checks", "git", "gh", "cargo", "rustup"):
@@ -183,6 +189,11 @@ class ReleaseFlowTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("stale", result.stderr)
                 self.assertEqual(self.calls("release-plz"), [])
+
+    def test_stale_public_docs_block_library_and_cli_publication(self):
+        self.assertNotEqual(self.run_wrapper("release", TEST_DOCS_STALE="yes").returncode, 0)
+        self.assertEqual(self.calls("release-plz"), [])
+        self.assertFalse(any(self.calls("release.py")[0]["credentials"].values()))
 
     def test_expected_sha_attests_the_actual_checkout(self):
         result = self.run_wrapper("release", PROA_RELEASE_EXPECTED_SHA="b" * 40)
