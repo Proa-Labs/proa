@@ -9,6 +9,10 @@ pub const HOME: &str = "/";
 pub const DOCS: &str = "/docs";
 pub const DOCS_PREFIX: &str = concatcp!(DOCS, "/");
 pub const DOCS_PATTERN: &str = concatcp!(DOCS, "/{*path}");
+pub const BLOG: &str = "/blog";
+pub const BLOG_PREFIX: &str = concatcp!(BLOG, "/");
+pub const BLOG_PATTERN: &str = concatcp!(BLOG, "/{*path}");
+pub const BLOG_MARKDOWN: &str = concatcp!(BLOG, "/index.md");
 pub const API_GUIDE: &str = concatcp!(DOCS, "/api");
 pub const API_GUIDE_MARKDOWN: &str = concatcp!(API_GUIDE, ".md");
 pub const DOCS_INDEX: &str = concatcp!(DOCS, "/llms.txt");
@@ -59,6 +63,7 @@ pub const SKILL_PATTERN: &str = concatcp!(SKILLS_ROOT, "/{name}/SKILL.md");
 
 pub const STATIC_ROUTES: &[&str] = &[
     HOME,
+    BLOG,
     "/playground",
     "/playground/airbnb/listing",
     "/playground/github-pr/github-pr-diff",

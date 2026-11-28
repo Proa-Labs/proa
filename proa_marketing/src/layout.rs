@@ -64,6 +64,20 @@ pub fn render_managed_page<C>(path: &'static str, content: C) -> Response
 where
     C: WebRenderSync<NoLoader, RenderBuffer> + Send + 'static,
 {
+    render_managed(Shell::Marketing, path, content)
+}
+
+pub(crate) fn render_managed_docs_page<C>(path: &'static str, content: C) -> Response
+where
+    C: WebRenderSync<NoLoader, RenderBuffer> + Send + 'static,
+{
+    render_managed(Shell::Docs, path, content)
+}
+
+fn render_managed<C>(shell: Shell, path: &'static str, content: C) -> Response
+where
+    C: WebRenderSync<NoLoader, RenderBuffer> + Send + 'static,
+{
     static HEAD: std::sync::OnceLock<HeadConfig> = std::sync::OnceLock::new();
     let head = HEAD.get_or_init(|| {
         let origin = public_site_url();
@@ -98,7 +112,7 @@ where
     });
     let response = futures::executor::block_on(
         RouteResponse::ssr_async(Document {
-            shell: Shell::Marketing,
+            shell,
             path,
             metadata: ManagedMetadata { path },
             managed: true,
@@ -110,7 +124,7 @@ where
             ..FrameworkRequestContext::default()
         }),
     )
-    .expect("render managed marketing page");
+    .expect("render managed page");
     let FrameworkBody::Full(body) = response.body else {
         unreachable!("buffered page produces a complete response")
     };
@@ -368,7 +382,7 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for ManagedMetadata {
 
 /// The `<head>` both shells share. Only the docs enhancement script differs.
 struct PageHead<M> {
-    shell: Shell,
+    article_tools: bool,
     metadata: M,
 }
 
@@ -387,7 +401,7 @@ where
             {SiteIcons}
             <link rel="stylesheet" href={cx.url(STYLESHEET_PATH)} />
             <script type="module" src={cx.url("public/search.mjs")}></script>
-            {if self.shell.is_docs() {
+            {if self.article_tools {
                 WebRenderSync::render(
                     html_sync! {
                         <script src={cx.url("public/docs.js")} defer></script>
@@ -422,7 +436,13 @@ where
 {
     fn render(self, cx: &mut WebContext<L, B>) -> Result<(), WriteError> {
         if self.shell.is_docs() {
-            return self.content.render(cx);
+            // The child slot dispatches managed Page metadata without adding markup.
+            return WebRenderSync::render(
+                html_sync! {
+                    {self.content}
+                },
+                cx,
+            );
         }
 
         WebRenderSync::render(
@@ -457,7 +477,7 @@ where
                 <html lang="en">
                     <head>
                         {proa_core::to_async(PageHead {
-                            shell: self.shell,
+                            article_tools: self.shell.is_docs(),
                             metadata: self.metadata,
                         })}
                     </head>

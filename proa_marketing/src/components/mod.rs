@@ -10,4 +10,5 @@ pub mod icons;
 pub mod landing_shell;
 pub mod search;
 pub mod search_trigger;
+mod social_link;
 pub mod theme_toggle;

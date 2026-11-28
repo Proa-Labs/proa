@@ -31,6 +31,71 @@ async fn fetch(app: &Router, path: &str, accept: &str) -> (StatusCode, HeaderMap
 }
 
 #[tokio::test]
+async fn blog_links_compiled_posts_and_negotiates_their_representations() {
+    let app = super::app();
+    let collection = crate::pages::blog::docs();
+    assert!(collection.pages.iter().any(|page| !page.frontmatter.hidden));
+    let (status, headers, archive) = fetch(&app, "/blog", "text/html").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::VARY], "Accept");
+    assert!(archive.contains("data-component=\"blog-archive\""));
+    assert!(archive.contains("href=\"/blog\" aria-current=\"page\""));
+    let (_, _, archive_markdown) = fetch(&app, "/blog", "text/markdown").await;
+    assert_eq!(
+        archive_markdown,
+        fetch(&app, "/blog/index.md", "*/*").await.2
+    );
+
+    let (_, _, sitemap) = fetch(&app, "/sitemap.xml", "*/*").await;
+    for page in collection
+        .pages
+        .iter()
+        .filter(|page| !page.frontmatter.hidden)
+    {
+        let href = format!("href=\"{}\"", page.route_path);
+        assert!(archive.contains(&href));
+        assert!(archive_markdown.contains(&format!("]({})", page.route_path)));
+        assert!(sitemap.contains(&format!("{}</loc>", page.route_path)));
+
+        let (status, headers, article) = fetch(&app, page.route_path, "text/html").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::VARY], "Accept");
+        assert!(headers[header::LINK]
+            .to_str()
+            .unwrap()
+            .contains(page.markdown_path));
+        assert!(article.contains(&format!("{href} aria-current=\"page\"")));
+        assert_eq!(article.matches("<h1").count(), 1);
+        assert!(article.contains("rel=\"canonical\""));
+        assert!(article.contains(page.article_html));
+        let (_, after_header_start) = article
+            .split_once("<header class=\"blog-article-header\">")
+            .unwrap();
+        let (article_header, _) = after_header_start.split_once("</header>").unwrap();
+        assert!(article_header.contains("<time datetime="));
+        assert!(article_header.contains(&format!(
+            "data-docs-markdown-src=\"{}\"",
+            page.markdown_path
+        )));
+
+        let (_, headers, markdown) = fetch(&app, page.route_path, "text/markdown").await;
+        assert_eq!(
+            headers[header::CONTENT_TYPE],
+            "text/markdown; charset=utf-8"
+        );
+        assert_eq!(markdown, page.markdown);
+        assert_eq!(markdown, fetch(&app, page.markdown_path, "*/*").await.2);
+    }
+
+    for accept in ["text/html", "text/markdown"] {
+        assert_eq!(
+            fetch(&app, "/blog/missing-post", accept).await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
+}
+
+#[tokio::test]
 async fn homepage_negotiates_markdown_and_keeps_html_for_browsers() {
     let app = super::app();
     let (_, headers, html) = fetch(&app, "/", "text/html").await;

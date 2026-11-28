@@ -104,8 +104,8 @@ impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsPageView {
     }
 }
 
-struct DocsHeader {
-    active_path: &'static str,
+pub(crate) struct DocsHeader {
+    pub(crate) active_path: &'static str,
 }
 
 impl<L: DataLoader, B: WriteBuf> WebRenderSync<L, B> for DocsHeader {
