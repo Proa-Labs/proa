@@ -252,11 +252,10 @@ export default function SearchFilters({ filters }: SearchFiltersProps) {
 ```
 
 **Proa (only the interactive part ships JS):**
-```rust
+```rust check="react_search_filters"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa::html_sync;
 use rsjs::{event_handler, signal};
-use rsjs_macros::rsjs;
+use rsjs::rsjs;
 
 pub struct SearchFilters<'a> {
     pub filters: &'a [&'a str],
@@ -268,10 +267,10 @@ impl<'a, L: DataLoader> WebRenderSync<L> for SearchFilters<'a> {
         let selected = signal(0_i64);
         let pick = event_handler(|_: rsjs::Event, index: i64| selected.set(index));
 
-        html_sync! {
+        proa::html_sync! {
             <div class="search-filters">
-                {for (index, filter) in self.filters.iter().enumerate() {
-                    html_sync! {
+                {for (index, filter) in self.filters.iter().copied().enumerate() {
+                    proa::html_sync! {
                         <button
                             type="button"
                             class={if selected.get() == index as i64 { "filter-btn active" } else { "filter-btn" }}

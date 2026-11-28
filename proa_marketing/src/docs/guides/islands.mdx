@@ -6,23 +6,13 @@ keywords: [island, hydrate]
 
 Most Proa pages should stay server-rendered. Add an island only for UI that must keep state in the browser after the HTML arrives.
 
-| Need | Use |
-|------|-----|
-| Render data, links, forms, tables, metadata | Normal `WebRenderSync` page/component |
-| Submit to the server | Native `<form method="post">` |
-| Toggle, filter, validate, open, close, copy, measure, or react to input without a navigation | `#[rsjs(component, client)]` island |
-| Fetch browser-visible data after hydration | Async RSJS query/mutation island |
-
-The boundary is explicit: the server renders HTML first, then RSJS hydrates only the marked island.
-
 ## First Island
 
 Author the normal render trait, then mark it for RSJS analysis and permission to
 originate browser behavior:
 
-```rust
+```rust check="intro_islands"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa::html_sync;
 use rsjs::signal;
 use rsjs::rsjs;
 
@@ -36,7 +26,7 @@ impl<L: DataLoader> WebRenderSync<L> for FavoriteButton {
         let saved = signal(false);
         let label = self.label;
 
-        html_sync! {
+        proa::html_sync! {
             <button
                 type="button"
                 aria_pressed={if saved.get() { "true" } else { "false" }}
@@ -44,9 +34,9 @@ impl<L: DataLoader> WebRenderSync<L> for FavoriteButton {
                 class="rounded-md border px-3 py-2 text-sm"
             >
                 {if saved.get() {
-                    html_sync! { <span>"Saved"</span> }
+                    proa::html_sync! { <span>"Saved"</span> }
                 } else {
-                    html_sync! { <span>{label}</span> }
+                    proa::html_sync! { <span>{label}</span> }
                 }}
             </button>
         }
@@ -72,6 +62,17 @@ html_sync! {
 The server still sends real button HTML. RSJS adds the handler, signal seed, and per-island runtime metadata next to that HTML.
 
 For managed metadata, keep `ROLE = PAGE` and `render_head` on an ordinary SSR Page wrapper around the island. Ancestor metadata layouts declare `LAYOUT`; the analyzed island impl keeps the default component role and contains its render method only. See [Layouts and Pages](/docs/framework/layouts-and-pages).
+
+## When A Page Needs An Island
+
+| Need | Use |
+|------|-----|
+| Render data, links, forms, tables, metadata | Normal `WebRenderSync` page/component |
+| Submit to the server | Native `<form method="post">` |
+| Toggle, filter, validate, open, close, copy, measure, or react to input without a navigation | `#[rsjs(component, client)]` island |
+| Fetch browser-visible data after hydration | Async RSJS query/mutation island |
+
+The boundary is explicit: the server renders HTML first, then RSJS hydrates only the marked island.
 
 ## What Gets Hydrated
 
@@ -123,7 +124,7 @@ Avoid writing to signals while the server is rendering the template body. Signal
 
 Use bindings for simple form state:
 
-```rust
+```rust check="intro_islands"
 pub struct ProductFilter;
 
 #[rsjs(component, client)]
@@ -132,7 +133,7 @@ impl<L: DataLoader> WebRenderSync<L> for ProductFilter {
         let query = signal(String::new());
         let in_stock = signal(false);
 
-        html_sync! {
+        proa::html_sync! {
             <form class="grid gap-3">
                 <label>
                     "Search"
@@ -189,7 +190,7 @@ the initial value.
 
 Render a child island component directly when the parent should own state:
 
-```rust
+```rust check="intro_islands"
 pub struct SearchInput {
     pub value: String,
     pub on_change: rsjs::Handler<String>,
@@ -198,7 +199,7 @@ pub struct SearchInput {
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRenderSync<L> for SearchInput {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
-        html_sync! {
+        proa::html_sync! {
             <input
                 type="search"
                 value={self.value}
@@ -217,7 +218,7 @@ impl<L: DataLoader> WebRenderSync<L> for SearchPanel {
         let query = signal(String::new());
         let on_change = rsjs::handler(|next: String| query.set(next));
 
-        html_sync! {
+        proa::html_sync! {
             <section>
                 {SearchInput {
                     value: query.get(),
@@ -276,9 +277,8 @@ See [Hydration](/docs/rsjs/hydration) for the full behavior.
 
 Use sync islands for local browser state. Switch to async `WebRender` when the island declares `mutation(...)` or awaits server data before rendering. A `query_with_initial(...)` whose initial value is already available can stay on `WebRenderSync`:
 
-```rust
+```rust check="islands_stock_price"
 use proa::{DataLoader, LoadKey, WebContext, WebRender, WriteError};
-use proa::html;
 use rsjs::rsjs;
 use std::future::Future;
 
@@ -300,7 +300,7 @@ impl<L: DataLoader> WebRender<L> for StockTile {
             let initial: StockPrice = cx
                 .load_json(LoadKey::named("stock", "AAPL"))
                 .await?;
-            let price = rsjs::query_with_initial(
+            let price: rsjs::Query<StockPrice> = rsjs::query_with_initial(
                 rsjs::QueryKey::new(("stock", "AAPL")),
                 initial,
                 rsjs::FetchRequest {
@@ -312,7 +312,7 @@ impl<L: DataLoader> WebRender<L> for StockTile {
                 rsjs::QueryOptions::default(),
             );
 
-            html! {
+            proa::html! {
                 <span>{price.data().value}</span>
             }
             .render(cx)

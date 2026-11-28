@@ -13,7 +13,8 @@ use axum::{
 };
 use proa_core::shared::attr_value::AttrValue;
 use proa_core::{
-    AppUrl, DataLoader, MdRenderSync, StaticRaw, WebContext, WebRenderSync, WriteBuf, WriteError,
+    AppUrl, DataLoader, MdRenderSync, StaticRaw, TrustedMarkdown, WebContext, WebRenderSync,
+    WriteBuf, WriteError,
 };
 use proa_macros::{html_sync, md_sync, omit};
 use rsjs::signal;
@@ -342,9 +343,9 @@ const BENCHMARK_CONTAINER: &str = "mx-auto w-full max-w-[1080px] px-4 sm:px-6 lg
 const BENCHMARK_TAB: &str = "rounded-[10px] px-2 py-3 text-sm font-medium text-[#777169] transition-colors hover:text-zinc-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dd7627] data-[state=active]:bg-white data-[state=active]:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-100 dark:data-[state=active]:bg-zinc-950 dark:data-[state=active]:text-zinc-50 sm:px-4";
 const BENCHMARK_PANEL: &str = "overflow-x-auto rounded-[20px] border border-black/10 bg-[#fcfcfb] p-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#dd7627] dark:border-white/10 sm:p-5";
 
-const COMPOSABLE_SOURCE_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-white/10 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#8ec5ff]">ProductCard</span><span class="text-white/45">::</span><span class="text-[#ffd166]">new</span>(product)</code></pre>"##;
+const COMPOSABLE_SOURCE_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-white/10 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="language-rust block whitespace-pre"><span class="text-[#8ec5ff]">ProductCard</span><span class="text-white/45">::</span><span class="text-[#ffd166]">new</span>(product)</code></pre>"##;
 
-const COMPOSABLE_MD_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-[#dd7627]/35 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#ffb070]">impl</span>&lt;L: <span class="text-[#d8b4fe]">DataLoader</span>&gt; <span class="text-[#d8b4fe]">MdRenderSync</span>&lt;L&gt; <span class="text-[#ffb070]">for</span> <span class="text-[#8ec5ff]">ProductCard</span> {
+const COMPOSABLE_MD_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-[#dd7627]/35 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="language-rust block whitespace-pre"><span class="text-[#ffb070]">impl</span>&lt;L: <span class="text-[#d8b4fe]">DataLoader</span>&gt; <span class="text-[#d8b4fe]">MdRenderSync</span>&lt;L&gt; <span class="text-[#ffb070]">for</span> <span class="text-[#8ec5ff]">ProductCard</span> {
     <span class="text-[#ffb070]">fn</span> <span class="text-[#ffd166]">render_md</span>(self, cx: &amp;mut <span class="text-[#8ec5ff]">WebContext</span>&lt;L&gt;) -&gt; <span class="text-[#8ec5ff]">Result</span>&lt;(), <span class="text-[#8ec5ff]">WriteError</span>&gt; {
         <span class="text-[#ff8a8a]">md_sync!</span> { <span class="text-[#a7e3a1]">r###&quot;
             # </span>{self.product.name}<span class="text-[#a7e3a1]">
@@ -356,7 +357,7 @@ const COMPOSABLE_MD_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded-
     }
 }</code></pre>"##;
 
-const COMPOSABLE_WEB_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-[#dd7627]/35 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#ffb070]">impl</span>&lt;L: <span class="text-[#d8b4fe]">DataLoader</span>&gt; <span class="text-[#d8b4fe]">WebRenderSync</span>&lt;L&gt; <span class="text-[#ffb070]">for</span> <span class="text-[#8ec5ff]">ProductCard</span> {
+const COMPOSABLE_WEB_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-[#dd7627]/35 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="language-rust block whitespace-pre"><span class="text-[#ffb070]">impl</span>&lt;L: <span class="text-[#d8b4fe]">DataLoader</span>&gt; <span class="text-[#d8b4fe]">WebRenderSync</span>&lt;L&gt; <span class="text-[#ffb070]">for</span> <span class="text-[#8ec5ff]">ProductCard</span> {
     <span class="text-[#ffb070]">fn</span> <span class="text-[#ffd166]">render</span>(self, cx: &amp;mut <span class="text-[#8ec5ff]">WebContext</span>&lt;L&gt;) -&gt; <span class="text-[#8ec5ff]">Result</span>&lt;(), <span class="text-[#8ec5ff]">WriteError</span>&gt; {
         <span class="text-[#ff8a8a]">html_sync!</span> {
             &lt;article data-product-card&gt;
@@ -368,12 +369,12 @@ const COMPOSABLE_WEB_RENDER_HTML: &str = r##"<pre class="overflow-x-auto rounded
     }
 }</code></pre>"##;
 
-const COMPOSABLE_MD_CHILD_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-white/10 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#ff8a8a]">md_sync!</span> { <span class="text-[#a7e3a1]">r###&quot;
+const COMPOSABLE_MD_CHILD_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-white/10 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="language-rust block whitespace-pre"><span class="text-[#ff8a8a]">md_sync!</span> { <span class="text-[#a7e3a1]">r###&quot;
     [</span>{self.label}<span class="text-[#a7e3a1]">](</span>{self.href}<span class="text-[#a7e3a1]">)
     &quot;###</span>
 }</code></pre>"##;
 
-const COMPOSABLE_WEB_CHILD_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-white/10 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="block whitespace-pre"><span class="text-[#ff8a8a]">html_sync!</span> {
+const COMPOSABLE_WEB_CHILD_HTML: &str = r##"<pre class="overflow-x-auto rounded-[20px] border border-white/10 bg-[#07080a] p-4 font-mono text-[12px] leading-6 text-[#d7dde8] shadow-[0_30px_90px_-60px_rgba(0,0,0,0.9)]"><code class="language-rust block whitespace-pre"><span class="text-[#ff8a8a]">html_sync!</span> {
     &lt;a href={self.href} data-link&gt;
         {self.label}
     &lt;/a&gt;
@@ -2377,9 +2378,9 @@ impl<L: DataLoader, B: WriteBuf> MdRenderSync<L, B> for InterfaceLayerHero {
         omit!(PlayIcon, "Decorative play icon");
         omit!(self.video_aria, "HTML announces the new-tab behavior");
         md_sync! { r###"
-            # {self.title}
+            # {TrustedMarkdown(self.title)}
 
-            {self.lead_prefix}[{self.performance_label}]({Url(self.benchmarks_url)}){self.lead_suffix}
+            {self.lead_prefix}[{self.performance_label}]({Url(self.benchmarks_url)}){TrustedMarkdown(self.lead_suffix)}
 
             - [{self.start_label}]({Url(self.start_url)})
             - [{self.video_label}]({Url(self.video_url)})

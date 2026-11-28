@@ -1,13 +1,10 @@
 ---
 title: Markdown rendering
 description: Compose Markdown as one of a component's render targets, sharing data and typed children across formats.
+keywords: [Markdown, md_sync, MdRenderSync, MdRender]
 ---
 
-Markdown is an interface for documentation, feeds, command-line clients, and content inside conversations. These consumers need a useful representation of the same application data a browser displays.
-
-Proa makes rendering a trait rather than a fixed output format. A Rust component can share fields and typed children across HTML, Markdown, and other render targets, defining its output for each target. HTML uses `WebRenderSync` and Markdown uses `MdRenderSync`; other targets can define their own rendering traits. Use `WebRender` and `MdRender` when the HTML or Markdown implementation needs to await work.
-
-For an agent consuming content, direct Markdown rendering also avoids extracting text from browser markup. The Markdown implementation chooses which content and structure to include, using the same component data as the HTML implementation.
+Markdown is an interface for documentation, feeds, command-line clients, and content inside conversations. These consumers need a useful representation of the same application data a browser displays. A component renders Markdown by implementing `MdRenderSync`:
 
 ```rust filename="src/components/product_summary.rs"
 use proa::{DataLoader, MdRenderSync, WebContext, WriteError};
@@ -30,6 +27,10 @@ impl<L: DataLoader> MdRenderSync<L> for ProductSummary {
     }
 }
 ```
+
+Proa makes rendering a trait rather than a fixed output format. A Rust component can share fields and typed children across HTML, Markdown, and other render targets, defining its output for each target. HTML uses `WebRenderSync` and Markdown uses `MdRenderSync`; other targets can define their own rendering traits. Use `WebRender` and `MdRender` when the HTML or Markdown implementation needs to await work.
+
+For an agent consuming content, direct Markdown rendering also avoids extracting text from browser markup. The Markdown implementation chooses which content and structure to include, using the same component data as the HTML implementation.
 
 That makes Markdown composable. Components nest, loop, and take children, so a `SearchPage` builds a document out of fifty `Listing` components and none of them concatenates a string. Change `Listing` and every document containing one changes.
 

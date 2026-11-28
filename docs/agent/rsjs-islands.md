@@ -1117,16 +1117,22 @@ pub struct WorkbenchState {
 }
 
 html_sync! {
-    {rsjs::SharedStateProvider {
-        state: WorkbenchState {
-            mode: "select".into(),
-            button_bg: "#2f6b4f".into(),
-            selected_node: None,
-        },
-        children: WorkbenchChildren {},
-    }}
+    <main data-workbench>
+        {rsjs::SharedStateProvider {
+            state: WorkbenchState {
+                mode: "select".into(),
+                button_bg: "#2f6b4f".into(),
+                selected_node: None,
+            },
+            children: WorkbenchChildren {},
+        }}
+    </main>
 }
 ```
+
+The provider sits inside the component's root element. In an analyzed impl a
+bare provider expression as the template root is rejected with
+`#[rsjs] body must contain a top-level element`.
 
 `WorkbenchChildren` is one direct analyzed component whose render tree may
 contain `ThemePanel`, `CanvasPreview`, and `Inspector`. The v1 provider grammar

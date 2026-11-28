@@ -9,7 +9,12 @@ RSJS hydrates every island immediately unless a component asks for a later trigg
 
 The server always sends real HTML first. A **final owner** is the linked unit RSJS activates in the browser. The strategy controls only when that owner attaches client state, event handlers, input bindings, and query/mutation runtime work.
 
-```rust filename="src/components/cart_button.rs"
+```rust check="hydration_cart_button" filename="src/components/cart_button.rs"
+use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};
+use rsjs::{rsjs, signal};
+
+pub struct CartButton;
+
 #[rsjs(component, client)]
 impl<L: DataLoader> WebRenderSync<L> for CartButton {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -27,7 +32,12 @@ impl<L: DataLoader> WebRenderSync<L> for CartButton {
 Add `strategy = "..."` to the complete component attribute when the final owner can
 wait without breaking the first user action.
 
-```rust filename="src/components/below_fold_filters.rs"
+```rust check="hydration_below_fold_filters" filename="src/components/below_fold_filters.rs"
+use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};
+use rsjs::{rsjs, signal};
+
+pub struct BelowFoldFilters;
+
 #[rsjs(component, client, strategy = "visible")]
 impl<L: DataLoader> WebRenderSync<L> for BelowFoldFilters {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -88,7 +98,12 @@ Interaction carries the most runtime nuance of the deferred triggers, so the nex
 Use `interaction` when HTML handles the first paint and a user action activates
 the owner.
 
-```rust filename="src/components/search_box.rs"
+```rust check="hydration_search_box" filename="src/components/search_box.rs"
+use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};
+use rsjs::{rsjs, signal};
+
+pub struct SearchBox;
+
 #[rsjs(component, client, strategy = "interaction:focusin")]
 impl<L: DataLoader> WebRenderSync<L> for SearchBox {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
@@ -122,7 +137,12 @@ module import itself. The next section covers the layout-driven trigger of that 
 
 Use `media:<query>` when the owner only matters in a matching layout.
 
-```rust filename="src/components/desktop_inspector.rs"
+```rust check="hydration_desktop_inspector" filename="src/components/desktop_inspector.rs"
+use proa::{html_sync, DataLoader, WebContext, WebRenderSync, WriteError};
+use rsjs::{rsjs, signal};
+
+pub struct DesktopInspector;
+
 #[rsjs(component, client, strategy = "media:(min-width: 1024px)")]
 impl<L: DataLoader> WebRenderSync<L> for DesktopInspector {
     fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {

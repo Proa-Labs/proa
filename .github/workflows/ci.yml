@@ -119,6 +119,8 @@ jobs:
         run: |
           cargo run --locked -p proa-cli --bin proa -- \
             test --root proa_marketing --locked -p proa_marketing --bin proa_marketing
+      - name: Compile framework documentation and link RSJS examples
+        run: python3 scripts/check_docs_examples.py --cli "${CARGO_TARGET_DIR:-target}/debug/proa"
       - name: Test browser documentation tools
         run: node --test proa_marketing/tests-js/*.test.mjs
       - name: Test search-engine notification boundaries

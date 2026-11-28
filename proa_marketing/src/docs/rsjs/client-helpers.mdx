@@ -7,9 +7,9 @@ RSJS evaluates a `#[rsjs::client]` function during the server render, then rerun
 
 ## Annotating a helper
 
-Use `#[rsjs::client]` when a small, portable calculation must produce the same result during SSR and rerun after a browser-visible input changes. Annotate the function definition once. A reachable call creates a symbolic helper edge automatically; the consuming component declares no allowlist.
+A client helper is an ordinary function with one attribute:
 
-```rust filename="src/components/results.rs"
+```rust check="results" filename="src/components/results.rs"
 mod labels {
     #[rsjs::client]
     pub fn result_label(count: i64) -> String {
@@ -24,11 +24,12 @@ mod labels {
 use labels::result_label as label_for_count;
 ```
 
+Use `#[rsjs::client]` when a small, portable calculation must produce the same result during SSR and rerun after a browser-visible input changes. Annotate the function definition once. A reachable call creates a symbolic helper edge automatically; the consuming component declares no allowlist.
+
 Call the helper through an ordinary Rust path inside an analyzed component:
 
-```rust filename="src/components/results.rs"
+```rust check="results" filename="src/components/results.rs"
 use proa::{DataLoader, WebContext, WebRenderSync, WriteError};
-use proa::html_sync;
 use rsjs::{event_handler, rsjs, signal};
 
 pub struct Results;
@@ -41,7 +42,7 @@ impl<L: DataLoader> WebRenderSync<L> for Results {
             count.update(|value| value + 1_i64);
         });
 
-        html_sync! {
+        proa::html_sync! {
             <div>
                 <button type="button" on_click={increment()}>"Add"</button>
                 <p>{count.get()}" "{label_for_count(count.get())}</p>
@@ -70,8 +71,9 @@ Path spelling is not helper identity. Rustc-selected relocation targets give the
 Because the linker resolves identity this way, RSJS removed the component-level `clients(...)` list:
 
 ```rust filename="src/components/results.rs"
-// Rejected:
+// Rejected component attribute.
 #[rsjs(component, client, clients(crate::labels))]
+impl WebRenderSync for Label { /* render method */ }
 ```
 
 The supported form is the annotation alone:

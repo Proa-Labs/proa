@@ -137,6 +137,12 @@ latest published crate, as does a fallback when binary metadata is unavailable.
 A failed pinned build stops rather than retrying another version. Main snapshots
 require a prebuilt archive; choose a published version to build from source.
 
+## Documentation examples
+
+Run `python3 scripts/check_docs_examples.py --cli target/debug/proa` after building the CLI. It parses every Rust fence, validates HTML macro bodies using the Proa template parser, and asks the Rust compiler to resolve the documented Proa imports against the candidate crates. Project configuration imports use the CLI’s configuration runner. The check also verifies dependency versions and compiles each `render_head` excerpt with a real `WebContext`.
+
+Fences with `check="name"` are compiled together as a module. The RSJS examples also go through descriptor generation and final linking. Use the same name across fences that form one example.
+
 ## Quickstart acceptance
 
 Build both local CLI binaries, then verify the Basic app using the examples

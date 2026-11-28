@@ -1,19 +1,15 @@
 ---
-title: proa.config.rs
-description: Configure the dev command, public assets, and component registries.
-keywords: [proa.config.rs, lightningcss, "Lightning CSS", postcss, minify_rsjs, scripts.css]
+title: Project configuration (proa.config.rs)
+sidebar_title: "Project: proa.config.rs"
+description: Configure the CLI with proa.config.rs, including the dev command, public assets, and component registries.
+keywords: [proa.config.rs, "project config", "project configuration", "CLI configuration", lightningcss, "Lightning CSS", postcss, minify_rsjs, scripts.css]
 ---
 
-Place `proa.config.rs` next to the project's `Cargo.toml` and export
-`pub async fn config() -> Result<Config>`. The CLI supplies the
-`proa::config` types, including a `Result` alias that accepts errors from
-operations such as file reads via `?`. Your application owns its routes,
-base path, listeners, and runtime settings.
+`proa.config.rs` configures the `proa` CLI: the dev and build commands, asset
+tasks, and component registries. The running server is configured separately,
+in your application code; see [Runtime configuration](/docs/framework/configuration).
 
-Use `Config::default()` or wrap a `Config` struct literal in `Ok` to override
-only the settings you need. These are the default lifecycle commands.
-
-```rust
+```rust filename="proa.config.rs"
 use proa::config::{Config, Result, ScriptsConfig};
 
 pub async fn config() -> Result<Config> {
@@ -27,6 +23,16 @@ pub async fn config() -> Result<Config> {
     })
 }
 ```
+
+Place `proa.config.rs` next to the project's `Cargo.toml` and export
+`pub async fn config() -> Result<Config>`. The CLI supplies the
+`proa::config` types, including a `Result` alias that accepts errors from
+operations such as file reads via `?`. Your application owns its routes,
+base path, listeners, and runtime settings.
+
+Use `Config::default()` or wrap a `Config` struct literal in `Ok` to override
+only the settings you need. The example above spells out the default
+lifecycle commands.
 
 Application, database, deployment, paths, registries, scripts, and build
 options also use Rust structs. For example, enable the SQLite capability
