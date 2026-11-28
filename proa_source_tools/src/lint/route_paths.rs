@@ -42,12 +42,14 @@ pub(super) fn lint_route_paths(
     if !usage.axum {
         return;
     }
+    let mut root = AxumUsage::default();
+    root.declarations(&file.items, None);
     let mut calls = RouteCalls {
-        usage: AxumUsage::default(),
+        modules: vec![root.clone()],
+        usage: root,
         routers: Default::default(),
         found: Vec::new(),
     };
-    calls.usage.declarations(&file.items, None);
     calls.visit_file(file);
     calls.found.retain(|(literal, _)| {
         !line_in_ranges(literal.span().start().line, ignored_ranges)
@@ -73,30 +75,44 @@ struct AxumUsage {
     axum: bool,
     /// Some path or import goes through `proa::axum` or `proa_framework_axum`.
     proa_axum: bool,
-    router_types: std::collections::BTreeSet<String>,
-    spec_functions: std::collections::BTreeSet<String>,
+    // A false binding lets an imported custom type or function shadow an Axum name.
+    router_types: std::collections::BTreeMap<String, bool>,
+    spec_functions: std::collections::BTreeMap<String, bool>,
 }
 
 impl AxumUsage {
-    fn declarations<'a>(
-        &mut self,
-        items: impl IntoIterator<Item = &'a syn::Item>,
-        parent: Option<&Self>,
-    ) {
+    fn declarations<'a, I>(&mut self, items: I, parent: Option<&Self>)
+    where
+        I: IntoIterator<Item = &'a syn::Item>,
+        I::IntoIter: Clone,
+    {
+        let items = items.into_iter();
+        // Explicit imports and local definitions take precedence over a glob,
+        // regardless of their order within a module or block.
+        if let Some(parent) = parent {
+            if items.clone().any(|item| {
+                matches!(item, syn::Item::Use(import)
+                    if matches!(&import.tree, syn::UseTree::Path(path)
+                        if path.ident == "super" && matches!(*path.tree, syn::UseTree::Glob(_))))
+            }) {
+                self.router_types.extend(parent.router_types.clone());
+                self.spec_functions.extend(parent.spec_functions.clone());
+            }
+        }
         for item in items {
             match item {
                 syn::Item::Use(import) => self.record_use(&import.tree, &mut Vec::new(), parent),
                 syn::Item::Fn(f) => {
-                    self.spec_functions.remove(&f.sig.ident.to_string());
+                    self.spec_functions.insert(f.sig.ident.to_string(), false);
                 }
                 syn::Item::Type(ty) => {
-                    self.router_types.remove(&ty.ident.to_string());
+                    self.router_types.insert(ty.ident.to_string(), false);
                 }
                 syn::Item::Struct(s) => {
-                    self.router_types.remove(&s.ident.to_string());
+                    self.router_types.insert(s.ident.to_string(), false);
                 }
                 syn::Item::Enum(e) => {
-                    self.router_types.remove(&e.ident.to_string());
+                    self.router_types.insert(e.ident.to_string(), false);
                 }
                 _ => {}
             }
@@ -124,20 +140,15 @@ impl AxumUsage {
                     syn::UseTree::Rename(item) => (&item.ident, &item.rename),
                     _ => return,
                 };
-                self.router_types.remove(&alias.to_string());
-                self.spec_functions.remove(&alias.to_string());
                 let parent = parent.filter(|_| matches!(prefix.as_slice(), [p] if p == "super"));
-                if (name == "Router"
+                let name = name.to_string();
+                let is_router = (name == "Router"
                     && matches!(prefix.join("::").as_str(), "axum" | "axum::routing"))
-                    || parent.is_some_and(|p| p.router_types.contains(&name.to_string()))
-                {
-                    self.router_types.insert(alias.to_string());
-                }
-                if (name == "router_from_spec" && through_proa_axum(prefix))
-                    || parent.is_some_and(|p| p.spec_functions.contains(&name.to_string()))
-                {
-                    self.spec_functions.insert(alias.to_string());
-                }
+                    || parent.is_some_and(|p| p.router_types.get(&name) == Some(&true));
+                let is_spec = (name == "router_from_spec" && through_proa_axum(prefix))
+                    || parent.is_some_and(|p| p.spec_functions.get(&name) == Some(&true));
+                self.router_types.insert(alias.to_string(), is_router);
+                self.spec_functions.insert(alias.to_string(), is_spec);
             }
             syn::UseTree::Group(group) => {
                 for tree in &group.items {
@@ -177,6 +188,8 @@ impl<'ast> Visit<'ast> for AxumUsage {
 
 /// Collects `(path literal, is a nest prefix)` for every `Router` call.
 struct RouteCalls {
+    // `super` is relative to the enclosing module, including inside nested blocks.
+    modules: Vec<AxumUsage>,
     usage: AxumUsage,
     routers: std::collections::BTreeSet<String>,
     found: Vec<(syn::LitStr, bool)>,
@@ -197,7 +210,7 @@ fn string_literal(expr: &Expr) -> Option<&syn::LitStr> {
 impl RouteCalls {
     fn router_type(&self, path: &[String]) -> bool {
         match path {
-            [name] => self.usage.router_types.contains(name),
+            [name] => self.usage.router_types.get(name) == Some(&true),
             [krate, name] => krate == "axum" && name == "Router",
             [krate, module, name] => krate == "axum" && module == "routing" && name == "Router",
             _ => false,
@@ -248,7 +261,7 @@ impl RouteCalls {
         };
         let path = path_segments(&function.path);
         match path.as_slice() {
-            [name] => self.usage.spec_functions.contains(name),
+            [name] => self.usage.spec_functions.get(name) == Some(&true),
             [prefix @ .., name] => name == "router_from_spec" && through_proa_axum(prefix),
             _ => false,
         }
@@ -308,18 +321,13 @@ impl<'ast> Visit<'ast> for RouteCalls {
 
     fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
         if let Some((_, items)) = &module.content {
-            // An inline module has its own import namespace.
-            let outer = std::mem::take(&mut self.usage);
-            if items.iter().any(|item| {
-                matches!(item, syn::Item::Use(import)
-                if matches!(&import.tree, syn::UseTree::Path(path)
-                    if path.ident == "super" && matches!(*path.tree, syn::UseTree::Glob(_))))
-            }) {
-                self.usage = outer.clone();
-            }
-            self.usage.declarations(items, Some(&outer));
+            let mut imports = AxumUsage::default();
+            imports.declarations(items, self.modules.last());
+            self.modules.push(imports.clone());
+            let outer = std::mem::replace(&mut self.usage, imports);
             visit::visit_item_mod(self, module);
             self.usage = outer;
+            self.modules.pop();
         }
     }
 
@@ -333,7 +341,8 @@ impl<'ast> Visit<'ast> for RouteCalls {
             })
             .peekable();
         let outer = items.peek().map(|_| self.usage.clone());
-        self.usage.declarations(items, None);
+        self.usage
+            .declarations(items, self.modules.iter().rev().nth(1));
         self.scoped(|this| visit::visit_block(this, block));
         if let Some(outer) = outer {
             self.usage = outer;

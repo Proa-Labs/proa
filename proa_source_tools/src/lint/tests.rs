@@ -7740,6 +7740,65 @@ mod renamed {
     }
 }
 
+#[test]
+fn axum_routes_resolve_function_local_parent_imports() {
+    let source = r#"use axum::Router;
+use proa::axum::router_from_spec;
+mod api {
+    use crate::nav::Router as BlockOnly;
+    fn build() {
+        use super::Router;
+        Router::new().route("/direct/:id", get(show));
+        {
+            use super::router_from_spec as build_routes;
+            let (app, _) = build_routes(vec![]);
+            app.route("/renamed/:id", get(show));
+        }
+    }
+    fn wildcard() {
+        use super::*;
+        Router::new().route("/glob/:id", get(show));
+    }
+    fn inner_module() {
+        use axum::Router as BlockOnly;
+        mod nested {
+            fn build() {
+                use super::BlockOnly;
+                BlockOnly::new().route("/block-only/:id", ());
+            }
+        }
+    }
+}
+mod nav {
+    pub(crate) struct Router;
+    impl Router {
+        pub fn new() -> Self { Self }
+        pub fn route(self, _: &str, _: ()) {}
+    }
+    mod sub {
+        use axum::Router;
+        fn build() {
+            use super::Router;
+            Router::new().route("/custom/:id", ());
+        }
+        fn wildcard() {
+            use super::*;
+            Router::new().route("/custom-glob/:id", ());
+        }
+    }
+}"#;
+    let diagnostics = route_path_diagnostics(Path::new("src/routes.rs"), source);
+    let paths: Vec<_> = diagnostics.iter().map(|d| underlined(source, d)).collect();
+    assert_eq!(paths, [":id"; 3]);
+    for (diagnostic, path) in diagnostics.iter().zip(["/direct/", "/renamed/", "/glob/"]) {
+        assert!(source
+            .lines()
+            .nth(diagnostic.line - 1)
+            .unwrap()
+            .contains(path));
+    }
+}
+
 /// The text a diagnostic's primary label underlines.
 fn underlined(source: &str, diagnostic: &Diagnostic) -> String {
     let range = &diagnostic.labels[0].range;
