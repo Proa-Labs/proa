@@ -614,6 +614,7 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
     let render_impl = render_impl
         .replace("__HEAD__", head)
         .replace("__BODY__", &body);
+    // proa-perf-ok: the scaffold generates Rust source during project creation
     format!(
         r#"{imports}
 
