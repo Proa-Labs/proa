@@ -23,7 +23,20 @@ fn stderr(output: &Output) -> String {
 }
 
 #[test]
+fn cargo_proa_run_and_test_execute_a_single_pass_build_with_forwarded_arguments() {
+    exercise_run_and_test("");
+}
+
+#[test]
 fn cargo_proa_run_and_test_execute_only_final_phase_with_forwarded_arguments() {
+    // The source scan only schedules the single pass, so a mention that
+    // expands nothing still selects the full pipeline and its descriptor
+    // phase, whose build must never be the one that runs.
+    exercise_run_and_test("// Mentions rsjs:: without expanding a macro.\n");
+}
+
+fn exercise_run_and_test(source_prefix: &str) {
+    let full_pipeline = !source_prefix.is_empty();
     let temp = tempfile::tempdir().unwrap();
     fs::create_dir_all(temp.path().join("src")).unwrap();
     fs::create_dir_all(temp.path().join("tests")).unwrap();
@@ -38,7 +51,8 @@ fn cargo_proa_run_and_test_execute_only_final_phase_with_forwarded_arguments() {
     .unwrap();
     fs::write(
         temp.path().join("src/main.rs"),
-        r#"
+        source_prefix.to_string()
+            + r#"
 #![allow(unexpected_cfgs)]
 
 #[cfg(not(rsjs_final))]
@@ -144,9 +158,14 @@ fn linked_plan() {
         stderr(&unchanged_run)
     );
     let unchanged_stdout = stdout(&unchanged_run);
+    let reuse = if full_pipeline {
+        "descriptor 1/1 Cargo artifacts reused; final 1/1 reused"
+    } else {
+        "single pass; final 1/1 reused"
+    };
     assert!(
-        unchanged_stdout.contains("descriptor 1/1 Cargo artifacts reused"),
-        "missing descriptor cache reuse:\n{unchanged_stdout}"
+        unchanged_stdout.contains(reuse),
+        "missing cache reuse:\n{unchanged_stdout}"
     );
     assert!(
         unchanged_stdout.lines().any(|line| line == run_record),

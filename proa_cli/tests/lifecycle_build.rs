@@ -56,8 +56,33 @@ fn assert_success(output: &Output) {
     );
 }
 
+/// The cache counters a build reports. A project that expands no RSJS macro
+/// builds in one final Cargo pass; the full pipeline also reports its
+/// descriptor pass.
+fn cache_line(full_pipeline: bool, reused: usize) -> String {
+    if full_pipeline {
+        format!(
+            "linked RSJS build cache: descriptor {reused}/1 Cargo artifacts reused; final {reused}/1 reused"
+        )
+    } else {
+        format!("linked RSJS build cache: single pass; final {reused}/1 reused")
+    }
+}
+
+#[test]
+fn cargo_proa_build_runs_a_project_without_rsjs_macros_in_a_single_pass() {
+    exercise_linked_build("");
+}
+
 #[test]
 fn cargo_proa_build_runs_the_exact_linked_binary_pipeline() {
+    // The source scan only schedules the single pass, so a mention that
+    // expands nothing still selects the full pipeline, with an empty plan.
+    exercise_linked_build("// Mentions rsjs:: without expanding a macro.\n");
+}
+
+fn exercise_linked_build(source_prefix: &str) {
+    let full_pipeline = !source_prefix.is_empty();
     let temp = tempfile::tempdir().unwrap();
     fs::create_dir_all(temp.path().join("src")).unwrap();
     fs::write(
@@ -83,7 +108,7 @@ fn cargo_proa_build_runs_the_exact_linked_binary_pipeline() {
     .unwrap();
     fs::write(
         temp.path().join("src/main.rs"),
-        "fn main() { println!(\"linked\"); }\n",
+        format!("{source_prefix}fn main() {{ println!(\"linked\"); }}\n"),
     )
     .unwrap();
 
@@ -121,9 +146,7 @@ fn cargo_proa_build_runs_the_exact_linked_binary_pipeline() {
         "{first_stdout}"
     );
     assert!(
-        first_stdout.contains(
-            "linked RSJS build cache: descriptor 0/1 Cargo artifacts reused; final 0/1 reused"
-        ),
+        first_stdout.contains(&cache_line(full_pipeline, 0)),
         "{first_stdout}"
     );
     let first_plan = linked_plan(&first);
@@ -136,9 +159,7 @@ fn cargo_proa_build_runs_the_exact_linked_binary_pipeline() {
     assert_success(&unchanged);
     let unchanged_stdout = stdout(&unchanged);
     assert!(
-        unchanged_stdout.contains(
-            "linked RSJS build cache: descriptor 1/1 Cargo artifacts reused; final 1/1 reused"
-        ),
+        unchanged_stdout.contains(&cache_line(full_pipeline, 1)),
         "{unchanged_stdout}"
     );
     assert_eq!(linked_plan(&unchanged), first_plan);
@@ -148,20 +169,20 @@ fn cargo_proa_build_runs_the_exact_linked_binary_pipeline() {
 
     fs::write(
         temp.path().join("src/main.rs"),
-        "fn main() { println!(\"source changed\"); }\n",
+        format!("{source_prefix}fn main() {{ println!(\"source changed\"); }}\n"),
     )
     .unwrap();
     let source_changed = run_build(temp.path(), &target, &host, &exported);
     assert_success(&source_changed);
     let changed_stdout = stdout(&source_changed);
     assert!(
-        changed_stdout.contains(
-            "linked RSJS build cache: descriptor 0/1 Cargo artifacts reused; final 0/1 reused"
-        ),
+        changed_stdout.contains(&cache_line(full_pipeline, 0)),
         "{changed_stdout}"
     );
     let changed_plan = linked_plan(&source_changed);
-    assert_ne!(changed_plan, first_plan);
+    // The full pipeline derives its plan from the root descriptor unit, which
+    // follows the source. The single pass always consumes the empty plan.
+    assert_eq!(changed_plan != first_plan, full_pipeline);
     let changed_launch = Command::new(&exported).output().unwrap();
     assert!(changed_launch.status.success());
     assert_eq!(changed_launch.stdout, b"source changed\n");
@@ -170,9 +191,7 @@ fn cargo_proa_build_runs_the_exact_linked_binary_pipeline() {
     assert_success(&changed_unchanged);
     let changed_unchanged_stdout = stdout(&changed_unchanged);
     assert!(
-        changed_unchanged_stdout.contains(
-            "linked RSJS build cache: descriptor 1/1 Cargo artifacts reused; final 1/1 reused"
-        ),
+        changed_unchanged_stdout.contains(&cache_line(full_pipeline, 1)),
         "{changed_unchanged_stdout}"
     );
     assert_eq!(linked_plan(&changed_unchanged), changed_plan);

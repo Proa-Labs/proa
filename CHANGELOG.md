@@ -6,6 +6,12 @@ For release highlights and upgrade steps, see the [Proa 0.4.0 overview](docs/rel
 
 ## Unreleased
 
+- `proa build`, `proa check`, `proa run`, and `proa test` compile a project
+  that expands no RSJS macro in one Cargo pass instead of two, as `proa dev`
+  already did. A cold `proa build` of the `app` template takes 36s instead of
+  77s. These builds report `single pass; final N/M reused` in place of the
+  descriptor counters. Projects with islands build as before.
+
 ## 0.4.0
 
 - Breaking: the minimum supported Rust version is 1.98 (was 1.93).
