@@ -854,4 +854,48 @@ function root_with_blobs(island, { queries, mutations }) {
     );
 }
 
+// `response: 'empty'` ignores the body but still reads it to the end. Chromium
+// reports a fetch whose empty body is never read as a canceled load, so a
+// successful `204` would otherwise appear in DevTools and in `requestfailed`
+// listeners as `net::ERR_ABORTED`.
+{
+    let drained = 0;
+    globalThis.fetch = async () => ({
+        ok: true,
+        status: 204,
+        headers: { get: () => null },
+        async arrayBuffer() {
+            drained += 1;
+            return new ArrayBuffer(0);
+        },
+    });
+
+    const m_empty = register_mutation({
+        key: ['empty_body_mutation_unique'],
+        runner: { url: '/api/empty', method: 'POST', response: 'empty' },
+        invalidates: [],
+        options: {},
+    });
+    const result = await m_empty.run('x');
+    assert(result === null, `expected an empty response to decode to null, got ${result}`);
+    assert(
+        drained === 1,
+        `an empty-response mutation should read its body to the end once, read ${drained} times`,
+    );
+
+    const q_empty = register_query({
+        island: 'empty_body_query',
+        query_id: 0,
+        key: ['empty_body_query_unique'],
+        fetcher: { url: '/api/empty', response: 'empty' },
+        options: { download_progress: true },
+    });
+    const data = await q_empty.refetch();
+    assert(data === null, `expected an empty query response to decode to null, got ${data}`);
+    assert(
+        drained === 2,
+        `a progress-tracked empty-response query should read its body to the end, read ${drained} times in total`,
+    );
+}
+
 console.log('rsjs-runtime-query.smoke: ok');

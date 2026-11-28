@@ -792,15 +792,13 @@ function build_fetch_init(cfg, fallback_json_body) {
     return init;
 }
 
-async function fetch_with_timeout(url, init, timeout_ms, external_signal) {
-    if (typeof AbortController === 'undefined') {
-        return await fetch(
-            url,
-            external_signal ? { ...init, signal: external_signal } : init,
-        );
+async function fetch_with_timeout(url, init, timeout_ms, external_signal, consume) {
+    async function request(signal) {
+        const response = await fetch(url, signal ? { ...init, signal } : init);
+        return consume(response);
     }
-    if (!timeout_ms && !external_signal) {
-        return await fetch(url, init);
+    if (!timeout_ms || typeof AbortController === 'undefined') {
+        return request(external_signal);
     }
 
     const controller = new AbortController();
@@ -818,7 +816,7 @@ async function fetch_with_timeout(url, init, timeout_ms, external_signal) {
         ? setTimeout(() => controller.abort(), timeout_ms)
         : null;
     try {
-        return await fetch(url, { ...init, signal: controller.signal });
+        return await request(controller.signal);
     } finally {
         if (timer != null) clearTimeout(timer);
         if (typeof external_signal?.removeEventListener === 'function') {
@@ -827,10 +825,24 @@ async function fetch_with_timeout(url, init, timeout_ms, external_signal) {
     }
 }
 
+/**
+ * Read a response body to its end and drop it.
+ *
+ * `response: 'empty'` ignores the body, but leaving it unread is visible.
+ * Chromium reports a fetch whose empty body (a `204`, a `205`, or a
+ * zero-length `200`) was never read as a canceled load. The request then
+ * carries its successful status and still fails with `net::ERR_ABORTED` in
+ * DevTools and in `requestfailed` listeners. Reading the body lets the load
+ * finish.
+ */
+function discard_response_body(res, on_progress) {
+    return read_response_bytes_with_progress(res, on_progress, false);
+}
+
 async function decode_response(res, kind) {
     switch (String(kind || 'json').toLowerCase()) {
         case 'empty':
-            return null;
+            return discard_response_body(res);
         case 'bytes':
             return new Uint8Array(await res.arrayBuffer());
         case 'text':
@@ -854,7 +866,7 @@ function parse_content_length(res) {
     return Number.isFinite(total) && total >= 0 ? total : null;
 }
 
-async function read_response_bytes_with_progress(res, on_progress) {
+async function read_response_bytes_with_progress(res, on_progress, keep_bytes = true) {
     const total = parse_content_length(res);
     let loaded = 0;
     if (on_progress) on_progress(loaded, total);
@@ -864,19 +876,19 @@ async function read_response_bytes_with_progress(res, on_progress) {
             ? res.body.getReader()
             : null;
     if (!reader) {
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        if (on_progress) on_progress(bytes.byteLength, total);
-        return bytes;
+        const buffer = await res.arrayBuffer();
+        if (on_progress) on_progress(buffer.byteLength, total);
+        return keep_bytes ? new Uint8Array(buffer) : null;
     }
 
-    const chunks = [];
+    const chunks = keep_bytes ? [] : null;
     try {
         for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
             const chunk = value instanceof Uint8Array ? value : new Uint8Array(value || []);
             loaded += chunk.byteLength;
-            chunks.push(chunk);
+            chunks?.push(chunk);
             if (on_progress) on_progress(loaded, total);
         }
     } finally {
@@ -885,6 +897,7 @@ async function read_response_bytes_with_progress(res, on_progress) {
         }
     }
 
+    if (!chunks) return null;
     const bytes = new Uint8Array(loaded);
     let offset = 0;
     for (const chunk of chunks) {
@@ -953,6 +966,32 @@ async function read_response_text_stream(res, on_text, on_progress) {
     return text;
 }
 
+async function read_query_response(res, cfg, options, hooks) {
+    if (!res.ok) {
+        throw new Error(`rsjs query fetch failed: ${res.status}`);
+    }
+    if (options.stream_text) {
+        if (String(cfg.response || 'json').toLowerCase() !== 'text') {
+            throw new Error(
+                'rsjs query stream_text requires FetchRequest.response = ResponseKind::Text',
+            );
+        }
+        return await read_response_text_stream(
+            res,
+            hooks.on_stream_text,
+            hooks.on_progress,
+        );
+    }
+    if (options.download_progress) {
+        if (String(cfg.response || 'json').toLowerCase() === 'empty') {
+            return discard_response_body(res, hooks.on_progress);
+        }
+        const bytes = await read_response_bytes_with_progress(res, hooks.on_progress);
+        return decode_response_bytes(bytes, cfg.response);
+    }
+    return await decode_response(res, cfg.response);
+}
+
 /**
  * Run a fetch with the configured retry policy. Resolves to the
  * decoded response body on success, rejects (after the retry budget)
@@ -969,36 +1008,8 @@ async function execute_fetch(fetcher, options, hooks) {
         attempts += 1;
         try {
             const init = build_fetch_init(cfg, NO_REQUEST_BODY);
-            const res = await fetch_with_timeout(
-                cfg.url,
-                init,
-                cfg.timeout_ms,
-                hooks.signal,
-            );
-            if (!res.ok) {
-                throw new Error(`rsjs query fetch failed: ${res.status}`);
-            }
-            if (options.stream_text) {
-                if (String(cfg.response || 'json').toLowerCase() !== 'text') {
-                    throw new Error(
-                        'rsjs query stream_text requires FetchRequest.response = ResponseKind::Text',
-                    );
-                }
-                return await read_response_text_stream(
-                    res,
-                    hooks.on_stream_text,
-                    hooks.on_progress,
-                );
-            }
-            if (options.download_progress) {
-                if (String(cfg.response || 'json').toLowerCase() === 'empty') {
-                    if (hooks.on_progress) hooks.on_progress(0, parse_content_length(res));
-                    return null;
-                }
-                const bytes = await read_response_bytes_with_progress(res, hooks.on_progress);
-                return decode_response_bytes(bytes, cfg.response);
-            }
-            return await decode_response(res, cfg.response);
+            return await fetch_with_timeout(cfg.url, init, cfg.timeout_ms, hooks.signal,
+                (res) => read_query_response(res, cfg, options, hooks));
         } catch (e) {
             if (hooks.signal?.aborted) throw e;
             if (attempts >= max) throw e;
@@ -1028,10 +1039,12 @@ function set_download_progress(entry, loaded, total) {
 
 function reset_stream_text(entry) {
     if (!entry.options || !entry.options.stream_text) return;
+    entry.optimistic_write = undefined;
     entry.data = '';
 }
 
 function set_stream_text(entry, text) {
+    entry.optimistic_write = undefined;
     entry.data = String(text ?? '');
     notify(entry);
 }
@@ -1041,6 +1054,30 @@ function claim_client_query_entry(entry) {
     // SSR fragments may still improve the page-level seed registry for future
     // consumers but must not roll this live entry backward.
     entry._rsjs_seed_rank = null;
+}
+
+/**
+ * Mark a request promise whose failure the runtime has already recorded.
+ *
+ * A failed query or mutation request is stored in entry state and announced
+ * to subscribers, so an island reads it through `status()` / `error()`. The
+ * same request is also handed back as a promise, and most callers discard it:
+ * a generated event handler lowers `query.refetch()` and `mutation.run(arg)`
+ * to bare statements, and policy refetches have no caller at all. A discarded
+ * rejecting promise makes the browser report the recorded failure a second
+ * time, as `Uncaught (in promise)` plus an `unhandledrejection` event.
+ *
+ * A no-op handler on the promise itself marks it handled without consuming
+ * the rejection. A caller that awaits or chains the promise still receives
+ * the error, and a chain the caller leaves without a rejection handler is
+ * still reported as that caller's own unhandled rejection.
+ *
+ * Pass only a promise whose every rejection is recorded in state, or belongs
+ * to a disposed page generation whose state is already gone.
+ */
+function mark_failure_recorded(promise) {
+    promise.catch(() => {});
+    return promise;
 }
 
 /**
@@ -1092,6 +1129,8 @@ function refetch(entry) {
             if (entry.disposed || generation !== QUERY_GENERATION) {
                 return data;
             }
+            claim_client_query_entry(entry);
+            entry.optimistic_write = undefined;
             entry.data = data;
             entry.error = undefined;
             entry.status = 'success';
@@ -1107,6 +1146,7 @@ function refetch(entry) {
             if (entry.disposed || generation !== QUERY_GENERATION) {
                 throw error;
             }
+            claim_client_query_entry(entry);
             entry.error = error;
             entry.status = 'error';
             entry.error_updated_at = Date.now();
@@ -1117,7 +1157,9 @@ function refetch(entry) {
             throw error;
         },
     );
-    return entry.in_flight;
+    // Every rejection above is either recorded on the entry or raised by the
+    // teardown that disposed it, so discarding this promise is not an error.
+    return mark_failure_recorded(entry.in_flight);
 }
 
 /**
@@ -1146,10 +1188,12 @@ function observer_needs_fetch(entry, observer) {
 }
 
 /**
- * Policy-driven refetches surface failures through query state/subscribers.
- * Attach a rejection handler as well so a failed interval/focus/invalidation
- * request does not become an unhandled promise rejection. Explicit
- * `handle.refetch()` calls still return the rejecting promise to their caller.
+ * Policy-driven refetches (interval, focus, reconnect, invalidation, rebind)
+ * have no caller to report to. `refetch` already marks a started request as
+ * handled. This also covers the rejections it returns without starting one,
+ * for a disposed or unregistered entry, so no policy path can raise an
+ * unhandled promise rejection. Explicit `handle.refetch()` calls keep those
+ * rejections loud, because nothing in handle state records them.
  */
 function refetch_in_background(entry) {
     const request = refetch(entry);
@@ -1433,6 +1477,7 @@ function resolve_query_registration(
         } else if (initial !== undefined) {
             const seeded = entry.data === undefined && initial.data !== undefined;
             if (seeded) {
+                entry.optimistic_write = undefined;
                 entry.data = initial.data;
                 entry.status = 'success';
                 entry.fetch_count = 1;
@@ -1901,16 +1946,42 @@ function __iter_entries() {
  * subscriber side.
  */
 export function set_data(key, data) {
+    write_query_data(key, data);
+}
+
+function write_query_data(key, data, changes) {
     const skey = stringify_key(key);
     let entry = CACHE.get(skey);
-    if (!entry) {
-        entry = make_entry({ data, data_updated_at: Date.now() });
-        claim_client_query_entry(entry);
+    const created = !entry;
+    if (created) {
+        entry = make_entry();
         CACHE.set(skey, entry);
+    }
+    // Record the exact fields this write changes before notifying subscribers.
+    let change;
+    if (changes) {
+        change = {
+            skey, entry, created, previous: entry.optimistic_write,
+            counted_initial_data: created && data !== undefined,
+            before: {
+                data: entry.data,
+                status: entry.status,
+                data_updated_at: entry.data_updated_at,
+                fetch_count: entry.fetch_count,
+            },
+        };
+        changes.push(change);
+    }
+    claim_client_query_entry(entry);
+    entry.optimistic_write = change;
+    if (created) {
+        entry.data = data;
+        entry.status = data !== undefined ? 'success' : 'idle';
+        entry.data_updated_at = Date.now();
+        entry.fetch_count = data !== undefined ? 1 : 0;
         notify(entry);
         return;
     }
-    claim_client_query_entry(entry);
     // Short-circuit when the new value is structurally equal to the
     // previous value. This matters most for optimistic-update
     // rollback: if `prev === optimistic_value` (e.g. the user set
@@ -1928,6 +1999,41 @@ export function set_data(key, data) {
     entry.status = 'success';
     entry.data_updated_at = Date.now();
     notify(entry);
+}
+
+// Concurrent mutations may touch the same query. Only its current writer can
+// change it back, and a later failed write must skip any earlier failed writes.
+function finish_optimistic_writes(changes, failed) {
+    for (const write of changes.reverse()) {
+        write.finished = true;
+        write.failed = failed;
+        const entry = write.entry;
+        if (entry.optimistic_write !== write) continue;
+        if (!failed) {
+            entry.optimistic_write = undefined;
+            continue;
+        }
+        let restore = write;
+        while (restore.previous?.failed) restore = restore.previous;
+        entry.optimistic_write = restore.previous?.finished ? undefined : restore.previous;
+        if (restore.created && !entry.fetch_semantics && !entry.subscribers.size && !entry.observers.size) {
+            if (CACHE.get(write.skey) === entry) CACHE.delete(write.skey);
+            continue;
+        }
+        entry.data = restore.before.data;
+        entry.data_updated_at = restore.before.data_updated_at;
+        if (restore.counted_initial_data) entry.fetch_count -= 1;
+        if (entry.in_flight) {
+            entry.status = entry.data === undefined ? 'loading' : 'refetching';
+        } else if (entry.fetch_count !== restore.before.fetch_count) {
+            // A completed success replaces the data and clears ownership. Only
+            // a failed fetch can advance the count while rollback still owns it.
+            entry.status = 'error';
+        } else {
+            entry.status = restore.before.status;
+        }
+        notify(entry);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2006,11 +2112,12 @@ async function execute_mutation(runner, args, options) {
             // `m.run(1,2,3)` to the same body, contradicting the .d.ts
             // which types `run(args: Args)` as a single value.
             const init = build_fetch_init(cfg, args);
-            const res = await fetch_with_timeout(cfg.url, init, cfg.timeout_ms);
-            if (!res.ok) {
-                throw new Error(`rsjs mutation failed: ${res.status}`);
-            }
-            return await decode_response(res, cfg.response);
+            return await fetch_with_timeout(cfg.url, init, cfg.timeout_ms, undefined, (res) => {
+                if (!res.ok) {
+                    throw new Error(`rsjs mutation failed: ${res.status}`);
+                }
+                return decode_response(res, cfg.response);
+            });
         } catch (e) {
             if (attempts >= max) throw e;
             await new Promise((r) => setTimeout(r, delay_ms));
@@ -2054,6 +2161,7 @@ function invalidate_keys(targets, strategy) {
         if (any_prefix_matches(target_keys, entry_key)) {
             if (strategy === 'reset') {
                 claim_client_query_entry(entry);
+                entry.optimistic_write = undefined;
                 entry.data = undefined;
                 entry.status = 'idle';
                 entry.fetch_count = 0;
@@ -2223,7 +2331,9 @@ function run_mutation_entry(entry, args) {
     if (entry.status === 'pending' && entry.in_flight_promise) {
         return entry.in_flight_promise;
     }
-    const promise = (async () => {
+    // Everything that can fail runs inside the `try`, so every rejection of
+    // this promise is recorded in mutation state before it propagates.
+    const promise = mark_failure_recorded((async () => {
         // Round-4 review #2: mutation.run takes a single argument. The
         // value is forwarded verbatim to the runner / optimistic update
         // callback / fetch body. Earlier revisions split arrays into
@@ -2237,27 +2347,22 @@ function run_mutation_entry(entry, args) {
         // Snapshot current data for every invalidation target so we can
         // roll back optimistic updates on rejection.
         const rollback = [];
-        if (entry.options && entry.options.optimistic_update !== undefined) {
-            for (const target of entry.invalidates || []) {
-                const tk = typeof target === 'string' ? [target] : target;
-                const cache_entry = get_entry(tk);
-                if (cache_entry) {
-                    rollback.push({ key: tk, prev: cache_entry.data });
+        try {
+            if (entry.options && entry.options.optimistic_update !== undefined) {
+                // Apply the optimistic update to every invalidation target.
+                // The optimistic value can be a function (called with args)
+                // or a literal value the runtime substitutes verbatim. A
+                // function that throws fails the run like a failed request.
+                const opt = entry.options.optimistic_update;
+                const opt_value = typeof opt === 'function' ? opt(args) : opt;
+                for (const target of entry.invalidates || []) {
+                    const tk = typeof target === 'string' ? [target] : target;
+                    write_query_data(tk, opt_value, rollback);
                 }
             }
-            // Apply the optimistic update to every invalidation target.
-            // The optimistic value can be a function (called with args)
-            // or a literal value the runtime substitutes verbatim.
-            const opt = entry.options.optimistic_update;
-            const opt_value = typeof opt === 'function' ? opt(args) : opt;
-            for (const target of entry.invalidates || []) {
-                const tk = typeof target === 'string' ? [target] : target;
-                set_data(tk, opt_value);
-            }
-        }
 
-        try {
             const data = await execute_mutation(entry.runner, args, entry.options || {});
+            finish_optimistic_writes(rollback, false);
             entry.status = 'success';
             entry.data = data;
             entry.error = undefined;
@@ -2272,9 +2377,7 @@ function run_mutation_entry(entry, args) {
             return data;
         } catch (err) {
             // Roll back optimistic updates on rejection.
-            for (const { key, prev } of rollback) {
-                set_data(key, prev);
-            }
+            finish_optimistic_writes(rollback, true);
             entry.status = 'error';
             entry.error = err;
             notify_mutation(entry);
@@ -2282,7 +2385,7 @@ function run_mutation_entry(entry, args) {
         } finally {
             entry.in_flight_promise = null;
         }
-    })();
+    })());
     entry.in_flight_promise = promise;
     return promise;
 }
