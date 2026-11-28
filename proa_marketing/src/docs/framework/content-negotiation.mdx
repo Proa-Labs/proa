@@ -10,6 +10,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};
 use proa::{html_sync, md_sync, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteError};
+use crate::document::Document;
 
 #[derive(Clone, Copy)]
 pub struct GuidePage {
@@ -50,7 +51,7 @@ const GUIDE: GuidePage = GuidePage {
 
 /// `GET /guide`: HTML by default, Markdown when the client prefers it.
 pub async fn guide(headers: HeaderMap) -> Result<impl IntoResponse, StatusCode> {
-    negotiate(&headers, RouteResponse::ssr(GUIDE), GUIDE, MarkdownAlternate::new("/guide.md"))
+    negotiate(&headers, RouteResponse::ssr(Document(GUIDE)), GUIDE, MarkdownAlternate::new("/guide.md"))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -60,18 +61,47 @@ pub async fn guide_markdown() -> Result<impl IntoResponse, StatusCode> {
 }
 ```
 
-Register both routes and mount them through `FrameworkBuilder`, which installs the route context `RouteResponse` renders in. On a bare `Router`, the HTML response is a 500:
+Render HTML inside a document layout. Its head outlet publishes the selected page's metadata. The Markdown handler renders the page directly.
+
+```rust check="document" filename="src/document.rs"
+use proa::{html_sync, ComponentRole, DataLoader, WebContext, WebRenderSync, WriteError};
+
+pub struct Document<P>(pub P);
+
+impl<L: DataLoader, P: WebRenderSync<L>> WebRenderSync<L> for Document<P> {
+    const ROLE: ComponentRole = ComponentRole::LAYOUT;
+
+    fn render(self, cx: &mut WebContext<L>) -> Result<(), WriteError> {
+        html_sync! {
+            <!DOCTYPE html>
+            <html lang="en">
+                <head>{cx.head()}</head>
+                <body>{self.0}</body>
+            </html>
+        }.render(cx)
+    }
+}
+```
+
+Use `build_app(guide_routes())` to serve both handlers. The builder installs the route context and enables managed head rendering for the document.
 
 ```rust check="routes" filename="src/routes.rs"
 use axum::{routing::get, Router};
 use proa::axum::FrameworkBuilder;
+use proa::HeadConfig;
 use crate::pages::guide::{guide, guide_markdown};
 
-pub fn router() -> Result<Router, Box<dyn std::error::Error>> {
-    let routes = Router::new()
+pub fn guide_routes() -> Router {
+    Router::new()
         .route("/guide", get(guide))
-        .route("/guide.md", get(guide_markdown));
-    Ok(FrameworkBuilder::new().with_dynamic_routes(routes).try_build()?)
+        .route("/guide.md", get(guide_markdown))
+}
+
+pub fn build_app(routes: Router) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(FrameworkBuilder::new()
+        .with_head(HeadConfig::default())
+        .with_dynamic_routes(routes)
+        .try_build()?)
 }
 ```
 
@@ -109,6 +139,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use proa::axum::{explicit_markdown, negotiate, MarkdownAlternate, RouteResponse};
 use proa::{html_sync, md_sync, DataLoader, MdRenderSync, WebContext, WebRenderSync, WriteError};
+use crate::document::Document;
 
 const ISSUE_MARKDOWN: MarkdownAlternate = MarkdownAlternate::new("/issues/{id}/index.md");
 const ISSUE_LABEL: &str = "Issue";
@@ -138,7 +169,7 @@ pub async fn issue(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, StatusCode> {
     let page = IssuePage { id };
-    negotiate(&headers, RouteResponse::ssr(page), page, ISSUE_MARKDOWN)
+    negotiate(&headers, RouteResponse::ssr(Document(page)), page, ISSUE_MARKDOWN)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -148,7 +179,7 @@ pub async fn issue_markdown(Path(id): Path<u32>) -> Result<impl IntoResponse, St
 }
 ```
 
-Register the two handlers under their corresponding paths.
+Pass `guide_routes().merge(issue_routes())` to `build_app` to serve all four handlers through the same document configuration.
 
 ```rust check="issue_routes" filename="src/routes.rs"
 use axum::{routing::get, Router};
