@@ -486,17 +486,15 @@ fn main() {
     let source = root.join("src/main.rs");
     let valid_source = fs::read(&source).unwrap();
     let config_builds = cargo_calls();
-    fs::write(
-        &source,
-        b"compile_error!(\"broken while output is missing\");",
-    )
-    .unwrap();
+    // An editor can keep the truncated file open while Cargo observes an incomplete write.
+    // Finish the same write after the failed rebuild, without renaming or reopening the file.
+    let mut save = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&source)
+        .unwrap();
     let failed = "linked dev rebuild failed";
-    let broken = wait(failed, 1);
-    assert!(
-        broken.contains("broken while output is missing"),
-        "{broken}"
-    );
+    wait(failed, 1);
     assert_eq!(
         cargo_calls(),
         config_builds,
@@ -511,7 +509,8 @@ fn main() {
     assert_eq!(idle.matches(failed).count(), 1, "{idle}");
     assert!(!output.join("manifest.json").exists(), "{idle}");
 
-    fs::write(&source, &valid_source).unwrap();
+    std::io::Write::write_all(&mut save, &valid_source).unwrap();
+    drop(save);
     let recovered = wait(ready, 8);
     assert_eq!(recovered.matches(build_started).count(), 5, "{recovered}");
     assert!(output.join("manifest.json").is_file(), "{recovered}");
