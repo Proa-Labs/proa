@@ -586,6 +586,157 @@ print('404 0'); sys.exit(22)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(actual, [])
 
+    def require_sh_without_home(self, environment: dict[str, str]) -> None:
+        # zsh fills in HOME from the password database when it is unset. Under
+        # such a shell these runs would be ordinary installs that edit the
+        # profiles in the real home directory, so they are skipped instead.
+        probe = subprocess.run(["sh", "-c", 'printf %s "${HOME-}"'], env=environment,
+                               capture_output=True, text=True, timeout=10)
+        if probe.returncode != 0 or probe.stdout:
+            self.skipTest("this sh sets HOME itself, so a run without HOME cannot be staged")
+
+    def run_unix_without_home(self, root: Path, settings: dict[str, str],
+                              arguments: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        """Runs a prebuilt install with HOME unset and every download served from disk."""
+        binaries = root / "bin"
+        downloads = root / "downloads"
+        binaries.mkdir()
+        downloads.mkdir()
+        target = "x86_64-unknown-linux-gnu"
+        archive = f"proa-cli-{VERSION}-{target}.tar.gz"
+        # These answer --version and nothing else, so the installer takes the
+        # copy path that needs no bundle helper.
+        binary = f"#!/bin/sh\n[ \"$1\" = --version ] || exit 1\necho 'proa {VERSION}'\n".encode()
+        with tarfile.open(downloads / archive, "w:gz") as bundle:
+            for name in ("proa", "cargo-proa"):
+                info = tarfile.TarInfo(f"proa-cli-{VERSION}-{target}/{name}")
+                info.size = len(binary)
+                info.mode = 0o755
+                bundle.addfile(info, io.BytesIO(binary))
+        (downloads / f"proa-cli-{VERSION}-SHA256SUMS").write_text(
+            f"{sha256_file(downloads / archive)}  {archive}\n", encoding="utf-8")
+        (downloads / "latest.json").write_text(json.dumps({"version": VERSION}), encoding="utf-8")
+        fixtures = {
+            "cargo": "#!/bin/sh\necho 'cargo 1.98.0'\n",
+            "rustc": "#!/bin/sh\necho 'rustc 1.98.0'\n",
+            "uname": "#!/bin/sh\ncase \"$1\" in -s) echo Linux ;; -m) echo x86_64 ;; *) echo Linux ;; esac\n",
+            "curl": """#!/usr/bin/env python3
+import os, pathlib, shutil, sys
+if sys.argv[1:] == ['--version']:
+    print('curl fixture'); sys.exit(0)
+name = sys.argv[-1].rsplit('/', 1)[-1]
+with open(os.environ['FIXTURE_REQUESTS'], 'a') as requests:
+    requests.write(name + '\\n')
+source = pathlib.Path(os.environ['FIXTURE_DOWNLOADS']) / name
+if not source.is_file():
+    print('404 0'); sys.exit(22)
+shutil.copyfile(source, sys.argv[sys.argv.index('--output') + 1])
+print(f'200 {source.stat().st_size}')
+""",
+        }
+        for name, source in fixtures.items():
+            path = binaries / name
+            path.write_text(source)
+            path.chmod(0o755)
+        requests = root / "requests"
+        # The whole environment, as `env -i` would leave it: no HOME.
+        environment = {"PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+                       "PROA_LOG": "off", "NO_COLOR": "1",
+                       "FIXTURE_DOWNLOADS": str(downloads), "FIXTURE_REQUESTS": str(requests),
+                       **settings}
+        self.require_sh_without_home(environment)
+        result = subprocess.run(
+            ["sh", str(ROOT / "scripts/install.sh"), *arguments],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=30)
+        return result, requests.read_text().splitlines() if requests.exists() else []
+
+    def test_unix_install_into_a_named_directory_needs_no_home(self) -> None:
+        cases = [
+            ("PROA_INSTALL_DIR", lambda root: ({"PROA_INSTALL_DIR": str(root / "tools")}, [], root / "tools")),
+            ("--to", lambda root: ({}, ["--to", str(root / "tools")], root / "tools")),
+            ("PROA_HOME", lambda root: ({"PROA_HOME": str(root / "proa-home")}, [], root / "proa-home/bin")),
+        ]
+        for label, case in cases:
+            with self.subTest(named_by=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                settings, arguments, install_dir = case(root)
+                result, _ = self.run_unix_without_home(root, settings, arguments)
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                for name in ("proa", "cargo-proa"):
+                    self.assertTrue((install_dir / name).is_file(), output)
+                # No HOME means no shell profile to edit, so the run says so and
+                # prints the line to add instead of writing below "/".
+                self.assertIn("HOME is not set", output)
+                self.assertIn(f'export PATH="{install_dir}:$PATH"', output)
+                self.assertNotIn("parameter not set", output)
+                self.assertNotIn("unbound variable", output)
+
+    def test_unix_source_install_without_home_stages_into_the_named_directory(self) -> None:
+        cases = [
+            ("--to", lambda root: ({}, ["--to", str(root / "tools")], root / "tools")),
+            ("PROA_HOME", lambda root: ({"PROA_HOME": str(root / "proa-home")}, [], root / "proa-home/bin")),
+        ]
+        for label, case in cases:
+            with self.subTest(named_by=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                settings, arguments, install_dir = case(root)
+                binaries = root / "bin"
+                binaries.mkdir()
+                # Without HOME or CARGO_HOME the installer cannot know cargo's
+                # own bin directory, so the build must be given a --root.
+                fixtures = {
+                    "cargo": """#!/bin/sh
+if [ "$1" = --version ]; then echo 'cargo 1.98.0'; exit 0; fi
+root=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = --root ]; then root="$arg"; fi
+    prev="$arg"
+done
+[ -n "$root" ] || exit 95
+mkdir -p "$root/bin"
+printf '#!/bin/sh\\nif [ "$1" = --version ]; then echo proa 0.2.0; exit 0; fi\\nexit 1\\n' > "$root/bin/proa"
+cp "$root/bin/proa" "$root/bin/cargo-proa"
+chmod +x "$root/bin/proa" "$root/bin/cargo-proa"
+""",
+                    "rustc": "#!/bin/sh\necho 'rustc 1.98.0'\n",
+                }
+                for name, source in fixtures.items():
+                    path = binaries / name
+                    path.write_text(source)
+                    path.chmod(0o755)
+                environment = {"PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+                               "PROA_LOG": "off", "NO_COLOR": "1", **settings}
+                self.require_sh_without_home(environment)
+                result = subprocess.run(
+                    ["sh", str(ROOT / "scripts/install.sh"), "--build-from-source",
+                     "--no-tailwind", "--yes", *arguments],
+                    cwd=root, env=environment, capture_output=True, text=True, timeout=30)
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                for name in ("proa", "cargo-proa"):
+                    self.assertTrue((install_dir / name).is_file(), output)
+                self.assertIn("HOME is not set", output)
+
+    def test_unix_install_without_home_or_a_named_directory_stops_before_downloading(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            result, requests = self.run_unix_without_home(root, {}, [])
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 1, output)
+            self.assertIn("HOME is not set, cannot pick an install directory", output)
+            self.assertIn("PROA_INSTALL_DIR", output)
+            self.assertEqual(requests, [])
+
+    def test_unix_help_needs_no_home(self) -> None:
+        result = subprocess.run(
+            ["sh", str(ROOT / "scripts/install.sh"), "--help"],
+            env={"PATH": os.environ["PATH"], "PROA_LOG": "off"},
+            capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PROA_INSTALL_DIR", result.stdout)
+
     @unittest.skipUnless(shutil.which("pwsh"), "requires PowerShell")
     def test_windows_source_install_uses_published_crates(self) -> None:
         # Load the real functions through the parser without running Invoke-Main;

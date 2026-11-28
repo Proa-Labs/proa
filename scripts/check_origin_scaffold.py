@@ -18,7 +18,7 @@ import tomllib
 import urllib.error
 import urllib.request
 
-from check_registry_install import generate_additions
+from check_registry_install import generate_additions, inject_first_island
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,6 +56,29 @@ def workspace_manifest(source, packages, workspace_dependencies):
                 source,
             )
     return source + "\n[workspace]\n"
+
+
+def use_workspace(project, packages, workspace_dependencies):
+    """Build a generated project with this checkout's compiler, crates, and lock."""
+    # This lane tests the workspace compiler, while registry acceptance
+    # separately exercises the generated minimum-supported toolchain.
+    (project / "rust-toolchain.toml").write_bytes((ROOT / "rust-toolchain.toml").read_bytes())
+    manifest = project / "Cargo.toml"
+    manifest.write_text(workspace_manifest(manifest.read_text(), packages, workspace_dependencies))
+    # Keep the workspace's dependency versions: CI fetches this exact lock
+    # before running acceptance, including on runners with an empty cache.
+    (project / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
+
+
+def first_island_acceptance(cli, work, environment, packages, workspace_dependencies):
+    """Add one RSJS island to the default application, then check, test, and build it."""
+    run([cli, "new", "site", "first-island", "--no-git"], work, environment)
+    project = work / "first-island"
+    use_workspace(project, packages, workspace_dependencies)
+    inject_first_island(project)
+    run([cli, "check", "--root", project, "--locked"], project, environment)
+    run([cli, "test", "--root", project, "--locked"], project, environment)
+    run([cli, "build", "--root", project, "--locked", "--profile", "dev"], project, environment)
 
 
 def bundle_acceptance(cli, project, work, environment):
@@ -142,18 +165,11 @@ def main():
         work = Path(temporary).resolve()
         run([cli, "new", "site", "origin-atlas", "--template", "origin", "--no-git"], work, environment)
         project = work / "origin-atlas"
-        # This lane tests the workspace compiler, while registry acceptance
-        # separately exercises the generated minimum-supported toolchain.
-        (project / "rust-toolchain.toml").write_bytes((ROOT / "rust-toolchain.toml").read_bytes())
+        use_workspace(project, packages, workspace_dependencies)
         # Reuse the canonical font fixtures so this lane needs no font CDN.
         template = ROOT / "proa_cli/src/site_scaffold/templates/origin"
         shutil.copy2(template / "proa-fonts.lock", project / "proa-fonts.lock")
         shutil.copytree(template / "public/fonts", project / "public/fonts", dirs_exist_ok=True)
-        manifest = project / "Cargo.toml"
-        manifest.write_text(workspace_manifest(manifest.read_text(), packages, workspace_dependencies))
-        # Keep the workspace's dependency versions: CI fetches this exact lock
-        # before running acceptance, including on runners with an empty cache.
-        (project / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
         generate_additions(cli, project, environment, "origin")
         run(["cargo", "tree", "--offline", "--depth", "0"], project, environment)
         run(["cargo", "test", "--locked", "--lib"], project, environment)
@@ -163,16 +179,15 @@ def main():
         # The regular starter owns route-generating pages; ORIGIN does not.
         run([cli, "new", "site", "generated-site", "--template", "marketing", "--no-git"], work, environment)
         project = work / "generated-site"
-        (project / "rust-toolchain.toml").write_bytes((ROOT / "rust-toolchain.toml").read_bytes())
-        manifest = project / "Cargo.toml"
-        manifest.write_text(workspace_manifest(manifest.read_text(), packages, workspace_dependencies))
-        (project / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
+        use_workspace(project, packages, workspace_dependencies)
         generate_additions(cli, project, environment, "marketing")
         run(["cargo", "tree", "--offline", "--depth", "0"], project, environment)
         run(["cargo", "check", "--locked", "--all-targets"], project, environment)
         unmanaged = {key: value for key, value in environment.items() if key != "PROA_PUBLIC_ASSETS"}
         run(["cargo", "test", "--locked", "--test", "representations"], project, unmanaged)
         run([cli, "test", "--root", project, "--locked", "--test", "representations"], project, unmanaged)
+
+        first_island_acceptance(cli, work, environment, packages, workspace_dependencies)
 
 
 if __name__ == "__main__":

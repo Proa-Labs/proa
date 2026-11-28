@@ -50,6 +50,7 @@ impl SitePlan {
     pub fn validate(&self) -> Result<()> {
         for required in [
             "Cargo.toml",
+            "src/lib.rs",
             "src/main.rs",
             crate::config::CONFIG_FILE,
             "proa.lock.json",

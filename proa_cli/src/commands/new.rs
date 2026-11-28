@@ -87,8 +87,12 @@ struct NewSiteArgs {
     #[arg(long)]
     start: bool,
     /// Start the project and open its local URL.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "no_open")]
     open: bool,
+    /// Do not open a browser. This is already the default; the flag lets a
+    /// script say so explicitly.
+    #[arg(long)]
+    no_open: bool,
     /// Forbid registry, tool, and Cargo network access.
     #[arg(long)]
     offline: bool,
@@ -135,6 +139,7 @@ fn run_site(mut args: NewSiteArgs) -> Result<()> {
         DryRunFormat::Text
     });
     let _recommended_defaults = args.yes;
+    let open = args.open && !args.no_open;
 
     site_scaffold::new_site(site_scaffold::NewSiteOptions {
         path: args.path,
@@ -152,10 +157,41 @@ fn run_site(mut args: NewSiteArgs) -> Result<()> {
         agents_md: args.agents_md || !args.no_agents_md,
         no_git: args.no_git,
         verify: args.verify,
-        start: args.start || args.open,
-        open: args.open,
+        start: args.start || open,
+        open,
         offline: args.offline,
         dry_run,
         json: args.json,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::{error::ErrorKind, Parser};
+
+    use super::{NewCommand, NewSiteArgs};
+    use crate::cli::Cli;
+    use crate::commands::Command;
+
+    fn site(arguments: &[&str]) -> Result<NewSiteArgs, clap::Error> {
+        let cli = Cli::try_parse_from(["proa", "new", "site", "demo"].iter().chain(arguments))?;
+        let Command::New(args) = cli.command else {
+            panic!("expected new command");
+        };
+        let NewCommand::Site(args) = args.command;
+        Ok(args)
+    }
+
+    #[test]
+    fn no_open_states_the_default_and_conflicts_with_open() {
+        // The same pair `proa dev` accepts, so a script can pass either flag
+        // to both commands.
+        let explicit = site(&["--start", "--no-open"]).unwrap();
+        assert!(explicit.start && explicit.no_open && !explicit.open);
+        assert!(site(&["--open"]).unwrap().open);
+        assert_eq!(
+            site(&["--open", "--no-open"]).unwrap_err().kind(),
+            ErrorKind::ArgumentConflict
+        );
+    }
 }

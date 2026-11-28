@@ -581,7 +581,7 @@ fn host_target_and_version(root: &Path) -> Result<(String, String)> {
         .current_dir(root)
         .arg("-vV")
         .output()
-        .context("query host rustc for Rust config")?;
+        .context("run rustc for proa.config.rs; install the Rust toolchain with rustup")?;
     if !output.status.success() {
         bail!(
             "rustc -vV for Rust config failed: {}",
@@ -589,6 +589,17 @@ fn host_target_and_version(root: &Path) -> Result<(String, String)> {
         );
     }
     let version = String::from_utf8(output.stdout)?;
+    if let Some(release) = version
+        .lines()
+        .find_map(|line| line.strip_prefix("release: "))
+    {
+        // A nightly or beta on the minimum version has the required compiler.
+        let numeric = release.split('-').next().unwrap_or(release);
+        let minimum = env!("CARGO_PKG_RUST_VERSION");
+        if semver::Version::parse(numeric)? < semver::Version::parse(minimum)? {
+            bail!("this project needs Rust {minimum} or newer; the selected rustc is {release}. Update the project toolchain or run `rustup update stable`.");
+        }
+    }
     let host = version
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
