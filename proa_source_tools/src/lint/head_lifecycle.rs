@@ -1371,9 +1371,20 @@ pub(super) fn lint_parsed(
                         .iter()
                         .all(|d| d.body == Some(BodyShape::Document(member.clone())))
                 {
-                    diagnostics.push(Diagnostic::new(&display_path(prepared.path), start.line, start.column + 1, Severity::Warning,
-                        "render/head-page-missing", format!("`{doc_name}` renders `{name}` as its only body slot; this component has no Page boundary"))
-                        .with_help("supply a Page that declares `proa::ComponentRole::PAGE`, or wrap the component in one"));
+                    let message = format!(
+                        "`{doc_name}` renders `{name}` as its only body slot without a Page boundary"
+                    );
+                    diagnostics.push(
+                        Diagnostic::new(
+                            display_path(prepared.path),
+                            start.line,
+                            start.column + 1,
+                            Severity::Warning,
+                            "render/head-page-missing",
+                            message,
+                        )
+                        .with_help("supply a Page that declares `proa::ComponentRole::PAGE`, or wrap the component in one"),
+                    );
                 }
                 continue;
             }
