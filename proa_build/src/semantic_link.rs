@@ -711,7 +711,8 @@ fn witness_kind(witness: &ResolvedTransportWitness) -> SemanticWitnessKind {
 #[non_exhaustive]
 pub enum SemanticLinkError {
     /// The adapter could not losslessly construct one canonical descriptor.
-    #[error("unsupported descriptor: {0}")]
+    /// The report names the item and every gap itself.
+    #[error("{0}")]
     Unsupported(UnsupportedDescriptor),
     /// The canonical graph names a runtime family the current linked-owner
     /// emitter cannot publish faithfully.

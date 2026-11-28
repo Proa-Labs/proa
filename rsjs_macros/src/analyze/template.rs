@@ -225,7 +225,7 @@ impl Analyzer {
                             lowered.source_name.or_else(|| Some(raw_name.clone())),
                             lowered
                                 .source_anchor
-                                .or_else(|| Some(source_anchor(value.span()))),
+                                .or_else(|| Some(super::rsjs_source_anchor(value.span()))),
                         );
                         self.hir_sidecar.push_handler(handler_id, body_hir);
                         self.builder.bind_event(id, event, handler_id);
@@ -1043,14 +1043,6 @@ fn expression_mentions_known_client_local_with_shadowed(
     finder.found
 }
 
-fn source_anchor(span: proc_macro2::Span) -> rsjs_ir::SourceAnchor {
-    let start = span.start();
-    rsjs_ir::SourceAnchor {
-        start_line: start.line,
-        start_column: start.column + 1,
-    }
-}
-
 pub(super) fn server_surface_anchor(span: proc_macro2::Span) -> rsjs_ir::ServerSurfaceAnchor {
     let start = span.start();
     rsjs_ir::ServerSurfaceAnchor {
@@ -1211,7 +1203,7 @@ impl Analyzer {
                 state_ty: state.path.clone(),
                 child_edge,
                 site_node,
-                source_anchor: source_anchor(provider.path.span()),
+                source_anchor: super::rsjs_source_anchor(provider.path.span()),
             });
         Ok(())
     }
@@ -1336,7 +1328,7 @@ impl Analyzer {
             boundary,
             lifecycle,
             site_node: None,
-            source_anchor: source_anchor(component.path.span()),
+            source_anchor: super::rsjs_source_anchor(component.path.span()),
         });
         Ok(local_id)
     }
@@ -1368,7 +1360,7 @@ impl Analyzer {
             boundary,
             lifecycle: self.direct_component_lifecycle(),
             site_node: None,
-            source_anchor: source_anchor(component.path.span()),
+            source_anchor: super::rsjs_source_anchor(component.path.span()),
         });
         Ok(local_id)
     }

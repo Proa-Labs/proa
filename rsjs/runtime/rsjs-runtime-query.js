@@ -827,9 +827,24 @@ async function fetch_with_timeout(url, init, timeout_ms, external_signal) {
     }
 }
 
+/**
+ * Read a response body to its end and drop it.
+ *
+ * `response: 'empty'` ignores the body, but leaving it unread is visible.
+ * Chromium reports a fetch whose empty body (a `204`, a `205`, or a
+ * zero-length `200`) was never read as a canceled load. The request then
+ * carries its successful status and still fails with `net::ERR_ABORTED` in
+ * DevTools and in `requestfailed` listeners. Reading the body lets the load
+ * finish.
+ */
+async function discard_response_body(res) {
+    await res.arrayBuffer();
+}
+
 async function decode_response(res, kind) {
     switch (String(kind || 'json').toLowerCase()) {
         case 'empty':
+            await discard_response_body(res);
             return null;
         case 'bytes':
             return new Uint8Array(await res.arrayBuffer());
@@ -993,6 +1008,7 @@ async function execute_fetch(fetcher, options, hooks) {
             if (options.download_progress) {
                 if (String(cfg.response || 'json').toLowerCase() === 'empty') {
                     if (hooks.on_progress) hooks.on_progress(0, parse_content_length(res));
+                    await discard_response_body(res);
                     return null;
                 }
                 const bytes = await read_response_bytes_with_progress(res, hooks.on_progress);
@@ -1041,6 +1057,30 @@ function claim_client_query_entry(entry) {
     // SSR fragments may still improve the page-level seed registry for future
     // consumers but must not roll this live entry backward.
     entry._rsjs_seed_rank = null;
+}
+
+/**
+ * Mark a request promise whose failure the runtime has already recorded.
+ *
+ * A failed query or mutation request is stored in entry state and announced
+ * to subscribers, so an island reads it through `status()` / `error()`. The
+ * same request is also handed back as a promise, and most callers discard it:
+ * a generated event handler lowers `query.refetch()` and `mutation.run(arg)`
+ * to bare statements, and policy refetches have no caller at all. A discarded
+ * rejecting promise makes the browser report the recorded failure a second
+ * time, as `Uncaught (in promise)` plus an `unhandledrejection` event.
+ *
+ * A no-op handler on the promise itself marks it handled without consuming
+ * the rejection. A caller that awaits or chains the promise still receives
+ * the error, and a chain the caller leaves without a rejection handler is
+ * still reported as that caller's own unhandled rejection.
+ *
+ * Pass only a promise whose every rejection is recorded in state, or belongs
+ * to a disposed page generation whose state is already gone.
+ */
+function mark_failure_recorded(promise) {
+    promise.catch(() => {});
+    return promise;
 }
 
 /**
@@ -1117,7 +1157,9 @@ function refetch(entry) {
             throw error;
         },
     );
-    return entry.in_flight;
+    // Every rejection above is either recorded on the entry or raised by the
+    // teardown that disposed it, so discarding this promise is not an error.
+    return mark_failure_recorded(entry.in_flight);
 }
 
 /**
@@ -1146,10 +1188,12 @@ function observer_needs_fetch(entry, observer) {
 }
 
 /**
- * Policy-driven refetches surface failures through query state/subscribers.
- * Attach a rejection handler as well so a failed interval/focus/invalidation
- * request does not become an unhandled promise rejection. Explicit
- * `handle.refetch()` calls still return the rejecting promise to their caller.
+ * Policy-driven refetches (interval, focus, reconnect, invalidation, rebind)
+ * have no caller to report to. `refetch` already marks a started request as
+ * handled. This also covers the rejections it returns without starting one,
+ * for a disposed or unregistered entry, so no policy path can raise an
+ * unhandled promise rejection. Explicit `handle.refetch()` calls keep those
+ * rejections loud, because nothing in handle state records them.
  */
 function refetch_in_background(entry) {
     const request = refetch(entry);
@@ -2223,7 +2267,9 @@ function run_mutation_entry(entry, args) {
     if (entry.status === 'pending' && entry.in_flight_promise) {
         return entry.in_flight_promise;
     }
-    const promise = (async () => {
+    // Everything that can fail runs inside the `try`, so every rejection of
+    // this promise is recorded in mutation state before it propagates.
+    const promise = mark_failure_recorded((async () => {
         // Round-4 review #2: mutation.run takes a single argument. The
         // value is forwarded verbatim to the runner / optimistic update
         // callback / fetch body. Earlier revisions split arrays into
@@ -2237,26 +2283,27 @@ function run_mutation_entry(entry, args) {
         // Snapshot current data for every invalidation target so we can
         // roll back optimistic updates on rejection.
         const rollback = [];
-        if (entry.options && entry.options.optimistic_update !== undefined) {
-            for (const target of entry.invalidates || []) {
-                const tk = typeof target === 'string' ? [target] : target;
-                const cache_entry = get_entry(tk);
-                if (cache_entry) {
-                    rollback.push({ key: tk, prev: cache_entry.data });
+        try {
+            if (entry.options && entry.options.optimistic_update !== undefined) {
+                for (const target of entry.invalidates || []) {
+                    const tk = typeof target === 'string' ? [target] : target;
+                    const cache_entry = get_entry(tk);
+                    if (cache_entry) {
+                        rollback.push({ key: tk, prev: cache_entry.data });
+                    }
+                }
+                // Apply the optimistic update to every invalidation target.
+                // The optimistic value can be a function (called with args)
+                // or a literal value the runtime substitutes verbatim. A
+                // function that throws fails the run like a failed request.
+                const opt = entry.options.optimistic_update;
+                const opt_value = typeof opt === 'function' ? opt(args) : opt;
+                for (const target of entry.invalidates || []) {
+                    const tk = typeof target === 'string' ? [target] : target;
+                    set_data(tk, opt_value);
                 }
             }
-            // Apply the optimistic update to every invalidation target.
-            // The optimistic value can be a function (called with args)
-            // or a literal value the runtime substitutes verbatim.
-            const opt = entry.options.optimistic_update;
-            const opt_value = typeof opt === 'function' ? opt(args) : opt;
-            for (const target of entry.invalidates || []) {
-                const tk = typeof target === 'string' ? [target] : target;
-                set_data(tk, opt_value);
-            }
-        }
 
-        try {
             const data = await execute_mutation(entry.runner, args, entry.options || {});
             entry.status = 'success';
             entry.data = data;
@@ -2282,7 +2329,7 @@ function run_mutation_entry(entry, args) {
         } finally {
             entry.in_flight_promise = null;
         }
-    })();
+    })());
     entry.in_flight_promise = promise;
     return promise;
 }

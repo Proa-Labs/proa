@@ -294,7 +294,7 @@ impl Analyzer {
             let id = self.builder.shared_store(
                 emitted_name.to_string(),
                 shared.ty.to_token_stream().to_string(),
-                Some(source_anchor(shared.name.span())),
+                Some(super::rsjs_source_anchor(shared.name.span())),
             );
             self.shadow_prelude_binding(&source_name);
             self.shared_stores.insert(source_name.clone(), id);
@@ -377,7 +377,7 @@ impl Analyzer {
                 self.builder.set_signal_source(
                     id,
                     Some(field.name.to_string()),
-                    Some(source_anchor(field.field.span())),
+                    Some(super::rsjs_source_anchor(field.field.span())),
                 );
                 self.shared_fields.insert((field.store, field_name), id);
                 id
@@ -744,8 +744,11 @@ impl Analyzer {
         let id =
             self.builder
                 .query_typed(key_expr, server_initial, client_fetcher, data_ty, options);
-        self.builder
-            .set_query_source(id, Some(name.to_string()), Some(source_anchor(call.span())));
+        self.builder.set_query_source(
+            id,
+            Some(name.to_string()),
+            Some(super::rsjs_source_anchor(call.span())),
+        );
         let name = name.to_string();
         self.shadow_prelude_binding(&name);
         self.queries.insert(name, id);
@@ -824,7 +827,7 @@ impl Analyzer {
         self.builder.set_mutation_source(
             id,
             Some(name.to_string()),
-            Some(source_anchor(call.span())),
+            Some(super::rsjs_source_anchor(call.span())),
         );
         if runtime_key_expr.is_some() || runtime_invalidates_expr.is_some() {
             self.mutation_initializers.push(MutationInitializer {
@@ -2304,7 +2307,7 @@ pub(super) fn collect_handler_locals(lets: &[Local]) -> syn::Result<Vec<HandlerL
             // with the exact component prelude position before the handler is
             // made visible to template analysis.
             prelude_local_index: 0,
-            source_anchor: source_anchor(call.span()),
+            source_anchor: super::rsjs_source_anchor(call.span()),
             capture_env: None,
         });
     }
@@ -2345,7 +2348,7 @@ pub(super) fn collect_node_ref_locals(lets: &[Local]) -> syn::Result<Vec<NodeRef
         }
         out.push(NodeRefLocal {
             name,
-            source_anchor: source_anchor(call.span()),
+            source_anchor: super::rsjs_source_anchor(call.span()),
         });
     }
     Ok(out)
@@ -2635,7 +2638,7 @@ pub(super) fn signal_local_decl(local: &Local) -> syn::Result<Option<SignalLocal
     });
     Ok(Some(SignalLocal {
         name,
-        source_anchor: source_anchor(call.span()),
+        source_anchor: super::rsjs_source_anchor(call.span()),
         fallback,
         runtime_expr,
         explicit_ty,
@@ -2769,14 +2772,6 @@ fn validate_signal_explicit_type_agreement(
         ));
     }
     Ok(())
-}
-
-fn source_anchor(span: proc_macro2::Span) -> rsjs_ir::SourceAnchor {
-    let start = span.start();
-    rsjs_ir::SourceAnchor {
-        start_line: start.line,
-        start_column: start.column + 1,
-    }
 }
 
 /// Declared client-side value shape for a prelude `signal(...)`

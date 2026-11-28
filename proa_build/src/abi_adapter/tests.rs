@@ -1706,18 +1706,15 @@ fn direct_live_value_roots_fail_closed_on_node_payload_derived_signals() {
     let AbiBridgeResult::Unsupported(report) = result else {
         panic!("a node-local payload cannot seed a cross-component signal export");
     };
-    assert_eq!(
-        report.gaps,
-        vec![CompatibilityGap::ComponentClientGraphMetadataMissing {
+    assert!(report
+        .gaps
+        .contains(&CompatibilityGap::ComponentClientGraphMetadataMissing {
             features: vec!["unsupported_shapes".to_owned()],
-        }]
-    );
+        }));
     let message = report.to_string();
     assert!(message.contains("acme_web::"), "{message}");
-    assert!(
-        message.contains("proa lint <component-source.rs>"),
-        "{message}"
-    );
+    assert!(message.contains("item.label"), "{message}");
+    assert!(message.contains("help:"), "{message}");
 }
 
 #[test]

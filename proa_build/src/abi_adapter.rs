@@ -68,6 +68,7 @@ use rsjs_transport::{
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+pub use crate::legacy_graph::UnsupportedClientShape;
 use crate::legacy_graph::{
     collect_handler_browser_operations, parse_legacy_client_graph_with_inbound_signals,
     LegacyAttributeBinding, LegacyBrowserConsumer, LegacyBrowserOperation,
@@ -1081,25 +1082,125 @@ pub struct UnsupportedDescriptor {
     pub gaps: Vec<CompatibilityGap>,
 }
 
+/// Published explanation of link-time client lowering limits.
+const UNSUPPORTED_SHAPES_GUIDE: &str =
+    "https://proa.so/docs/guides/troubleshooting#rsjs-unsupported-shapes-at-link-time";
+
 impl fmt::Display for UnsupportedDescriptor {
+    /// Name the item as its author wrote it, then one entry per gap.
+    ///
+    /// The message spans several lines because it is the final cause in a
+    /// build failure: each unsupported construct gets its position, what it
+    /// is, and what to write instead.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(path) = &self.semantic_path {
-            write!(formatter, "{}", path.crate_name)?;
-            for segment in &path.module_path {
-                write!(formatter, "::{segment}")?;
+        let kind = match self.kind {
+            DescriptorKind::Component => "component",
+            DescriptorKind::Helper => "client helper",
+        };
+        match &self.semantic_path {
+            Some(path) => {
+                write!(formatter, "{kind} `{}", path.crate_name)?;
+                for segment in &path.module_path {
+                    write!(formatter, "::{segment}")?;
+                }
+                write!(formatter, "::{}`", path.item)?;
             }
-            write!(formatter, "::{}: ", path.item)?;
+            // Without a Rust path the build-local ID is the only handle. A
+            // short prefix is enough to find the record in the build cache.
+            None => write!(
+                formatter,
+                "{kind} descriptor {} (record {})",
+                short_hex(self.definition.unit.as_bytes()),
+                short_hex(&self.definition.record)
+            )?,
+        }
+        formatter.write_str(" cannot be compiled for the browser")?;
+
+        let shapes = self.gaps.iter().find_map(|gap| match gap {
+            CompatibilityGap::UnsupportedClientShapes { shapes } => Some(shapes),
+            _ => None,
+        });
+        for gap in &self.gaps {
+            match gap {
+                CompatibilityGap::UnsupportedClientShapes { shapes } => {
+                    for shape in shapes {
+                        formatter.write_str("\n\n  ")?;
+                        if let Some(file) = &shape.source_file {
+                            write!(formatter, "{}", file.display())?;
+                            if let Some(anchor) = shape.source_anchor {
+                                write!(
+                                    formatter,
+                                    ":{}:{}",
+                                    anchor.start_line, anchor.start_column
+                                )?;
+                            }
+                            formatter.write_str(": ")?;
+                        } else if let Some(anchor) = shape.source_anchor {
+                            write!(
+                                formatter,
+                                "line {}, column {}: ",
+                                anchor.start_line, anchor.start_column
+                            )?;
+                        }
+                        write!(formatter, "{}\n    help: {}", shape.construct, shape.help)?;
+                    }
+                }
+                // The constructs above already say what `unsupported_shapes`
+                // stands for, so only the other feature labels are listed.
+                CompatibilityGap::ComponentClientGraphMetadataMissing { features }
+                    if shapes.is_some() =>
+                {
+                    let other = features
+                        .iter()
+                        .filter(|feature| *feature != "unsupported_shapes")
+                        .map(String::as_str)
+                        .collect::<Vec<_>>();
+                    if !other.is_empty() {
+                        write!(
+                            formatter,
+                            "\n\n  {UNSUPPORTED_FEATURES_PREFIX}{}",
+                            other.join(", ")
+                        )?;
+                    }
+                }
+                other => write!(formatter, "\n\n  {other}")?,
+            }
+        }
+
+        let Some(shapes) = shapes else {
+            return Ok(());
+        };
+        formatter.write_str("\n\n")?;
+        if shapes
+            .iter()
+            .any(|shape| shape.source_anchor.is_some() && shape.source_file.is_none())
+        {
+            // A descriptor records positions but no file path.
+            let item = self
+                .semantic_path
+                .as_ref()
+                .map_or("this component", |path| path.item.as_str());
+            writeln!(
+                formatter,
+                "Lines and columns are positions in the source file that defines `{item}`."
+            )?;
         }
         write!(
             formatter,
-            "{:?} descriptor {:?} cannot be converted to canonical ABI v1",
-            self.kind, self.definition
-        )?;
-        for gap in &self.gaps {
-            write!(formatter, "; {gap}")?;
-        }
-        Ok(())
+            "This code is valid Rust, so `cargo check` and `proa lint` accept it. Browser code \
+             is generated after compilation, from the linked component graph, and that step \
+             cannot lower the constructs above.\nSee {UNSUPPORTED_SHAPES_GUIDE}"
+        )
     }
+}
+
+/// First four bytes of a build-local ID, as lowercase hex.
+fn short_hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .take(4)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// Behavior-affecting information absent from the legacy/canonical boundary.
@@ -1119,6 +1220,14 @@ pub enum CompatibilityGap {
     ComponentClientGraphMetadataMissing {
         /// Non-empty legacy sections that require canonical lowering.
         features: Vec<String>,
+    },
+    /// The authored constructs behind the `unsupported_shapes` feature label.
+    ///
+    /// The label stays in [`Self::ComponentClientGraphMetadataMissing`] as the
+    /// stable category. This gap carries what a person needs to fix it.
+    UnsupportedClientShapes {
+        /// One entry per construct, in source order.
+        shapes: Vec<UnsupportedClientShape>,
     },
     /// Direct edges lack complete binding or boundary metadata.
     DirectComponentBindingMetadataMissing {
@@ -1145,6 +1254,9 @@ pub enum CompatibilityGap {
     UnknownViewNodeKind,
 }
 
+const UNSUPPORTED_FEATURES_PREFIX: &str =
+    "linked browser code generation does not support these client graph features: ";
+
 impl fmt::Display for CompatibilityGap {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1156,15 +1268,18 @@ impl fmt::Display for CompatibilityGap {
                 "legacy component fields lack concrete type/crossing witnesses: {}",
                 fields.join(", ")
             ),
-            Self::ComponentClientGraphMetadataMissing { features } => {
-                write!(formatter,
-                    "linked browser code generation does not support these client graph features: {}",
-                    features.join(", ")
-                )?;
-                if features.iter().any(|feature| feature == "unsupported_shapes") {
-                    formatter.write_str(
-                        "; unsupported_shapes means a client expression or dependency cannot be represented by the linked backend; run `proa lint <component-source.rs>` and see https://proa.so/docs/guides/troubleshooting#rsjs-unsupported-shapes-at-link-time",
-                    )?;
+            Self::ComponentClientGraphMetadataMissing { features } => write!(
+                formatter,
+                "{UNSUPPORTED_FEATURES_PREFIX}{}",
+                features.join(", ")
+            ),
+            Self::UnsupportedClientShapes { shapes } => {
+                formatter.write_str("linked browser code generation cannot lower: ")?;
+                for (index, shape) in shapes.iter().enumerate() {
+                    if index > 0 {
+                        formatter.write_str("; ")?;
+                    }
+                    write!(formatter, "{} (help: {})", shape.construct, shape.help)?;
                 }
                 Ok(())
             }
@@ -1718,8 +1833,16 @@ fn adapt_component_with_projection_roles(
         || !direct_helper_edges.is_empty()
         || active_shared_state.is_active()
         || has_live_direct_component_bindings;
+    let reports_unsupported_shapes = features
+        .iter()
+        .any(|feature| feature == "unsupported_shapes");
     if !features.is_empty() {
         gaps.push(CompatibilityGap::ComponentClientGraphMetadataMissing { features });
+    }
+    if reports_unsupported_shapes {
+        gaps.push(CompatibilityGap::UnsupportedClientShapes {
+            shapes: legacy_graph.unsupported_shapes.clone(),
+        });
     }
     if direct_component_edges
         .iter()

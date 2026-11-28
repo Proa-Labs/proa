@@ -138,6 +138,39 @@ invalidateButton.dispatchEvent({ type: "click", target: invalidateButton });
 await waitFor(() => calls.length === 5 && fetchCount.textContent === "4", "manual query invalidate should refetch observed stock data");
 assert(calls[4].url === "/api/stocks/AAPL", `manual invalidate should refetch stock URL, got ${calls[4].url}`);
 
+// The generated handlers discard the promise `refetch()` and `run(arg)`
+// return. A failed request is recorded in query and mutation state, so the
+// bindings show it and nothing may reach `unhandledRejection`.
+const unhandled = [];
+process.on("unhandledRejection", (reason) => {
+  unhandled.push(reason);
+});
+const realSetTimeout = globalThis.setTimeout;
+// Retry backoff starts at 250 ms; shorten it so the retry budget drains fast.
+globalThis.setTimeout = (callback, delay, ...rest) =>
+  realSetTimeout(callback, Math.min(Number(delay) || 0, 1), ...rest);
+globalThis.fetch = async (url, init = {}) => {
+  calls.push({ url, init });
+  return makeFailure(init.method === "PATCH" ? 422 : 503);
+};
+
+refetchButton.dispatchEvent({ type: "click", target: refetchButton });
+await waitFor(() => status.textContent === "error", "failed manual refetch should bind the error status");
+assert(calls.length === 8, `failed refetch should spend its retry budget of three requests, got ${calls.length - 5}`);
+
+button.dispatchEvent({ type: "click", target: button });
+await waitFor(() => mutationStatus.textContent === "error", "failed mutation should bind the error status");
+assert(calls.length === 10, `failed mutation should spend its retry budget of two requests, got ${calls.length - 8}`);
+assert(pending.hasAttribute("hidden"), "pending marker should hide after the mutation fails");
+
+await new Promise((resolve) => realSetTimeout(resolve, 0));
+await new Promise((resolve) => realSetTimeout(resolve, 0));
+globalThis.setTimeout = realSetTimeout;
+assert(
+  unhandled.length === 0,
+  `failed requests from generated handlers should not be unhandled rejections, got ${unhandled.map((reason) => reason?.message ?? String(reason)).join(" | ")}`,
+);
+
 finish("rsjs conformance runtime query mutation");
 
 async function waitFor(predicate, message) {
@@ -165,6 +198,21 @@ function makeResponse(body) {
     },
     async arrayBuffer() {
       return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    },
+  };
+}
+
+function makeFailure(status) {
+  return {
+    ok: false,
+    status,
+    headers: {
+      get() {
+        return null;
+      },
+    },
+    async text() {
+      return "";
     },
   };
 }

@@ -90,7 +90,16 @@ export interface QueryHandle<T = unknown> {
 
     /**
      * Manually trigger a refetch, ignoring cache freshness.
-     * Resolves with the new value once the fetch completes.
+     * Resolves with the new value once the fetch completes; rejects
+     * when the request fails, times out, or is aborted by page
+     * teardown.
+     *
+     * A failed request is also recorded on the handle (`status()`
+     * becomes `'error'`, `error()` returns the failure), so the
+     * promise may be discarded: an unobserved failure does not raise
+     * `unhandledrejection`. Await or chain the promise to handle the
+     * failure at the call site. A chain without a rejection handler
+     * is reported as usual.
      */
     refetch(): Promise<T>;
 
@@ -366,6 +375,13 @@ export interface MutationHandle<Args = unknown, Result = unknown> {
      *
      * On error, any optimistic updates applied before the runner
      * was invoked are rolled back to their pre-`run()` values.
+     *
+     * A failed run is also recorded on the handle (`status()`
+     * becomes `'error'`, `error()` returns the failure), so the
+     * promise may be discarded: an unobserved failure does not raise
+     * `unhandledrejection`. Await or chain the promise to handle the
+     * failure at the call site. A chain without a rejection handler
+     * is reported as usual.
      */
     run(args: Args): Promise<Result>;
 
