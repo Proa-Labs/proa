@@ -534,8 +534,11 @@ pub fn style_ok<T>(val: T) -> T {
 
 /// Suppress the `html!` macro's raw-text interpolation warning for a reviewed value.
 ///
-/// Intended for `<title>` and `<textarea>` content where interpolation is
-/// deliberate and does not rely on tag parsing.
+/// The warning covers `<xmp>`, `<noscript>`, and `<noframes>`, which do not
+/// decode entities, so an escaped value is shown with literal `&lt;` and
+/// `&amp;`. Wrap the expression when that output is intended. `<title>` and
+/// `<textarea>` decode entities and do not warn; wrapping a value there is
+/// harmless and no longer needed.
 #[inline(always)]
 pub fn raw_text_ok<T>(val: T) -> T {
     val
