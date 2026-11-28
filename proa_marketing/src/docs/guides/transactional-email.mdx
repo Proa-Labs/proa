@@ -5,13 +5,13 @@ description: Deliver mail from a durable job with a stable idempotency key.
 
 When an account is created, insert a welcome-email job in the same database transaction. A worker claims the committed job and sends it. The handler can respond as soon as the transaction commits, and restarting the web process preserves pending mail.
 
-```toml check="dependencies" filename="Cargo.toml"
+```toml check="service/dependencies" filename="Cargo.toml"
 [dependencies]
-reqwest = { version = "0.13", features = ["json", "form"] }
+reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 ```
 
-```rust check="mail" filename="src/mail.rs"
+```rust check="service/mail" filename="src/mail.rs"
 use reqwest::{header::{HeaderValue, RETRY_AFTER}, Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

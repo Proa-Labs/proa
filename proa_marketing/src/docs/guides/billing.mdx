@@ -5,7 +5,13 @@ description: Create hosted Checkout and customer portal sessions from authentica
 
 Register two authenticated POST routes, one for Checkout and one for the customer portal. Retrieve the Stripe customer ID from the signed-in account’s database record. Keep the secret key, allowed price IDs, and absolute public return URLs in server configuration.
 
-```rust check="billing" filename="src/billing.rs"
+```toml check="service/dependencies" filename="Cargo.toml"
+[dependencies]
+reqwest = { version = "0.13", features = ["form", "json"] }
+serde = { version = "1", features = ["derive"] }
+```
+
+```rust check="service/billing" filename="src/billing.rs"
 use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
@@ -36,7 +42,7 @@ pub async fn portal(
 }
 ```
 
-Add `reqwest` with the `form` and `json` features and `serde` with `derive`. Reuse the HTTP client through application state. The handler returns `Redirect::to(&session.url)` when session creation succeeds. Persist a fresh Checkout attempt ID before making the call and reuse it when retrying the same purchase. Include the site’s public mount prefix in every return URL. Configure portal permissions and test prices in the Stripe Dashboard. [Checkout Sessions](https://docs.stripe.com/api/checkout/sessions/create) · [Customer portal sessions](https://docs.stripe.com/api/customer_portal/sessions/create)
+Reuse the HTTP client through application state. The handler returns `Redirect::to(&session.url)` when session creation succeeds. Persist a fresh Checkout attempt ID before making the call and reuse it when retrying the same purchase. Include the site’s public mount prefix in every return URL. Configure portal permissions and test prices in the Stripe Dashboard. [Checkout Sessions](https://docs.stripe.com/api/checkout/sessions/create) · [Customer portal sessions](https://docs.stripe.com/api/customer_portal/sessions/create)
 
 ## Granting and revoking access
 

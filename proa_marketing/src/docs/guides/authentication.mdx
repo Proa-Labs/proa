@@ -5,13 +5,14 @@ description: Carry a verified account from an Axum login callback into protected
 
 Mount a server-side session store on the router returned by `FrameworkBuilder::try_build`. Each request then has a `Session` extractor. The browser holds an opaque cookie, and every replica reads account IDs from the same store.
 
-```toml check="dependencies" filename="Cargo.toml"
+```toml check="service/dependencies" filename="Cargo.toml"
 [dependencies]
+axum = "0.8"
 tower-sessions = "0.15"
 time = "0.3"
 ```
 
-```rust check="sessions" filename="src/auth.rs"
+```rust check="service/sessions" filename="src/auth.rs"
 use axum::{http::StatusCode, Router};
 use time::Duration;
 use tower_sessions::{cookie::SameSite, Expiry, Session, SessionManagerLayer, SessionStore};
