@@ -10,6 +10,7 @@ struct Imports {
     app: String,
     config: String,
     count: usize,
+    template_error: Option<syn::Error>,
 }
 
 impl Imports {
@@ -55,6 +56,19 @@ impl Imports {
 }
 
 impl<'ast> Visit<'ast> for Imports {
+    fn visit_macro(&mut self, node: &'ast syn::Macro) {
+        let Some(name) = node.path.segments.last() else {
+            return;
+        };
+        if matches!(
+            name.ident.to_string().as_str(),
+            "html" | "html_sync" | "html_send" | "html_hot_sync"
+        ) {
+            if let Err(error) = syn::parse2::<proa_dsl::HtmlRoot>(node.tokens.clone()) {
+                self.template_error = Some(error);
+            }
+        }
+    }
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
         self.collect(&mut Vec::new(), &item.tree);
     }
@@ -64,7 +78,7 @@ fn check_excerpt(source: &str, imports: &mut Imports) -> syn::Result<()> {
     let file_error = match syn::parse_file(source) {
         Ok(file) => {
             imports.visit_file(&file);
-            return Ok(());
+            return imports.template_error.take().map_or(Ok(()), Err);
         }
         Err(error) => error,
     };
@@ -83,7 +97,7 @@ fn check_excerpt(source: &str, imports: &mut Imports) -> syn::Result<()> {
     } else {
         return Err(file_error);
     }
-    Ok(())
+    imports.template_error.take().map_or(Ok(()), Err)
 }
 
 fn main() -> ExitCode {
@@ -117,5 +131,23 @@ fn main() -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_rust_excerpts_validate_template_markup() {
+        let mut context = Imports::default();
+        assert!(check_excerpt("let page = proa::html_sync! { <div> };", &mut context).is_err());
+        assert!(
+            check_excerpt(
+                "let page = proa::html_sync! { <div>{name}</div> };",
+                &mut context
+            )
+            .is_ok()
+        );
     }
 }

@@ -14,8 +14,6 @@ import subprocess
 import tempfile
 import tomllib
 
-from check_registry_install import use_project_toolchain
-
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "proa_marketing/src/docs"
 FENCE = re.compile(r'^```(rust|toml) (?=[^\n]*\bcheck="(\w+(?:/\w+)*)")[^\n]*\n(.*?)^```[ \t]*$', re.M | re.S)
@@ -27,10 +25,12 @@ CODE = re.compile(r'^```(\w+)([^\n]*)\n(.*?)^```[ \t]*$', re.M | re.S)
 def check_corpus(project, env):
     project.mkdir()
     checker = ROOT / "scripts/check_docs_snippet_syntax.rs"
+    syn_version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["dependencies"]["syn"]["version"]
     (project / "Cargo.toml").write_text(
         '[workspace]\n[package]\nname="doc-syntax"\nversion="0.0.0"\nedition="2024"\n'
         + '[[bin]]\nname="doc-syntax"\npath=' + json.dumps(str(checker))
-        + '\n[dependencies]\nsyn={version="2", features=["full", "visit"]}\nquote="1"\n'
+        + '\n[dependencies]\nsyn={version=' + json.dumps(syn_version) + ', features=["full", "visit"]}\nquote="1"\n'
+        + 'proa_dsl={path=' + json.dumps(str(ROOT / "proa_dsl")) + '}\n'
     )
     versions = {name: tomllib.loads((ROOT / directory / "Cargo.toml").read_text())["package"]["version"]
                 for name, directory in (("proa", "proa"), ("rsjs", "rsjs"), ("proa-cli", "proa_cli"))}
@@ -68,6 +68,7 @@ def check_corpus(project, env):
         if ">app.rs<" in diagram or ">routes.rs<" not in diagram:
             raise ValueError(f"{name} must show the starter route module")
     print(f"Checking Rust syntax in {count} documented fences", flush=True)
+    subprocess.run(["cargo", "test", "--quiet"], cwd=project, env=env, check=True)
     subprocess.run(["cargo", "run", "--quiet", "--", snippets, project], cwd=project, env=env, check=True)
     print(f"Compiling {len(hooks)} documented render_head bodies", flush=True)
     hooks["documented_imports"] = ["#![allow(unused_imports)]\n" + (project / "app-imports.rs").read_text()]
@@ -149,8 +150,10 @@ def main():
         )
     )
     env = os.environ.copy()
-    use_project_toolchain(env)
-    with tempfile.TemporaryDirectory(prefix="proa-doc-examples-") as tmp:
+    # Keep generated workspaces under the checkout so rustup uses its compiler pin.
+    scratch = ROOT / "target"
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=scratch, prefix="proa-doc-examples-") as tmp:
         project = Path(tmp)
         env["CARGO_TARGET_DIR"] = str(Path(env.get("CARGO_TARGET_DIR", project / "target")).resolve())
         hooks, config_imports = check_corpus(project / "syntax", env)

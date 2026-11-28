@@ -22,14 +22,6 @@ import urllib.error
 import urllib.request
 
 
-def use_project_toolchain(environment: dict[str, str]) -> None:
-    # Temporary projects live outside the checkout and cannot inherit its rustup pin.
-    if not environment.get("RUSTUP_TOOLCHAIN"):
-        pin = Path(__file__).resolve().parents[1] / "rust-toolchain.toml"
-        with pin.open("rb") as manifest:
-            environment["RUSTUP_TOOLCHAIN"] = tomllib.load(manifest)["toolchain"]["channel"]
-
-
 def registry_environment(work: Path) -> dict[str, str]:
     # A fresh Cargo home has no checkout config, source overrides, or credentials.
     environment = {
@@ -37,7 +29,11 @@ def registry_environment(work: Path) -> dict[str, str]:
         if not key.startswith(("CARGO_", "PROA_", "RSJS_", "SCCACHE_"))
         and key not in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER")
     }
-    use_project_toolchain(environment)
+    # Generated sites live outside the checkout, where rustup cannot see its pin.
+    if not environment.get("RUSTUP_TOOLCHAIN"):
+        pin = Path(__file__).resolve().parents[1] / "rust-toolchain.toml"
+        with pin.open("rb") as manifest:
+            environment["RUSTUP_TOOLCHAIN"] = tomllib.load(manifest)["toolchain"]["channel"]
     environment.update(CARGO_HOME=tempfile.mkdtemp(prefix="cargo-home-", dir=work),
                        CARGO_TARGET_DIR=str(work / "target"), CARGO_PROFILE_DEV_DEBUG="0",
                        CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")

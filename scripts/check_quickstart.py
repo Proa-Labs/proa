@@ -20,7 +20,7 @@ import time
 import urllib.error
 import urllib.request
 
-from check_registry_install import run, use_project_toolchain
+from check_registry_install import run
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -161,7 +161,6 @@ def main() -> None:
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(("PROA_", "RSJS_", "SCCACHE_"))
                    and key not in ("RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_DIR")}
-    use_project_toolchain(environment)
     environment.update(CARGO_PROFILE_DEV_DEBUG="0", CARGO_PROFILE_TEST_DEBUG="0", RUST_TEST_THREADS="2")
     environment["PATH"] = str(cli.parent) + os.pathsep + environment.get("PATH", "")
     run([str(cli), "--version"], work, environment)
