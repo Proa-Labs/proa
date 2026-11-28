@@ -134,6 +134,7 @@ src/
   config.rs
   db.rs
   error.rs
+  lib.rs
   loader.rs
   main.rs
   routes.rs
@@ -152,7 +153,8 @@ What each directory holds:
 
 | Path | Contents |
 |---|---|
-| `src/main.rs` | Process startup: configuration, the database pool, and serving the router. |
+| `src/lib.rs` | The module tree. The site is a library crate, so `src/main.rs` and every target under `tests/` import one compiled copy of the application. Declare each new top-level module here. |
+| `src/main.rs` | Process startup: configuration, the database pool, and serving the router. It declares no modules. |
 | `src/routes.rs` | Router assembly and middleware, kept visible so a deploy is easy to audit. |
 | `src/pages/` | One module per route: the page component, its Markdown representation, and the handler. See [Routing](/docs/framework/routing). |
 | `src/endpoints/` | Operational endpoints such as `/healthz` and `/readyz`. |
@@ -161,7 +163,7 @@ What each directory holds:
 | `src/db.rs`, `src/loader.rs` | The SQLx pool and the request-scoped `DataLoader` behind `cx.load_typed`. |
 | `migrations/`, `data/` | SQL migrations and the local SQLite database location. |
 | `public/` | Pre-built browser assets: CSS output, images, downloads. |
-| `tests/` | Integration tests, including the representation and data-loading contracts. |
+| `tests/` | Integration tests, including the representation and data-loading contracts. They import the library crate by name and never re-include files from `src/`. |
 | `build.rs` | Build-time wiring. The `origin` template also runs the `proa_fonts_build` collector for `google_font!`/`local_font!` declarations (see [Fonts](/docs/framework/fonts)). |
 
 `proa.config.rs` controls the `proa run dev` and `proa run build` scripts

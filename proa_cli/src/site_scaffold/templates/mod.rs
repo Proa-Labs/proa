@@ -8,7 +8,7 @@ mod ui;
 use base16ct::HexDisplay;
 use std::collections::BTreeMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::{json, Map};
 use sha2::{Digest, Sha256};
 
@@ -38,12 +38,18 @@ pub fn populate(
     let has_database = selection.database == DatabaseChoice::Sqlite;
     let has_ui = selection.ui == UiChoice::Proa;
     let blank = selection.starter == StarterChoice::Blank;
+    let mut manifest = cargo_toml(package, has_database);
+    let crate_ident = library_ident(package, &mut manifest)?;
+    let library = app::library_path(&crate_ident);
 
-    plan.write("Cargo.toml", cargo_toml(package, has_database))?;
-    plan.write(".env.example", env_example(package, has_database))?;
+    plan.write("Cargo.toml", manifest)?;
+    plan.write(
+        ".env.example",
+        env_example(package, &crate_ident, has_database),
+    )?;
     plan.write(".gitignore", gitignore())?;
     plan.write(".gitattributes", "*.sql text eol=lf\n")?;
-    plan.write("README.md", readme(package, title, selection))?;
+    plan.write("README.md", readme(package, title, selection, &crate_ident))?;
     if has_database {
         plan.write(
             "build.rs",
@@ -55,7 +61,8 @@ pub fn populate(
         project_config(package, selection)?,
     )?;
 
-    plan.write("src/main.rs", app::main_rs(has_database))?;
+    plan.write("src/lib.rs", app::lib_rs(has_database))?;
+    plan.write("src/main.rs", app::main_rs(&library, has_database))?;
     plan.write("src/app.rs", app::app_state(has_database))?;
     plan.write("src/config.rs", app::config_rs(package, has_database))?;
     plan.write("src/error.rs", app::error_rs())?;
@@ -143,13 +150,19 @@ pub fn populate(
     plan.write("proa.lock.json", lock_file(selection, component_sources)?)?;
 
     if has_database {
-        plan.write("tests/dataloader.rs", dataloader_test())?;
-        plan.write("tests/database.rs", database_test())?;
+        plan.write("tests/database.rs", database_test(&library))?;
+        // The blank starter renders no database component to deduplicate.
+        if !blank {
+            plan.write(
+                "tests/dataloader.rs",
+                dataloader_test(&library, selection.markdown),
+            )?;
+        }
     }
     if selection.markdown {
         plan.write(
             "tests/representations.rs",
-            representation_test(has_database, selection.starter),
+            representation_test(&library, has_database, selection.starter),
         )?;
     }
 
@@ -186,6 +199,25 @@ fn sha256(source: &str) -> String {
         "sha256:{:x}",
         HexDisplay(&Sha256::digest(source.as_bytes()))
     )
+}
+
+/// Keep the usual Cargo import name unless it would shadow a dependency or Rust crate.
+fn library_ident(package: &str, manifest: &mut String) -> Result<String> {
+    let name = origin::crate_ident(package);
+    let table: toml::Table = toml::from_str(manifest).context("parse scaffold dependencies")?;
+    let shadows_dependency = ["dependencies", "build-dependencies", "dev-dependencies"]
+        .iter()
+        .filter_map(|section| table.get(*section)?.as_table())
+        .flat_map(|dependencies| dependencies.keys())
+        .any(|dep| dep.replace('-', "_") == name);
+    if shadows_dependency
+        || ["std", "core", "alloc", "proc_macro", "test"].contains(&name.as_str())
+        || syn::parse_str::<syn::Ident>(&name).is_err()
+    {
+        manifest.push_str("\n[lib]\nname = \"proa_site_app\"\n");
+        return Ok("proa_site_app".into());
+    }
+    Ok(name)
 }
 
 fn cargo_toml(package: &str, has_database: bool) -> String {
@@ -229,13 +261,15 @@ codegen-units = 16
     )
 }
 
-fn env_example(package: &str, has_database: bool) -> String {
+fn env_example(package: &str, crate_ident: &str, has_database: bool) -> String {
     let database = if has_database {
         format!("DATABASE_URL=sqlite://data/{package}.db\n")
     } else {
         String::new()
     };
-    format!("{database}PROA_HOST=127.0.0.1\nPORT=3000\nRUST_LOG={package}=debug,tower_http=info\n")
+    format!(
+        "{database}PROA_HOST=127.0.0.1\nPORT=3000\nRUST_LOG={crate_ident}=debug,tower_http=info\n"
+    )
 }
 
 fn gitignore() -> &'static str {
@@ -325,9 +359,9 @@ fn components_mod(has_database: bool, has_ui: bool) -> String {
     source
 }
 
-fn readme(package: &str, title: &str, selection: CapabilitySelection) -> String {
+fn readme(package: &str, title: &str, selection: CapabilitySelection, crate_ident: &str) -> String {
     format!(
-        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa run dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa run build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\nPackage: `{package}`.\n",
+        "# {title}\n\nA production-shaped Proa `{}` site.\n\n```console\ncp .env.example .env\nproa run dev --open\n```\n\nProa dependencies resolve from crates.io. No GitHub credentials or Cargo registry token is required to build the generated project.\n\nThe first dependency-resolving command creates the real `Cargo.lock`; commit it before deployment. Use `proa run build` for a linked release build and `proa start` to run that exported release.\n\nThe HTML page is available at `/`{}. Prefer keyed loading through `cx` when several components may request the same resource, the work should deduplicate, or sections can render independently. Keep a one-owner query in the handler when rendering cannot begin without it.\n\n## Layout\n\nThe site is a library crate. `src/lib.rs` declares the modules, `src/main.rs` starts the process, and the targets under `tests/` import the library as `{crate_ident}`. Declare each new top-level module in `src/lib.rs`, never in `src/main.rs`: once the binary itself contains an RSJS component, `proa test` cannot build the `tests/` targets.\n\n`proa test` runs the binary and every `tests/` target through the linked pipeline. Unit tests written inside `src/` belong to the library; run them with `cargo test --lib`.\n\nPackage: `{package}`.\n",
         selection.template.as_str(),
         if selection.markdown { " and the same typed resource has semantic Markdown at `/index.md`" } else { "" }
     )
@@ -343,7 +377,17 @@ fn agents() -> &'static str {
 - Configure dev/build scripts, asset tasks, and `paths.public` in `proa.config.rs`. Reference managed public files with `cx.url("public/...")` so they resolve to fingerprinted URLs.
 - Static classes stay in constants and hot render paths must not allocate.
 - Every component root has a stable `data-*` marker.
-- Run `cargo fmt`, `proa fmt --check`, `proa lint --deny warnings`, `proa config validate`, and `proa test` before merging render changes.
+- The site is a library crate. Declare each new top-level module in `src/lib.rs`; `src/main.rs` only starts the process, and `tests/*.rs` import the library by crate name. Never declare application modules in `src/main.rs`: once the binary itself contains an RSJS component, `proa test` cannot build the `tests/` targets.
+- Run `cargo fmt`, `proa fmt --check`, `proa lint --deny warnings`, `proa config validate`, `cargo test --lib`, and `proa test` before merging render changes. `proa test` runs the binary and the `tests/` targets through the linked pipeline. Unit tests written inside `src/` run only under `cargo test --lib`.
+
+## RSJS islands
+
+- Browser behavior is an RSJS island: `#[rsjs(component, client)]` on a real `impl WebRenderSync<L>` or `impl WebRender<L>` block. RSJS is re-exported by `proa`, so `use proa::rsjs::{self, event_handler, rsjs, signal};` needs no extra dependency. Then write `signal(...)` and `event_handler(...)`, or `rsjs::signal(...)` and `rsjs::event_handler(...)`: the analyzer matches those spellings and does not recognize `proa::rsjs::signal(...)` or `proa::rsjs::event_handler(...)`.
+- The body is `let` bindings followed by one `html_sync!` or `html!` template with exactly one top-level element. A bare `{expression}` or component at the root, or two sibling elements, is rejected: wrap them in an element. Render an island like any component; inside an async `html!` page, lift a sync island with `{proa::to_async(Island)}`.
+- `on_*` handlers and every slot that reads a signal are compiled to browser JavaScript, so they accept only a subset of Rust: literals, `signal.get()`, `.set(...)`, `.update(|v| ...)`, binary operators and `!`, value `if`/`else`, `text!("...", ...)`, the string methods `.is_empty()`, `.is_non_empty()`, `.to_lowercase()`, `.to_uppercase()`, `.trim()`, `.contains(...)`, `.starts_with(...)`, `.ends_with(...)`, and calls to functions marked `#[rsjs::client]`.
+- Outside that subset: `format!` (use `text!`), `match` (use `if`/`else`), `.into()`, iterator adapters, and ordinary function or method calls on a signal value. Compute server-only values in the `let` bindings and render the local, or move portable logic into a `#[rsjs::client]` function. `cargo check` and `proa lint` cannot see every limit: some surface as `unsupported_shapes` only when the whole project links, so run `proa check` after each island change and reduce the failing component instead of restructuring working server code.
+- If `proa lint` reports `render/content-coverage` for an island on a page that also has a Markdown view, render the island in `render_md` or declare `proa::omit!(IslandType);` there.
+- Agent-readable docs: `https://proa.so/docs/llms.txt` indexes every page. Fetch any docs page as Markdown by appending `.md` to its URL or sending `Accept: text/markdown`, for example `https://proa.so/docs/rsjs/handlers.md`.
 "#
 }
 
@@ -472,6 +516,11 @@ jobs:
       - name: Test ({package}, linked pipeline)
         run: env -u RUSTC_WRAPPER proa test
 
+      # The linked pipeline runs the binary and the tests/ targets. Unit tests
+      # written inside src/ belong to the library crate, which plain Cargo runs.
+      - name: Test ({package}, library unit tests)
+        run: cargo test --lib
+
       - name: Release build
         run: env -u RUSTC_WRAPPER proa run build
 "#
@@ -482,20 +531,31 @@ fn tailwind_input() -> &'static str {
     "@layer theme, base, proa-compat, components, utilities;\n@import \"tailwindcss\";\n@import \"./starter.css\" layer(components);\n@source \"../src/**/*.rs\";\n"
 }
 
-fn dataloader_test() -> &'static str {
-    r#"#![allow(dead_code)]
+fn dataloader_test(library: &str, markdown: bool) -> String {
+    let markdown_test = if markdown {
+        r#"
+#[tokio::test]
+async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children() {
+    let origin_loads = Arc::new(AtomicUsize::new(0));
+    let loader = Arc::new(InstrumentedLoader { origin_loads: Arc::clone(&origin_loads) });
+    let resolver = DataResolver::request_scope(loader);
+    let mut cx = WebContext::with_loader(resolver);
+    pages::home::HomePage.render_md(&mut cx).resolve().await.unwrap();
+    let markdown = cx.into_output().into_string();
+    assert!(markdown.contains(r"9\.9\-test"), "{markdown}");
+    assert!(!markdown.contains("<html"));
+    assert_eq!(origin_loads.load(Ordering::SeqCst), 1);
+}
+"#
+    } else {
+        ""
+    };
+    r#"use std::{future::Future, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
 
-use std::{future::Future, sync::{Arc, atomic::{AtomicUsize, Ordering}}};
-
-use proa::{DataLoader, LoadError, LoadRequest, LoadValue, MdRender, WebContext, WebRender};
+use proa::{DataLoader, LoadError, LoadRequest, LoadValue, __MD_RENDER__WebContext, WebRender};
 use proa::stream::DataResolver;
 
-#[path = "../src/app.rs"] mod app;
-#[path = "../src/components/mod.rs"] mod components;
-#[path = "../src/error.rs"] mod error;
-#[path = "../src/layouts/mod.rs"] mod layouts;
-#[path = "../src/loader.rs"] mod loader;
-#[path = "../src/pages/mod.rs"] mod pages;
+use __LIBRARY__::{loader, pages};
 
 struct InstrumentedLoader {
     origin_loads: Arc<AtomicUsize>,
@@ -545,26 +605,16 @@ async fn real_guided_page_deduplicates_two_components_per_request() {
     assert!(second.contains("data-database-badge"));
     assert_eq!(origin_loads.load(Ordering::SeqCst), 2);
 }
-
-#[tokio::test]
-async fn markdown_exposes_the_same_database_value_and_deduplicates_its_children() {
-    let origin_loads = Arc::new(AtomicUsize::new(0));
-    let loader = Arc::new(InstrumentedLoader { origin_loads: Arc::clone(&origin_loads) });
-    let resolver = DataResolver::request_scope(loader);
-    let mut cx = WebContext::with_loader(resolver);
-    pages::home::HomePage.render_md(&mut cx).resolve().await.unwrap();
-    let markdown = cx.into_output().into_string();
-    assert!(markdown.contains(r"9\.9\-test"), "{markdown}");
-    assert!(!markdown.contains("<html"));
-    assert_eq!(origin_loads.load(Ordering::SeqCst), 1);
-}
-"#
+__MARKDOWN_TEST__"#
+        .replace("__MD_RENDER__", if markdown { "MdRender, " } else { "" })
+        .replace("__LIBRARY__", library)
+        .replace("__MARKDOWN_TEST__", markdown_test)
 }
 
 /// Startup must open the configured database from any working directory, so
 /// connect against a directory that does not exist yet, and an in-memory URL.
-fn database_test() -> &'static str {
-    r#"#[path = "../src/db.rs"] mod db;
+fn database_test(library: &str) -> String {
+    r#"use __LIBRARY__::db;
 
 #[tokio::test]
 async fn connect_creates_a_missing_database_directory() {
@@ -581,18 +631,19 @@ async fn connect_opens_an_in_memory_database() {
     db::connect("sqlite::memory:").await.unwrap().close().await;
 }
 "#
+    .replace("__LIBRARY__", library)
 }
 
-fn representation_test(has_database: bool, starter: StarterChoice) -> String {
+fn representation_test(library: &str, has_database: bool, starter: StarterChoice) -> String {
     let arc_import = if has_database {
         "use std::sync::Arc;\n\n"
     } else {
         ""
     };
-    let database_modules = if has_database {
-        "#[path = \"../src/db.rs\"] mod db;\n#[path = \"../src/loader.rs\"] mod loader;\n"
+    let modules = if has_database {
+        "app, db, loader, routes"
     } else {
-        ""
+        "app, routes"
     };
     let state = if has_database {
         r#"let database_url = std::env::var("DATABASE_URL").expect("proa test supplies DATABASE_URL");
@@ -618,14 +669,7 @@ fn representation_test(has_database: bool, starter: StarterChoice) -> String {
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-#[path = "../src/app.rs"] mod app;
-#[path = "../src/components/mod.rs"] mod components;
-__DATABASE_MODULES__#[path = "../src/endpoints/mod.rs"] mod endpoints;
-#[path = "../src/error.rs"] mod error;
-#[path = "../src/layouts/mod.rs"] mod layouts;
-#[path = "../src/pages/mod.rs"] mod pages;
-#[path = "../src/routes.rs"] mod routes;
-#[path = "../src/static_assets.rs"] mod static_assets;
+use __LIBRARY__::{__MODULES__};
 
 async fn body(response: Response) -> Vec<u8> {
     response.into_body().collect().await.unwrap().to_bytes().to_vec()
@@ -680,7 +724,8 @@ __NAVIGATION_ASSERTIONS__
 }
 "#
     .replace("__ARC_IMPORT__", arc_import)
-    .replace("__DATABASE_MODULES__", database_modules)
+    .replace("__LIBRARY__", library)
+    .replace("__MODULES__", modules)
     .replace("__STATE__", state)
     .replace("__CLOSE__", close)
     .replace("__NAVIGATION_ASSERTIONS__", navigation_assertions)

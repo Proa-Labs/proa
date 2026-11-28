@@ -200,7 +200,10 @@ Only after those checks pass and the source still matches current `main` does
 it publish the CLI. Stable CLI binary releases run the same standalone check
 before publishing their archives. Experimental main snapshots instead run
 ORIGIN acceptance against workspace libraries, allowing snapshots of APIs
-that have not been released to crates.io yet.
+that have not been released to crates.io yet. Both checks add a first RSJS
+island to the default `app` template before they test and build it: that
+edit is where a site whose binary declares the modules stops passing
+`proa test`.
 
 Registry resolution retries unavailable Proa/RSJS versions up to three times,
 waiting 5 then 10 seconds for index propagation. Build, test, and HTTP failures

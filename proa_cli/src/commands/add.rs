@@ -129,7 +129,10 @@ pub(crate) fn run(args: AddArgs) -> Result<()> {
                 PathBuf::from("src/db.rs"),
                 crate::site_scaffold::database_module().to_string(),
             ));
-            warnings.push("Database files were added without rewriting arbitrary router/state code; add `mod db;`, call `db::connect`, and place the pool in application state.".to_string());
+            warnings.push(format!(
+                "Database files were added without rewriting arbitrary router/state code; add {}, call `db::connect`, and place the pool in application state.",
+                crate::scaffold::module_declaration(&root, "db")
+            ));
             (
                 "database:sqlite",
                 vec!["database.driver=sqlite".to_string()],
