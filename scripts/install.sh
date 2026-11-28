@@ -2617,7 +2617,7 @@ print_summary() {
             ;;
     esac
 
-    cmd_line "proa new site hello-proa --yes"
+    cmd_line "proa new site hello-proa"
     blank
     link "Docs" "https://proa.so/docs"
 }
