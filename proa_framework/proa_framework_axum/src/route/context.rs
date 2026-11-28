@@ -584,6 +584,7 @@ where
         let current_uri = req.uri().clone();
         let csp_nonce = req.extensions().get::<CspNonce>().cloned();
         // A page cache outside this layer may store the document.
+        let probe = matches!(req.uri().path(), "/healthz" | "/readyz");
         let outer_cache = req.extensions().get::<MayStore>().is_some();
 
         let mut context = RouteContext::new(self.computed_metadata.clone());
@@ -611,7 +612,10 @@ where
             let local_stream_executor = self.local_stream_executor.clone();
             return Box::pin(async move {
                 let response = scoped.await?;
-                Ok(finish_route_document(response, local_stream_executor, outer_cache).await)
+                Ok(
+                    finish_route_document(response, local_stream_executor, outer_cache, probe)
+                        .await,
+                )
             });
         }
 
@@ -638,7 +642,7 @@ where
                     async move { inner.call(request).await },
                 )
                 .await?;
-            Ok(finish_route_document(response, local_stream_executor, outer_cache).await)
+            Ok(finish_route_document(response, local_stream_executor, outer_cache, probe).await)
         })
     }
 }

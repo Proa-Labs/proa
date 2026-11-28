@@ -283,3 +283,45 @@ async fn dropping_request_future_cancels_the_probe() {
         "dropping the request future must drop the dependency future"
     );
 }
+
+#[tokio::test]
+async fn framework_default_cache_policy_for_raw_responses() {
+    use axum::{routing::get, Router};
+    let routes = Router::new()
+        .route("/healthz", get(|| async { "live" }))
+        .route("/readyz", get(|| async { StatusCode::SERVICE_UNAVAILABLE }))
+        .route(
+            "/failure",
+            get(|| async { StatusCode::INTERNAL_SERVER_ERROR }),
+        )
+        .route("/ordinary", get(|| async { "ok" }))
+        .route(
+            "/custom",
+            get(|| async { (StatusCode::BAD_GATEWAY, [(CACHE_CONTROL, "private")]) }),
+        );
+    let app = proa_framework_axum::FrameworkBuilder::new()
+        .with_dynamic_routes(routes)
+        .try_build()
+        .unwrap();
+    for (uri, expected) in [
+        ("/healthz", Some("no-store")),
+        ("/readyz", Some("no-store")),
+        ("/failure", Some("no-store")),
+        ("/ordinary", None),
+        ("/custom", Some("private")),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            response
+                .headers()
+                .get(CACHE_CONTROL)
+                .map(|h| h.to_str().unwrap()),
+            expected,
+            "{uri}"
+        );
+    }
+}

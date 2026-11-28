@@ -156,7 +156,7 @@ impl DataLoader for AppLoader {
 }
 
 pub fn error_rs() -> &'static str {
-    r#"use axum::{http::StatusCode, response::{IntoResponse, Response}};
+    r#"use axum::{http::{header, StatusCode}, response::{IntoResponse, Response}};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
@@ -167,7 +167,25 @@ pub enum AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         tracing::error!(error = %self, "request failed");
-        (StatusCode::INTERNAL_SERVER_ERROR, "request failed").into_response()
+        // A failure describes this one request, so no cache may store it.
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            [(header::CACHE_CONTROL, "no-store")],
+            "request failed",
+        )
+            .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_errors_are_never_stored() {
+        let response = AppError::Render(proa::WriteError::OutOfCapacity).into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
     }
 }
 "#
@@ -596,6 +614,7 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
     let render_impl = render_impl
         .replace("__HEAD__", head)
         .replace("__BODY__", &body);
+    // proa-perf-ok: the scaffold generates Rust source during project creation
     format!(
         r#"{imports}
 

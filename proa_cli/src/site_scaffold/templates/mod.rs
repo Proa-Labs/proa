@@ -678,6 +678,18 @@ __NAVIGATION_ASSERTIONS__
 
     __CLOSE__
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn probes_are_never_stored() {
+    __STATE__
+
+    for path in ["/healthz", "/readyz"] {
+        let probe = app.clone().oneshot(Request::builder().uri(path).body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(probe.status(), StatusCode::OK, "{path}");
+        assert_eq!(probe.headers()[header::CACHE_CONTROL], "no-store", "{path}");
+    }
+    __CLOSE__
+}
 "#
     .replace("__ARC_IMPORT__", arc_import)
     .replace("__DATABASE_MODULES__", database_modules)

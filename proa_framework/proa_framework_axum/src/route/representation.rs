@@ -24,17 +24,61 @@ use std::sync::Arc;
 use super::RouteResponse;
 
 /// Metadata for the stable Markdown representation of a canonical page.
+///
+/// The path is a template, fixed by the route rather than by the request. A
+/// `{name}` capture is replaced with the matched route's parameter of that
+/// name, so one `const` covers every record of a dynamic route. There is no
+/// path to build per request and no `Link` or `Vary` header to set by hand:
+///
+/// ```
+/// use axum::http::{HeaderMap, StatusCode};
+/// use axum::response::IntoResponse;
+/// use proa_framework_axum::{negotiate, MarkdownAlternate, RouteResponse};
+/// # use proa_core::{MdRenderSync, WebContext, WebRenderSync, WriteError};
+/// # #[derive(Clone, Copy)]
+/// # struct IssuePage;
+/// # impl WebRenderSync for IssuePage {
+/// #     fn render(self, _cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) }
+/// # }
+/// # impl MdRenderSync for IssuePage {
+/// #     fn render_md(self, _cx: &mut WebContext) -> Result<(), WriteError> { Ok(()) }
+/// # }
+///
+/// /// The Markdown representation of `/issues/{id}`.
+/// const ISSUE_MARKDOWN: MarkdownAlternate = MarkdownAlternate::new("/issues/{id}/index.md");
+///
+/// /// `GET /issues/{id}`. The HTML response for `/issues/42` carries
+/// /// `Link: </issues/42/index.md>; rel="alternate"; type="text/markdown"`
+/// /// and `Vary: Accept`.
+/// async fn issue(headers: HeaderMap) -> Result<impl IntoResponse, StatusCode> {
+///     negotiate(&headers, RouteResponse::ssr(IssuePage), IssuePage, ISSUE_MARKDOWN)
+///         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+/// }
+/// ```
+///
+/// Each capture expands to one percent-encoded path segment, so a `/` inside a
+/// value becomes `%2F`; that includes the separators of a catch-all
+/// parameter. A capture that names no parameter of the matched route is left
+/// as written. The application's base path is prepended to the result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MarkdownAlternate {
     path: &'static str,
 }
 
 impl MarkdownAlternate {
-    /// Named route captures in the alternate path expand to percent-encoded segments.
+    /// Describe the Markdown representation served at `path`, an
+    /// application-local path without the base path.
+    ///
+    /// A fixed page passes its path as is (`"/index.md"`). A dynamic route
+    /// repeats its captures (`"/issues/{id}/index.md"` for `/issues/{id}`), and
+    /// each one expands to the requested value when the `Link` header is
+    /// written. See the [type documentation](Self) for an example.
     pub const fn new(path: &'static str) -> Self {
         Self { path }
     }
 
+    /// The path template as written, before captures expand and the base path
+    /// is prepended.
     pub const fn path(self) -> &'static str {
         self.path
     }
