@@ -121,6 +121,8 @@ jobs:
             test --root proa_marketing --locked -p proa_marketing --bin proa_marketing
       - name: Test browser documentation tools
         run: node --test proa_marketing/tests-js/*.test.mjs
+      - name: Compile the four service guide examples
+        run: python3 scripts/check_service_guide_examples.py
       - name: Test search-engine notification boundaries
         run: python3 -m unittest discover -s deploy/marketing -p 'test_indexnow.py'
       - name: Test JavaScript documentation SDK and CLI

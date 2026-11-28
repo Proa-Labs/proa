@@ -1,0 +1,51 @@
+---
+title: Subscription billing with Stripe
+description: Create hosted Checkout and customer portal sessions from authenticated Axum routes.
+---
+
+Register two authenticated POST routes, one for Checkout and one for the customer portal. Retrieve the Stripe customer ID from the signed-in account’s database record. Keep the secret key, allowed price IDs, and absolute public return URLs in server configuration.
+
+```toml check="service/dependencies" filename="Cargo.toml"
+[dependencies]
+reqwest = { version = "0.13", features = ["form", "json"] }
+serde = { version = "1", features = ["derive"] }
+```
+
+```rust check="service/billing" filename="src/billing.rs"
+use reqwest::Client;
+use serde::Deserialize;
+use std::time::Duration;
+
+#[derive(Deserialize)]
+pub struct HostedSession { pub url: String }
+
+pub async fn checkout(
+    client: &Client, key: &str, customer: &str, price: &str,
+    success_url: &str, cancel_url: &str, attempt: &str,
+) -> Result<HostedSession, reqwest::Error> {
+    client.post("https://api.stripe.com/v1/checkout/sessions")
+        .bearer_auth(key).header("Idempotency-Key", attempt)
+        .timeout(Duration::from_secs(10))
+        .form(&[("customer", customer), ("mode", "subscription"),
+                ("line_items[0][price]", price), ("line_items[0][quantity]", "1"),
+                ("success_url", success_url), ("cancel_url", cancel_url)])
+        .send().await?.error_for_status()?.json().await
+}
+
+pub async fn portal(
+    client: &Client, key: &str, customer: &str, return_url: &str,
+) -> Result<HostedSession, reqwest::Error> {
+    client.post("https://api.stripe.com/v1/billing_portal/sessions")
+        .bearer_auth(key).timeout(Duration::from_secs(10))
+        .form(&[("customer", customer), ("return_url", return_url)])
+        .send().await?.error_for_status()?.json().await
+}
+```
+
+Reuse the HTTP client through application state. The handler returns `Redirect::to(&session.url)` when session creation succeeds. Persist a fresh Checkout attempt ID before making the call and reuse it when retrying the same purchase. Include the site’s public mount prefix in every return URL. Configure portal permissions and test prices in the Stripe Dashboard. [Checkout Sessions](https://docs.stripe.com/api/checkout/sessions/create) · [Customer portal sessions](https://docs.stripe.com/api/customer_portal/sessions/create)
+
+## Granting and revoking access
+
+Use a separate POST endpoint for Stripe webhooks. Verify the signature and timestamp against the raw bytes and endpoint secret before decoding events. Store each accepted event ID under a unique constraint and queue its processing in the same transaction. Return a success response after the transaction commits.
+
+Use the customer and subscription IDs to reconcile the current subscription and product entitlements. Handle initial Checkout completion, paid invoices, failed payments, and subscription updates or cancellations according to your access policy. Events can repeat or arrive out of order. Treat the browser success page as a receipt view and read access from your reconciled account record. [Raw-body route handlers](/docs/framework/route-handlers#handling-raw-bodies-and-webhooks) · [Subscription webhooks](https://docs.stripe.com/billing/subscriptions/webhooks)
