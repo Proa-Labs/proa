@@ -598,6 +598,10 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
         ""
     };
 
+    let html_response = html_response.replace("__PAGE__", page);
+    let response = response.replace("__MARKDOWN_PAGE__", markdown_page);
+    let md_handler = md_handler.replace("__MARKDOWN_PAGE__", markdown_page);
+
     // One formatting pass: the constants carry the user's title, and a later
     // placeholder replacement would rewrite any placeholder name it contains.
     let imports = imports.join("\n");
@@ -605,9 +609,6 @@ pub async fn markdown() -> Result<impl IntoResponse, AppError> {
     let render_impl = render_impl
         .replace("__HEAD__", head)
         .replace("__BODY__", &body);
-    let html_response = html_response.replace("__PAGE__", page);
-    let response = response.replace("__MARKDOWN_PAGE__", markdown_page);
-    let md_handler = md_handler.replace("__MARKDOWN_PAGE__", markdown_page);
     // proa-perf-ok: the scaffold generates Rust source during project creation
     format!(
         r#"{imports}
